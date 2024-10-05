@@ -4,15 +4,16 @@ channels:
   - bccp
 
 dependencies:
-  - python
-  - mpi4py
-  - nbodykit
-  - matplotlib
-  - numpy
-  - configobj
   # Below are for building MP-Gadget
   - gsl
-  - openmpi
-  - compilers
-  - gxx_linux-64
-  - gcc_linux-64
+  # Pin to latest version compatible with mpich 3.3.2: https://github.com/AnacondaRecipes/mpich-feedstock/issues/5
+  - mpich
+  - gxx_linux-64=9.3.0
+  - gcc_linux-64=9.3.0
+  # For the tests
+  - python
+  - numpy
+  - matplotlib
+  - mpi4py
+  - nbodykit
+  - configobj
