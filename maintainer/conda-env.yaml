@@ -13,5 +13,6 @@ dependencies:
   # Below are for building MP-Gadget
   - gsl
   - openmpi
+  - compilers
   - gxx_linux-64
   - gcc_linux-64
