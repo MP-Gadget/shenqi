@@ -432,7 +432,6 @@ void read_parameter_file(char *fname, int * ShowBacktrace, double * MaxMemSizePe
     set_domain_params(ps);
     set_sfr_params(ps);
     set_sync_params(ps);
-    set_uvbg_params(ps);
     set_winds_params(ps);
     set_fof_params(ps);
     set_blackhole_params(ps);
