@@ -4,14 +4,14 @@ CONFIG ?= ../Options.mk
 
 include $(CONFIG)
 
-TESTED = power thermal
+TESTED = power
 TESTBIN := $(TESTED:%=.objs/test_%) $(MPI_TESTED:%=.objs/test_%)
 SUITE?= $(TESTED:%=test_%)
 MPISUITE = $(MPI_TESTED:%=test_%)
 
 include ../Makefile.rules
 
-OBJS = power.o zeldovich.o glass.o save.o thermal.o
+OBJS = power.o zeldovich.o glass.o save.o
 
 OBJS := $(OBJS:%.o=.objs/%.o)
 

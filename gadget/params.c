@@ -21,10 +21,7 @@
 #include <libgadget/timebinmgr.h>
 #include <libgadget/petaio.h>
 #include <libgadget/cooling_qso_lightup.h>
-#include <libgadget/metal_return.h>
-#include <libgadget/uvbg.h>
 #include <libgadget/stats.h>
-#include <libgadget/plane.h>
 
 static int
 BlackHoleFeedbackMethodAction (ParameterSet * ps, const char * name, void * data)
@@ -420,7 +417,6 @@ void read_parameter_file(char *fname, int * ShowBacktrace, double * MaxMemSizePe
 
     /*Initialize per-module parameters.*/
     set_all_global_params(ps);
-    set_plane_params(ps);
     set_init_params(ps);
     set_petaio_params(ps);
     set_timestep_params(ps);
@@ -434,11 +430,9 @@ void read_parameter_file(char *fname, int * ShowBacktrace, double * MaxMemSizePe
     set_domain_params(ps);
     set_sfr_params(ps);
     set_sync_params(ps);
-    set_uvbg_params(ps);
     set_winds_params(ps);
     set_fof_params(ps);
     set_blackhole_params(ps);
-    set_metal_return_params(ps);
     set_stats_params(ps);
     parameter_set_free(ps);
 }

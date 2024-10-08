@@ -4,7 +4,8 @@
 #include <string.h>
 #include <omp.h>
 
-#include <gsl/gsl_rng.h>
+#include <boost/random/mersenne_twister.hpp>
+#include <boost/random/uniform_real_distribution.hpp>
 
 #include "allvars.h"
 #include "proto.h"
@@ -15,10 +16,10 @@
 #include <libgadget/powerspectrum.h>
 #include <libgadget/gravity.h>
 
-static void potential_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex * value);
-static void force_x_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex * value);
-static void force_y_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex * value);
-static void force_z_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex * value);
+static void potential_transfer(PetaPM *pm, int64_t k2, int kpos[3], cufftComplex * value);
+static void force_x_transfer(PetaPM *pm, int64_t k2, int kpos[3], cufftComplex * value);
+static void force_y_transfer(PetaPM *pm, int64_t k2, int kpos[3], cufftComplex * value);
+static void force_z_transfer(PetaPM *pm, int64_t k2, int kpos[3], cufftComplex * value);
 static void readout_force_x(PetaPM *pm, int i, double * mesh, double weight);
 static void readout_force_y(PetaPM *pm, int i, double * mesh, double weight);
 static void readout_force_z(PetaPM *pm, int i, double * mesh, double weight);
@@ -40,28 +41,26 @@ static void glass_stats(struct ic_part_data * ICP, int NumPart);
 int
 setup_glass(IDGenerator * idgen, PetaPM * pm, double shift, int seed, double mass, struct ic_part_data * ICP, const double UnitLength_in_cm, const char * OutputDir)
 {
-    gsl_rng * rng = gsl_rng_alloc(gsl_rng_ranlxd1);
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-    gsl_rng_set(rng, seed + ThisTask);
+    boost::random::mt19937 rng(seed + ThisTask);
     memset(ICP, 0, idgen->NumPart*sizeof(struct ic_part_data));
+    boost::random::uniform_real_distribution<double> dist(0, 1);
 
     int i;
     /* Note: this loop should nto be omp because
-     * of the call to gsl_rng_uniform*/
+     * of the call to rng_uniform*/
     for(i = 0; i < idgen->NumPart; i ++) {
         int k;
         idgen_create_pos_from_index(idgen, i, &ICP[i].Pos[0]);
         /* a spread of 3 will kill most of the grid anisotropy structure;
          * and still being local */
         for(k = 0; k < 3; k++) {
-            double rand = idgen->BoxSize / idgen->Ngrid * 3 * (gsl_rng_uniform(rng) - 0.5);
+            double rand = idgen->BoxSize / idgen->Ngrid * 3 * (dist(rng) - 0.5);
             ICP[i].Pos[k] += shift + rand;
         }
         ICP[i].Mass = mass;
     }
-
-    gsl_rng_free(rng);
 
     char * fn = fastpm_strdup_printf("powerspectrum-glass-%08X", seed);
     glass_evolve(pm, 14, fn, ICP, idgen->NumPart, UnitLength_in_cm, OutputDir);
@@ -183,8 +182,8 @@ static void glass_force(PetaPM * pm, double t_f, struct ic_part_data * ICP, cons
     PetaPMParticleStruct pstruct = {
         ICP,
         sizeof(ICP[0]),
-        (char*) &ICP[0].Pos[0]  - (char*) ICP,
-        (char*) &ICP[0].Mass  - (char*) ICP,
+        (size_t)((char*) &ICP[0].Pos[0]  - (char*) ICP),
+        (size_t)((char*) &ICP[0].Mass  - (char*) ICP),
         NULL,
         NULL,
         NumPart,
@@ -279,7 +278,7 @@ _prepare(PetaPM * pm, PetaPMParticleStruct * pstruct, void * userdata, int * Nre
  *
  *********************/
 
-static void potential_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex *value) {
+static void potential_transfer(PetaPM *pm, int64_t k2, int kpos[3], cufftComplex *value) {
 
     double f = 1.0;
     const double smth = 1.0 / k2;
@@ -302,13 +301,13 @@ static void potential_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex
 
     if(k2 == 0) {
         /* Remove zero mode corresponding to the mean.*/
-        value[0][0] = 0.0;
-        value[0][1] = 0.0;
+        value[0].x = 0.0;
+        value[0].y = 0.0;
         return;
     }
 
-    value[0][0] *= fac;
-    value[0][1] *= fac;
+    value[0].x *= fac;
+    value[0].y *= fac;
 }
 
 /* the transfer functions for force in fourier space applied to potential */
@@ -323,7 +322,7 @@ static double diff_kernel(double w) {
     return 1 / 6.0 * (8 * sin (w) - sin (2 * w));
 }
 
-static void force_transfer(PetaPM *pm, int k, pfft_complex * value) {
+static void force_transfer(PetaPM *pm, int k, cufftComplex * value) {
     double tmp0;
     double tmp1;
     /*
@@ -332,18 +331,18 @@ static void force_transfer(PetaPM *pm, int k, pfft_complex * value) {
      * filter is   i K(w)
      * */
     double fac = -1 * diff_kernel (k * (2 * M_PI / pm->Nmesh)) * (pm->Nmesh / pm->BoxSize);
-    tmp0 = - value[0][1] * fac;
-    tmp1 = value[0][0] * fac;
-    value[0][0] = tmp0;
-    value[0][1] = tmp1;
+    tmp0 = - value[0].y * fac;
+    tmp1 = value[0].x * fac;
+    value[0].x = tmp0;
+    value[0].y = tmp1;
 }
-static void force_x_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex * value) {
+static void force_x_transfer(PetaPM *pm, int64_t k2, int kpos[3], cufftComplex * value) {
     force_transfer(pm, kpos[0], value);
 }
-static void force_y_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex * value) {
+static void force_y_transfer(PetaPM *pm, int64_t k2, int kpos[3], cufftComplex * value) {
     force_transfer(pm, kpos[1], value);
 }
-static void force_z_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex * value) {
+static void force_z_transfer(PetaPM *pm, int64_t k2, int kpos[3], cufftComplex * value) {
     force_transfer(pm, kpos[2], value);
 }
 static void readout_force_x(PetaPM *pm, int i, double * mesh, double weight) {
