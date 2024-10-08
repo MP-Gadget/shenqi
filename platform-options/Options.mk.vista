@@ -1,5 +1,20 @@
 #These variables are set to useful defaults, but may be overriden if needed
 #This is a good optimized build default for nvc
+CUDA_LIBS=-L$(TACC_CUDA_LIB) -lcudart
+CUDA_INCL=-I$(TACC_CUDA_INC)
+
+BOOST_INCL=-I$(TACC_BOOST_INC)
+BOOST_LIBS=-L$(TACC_BOOST_LIB) -lboost_system -lboost_math_c99
+
+NVMATH_INCL=-I$(TACC_NVMATH_INC)
+NVMATH_LIBS=-L$(TACC_NVMATH_LIB)
+
+CUFFTMP_INCL=-I/home1/apps/nvidia/Linux_aarch64/24.7/math_libs/include/cufftmp
+CUFFTMP_LIBS=-L/home1/apps/nvidia/Linux_aarch64/24.7/math_libs/lib64 -lcufftMp
+
+NVSHMEM_INCL=-I$(TACC_NVSHMEM_INC)
+NVSHMEM_LIBS=-L$(TACC_NVSHMEM_LIB) -lnvshmem_host
+
 OPTIMIZE =  -mp -g -Wall -fast
 #This is a good non-optimized default for debugging
 #OPTIMIZE =  -mp -O0 -g -Wall
