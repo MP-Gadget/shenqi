@@ -4,19 +4,15 @@
 
 #include "powerspectrum.h"
 
-using int64 = long long int;
 
-struct Box3D {
-    int64 lower[3];
-    int64 upper[3];
-    int64 strides[3];
-};
+using int64 = long long int;
 
 typedef struct Region {
     /* represents a region in the FFT Mesh */
-    ptrdiff_t offset[3];
-    ptrdiff_t size[3];
-    ptrdiff_t strides[3];
+    int64 offset[3];
+    int64 size[3];
+    int64 upper[3];
+    int64 strides[3];
 
 
     size_t totalsize;
