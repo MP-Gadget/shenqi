@@ -49,11 +49,22 @@ treewalk_init_result_device(TreeWalk *tw, TreeWalkResultBase *result, TreeWalkQu
     memset(result, 0, tw->result_type_elsize);  // Initialize the result structure
 }
 
+__device__ static void
+grav_short_reduce_device(int place, TreeWalkResultGravShort * result, enum TreeWalkReduceMode mode, TreeWalk * tw, struct particle_data *particles)
+{
+    TREEWALK_REDUCE(GRAV_GET_PRIV(tw)->Accel[place][0], result->Acc[0]);
+    TREEWALK_REDUCE(GRAV_GET_PRIV(tw)->Accel[place][1], result->Acc[1]);
+    TREEWALK_REDUCE(GRAV_GET_PRIV(tw)->Accel[place][2], result->Acc[2]);
+    if(tw->tree->full_particle_tree_flag)
+        TREEWALK_REDUCE(particles[place].Potential, result->Potential);
+}
+
 __device__ void
-treewalk_reduce_result_device(TreeWalk *tw, TreeWalkResultBase *result, int i, enum TreeWalkReduceMode mode) {
-    if (tw->reduce != NULL) {
-        tw->reduce(i, result, mode, tw);  // Call the reduce function
-    }
+treewalk_reduce_result_device(TreeWalk *tw, TreeWalkResultBase *result, int i, enum TreeWalkReduceMode mode, struct particle_data *particles) {
+    // if (tw->reduce != NULL) {
+    //     tw->reduce(i, result, mode, tw);  // Call the reduce function
+    // }
+    grav_short_reduce_device(i, (TreeWalkResultGravShort *) result, mode, tw, particles);
 }
 
 __global__ void treewalk_kernel(TreeWalk *tw, struct particle_data *particles, int *workset, size_t workset_size) {
@@ -74,7 +85,7 @@ __global__ void treewalk_kernel(TreeWalk *tw, struct particle_data *particles, i
         tw->visit(&input, &output, &lv);
 
         // Reduce results for this particle
-        treewalk_reduce_result_device(tw, &output, i, TREEWALK_PRIMARY);
+        treewalk_reduce_result_device(tw, &output, i, TREEWALK_PRIMARY, particles);
     }
 }
 
