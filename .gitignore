@@ -1,6 +1,7 @@
 *.a
 *.png
 *.o
+*.d
 .*.swp
 .kdev4/
 .gdb_history

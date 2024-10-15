@@ -12,6 +12,8 @@
 #include "forcetree.h"
 
 #include <signal.h>
+#include "treewalk_kernel.h"
+
 #define BREAKPOINT raise(SIGTRAP)
 
 #define FACT1 0.366025403785    /* FACT1 = 0.5 * (sqrt(3)-1) */
@@ -277,16 +279,21 @@ ev_primary(TreeWalk * tw)
         if(chnksz > 100)
             chnksz = 100;
         int k;
-        #pragma omp for schedule(dynamic, chnksz)
-        for(k = 0; k < tw->WorkSetSize; k++) {
-            const int i = tw->WorkSet ? tw->WorkSet[k] : k;
-            /* Primary never uses node list */
-            treewalk_init_query(tw, input, i, NULL);
-            treewalk_init_result(tw, output, input);
-            lv->target = i;
-            tw->visit(input, output, lv);
-            treewalk_reduce_result(tw, output, i, TREEWALK_PRIMARY);
-        }
+        // #pragma omp for schedule(dynamic, chnksz)
+        // for(k = 0; k < tw->WorkSetSize; k++) {
+        //     const int i = tw->WorkSet ? tw->WorkSet[k] : k;
+        //     /* Primary never uses node list */
+        //     treewalk_init_query(tw, input, i, NULL);
+        //     treewalk_init_result(tw, output, input);
+        //     lv->target = i;
+        //     tw->visit(input, output, lv);
+        //     treewalk_reduce_result(tw, output, i, TREEWALK_PRIMARY);
+        // }
+        int threadsPerBlock = 256;  // Common block size
+        int blocks = (tw->WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
+        run_treewalk_kernel(tw, P, tw->WorkSet, tw->WorkSetSize);
+        cudaDeviceSynchronize();  // Ensure kernel completes before continuing
+
         if(maxNinteractions < lv->maxNinteractions)
             maxNinteractions = lv->maxNinteractions;
         if(minNinteractions > lv->maxNinteractions)

@@ -1,8 +1,10 @@
 # vim: set ft=make:
 #
 AR ?= ar
-MPICC ?= mpicc
+MPICC ?= mpic++
 LOW_PRECISION ?= double
+NVCC ?= nvcc
+NVOPTIMIZE ?=  
 
 OPTIMIZE ?= -O2 -g -fopenmp -Wall
 GSL_INCL ?= $(shell pkg-config --cflags gsl)
@@ -24,12 +26,18 @@ CFLAGS += "-DLOW_PRECISION=$(LOW_PRECISION)"
 TCFLAGS = $(CFLAGS) -DGADGET_TESTDATA_ROOT=\"$(GADGET_TESTDATA_ROOT)\"
 
 BUNDLEDLIBS = -lbigfile-mpi -lbigfile -lpfft_omp -lfftw3_mpi -lfftw3_omp -lfftw3
-LIBS  = -lm $(GSL_LIBS) $(FITSIO_LIBS)
+LIBS  = -lm $(CUDA_LIBS) $(GSL_LIBS) $(FITSIO_LIBS)
 LIBS += -L../depends/lib $(BUNDLEDLIBS)
 V ?= 0
 
 .objs/%.o: %.c Makefile $(CONFIG)
 	@cmd="$(MPICC) -MMD -c -o $@ $(CFLAGS) $<"; \
+	if test "x$(V)" = "x1" ; then echo $$cmd; fi; \
+	mkdir -p `dirname $@`; \
+	echo Compiling $<; $$cmd
+
+.objs/%.o: %.cu Makefile $(CONFIG)
+	@cmd="$(NVCC) -MMD -c -o $@ -I../depends/include $<"; \
 	if test "x$(V)" = "x1" ; then echo $$cmd; fi; \
 	mkdir -p `dirname $@`; \
 	echo Compiling $<; $$cmd
