@@ -12,12 +12,14 @@
 #include "forcetree.h"
 
 #include <signal.h>
+#include "treewalk_kernel.h"
+
 #define BREAKPOINT raise(SIGTRAP)
 
 #define FACT1 0.366025403785    /* FACT1 = 0.5 * (sqrt(3)-1) */
 
 /*!< Memory factor to leave for (N imported particles) > (N exported particles). */
-static int ImportBufferBoost;
+static double ImportBufferBoost;
 /* 7/9/24: The code segfaults if the send/recv buffer is larger than 4GB in size.
  * Likely a 32-bit variable is overflowing but it is hard to debug. Easier to enforce a maximum buffer size.*/
 static size_t MaxExportBufferBytes = 3584*1024*1024L;
@@ -28,8 +30,8 @@ void set_treewalk_params(ParameterSet * ps)
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
     if(ThisTask == 0)
-        ImportBufferBoost = param_get_int(ps, "ImportBufferBoost");
-    MPI_Bcast(&ImportBufferBoost, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        ImportBufferBoost = param_get_double(ps, "ImportBufferBoost");
+    MPI_Bcast(&ImportBufferBoost, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 }
 
 /* This function is to allow a test which fills up the exchange buffer*/
@@ -113,7 +115,7 @@ ev_begin(TreeWalk * tw, int * active_set, const size_t size)
     /*This memory scales like the number of imports. In principle this could be much larger than Nexport
      * if the tree is very imbalanced and many processors all need to export to this one. In practice I have
      * not seen this happen, but provide a parameter to boost the memory for Nimport just in case.*/
-    bytesperbuffer += ImportBufferBoost * (tw->query_type_elsize + tw->result_type_elsize);
+    bytesperbuffer += ceil(ImportBufferBoost * (tw->query_type_elsize + tw->result_type_elsize));
     /*Use all free bytes for the tree buffer, as in exchange. Leave some free memory for array overhead.*/
     size_t freebytes = (size_t) mymalloc_freebytes();
     freebytes -= 4096 * 10 * bytesperbuffer;
@@ -277,16 +279,21 @@ ev_primary(TreeWalk * tw)
         if(chnksz > 100)
             chnksz = 100;
         int k;
-        #pragma omp for schedule(dynamic, chnksz)
-        for(k = 0; k < tw->WorkSetSize; k++) {
-            const int i = tw->WorkSet ? tw->WorkSet[k] : k;
-            /* Primary never uses node list */
-            treewalk_init_query(tw, input, i, NULL);
-            treewalk_init_result(tw, output, input);
-            lv->target = i;
-            tw->visit(input, output, lv);
-            treewalk_reduce_result(tw, output, i, TREEWALK_PRIMARY);
-        }
+        // #pragma omp for schedule(dynamic, chnksz)
+        // for(k = 0; k < tw->WorkSetSize; k++) {
+        //     const int i = tw->WorkSet ? tw->WorkSet[k] : k;
+        //     /* Primary never uses node list */
+        //     treewalk_init_query(tw, input, i, NULL);
+        //     treewalk_init_result(tw, output, input);
+        //     lv->target = i;
+        //     tw->visit(input, output, lv);
+        //     treewalk_reduce_result(tw, output, i, TREEWALK_PRIMARY);
+        // }
+        int threadsPerBlock = 256;  // Common block size
+        int blocks = (tw->WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
+        run_treewalk_kernel(tw, P, tw->WorkSet, tw->WorkSetSize);
+        cudaDeviceSynchronize();  // Ensure kernel completes before continuing
+
         if(maxNinteractions < lv->maxNinteractions)
             maxNinteractions = lv->maxNinteractions;
         if(minNinteractions > lv->maxNinteractions)
