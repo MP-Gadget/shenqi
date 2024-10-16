@@ -13,6 +13,7 @@
 
 #include <signal.h>
 #include "treewalk_kernel.h"
+#include "gravshort.h"
 
 #define BREAKPOINT raise(SIGTRAP)
 
@@ -256,7 +257,7 @@ treewalk_build_queue(TreeWalk * tw, int * active_set, const size_t size, int may
 
 /* returns struct containing export counts */
 static void
-ev_primary(TreeWalk * tw)
+ev_primary(TreeWalk * tw, struct gravshort_tree_params* TreeParams_ptr)
 {
     int64_t maxNinteractions = 0, minNinteractions = 1L << 45, Ninteractions=0;
 #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
@@ -291,7 +292,7 @@ ev_primary(TreeWalk * tw)
         // }
         int threadsPerBlock = 256;  // Common block size
         int blocks = (tw->WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
-        run_treewalk_kernel(tw, P, tw->WorkSet, tw->WorkSetSize);
+        run_treewalk_kernel(tw, P, tw->WorkSet, tw->WorkSetSize, TreeParams_ptr, GravitySoftening);
         cudaDeviceSynchronize();  // Ensure kernel completes before continuing
 
         if(maxNinteractions < lv->maxNinteractions)
@@ -796,7 +797,7 @@ static void ev_reduce_export_result(struct CommBuffer * exportbuf, struct ImpExp
  *
  * */
 void
-treewalk_run(TreeWalk * tw, int * active_set, size_t size)
+treewalk_run(TreeWalk * tw, int * active_set, size_t size, struct gravshort_tree_params* TreeParams_ptr)
 {
     if(!force_tree_allocated(tw->tree)) {
         endrun(0, "Tree has been freed before this treewalk.\n");
@@ -846,7 +847,7 @@ treewalk_run(TreeWalk * tw, int * active_set, size_t size)
             /* Only do this on the first iteration, as we only need to do it once.*/
             tstart = second();
             if(tw->Nexportfull == 0)
-                ev_primary(tw); /* do local particles and prepare export list */
+                ev_primary(tw, TreeParams_ptr); /* do local particles and prepare export list */
             tend = second();
             tw->timecomp1 += timediff(tstart, tend);
             /* Do processing of received particles. We implement a queue that

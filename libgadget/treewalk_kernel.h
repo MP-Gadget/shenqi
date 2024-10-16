@@ -8,7 +8,7 @@
 // Declaration of the GPU kernel
 // __global__ void treewalk_kernel(TreeWalk *tw, struct particle_data *particles, int *workset, size_t workset_size);
 
-void run_treewalk_kernel(TreeWalk *tw, struct particle_data *particles, int *workset, size_t workset_size);
+void run_treewalk_kernel(TreeWalk *tw, struct particle_data *particles, int *workset, size_t workset_size, struct gravshort_tree_params * TreeParams_ptr, double GravitySoftening);
 
 
 

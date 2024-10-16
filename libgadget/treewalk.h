@@ -191,7 +191,7 @@ void set_treewalk_params(ParameterSet * ps);
 /* Do the distributed tree walking. Warning: as this is a threaded treewalk,
  * it may call tw->visit on particles more than once and in a noneterministic order.
  * Your module should behave correctly in this case! */
-void treewalk_run(TreeWalk * tw, int * active_set, size_t size);
+void treewalk_run(TreeWalk * tw, int * active_set, size_t size, struct gravshort_tree_params* TreeParams_ptr = NULL);
 
 int treewalk_visit_ngbiter(TreeWalkQueryBase * I,
             TreeWalkResultBase * O,

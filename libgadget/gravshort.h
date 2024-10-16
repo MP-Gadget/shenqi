@@ -5,6 +5,8 @@
 #include "treewalk.h"
 #include "gravity.h"
 
+static double GravitySoftening;
+
 typedef struct {
     TreeWalkNgbIterBase base;
 } TreeWalkNgbIterGravShort;

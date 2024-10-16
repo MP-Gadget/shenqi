@@ -28,7 +28,7 @@
 
 static struct gravshort_tree_params TreeParams;
 /*Softening length*/
-static double GravitySoftening;
+
 
 /* gravitational softening length
  * (given in terms of an `equivalent' Plummer softening length)
@@ -125,7 +125,7 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
     tw->tree = tree;
     tw->priv = &priv;
 
-    treewalk_run(tw, act->ActiveParticle, act->NumActiveParticle);
+    treewalk_run(tw, act->ActiveParticle, act->NumActiveParticle, &TreeParams);
 
     /* Now the force computation is finished */
     /*  gather some diagnostic information */
