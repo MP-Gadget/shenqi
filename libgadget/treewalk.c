@@ -259,51 +259,25 @@ treewalk_build_queue(TreeWalk * tw, int * active_set, const size_t size, int may
 static void
 ev_primary(TreeWalk * tw, struct gravshort_tree_params* TreeParams_ptr)
 {
-    int64_t maxNinteractions = 0, minNinteractions = 1L << 45, Ninteractions=0;
-#pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
-    {
-        LocalTreeWalk lv[1];
-        /* Note: exportflag is local to each thread */
-        ev_init_thread(tw, lv);
-        lv->mode = TREEWALK_PRIMARY;
+    unsigned long long int *maxNinteractions, *minNinteractions, *Ninteractions;
+    cudaMallocManaged(&maxNinteractions, sizeof(unsigned long long int));
+    cudaMallocManaged(&minNinteractions, sizeof(unsigned long long int));
+    cudaMallocManaged(&Ninteractions, sizeof(unsigned long long int));
 
-        /* use old index to recover from a buffer overflow*/;
-        TreeWalkQueryBase * input = (TreeWalkQueryBase *) alloca(tw->query_type_elsize);
-        TreeWalkResultBase * output = (TreeWalkResultBase *) alloca(tw->result_type_elsize);
-        /* We must schedule dynamically so that we have reduced imbalance.
-        * We do not need to worry about the export buffer filling up.*/
-        /* chunk size: 1 and 1000 were slightly (3 percent) slower than 8.
-        * FoF treewalk needs a larger chnksz to avoid contention.*/
-        int64_t chnksz = tw->WorkSetSize / (4*tw->NThread);
-        if(chnksz < 1)
-            chnksz = 1;
-        if(chnksz > 100)
-            chnksz = 100;
-        int k;
-        // #pragma omp for schedule(dynamic, chnksz)
-        // for(k = 0; k < tw->WorkSetSize; k++) {
-        //     const int i = tw->WorkSet ? tw->WorkSet[k] : k;
-        //     /* Primary never uses node list */
-        //     treewalk_init_query(tw, input, i, NULL);
-        //     treewalk_init_result(tw, output, input);
-        //     lv->target = i;
-        //     tw->visit(input, output, lv);
-        //     treewalk_reduce_result(tw, output, i, TREEWALK_PRIMARY);
-        // }
-        int threadsPerBlock = 256;  // Common block size
-        int blocks = (tw->WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
-        run_treewalk_kernel(tw, P, tw->WorkSet, tw->WorkSetSize, TreeParams_ptr, GravitySoftening);
-        cudaDeviceSynchronize();  // Ensure kernel completes before continuing
+    // Initialize
+    *maxNinteractions = 0;
+    *minNinteractions = 1L << 45;
+    *Ninteractions = 0;
 
-        if(maxNinteractions < lv->maxNinteractions)
-            maxNinteractions = lv->maxNinteractions;
-        if(minNinteractions > lv->maxNinteractions)
-            minNinteractions = lv->minNinteractions;
-        Ninteractions = lv->Ninteractions;
-    }
-    tw->maxNinteractions = maxNinteractions;
-    tw->minNinteractions = minNinteractions;
-    tw->Ninteractions += Ninteractions;
+    // Call the GPU kernel wrapper for treewalk
+    run_treewalk_kernel(tw, P, tw->WorkSet, tw->WorkSetSize, TreeParams_ptr, GravitySoftening, maxNinteractions, minNinteractions, Ninteractions);
+
+    // Synchronize device
+    cudaDeviceSynchronize();
+
+    tw->maxNinteractions = (int64_t) *maxNinteractions;
+    tw->minNinteractions = (int64_t) *minNinteractions;
+    tw->Ninteractions += (int64_t) *Ninteractions;
     tw->Nlistprimary += tw->WorkSetSize;
 }
 

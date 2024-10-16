@@ -368,7 +368,7 @@ treewalk_reduce_result_device(TreeWalk *tw, TreeWalkResultBase *result, int i, e
     grav_short_reduce_device(i, (TreeWalkResultGravShort *) result, mode, tw, particles);
 }
 
-__global__ void treewalk_kernel(TreeWalk *tw, struct particle_data *particles, int *workset, size_t workset_size, struct gravshort_tree_params * TreeParams_ptr) {
+__global__ void treewalk_kernel(TreeWalk *tw, struct particle_data *particles, int *workset, size_t workset_size, struct gravshort_tree_params * TreeParams_ptr, unsigned long long int *maxNinteractions, unsigned long long int *minNinteractions, unsigned long long int *Ninteractions) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
     if (tid < workset_size) {
@@ -387,14 +387,19 @@ __global__ void treewalk_kernel(TreeWalk *tw, struct particle_data *particles, i
         force_treeev_shortrange_device((TreeWalkQueryGravShort*) &input, (TreeWalkResultGravShort*) &output, &lv, TreeParams_ptr, particles);
         // Reduce results for this particle
         treewalk_reduce_result_device(tw, &output, i, TREEWALK_PRIMARY, particles);
+
+        // Update interactions count using atomic operations
+        atomicAdd(Ninteractions, lv.Ninteractions);
+        atomicMax(maxNinteractions, lv.maxNinteractions);
+        atomicMin(minNinteractions, lv.minNinteractions);
     }
 }
 
-// Function to launch kernel
-void run_treewalk_kernel(TreeWalk *tw, struct particle_data *particles, int *workset, size_t workset_size, struct gravshort_tree_params * TreeParams_ptr, double GravitySoftening) {
+// Function to launch kernel (wrapper)
+void run_treewalk_kernel(TreeWalk *tw, struct particle_data *particles, int *workset, size_t workset_size, struct gravshort_tree_params * TreeParams_ptr, double GravitySoftening, unsigned long long int *maxNinteractions, unsigned long long int *minNinteractions, unsigned long long int *Ninteractions) {
     GravitySoftening_device = GravitySoftening;
     int threadsPerBlock = 256;
     int blocks = (workset_size + threadsPerBlock - 1) / threadsPerBlock;
-    treewalk_kernel<<<blocks, threadsPerBlock>>>(tw, particles, workset, workset_size, TreeParams_ptr);
+    treewalk_kernel<<<blocks, threadsPerBlock>>>(tw, particles, workset, workset_size, TreeParams_ptr, maxNinteractions, minNinteractions, Ninteractions);
     cudaDeviceSynchronize();
 }
