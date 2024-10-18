@@ -378,6 +378,8 @@ measure_power_spectrum(PetaPM * pm, int64_t k2, int kpos[3], cufftComplex *value
     powerspectrum_add_mode(pm->ps, k2, kpos, value, f, pm->Nmesh);
 }
 
+
+/*  */
 static void
 potential_transfer(PetaPM * pm, int64_t k2, int kpos[3], cufftComplex *value)
 {

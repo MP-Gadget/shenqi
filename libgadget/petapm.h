@@ -1,11 +1,12 @@
 #ifndef __PETAPM_H__
 #define __PETAPM_H__
-#include <cufftMp.h>   // NC:library change
+#include <cufftMp.h>
 
 #include "powerspectrum.h"
-
+#include "box_iterator.hpp"
 
 using int64 = long long int;
+
 
 typedef struct Region {
     /* represents a region in the FFT Mesh */
@@ -13,7 +14,6 @@ typedef struct Region {
     int64 size[3];
     int64 upper[3];
     int64 strides[3];
-
 
     size_t totalsize;
     double * buffer;
@@ -74,6 +74,8 @@ typedef struct PetaPM {
     MPI_Comm comm;
     PetaPMRegion real_space_region;
     PetaPMRegion fourier_space_region;
+    Box3D box_real;
+    Box3D box_complex;
     double CellSize;
     int Nmesh;
     double Asmth;
