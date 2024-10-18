@@ -16,6 +16,10 @@
 /* The main allocator is used to store large objects, e.g. tree, toptree */
 Allocator A_MAIN[1];
 
+#ifdef VALGRIND
+#define allocator_init allocator_malloc_init
+#endif
+
 /* The temp allocator is used to store objects that lives on the stack;
  * replacing alloca and similar cases to avoid stack induced memory fragmentation
  * */
@@ -60,7 +64,7 @@ mymalloc_init(double MaxMemSizePerNode)
         endrun(2, "Mem too small! MB/node=%g, nodespercpu = %g NTask = %d\n", MaxMemSizePerNode, nodespercpu, NTask);
 
 
-    if (MPIU_Any(ALLOC_ENOMEMORY == allocator_malloc_init(A_MAIN, "MAIN", n, 1, NULL), MPI_COMM_WORLD)) {
+    if (MPIU_Any(ALLOC_ENOMEMORY == allocator_init(A_MAIN, "MAIN", n, 1, NULL), MPI_COMM_WORLD)) {
         endrun(0, "Insufficient memory for the MAIN allocator on at least one nodes."
                   "Requestion %td bytes. Try reducing MaxMemSizePerNode. Also check the node health status.\n", n);
     }
