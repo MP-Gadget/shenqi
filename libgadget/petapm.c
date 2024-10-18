@@ -443,7 +443,7 @@ petapm_force_c2r(PetaPM * pm,
     // where the potential has no transfer function, only readout
     // as the potential transfer is applied in r2c
     PetaPMFunctions * f = functions;
-    for (f = functions; f->name; f ++) {
+//    for (f = functions; f->name; f ++) {
         petapm_transfer_func transfer = f->transfer;
         petapm_readout_func readout = f->readout;
 
