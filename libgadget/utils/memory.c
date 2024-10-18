@@ -93,7 +93,11 @@ allocator_reset(Allocator * alloc, int zero)
         AllocatorIter iter[1];
         for(allocator_iter_start(iter, alloc); !allocator_iter_ended(iter); allocator_iter_next(iter))
         {
+            #ifdef USE_CUDA
+            cudaFree(iter->ptr - ALIGNMENT);
+            #else
             free(iter->ptr - ALIGNMENT);
+            #endif
         }
     }
     alloc->refcount = 1;
@@ -331,6 +335,29 @@ allocator_realloc_int(Allocator * alloc, void * ptr, const size_t new_size, cons
         endrun(1, "Not an allocated address: Header = %8p ptr = %8p\n", header, cptr);
     }
 
+#ifdef USE_CUDA
+    if (alloc->use_malloc) {
+        void *new_ptr;
+        if (cudaMallocManaged(&new_ptr, new_size + ALIGNMENT, cudaMemAttachGlobal) != cudaSuccess) {
+            endrun(1, "Failed to allocate %lu bytes for %s\n", new_size, header->name);
+        }
+
+        // Copy old data to the new block (don't forget the header)
+        memcpy(new_ptr, header, ALIGNMENT + (new_size < header->request_size ? new_size : header->request_size));
+        
+        // Free the old block
+        cudaFree(header);
+
+        // Update header pointer in the new block
+        struct BlockHeader *new_header = (struct BlockHeader *)new_ptr;
+        new_header->ptr = (char *)new_ptr + ALIGNMENT;
+        new_header->request_size = new_size;
+        vsprintf(new_header->annotation, fmt, va);
+
+        va_end(va);
+        return new_header->ptr;
+    }
+#else
     if(alloc->use_malloc) {
         struct BlockHeader * header2 = (struct BlockHeader *) realloc(header, new_size + ALIGNMENT);
         header2->ptr = (char*) header2 + ALIGNMENT;
@@ -341,6 +368,7 @@ allocator_realloc_int(Allocator * alloc, void * ptr, const size_t new_size, cons
         memcpy(header2->self, header2, sizeof(header2[0]));
         return header2->ptr;
     }
+#endif
 
     if(0 != allocator_dealloc(alloc, ptr)) {
         allocator_print(header->alloc);
@@ -367,12 +395,13 @@ allocator_free (void * ptr)
 {
     char * cptr = (char *) ptr;
     struct BlockHeader * header = (struct BlockHeader*) (cptr - ALIGNMENT);
-
+    message(0, "Freeing test");
     if (!is_header(header)) {
+        message(0, "Not an allocated address: Header = %8p ptr = %8p\n", header, cptr);
         allocator_print(header->alloc);
         endrun(1, "Not an allocated address: Header = %8p ptr = %8p\n", header, cptr);
     }
-
+    message(0, "Freeing %s : %s\n", header->name, header->annotation);
     int rt = allocator_dealloc(header->alloc, ptr);
     if (rt != 0) {
         allocator_print(header->alloc);
