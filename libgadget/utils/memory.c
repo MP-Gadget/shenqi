@@ -93,7 +93,11 @@ allocator_reset(Allocator * alloc, int zero)
         AllocatorIter iter[1];
         for(allocator_iter_start(iter, alloc); !allocator_iter_ended(iter); allocator_iter_next(iter))
         {
+#ifdef USE_CUDA
+            cudaFree(iter->ptr - ALIGNMENT);
+#else
             free(iter->ptr - ALIGNMENT);
+#endif
         }
     }
     alloc->refcount = 1;
@@ -332,7 +336,19 @@ allocator_realloc_int(Allocator * alloc, void * ptr, const size_t new_size, cons
     }
 
     if(alloc->use_malloc) {
-        struct BlockHeader * header2 = (struct BlockHeader *) realloc(header, new_size + ALIGNMENT);
+        struct BlockHeader * header2;
+#ifdef USE_CUDA
+        if (cudaMallocManaged(&header2, new_size + ALIGNMENT, cudaMemAttachGlobal) != cudaSuccess) {
+            endrun(1, "Failed to allocate %lu bytes for %s\n", new_size, header->name);
+        }
+        // Copy old data to the new block (don't forget the header)
+        memcpy(header2, header, ALIGNMENT + (new_size < header->request_size ? new_size : header->request_size));
+        // Free the old block
+        cudaFree(header);
+#else
+        header2 = (struct BlockHeader *) realloc(header, new_size + ALIGNMENT);
+#endif
+        // Update header pointer in the new block
         header2->ptr = (char*) header2 + ALIGNMENT;
         header2->request_size = new_size;
         /* update record */
@@ -407,7 +423,11 @@ allocator_dealloc (Allocator * alloc, void * ptr)
     }
 
     if(alloc->use_malloc) {
+#ifdef USE_CUDA
+        cudaFree(header);
+#else
         free(header);
+#endif
     }
 
     /* remove the link to the memory. */
