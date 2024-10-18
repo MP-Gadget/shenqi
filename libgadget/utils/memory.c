@@ -395,13 +395,13 @@ allocator_free (void * ptr)
 {
     char * cptr = (char *) ptr;
     struct BlockHeader * header = (struct BlockHeader*) (cptr - ALIGNMENT);
-    message(0, "Freeing test");
+
     if (!is_header(header)) {
         message(0, "Not an allocated address: Header = %8p ptr = %8p\n", header, cptr);
         allocator_print(header->alloc);
         endrun(1, "Not an allocated address: Header = %8p ptr = %8p\n", header, cptr);
     }
-    message(0, "Freeing %s : %s\n", header->name, header->annotation);
+
     int rt = allocator_dealloc(header->alloc, ptr);
     if (rt != 0) {
         allocator_print(header->alloc);
