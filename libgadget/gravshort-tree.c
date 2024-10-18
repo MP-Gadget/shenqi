@@ -133,7 +133,6 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
     tw->fill = (TreeWalkFillQueryFunction) grav_short_copy;
     tw->tree = tree;
     tw->priv = priv_ptr;
-    printf("tw->tree->firstnode: %d\n", tw->tree->firstnode);
     printf("TreeWalk structure initialized.\n");
 
     treewalk_run(tw, act->ActiveParticle, act->NumActiveParticle, &TreeParams);
