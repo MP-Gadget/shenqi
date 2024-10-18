@@ -402,7 +402,7 @@ __global__ void treewalk_kernel(TreeWalk *tw, struct particle_data *particles, i
 
 __global__ void test_kernel(TreeWalk *tw) {
     // printf("tw->tree->moments_computed_flag: %d\n", tw->tree->moments_computed_flag);
-    printf("tw->WorkSet[2]: %d\n", tw->WorkSet[2]);
+    printf("tw->WorkSet[0]: %d\n", tw->WorkSet[0]);
 }
 
 // Function to launch kernel (wrapper)
@@ -416,6 +416,8 @@ void run_treewalk_kernel(TreeWalk *tw, struct particle_data *particles, int *wor
     // if (err != cudaSuccess) {
     //     printf("CUDA error: %s\n", cudaGetErrorString(err));
     // }
+    printf("workset[0]: %d\n", workset[0]);
+    printf("tw->WorkSet[0]: %d\n", tw->WorkSet[0]);
     test_kernel<<<1, 1>>>(tw);
     cudaDeviceSynchronize();
     cudaError_t err = cudaGetLastError();

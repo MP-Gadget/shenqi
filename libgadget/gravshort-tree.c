@@ -98,7 +98,7 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
 {
     TreeWalk *tw;
     cudaMallocManaged(&tw, sizeof(TreeWalk));  // Allocate TreeWalk structure with Unified Memory
-    
+    memset(tw, 0, sizeof(TreeWalk));           // Zero-initialize the structure
     struct GravShortPriv *priv_ptr;
     cudaMallocManaged(&priv_ptr, sizeof(struct GravShortPriv));
 
@@ -134,9 +134,9 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
     tw->tree = tree;
     tw->priv = priv_ptr;
     printf("TreeWalk structure initialized.\n");
-
-    treewalk_run(tw, act->ActiveParticle, act->NumActiveParticle, &TreeParams);
     fflush(stdout);
+    treewalk_run(tw, act->ActiveParticle, act->NumActiveParticle, &TreeParams);
+
     /* Now the force computation is finished */
     /*  gather some diagnostic information */
 

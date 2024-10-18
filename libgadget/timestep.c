@@ -286,7 +286,7 @@ grav_short_tree_build_tree(const ActiveParticles * subact, PetaPM * pm, DomainDe
     ForceTree * Tree_ptr;
     cudaMallocManaged(&Tree_ptr, sizeof(ForceTree));
     cudaDeviceSynchronize();
-    *Tree_ptr = {0}; // Initialize the tree
+    memset(Tree_ptr, 0, sizeof(ForceTree)); // Correct initialization to zero
     message(0, "Tree allocated by cudaMallocManaged.\n");
     /* No Father array here*/
     force_tree_active_moments(Tree_ptr, ddecomp, subact, HybridNuGrav, 0, EmergencyOutputDir);
