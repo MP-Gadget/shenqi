@@ -943,7 +943,7 @@ stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * 
     tw->query_type_elsize = sizeof(TreeWalkQueryStellarDensity);
     tw->result_type_elsize = sizeof(TreeWalkResultStellarDensity);
     tw->priv = priv;
-    tw->tree = tree;
+    tw->tree = (ForceTree *) tree;
 
     int i;
 

@@ -249,7 +249,7 @@ density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Blac
     tw->query_type_elsize = sizeof(TreeWalkQueryDensity);
     tw->result_type_elsize = sizeof(TreeWalkResultDensity);
     tw->priv = priv;
-    tw->tree = tree;
+    tw->tree = (ForceTree *) tree;
 
     DENSITY_GET_PRIV(tw)->Left = (MyFloat *) mymalloc("DENS_PRIV->Left", PartManager->NumPart * sizeof(MyFloat));
     DENSITY_GET_PRIV(tw)->Right = (MyFloat *) mymalloc("DENS_PRIV->Right", PartManager->NumPart * sizeof(MyFloat));

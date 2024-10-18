@@ -268,7 +268,8 @@ ev_primary(TreeWalk * tw, struct gravshort_tree_params* TreeParams_ptr)
     *maxNinteractions = 0;
     *minNinteractions = 1L << 45;
     *Ninteractions = 0;
-
+    
+    message(0, "Calling treewalk kernel\n");
     // Call the GPU kernel wrapper for treewalk
     run_treewalk_kernel(tw, P, tw->WorkSet, tw->WorkSetSize, TreeParams_ptr, GravitySoftening, maxNinteractions, minNinteractions, Ninteractions);
 
@@ -804,6 +805,7 @@ treewalk_run(TreeWalk * tw, int * active_set, size_t size, struct gravshort_tree
         int Ndone = 0;
         /* Needs to be outside loop because it allocates restart information*/
         alloc_export_memory(tw);
+        message(0, "Starting %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
         do
         {
             tstart = second();
@@ -820,8 +822,12 @@ treewalk_run(TreeWalk * tw, int * active_set, size_t size, struct gravshort_tree
             tw->timecomp0 += timediff(tstart, tend);
             /* Only do this on the first iteration, as we only need to do it once.*/
             tstart = second();
-            if(tw->Nexportfull == 0)
+            if(tw->Nexportfull == 0){
+                message(0, "Starting ev_primary for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
                 ev_primary(tw, TreeParams_ptr); /* do local particles and prepare export list */
+                message(0, "Finished ev_primary for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
+            }
+                
             tend = second();
             tw->timecomp1 += timediff(tstart, tend);
             /* Do processing of received particles. We implement a queue that
@@ -857,6 +863,7 @@ treewalk_run(TreeWalk * tw, int * active_set, size_t size, struct gravshort_tree
         } while(Ndone < tw->NTask);
         free_export_memory(tw);
     }
+    message(0, "Finished visiting %s with %ld interactions\n", tw->ev_label, tw->Ninteractions);
 
     tstart = second();
     if(tw->postprocess) {

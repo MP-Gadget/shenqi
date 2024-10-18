@@ -406,9 +406,15 @@ allocator_dealloc (Allocator * alloc, void * ptr)
         return ALLOC_ENOTALLOC;
     }
 
+#ifdef USE_CUDA
+    if(alloc->use_malloc) {
+        cudaFree(header);
+    }
+#else
     if(alloc->use_malloc) {
         free(header);
     }
+#endif
 
     /* remove the link to the memory. */
     header = (struct BlockHeader *) ptr; /* modify the true header in the allocator */

@@ -163,7 +163,7 @@ hydro_force(const ActiveParticles * act, const double atime, struct sph_pred_dat
     tw->postprocess = (TreeWalkProcessFunction) hydro_postprocess;
     tw->query_type_elsize = sizeof(TreeWalkQueryHydro);
     tw->result_type_elsize = sizeof(TreeWalkResultHydro);
-    tw->tree = tree;
+    tw->tree = (ForceTree *) tree;
     tw->priv = priv;
 
     if(!tree->hmax_computed_flag)

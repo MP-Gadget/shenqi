@@ -370,6 +370,10 @@ treewalk_reduce_result_device(TreeWalk *tw, TreeWalkResultBase *result, int i, e
 
 __global__ void treewalk_kernel(TreeWalk *tw, struct particle_data *particles, int *workset, size_t workset_size, struct gravshort_tree_params * TreeParams_ptr, unsigned long long int *maxNinteractions, unsigned long long int *minNinteractions, unsigned long long int *Ninteractions) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+        printf("FractionalGravitySoftening (__global__): %f\n", TreeParams_ptr->FractionalGravitySoftening);
+    }
 
     if (tid < workset_size) {
         int i = workset[tid];
@@ -395,11 +399,31 @@ __global__ void treewalk_kernel(TreeWalk *tw, struct particle_data *particles, i
     }
 }
 
+__global__ void test_kernel(TreeWalk *tw) {
+    // printf("tw->tree->moments_computed_flag: %d\n", tw->tree->moments_computed_flag);
+    printf("tw->tree->firstnode (__global__): %d\n", tw->tree->firstnode);
+}
+
 // Function to launch kernel (wrapper)
 void run_treewalk_kernel(TreeWalk *tw, struct particle_data *particles, int *workset, size_t workset_size, struct gravshort_tree_params * TreeParams_ptr, double GravitySoftening, unsigned long long int *maxNinteractions, unsigned long long int *minNinteractions, unsigned long long int *Ninteractions) {
     GravitySoftening_device = GravitySoftening;
+    // print TreeParams_ptr->FractionalGravitySoftening
+    printf("FractionalGravitySoftening: %f\n", TreeParams_ptr->FractionalGravitySoftening);
+    fflush(stdout);
     int threadsPerBlock = 256;
     int blocks = (workset_size + threadsPerBlock - 1) / threadsPerBlock;
-    treewalk_kernel<<<blocks, threadsPerBlock>>>(tw, particles, workset, workset_size, TreeParams_ptr, maxNinteractions, minNinteractions, Ninteractions);
+    // treewalk_kernel<<<blocks, threadsPerBlock>>>(tw, particles, workset, workset_size, TreeParams_ptr, maxNinteractions, minNinteractions, Ninteractions);
+    // cudaDeviceSynchronize();
+    // cudaError_t err = cudaGetLastError();
+    // if (err != cudaSuccess) {
+    //     printf("CUDA error: %s\n", cudaGetErrorString(err));
+    // }
+    test_kernel<<<1, 1>>>(tw);
     cudaDeviceSynchronize();
+    cudaError_t err = cudaGetLastError();
+    err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("CUDA error: %s\n", cudaGetErrorString(err));
+    }
+    fflush(stdout);
 }

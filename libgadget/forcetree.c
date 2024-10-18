@@ -15,6 +15,7 @@
 #include "utils/endrun.h"
 #include "utils/system.h"
 #include "utils/mymalloc.h"
+#include "cuda_runtime.h"
 
 /*! \file forcetree.c
  *  \brief gravitational tree
@@ -1405,5 +1406,6 @@ void force_tree_free(ForceTree * tree)
         myfree(tree->Father);
     /* Zero everything, especially the allocation flag*/
     memset(tree, 0, sizeof(ForceTree));
-    tree->tree_allocated_flag = 0;
+    tree->tree_allocated_flag = 0;  
+    cudaFree(tree);
 }

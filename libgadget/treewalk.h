@@ -99,10 +99,10 @@ struct TreeWalk {
     void * priv;
 
     /* A pointer to the force tree structure to walk.*/
-    const ForceTree * tree;
+    ForceTree * tree;
 
     /* name of the evaluator (used in printing messages) */
-    const char * ev_label;
+    char * ev_label;
 
     enum TreeWalkType type;
     int NTask; /*Number of MPI tasks*/
