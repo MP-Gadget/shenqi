@@ -1,5 +1,8 @@
 #These variables are set to useful defaults, but may be overriden if needed
-#This is a good optimized build default for nvc
+MPICC=mpic++
+MPICCDEP=mpicc
+MPI_INCL=-I$(TACC_MPI_DIR)/include
+
 CUDA_LIBS=-L$(TACC_CUDA_LIB) -lcudart
 CUDA_INCL=-I$(TACC_CUDA_INC)
 
@@ -15,12 +18,26 @@ CUFFTMP_LIBS=-L/home1/apps/nvidia/Linux_aarch64/24.7/math_libs/lib64 -lcufftMp
 NVSHMEM_INCL=-I$(TACC_NVSHMEM_INC)
 NVSHMEM_LIBS=-L$(TACC_NVSHMEM_LIB) -lnvshmem_host
 
-OPTIMIZE =  -mp -g -Wall -fast
+NVCC=nvcc
+NVOPTIMIZE = -O3 -arch=sm_61 # specify architecture according to you GPU model, sm_90 shall be used for Vista's H100
+
+#GSL_LIBS=
+#GSL_INCL=
+#This is a good optimized build default for gcc
+#OPTIMIZE =  -fopenmp -O3 -g -Wall -ffast-math
+#nvc++ does not have the -ffast-math flag
+#OPTIMIZE =  -fopenmp -O3 -g -Wall -use_fast_math
 #This is a good non-optimized default for debugging
-#OPTIMIZE =  -mp -O0 -g -Wall
+OPTIMIZE =  -fopenmp -O0 -g -Wall
 
 #--------------------------------------- Basic operation mode of code
 #OPT += VALGRIND     # allow debugging with valgrind, disable the GADGET memory allocator.
-#OPT += -DDEBUG      # print a lot of debugging messages
+OPT += -DDEBUG      # print a lot of debugging messages
 #Disable openmp locking. This means no threading.
 #OPT += -DNO_OPENMP_SPINLOCK
+OPT += -DUSE_CUDA  #Enable GPU-specific CUDA code
+#-----------
+#OPT += -DEXCUR_REION  # reionization with excursion set
+
+#--------- CFITSIO (required only for saving potential plane files)
+# OPT += -DUSE_CFITSIO
