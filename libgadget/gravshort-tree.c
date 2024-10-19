@@ -29,7 +29,7 @@
 
 static struct gravshort_tree_params TreeParams;
 /*Softening length*/
-
+static double GravitySoftening;
 
 /* gravitational softening length
  * (given in terms of an `equivalent' Plummer softening length)

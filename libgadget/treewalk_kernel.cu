@@ -368,16 +368,17 @@ treewalk_reduce_result_device(TreeWalk *tw, TreeWalkResultBase *result, int i, e
     grav_short_reduce_device(i, (TreeWalkResultGravShort *) result, mode, tw, particles);
 }
 
-__global__ void treewalk_kernel(TreeWalk *tw, struct particle_data *particles, int *workset, size_t workset_size, struct gravshort_tree_params * TreeParams_ptr, unsigned long long int *maxNinteractions, unsigned long long int *minNinteractions, unsigned long long int *Ninteractions, double GravitySoftening) {
+__global__ void treewalk_kernel(TreeWalk *tw, struct particle_data *particles, struct gravshort_tree_params * TreeParams_ptr, unsigned long long int *maxNinteractions, unsigned long long int *minNinteractions, unsigned long long int *Ninteractions, const double GravitySoftening) {
     GravitySoftening_device = GravitySoftening;
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     
     if (threadIdx.x == 0 && blockIdx.x == 0) {
+        printf("treewalk_kernel test\n");
         printf("FractionalGravitySoftening (__global__): %f\n", TreeParams_ptr->FractionalGravitySoftening);
     }
 
-    if (tid < workset_size) {
-        int i = workset[tid];
+    if (tid < tw->WorkSetSize) {
+        const int i = tw->WorkSet ? tw->WorkSet[tid] : tid;
 
         TreeWalkQueryBase input;
         TreeWalkResultBase output;
@@ -400,25 +401,29 @@ __global__ void treewalk_kernel(TreeWalk *tw, struct particle_data *particles, i
     }
 }
 
-__global__ void test_kernel(TreeWalk *tw) {
-    // printf("tw->tree->moments_computed_flag: %d\n", tw->tree->moments_computed_flag);
-    printf("tw->WorkSet[0]: %d\n", tw->WorkSet[0]);
+__global__ void test_kernel(double GravitySoftening) {
+    GravitySoftening_device = GravitySoftening;
+    // printf("particles[0].Pos[0]: %f\n", particles[0].Pos[0]);
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+        printf("treewalk_kernel test\n");
+        printf("GravitySoftening: %lf\n", GravitySoftening);
+    }
+    
 }
 
 // Function to launch kernel (wrapper)
-void run_treewalk_kernel(TreeWalk *tw, struct particle_data *particles, int *workset, size_t workset_size, struct gravshort_tree_params * TreeParams_ptr, double GravitySoftening, unsigned long long int *maxNinteractions, unsigned long long int *minNinteractions, unsigned long long int *Ninteractions) {
-    
+void run_treewalk_kernel(TreeWalk *tw, struct particle_data *particles, struct gravshort_tree_params * TreeParams_ptr, double GravitySoftening, unsigned long long int *maxNinteractions, unsigned long long int *minNinteractions, unsigned long long int *Ninteractions) {
+    // message(0, "run treewalk kernel GravitySoftening: %f\n", GravitySoftening);
+    // workset is NULL at a PM step
     int threadsPerBlock = 256;
-    int blocks = (workset_size + threadsPerBlock - 1) / threadsPerBlock;
-    // treewalk_kernel<<<blocks, threadsPerBlock>>>(tw, particles, workset, workset_size, TreeParams_ptr, maxNinteractions, minNinteractions, Ninteractions, GravitySoftening);
+    int blocks = (tw->WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
+    treewalk_kernel<<<blocks, threadsPerBlock>>>(tw, particles, TreeParams_ptr, maxNinteractions, minNinteractions, Ninteractions, GravitySoftening);
     // cudaDeviceSynchronize();
     // cudaError_t err = cudaGetLastError();
     // if (err != cudaSuccess) {
     //     printf("CUDA error: %s\n", cudaGetErrorString(err));
     // }
-    printf("workset[0]: %d\n", workset[0]);
-    printf("tw->WorkSet[0]: %d\n", tw->WorkSet[0]);
-    test_kernel<<<1, 1>>>(tw);
+    // test_kernel<<<blocks, threadsPerBlock>>>(GravitySoftening);
     cudaDeviceSynchronize();
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {

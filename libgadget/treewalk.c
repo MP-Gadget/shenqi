@@ -13,7 +13,7 @@
 
 #include <signal.h>
 #include "treewalk_kernel.h"
-#include "gravshort.h"
+#include "gravshort-tree.c"
 
 #define BREAKPOINT raise(SIGTRAP)
 
@@ -195,13 +195,16 @@ treewalk_reduce_result(TreeWalk * tw, TreeWalkResultBase * result, int i, enum T
 void
 treewalk_build_queue(TreeWalk * tw, int * active_set, const size_t size, int may_have_garbage)
 {
+    message(0, "begin treewalk_build_queue\n");
     tw->NThread = omp_get_max_threads();
 
     if(!tw->haswork && !may_have_garbage)
     {
+        message(0, "Treewalk %s has no work function and no garbage\n", tw->ev_label);
         tw->WorkSetSize = size;
         tw->WorkSet = active_set;
         tw->work_set_stolen_from_active = 1;
+        message(0, "tw->WorkSetSize = %ld\n", tw->WorkSetSize);
         return;
     }
 
@@ -271,7 +274,7 @@ ev_primary(TreeWalk * tw, struct gravshort_tree_params* TreeParams_ptr)
     
     message(0, "Calling treewalk kernel\n");
     // Call the GPU kernel wrapper for treewalk
-    run_treewalk_kernel(tw, P, tw->WorkSet, tw->WorkSetSize, TreeParams_ptr, GravitySoftening, maxNinteractions, minNinteractions, Ninteractions);
+    run_treewalk_kernel(tw, P, TreeParams_ptr, GravitySoftening, maxNinteractions, minNinteractions, Ninteractions);
 
     // Synchronize device
     cudaDeviceSynchronize();
