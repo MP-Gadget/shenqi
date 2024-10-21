@@ -72,19 +72,10 @@ grav_apply_short_range_window_device(double r, double * fac, double * pot, const
     size_t tabindex = floor(i);
     if(tabindex >= NTAB_device - 1)
         return 1;
-    // if thread 0, print the table
-    if (threadIdx.x == 0 && blockIdx.x == 0) {
-    //     for (int i = 0; i < NTAB_device; i++) {
-    //         printf("shortrange_table[%d]: %f\n", i, shortrange_table[i]);
-    // }
-        // printf("shortrange_table[%d]: %f\n", 0, shortrange_table[0]);
-        // printf("print test\n");
-        // i = shortrange_table[0];
-    }
+    
     /* use a linear interpolation; */
-    (*fac) = 2;
-    // *fac *= (tabindex + 1 - i) * shortrange_table[tabindex] + (i - tabindex) * shortrange_table[tabindex + 1];
-    // *pot *= (tabindex + 1 - i) * shortrange_table_potential[tabindex] + (i - tabindex) * shortrange_table_potential[tabindex];
+    *fac *= (tabindex + 1 - i) * shortrange_table[tabindex] + (i - tabindex) * shortrange_table[tabindex + 1];
+    *pot *= (tabindex + 1 - i) * shortrange_table_potential[tabindex] + (i - tabindex) * shortrange_table_potential[tabindex];
     return 0;
 }
 
@@ -118,34 +109,33 @@ apply_accn_to_output_device(TreeWalkResultGravShort * output, const double dx[3]
         }
         facpot = mass / h * wp;
     }
-        // double fac_test = 1;
-        // double facpot_test = 1;
-    // test: adapted from grav_apply_short_range_window_device
-    // do this because changing the value of fac and facpot in grav_apply_short_range_window_device via *fac and *pot cause an illegal memory access error, I do not know why
-    int apply_return;
-    const double dx1 = shortrange_force_kernels[1][0];
-    double i = (r / cellsize / dx1);
-    size_t tabindex = floor(i);
-    if(tabindex >= NTAB_device - 1)
-        return;
 
-    /* use a linear interpolation; */
-    fac *= (tabindex + 1 - i) * shortrange_table[tabindex] + (i - tabindex) * shortrange_table[tabindex + 1];
-    facpot *= (tabindex + 1 - i) * shortrange_table_potential[tabindex] + (i - tabindex) * shortrange_table_potential[tabindex];
+    // // test: adapted from grav_apply_short_range_window_device
+    // // do this because changing the value of fac and facpot in grav_apply_short_range_window_device via *fac and *pot cause an illegal memory access error, I do not know why
+    // int apply_return;
+    // const double dx1 = shortrange_force_kernels[1][0];
+    // double i = (r / cellsize / dx1);
+    // size_t tabindex = floor(i);
+    // if(tabindex >= NTAB_device - 1)
+    //     return;
 
-    // for(int i = 0; i < 3; i++)
-    //     output->Acc[i] += dx[i] * fac;
-    // output->Potential += facpot;
+    // /* use a linear interpolation; */
+    // fac *= (tabindex + 1 - i) * shortrange_table[tabindex] + (i - tabindex) * shortrange_table[tabindex + 1];
+    // facpot *= (tabindex + 1 - i) * shortrange_table_potential[tabindex] + (i - tabindex) * shortrange_table_potential[tabindex];
 
-    return;
-    // test end
+    // // for(int i = 0; i < 3; i++)
+    // //     output->Acc[i] += dx[i] * fac;
+    // // output->Potential += facpot;
 
-    // if(0 == grav_apply_short_range_window_device(r, &fac_test, &facpot_test, cellsize)) {
-    //     int i;
-    //     // for(i = 0; i < 3; i++)
-    //     //     output->Acc[i] += dx[i] * fac;
-    //     // output->Potential += facpot;
-    // }
+    // return;
+    // // test end
+
+    if(0 == grav_apply_short_range_window_device(r, &fac, &facpot, cellsize)) {
+        int i;
+        // for(i = 0; i < 3; i++)
+        //     output->Acc[i] += dx[i] * fac;
+        // output->Potential += facpot;
+    }
 }
 
 __device__ static int
