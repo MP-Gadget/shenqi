@@ -38,6 +38,7 @@
 #include "veldisp.h"
 #include "plane.h"
 #include "cuda_runtime.h"
+#include "treewalk_kernel.h"
 
 static struct ClockTable Clocks;
 /* Size of table full of random numbers generated each timestep.*/
@@ -249,6 +250,7 @@ begrun(const int RestartSnapNum, struct header_data * head)
     init_cooling_and_star_formation(All.CoolingOn, All.StarformationOn, &All.CP, head->MassTable[0], head->BoxSize, units);
 
     gravshort_fill_ntab(All.ShortRangeForceWindowType, All.Asmth);
+    run_gravshort_fill_ntab(All.ShortRangeForceWindowType, All.Asmth);
 
     if(All.LightconeOn)
         lightcone_init(&All.CP, head->TimeSnapshot, head->UnitLength_in_cm, All.OutputDir);
