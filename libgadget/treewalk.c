@@ -260,7 +260,54 @@ treewalk_build_queue(TreeWalk * tw, int * active_set, const size_t size, int may
 
 /* returns struct containing export counts */
 static void
-ev_primary(TreeWalk * tw, struct gravshort_tree_params* TreeParams_ptr)
+ev_primary(TreeWalk * tw)
+{
+    int64_t maxNinteractions = 0, minNinteractions = 1L << 45, Ninteractions=0;
+#pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
+    {
+        LocalTreeWalk lv[1];
+        /* Note: exportflag is local to each thread */
+        ev_init_thread(tw, lv);
+        lv->mode = TREEWALK_PRIMARY;
+
+        /* use old index to recover from a buffer overflow*/;
+        TreeWalkQueryBase * input = (TreeWalkQueryBase *) alloca(tw->query_type_elsize);
+        TreeWalkResultBase * output = (TreeWalkResultBase *) alloca(tw->result_type_elsize);
+        /* We must schedule dynamically so that we have reduced imbalance.
+        * We do not need to worry about the export buffer filling up.*/
+        /* chunk size: 1 and 1000 were slightly (3 percent) slower than 8.
+        * FoF treewalk needs a larger chnksz to avoid contention.*/
+        int64_t chnksz = tw->WorkSetSize / (4*tw->NThread);
+        if(chnksz < 1)
+            chnksz = 1;
+        if(chnksz > 100)
+            chnksz = 100;
+        int k;
+        #pragma omp for schedule(dynamic, chnksz)
+        for(k = 0; k < tw->WorkSetSize; k++) {
+            const int i = tw->WorkSet ? tw->WorkSet[k] : k;
+            /* Primary never uses node list */
+            treewalk_init_query(tw, input, i, NULL);
+            treewalk_init_result(tw, output, input);
+            lv->target = i;
+            tw->visit(input, output, lv);
+            treewalk_reduce_result(tw, output, i, TREEWALK_PRIMARY);
+        }
+        if(maxNinteractions < lv->maxNinteractions)
+            maxNinteractions = lv->maxNinteractions;
+        if(minNinteractions > lv->maxNinteractions)
+            minNinteractions = lv->minNinteractions;
+        Ninteractions = lv->Ninteractions;
+    }
+    tw->maxNinteractions = maxNinteractions;
+    tw->minNinteractions = minNinteractions;
+    tw->Ninteractions += Ninteractions;
+    tw->Nlistprimary += tw->WorkSetSize;
+}
+
+/* returns struct containing export counts */
+static void
+ev_primary_gpu(TreeWalk * tw, struct gravshort_tree_params* TreeParams_ptr)
 {
     unsigned long long int *maxNinteractions, *minNinteractions, *Ninteractions;
     cudaMallocManaged(&maxNinteractions, sizeof(unsigned long long int));
@@ -827,7 +874,8 @@ treewalk_run(TreeWalk * tw, int * active_set, size_t size, struct gravshort_tree
             tstart = second();
             if(tw->Nexportfull == 0){
                 message(0, "Starting ev_primary for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
-                ev_primary(tw, TreeParams_ptr); /* do local particles and prepare export list */
+                ev_primary_gpu(tw, TreeParams_ptr); /* do local particles and prepare export list */
+                // ev_primary(tw); // cpu version
                 message(0, "Finished ev_primary for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
             }
                 
