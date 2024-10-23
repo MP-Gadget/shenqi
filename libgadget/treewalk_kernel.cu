@@ -647,10 +647,11 @@ __global__ void test_kernel(TreeWalk *tw, struct particle_data *particles, struc
         lv.target = i;
         force_treeev_shortrange_device(&input, &output, &lv, TreeParams_ptr, particles);
 
-        // // Reduce results for this particle
+        // Reduce results for this particle
         treewalk_reduce_result_device(tw, &output, i, TREEWALK_PRIMARY, particles);
 
-        // // Update interactions count using atomic operations
+        // Update interactions count using atomic operations
+        // in the gpu case here, lv.Ninteractions, lv.maxNinteractions, lv.minNinteractions should all be equal (each thread exactly corresponds to one particle)
         atomicAdd(Ninteractions, lv.Ninteractions);
         atomicMax(maxNinteractions, lv.maxNinteractions);
         atomicMin(minNinteractions, lv.minNinteractions);
@@ -665,22 +666,20 @@ __global__ void test_kernel_1(TreeWalk *tw, struct particle_data *particles, str
 }
 
 // Function to launch kernel (wrapper)
-void run_treewalk_kernel(TreeWalk *tw, struct particle_data *particles, struct gravshort_tree_params * TreeParams_ptr, double GravitySoftening, unsigned long long int *maxNinteractions, unsigned long long int *minNinteractions, unsigned long long int *Ninteractions) {
+void run_treewalk_kernel(TreeWalk *tw, struct particle_data *particles, struct gravshort_tree_params * TreeParams_ptr, const double GravitySoftening, unsigned long long int *maxNinteractions, unsigned long long int *minNinteractions, unsigned long long int *Ninteractions) {
     // message(0, "tw->WorkSet == NULL: %d\n", tw->WorkSet == NULL);
     // workset is NULL at a PM step
     int threadsPerBlock = 256;
     int blocks = (tw->WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
     // treewalk_kernel<<<blocks, threadsPerBlock>>>(tw, particles, TreeParams_ptr, maxNinteractions, minNinteractions, Ninteractions, GravitySoftening);
-    // cudaDeviceSynchronize();
     test_kernel<<<blocks, threadsPerBlock>>>(tw, particles, TreeParams_ptr, maxNinteractions, minNinteractions, Ninteractions, GravitySoftening);
     // test_kernel_1<<<1, 1>>>(tw, particles, TreeParams_ptr, maxNinteractions, minNinteractions, Ninteractions, GravitySoftening);
     // kernel_test_fac<<<blocks, threadsPerBlock>>>();
     cudaDeviceSynchronize();
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
-        printf("CUDA error: %s\n", cudaGetErrorString(err));
+        message(0, "CUDA error: %s\n", cudaGetErrorString(err));
     }
-    fflush(stdout);
     // print Ninteractions
     message(0, "run_treewalk_kernel Ninteractions: %llu\n", *Ninteractions);
 }

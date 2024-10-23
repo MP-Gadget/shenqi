@@ -319,17 +319,19 @@ ev_primary_gpu(TreeWalk * tw, struct gravshort_tree_params* TreeParams_ptr)
     *minNinteractions = 1L << 45;
     *Ninteractions = 0;
     
-    message(0, "Calling treewalk kernel\n");
+    message(0, "Calling run_treewalk_kernel\n");
     // Call the GPU kernel wrapper for treewalk
     run_treewalk_kernel(tw, P, TreeParams_ptr, GravitySoftening, maxNinteractions, minNinteractions, Ninteractions);
-
-    // Synchronize device
-    cudaDeviceSynchronize();
 
     tw->maxNinteractions = (int64_t) *maxNinteractions;
     tw->minNinteractions = (int64_t) *minNinteractions;
     tw->Ninteractions += (int64_t) *Ninteractions;
     tw->Nlistprimary += tw->WorkSetSize;
+
+    // Free memory
+    cudaFree(maxNinteractions);
+    cudaFree(minNinteractions);
+    cudaFree(Ninteractions);
 }
 
 static int ev_ndone(TreeWalk * tw, MPI_Comm comm)

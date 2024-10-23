@@ -120,7 +120,7 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
         endrun(2, "Gravtree called before tree moments computed!\n");
 
     cudaMallocManaged(&tw->ev_label, sizeof(char) * strlen("GRAVTREE") + 1);  // Allocate memory for ev_label
-    strcpy(tw->ev_label, "GRAVTREE"); // turn back if not needed by device
+    strcpy(tw->ev_label, "GRAVTREE");
 
     tw->visit = (TreeWalkVisitFunction) force_treeev_shortrange;
     /* gravity applies to all gravitationally active particles.*/
@@ -133,8 +133,7 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
     tw->fill = (TreeWalkFillQueryFunction) grav_short_copy;
     tw->tree = tree;
     tw->priv = priv_ptr;
-    printf("TreeWalk structure initialized.\n");
-    fflush(stdout);
+    message(0, "gravity_short_tree: tree structure initialized.\n");
     treewalk_run(tw, act->ActiveParticle, act->NumActiveParticle, &TreeParams);
 
     /* Now the force computation is finished */
@@ -151,9 +150,9 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
     double timeall = walltime_measure(WALLTIME_IGNORE);
 
     walltime_add("/Tree/Misc", timeall - (timetree + tw->timewait1 + tw->timecommsumm));
-    message(0, "Gravity short tree done.\n");
+
     treewalk_print_stats(tw);
-    message(0, "treewalk_print_stats done.\n");
+
     /* TreeUseBH > 1 means use the BH criterion on the initial timestep only,
      * avoiding the fully open O(N^2) case.*/
     if(TreeParams.TreeUseBH > 1)
