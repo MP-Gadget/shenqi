@@ -310,7 +310,15 @@ __device__ int force_treeev_shortrange_device(TreeWalkQueryGravShort * input,
                     /* Loop over child particles*/
                     for(i = 0; i < nop->s.noccupied; i++) {
                         int pp = nop->s.suns[i];
-                        lv->ngblist[numcand++] = pp;
+                        // lv->ngblist[numcand++] = pp;
+                        numcand++;
+                        double dx[3];
+                        int j;
+                        for(j = 0; j < 3; j++)
+                            dx[j] = NEAREST(particles[pp].Pos[j] - inpos[j], BoxSize);
+                        const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
+                        /* Compute the acceleration and apply it to the output structure*/
+                        apply_accn_to_output_device(output, dx, r2, particles[pp].Mass, cellsize);
                     }
                     no = nop->sibling;
                 }
@@ -336,9 +344,9 @@ __device__ int force_treeev_shortrange_device(TreeWalkQueryGravShort * input,
         //     /* Compute the acceleration and apply it to the output structure*/
         //     apply_accn_to_output_device(output, dx, r2, particles[pp].Mass, cellsize);
         // }
-        // ninteractions = numcand;
+        ninteractions = numcand;
     }
-    // treewalk_add_counters_device(lv, ninteractions);
+    treewalk_add_counters_device(lv, ninteractions);
     return 1;
 }
 
@@ -555,6 +563,8 @@ ev_init_thread_device(TreeWalk * const tw, LocalTreeWalk * lv)
 {
     // Use the CUDA thread index instead of omp_get_thread_num
     const size_t thread_id = threadIdx.x + blockIdx.x * blockDim.x;
+
+    const size_t Nthreads = tw->NThread;
     
     lv->tw = tw;
     lv->maxNinteractions = 0;
@@ -565,16 +575,41 @@ ev_init_thread_device(TreeWalk * const tw, LocalTreeWalk * lv)
     lv->nodelistindex = 0;
 
     // Assign the correct DataIndexTable for each thread
-    if (tw->ExportTable_thread)
+    if (tw->ExportTable_thread && thread_id < Nthreads)
         lv->DataIndexTable = tw->ExportTable_thread[thread_id];
     else
         lv->DataIndexTable = NULL;
 
     // Assign ngblist specific to each thread, adapted to GPU thread indexing
-    if (tw->Ngblist)
-        lv->ngblist = tw->Ngblist + thread_id * tw->tree->NumParticles;
+    // let us process neighbers one by one without using a list (then we won't need much memory for ngblist)
+    // if (tw->Ngblist)
+    //     lv->ngblist = tw->Ngblist + thread_id * tw->tree->NumParticles;
 }
 
+// __device__ static void
+// ev_init_thread_device_old(TreeWalk * const tw, LocalTreeWalk * lv)
+// {
+//     // Use the CUDA thread index instead of omp_get_thread_num
+//     const size_t thread_id = threadIdx.x + blockIdx.x * blockDim.x;
+    
+//     lv->tw = tw;
+//     lv->maxNinteractions = 0;
+//     lv->minNinteractions = 1L << 45;
+//     lv->Ninteractions = 0;
+//     lv->Nexport = 0;
+//     lv->NThisParticleExport = 0;
+//     lv->nodelistindex = 0;
+
+//     // Assign the correct DataIndexTable for each thread
+//     if (tw->ExportTable_thread)
+//         lv->DataIndexTable = tw->ExportTable_thread[thread_id];
+//     else
+//         lv->DataIndexTable = NULL;
+
+//     // Assign ngblist specific to each thread, adapted to GPU thread indexing
+//     if (tw->Ngblist)
+//         lv->ngblist = tw->Ngblist + thread_id * tw->tree->NumParticles;
+// }
 
 __global__ void treewalk_kernel(TreeWalk *tw, struct particle_data *particles, struct gravshort_tree_params * TreeParams_ptr, unsigned long long int *maxNinteractions, unsigned long long int *minNinteractions, unsigned long long int *Ninteractions, const double GravitySoftening) {
     GravitySoftening_device = GravitySoftening;
@@ -643,14 +678,14 @@ __global__ void test_kernel(TreeWalk *tw, struct particle_data *particles, const
         lv.target = i;
         force_treeev_shortrange_device(&input, &output, &lv, TreeParams_ptr, particles);
 
-        // // Reduce results for this particle
-        // treewalk_reduce_result_device(tw, &output, i, TREEWALK_PRIMARY, particles);
+        // Reduce results for this particle
+        treewalk_reduce_result_device(tw, &output, i, TREEWALK_PRIMARY, particles);
 
-        // // Update interactions count using atomic operations
-        // // in the gpu case here, lv.Ninteractions, lv.maxNinteractions, lv.minNinteractions should all be equal (each thread exactly corresponds to one particle)
-        // atomicAdd(Ninteractions, lv.Ninteractions);
-        // atomicMax(maxNinteractions, lv.maxNinteractions);
-        // atomicMin(minNinteractions, lv.minNinteractions);
+        // Update interactions count using atomic operations
+        // in the gpu case here, lv.Ninteractions, lv.maxNinteractions, lv.minNinteractions should all be equal (each thread exactly corresponds to one particle)
+        atomicAdd(Ninteractions, lv.Ninteractions);
+        atomicMax(maxNinteractions, lv.maxNinteractions);
+        atomicMin(minNinteractions, lv.minNinteractions);
     }
 }
 
