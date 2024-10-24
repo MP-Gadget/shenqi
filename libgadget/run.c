@@ -539,6 +539,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             else if(All.TreeGravOn && totgravactive) {
                     ForceTree * Tree_ptr;
                     cudaMallocManaged(&Tree_ptr, sizeof(ForceTree));
+                    memset(Tree_ptr, 0, sizeof(ForceTree));
                     cudaDeviceSynchronize();
                     message(0, "Tree allocated by cudaMallocManaged.\n");
                     /* Do a short range pairwise only step if desired*/
@@ -836,11 +837,13 @@ runfof(const int RestartSnapNum, const inttime_t Ti_Current, const struct header
             force_tree_free(&gasTree);
             slots_free_sph_pred_data(&sph_predicted);
         }
-        ForceTree Tree = {0};
+        ForceTree * Tree_ptr;
+        cudaMallocManaged(&Tree_ptr, sizeof(ForceTree));
+        memset(Tree_ptr, 0, sizeof(ForceTree));
         struct grav_accel_store gg = {0};
         /* Cooling is just for the star formation rate, so does not actually use the random table*/
         RandTable rnd = set_random_numbers(All.RandomSeed, RNDTABLE);
-        cooling_and_starformation(&Act, header->TimeSnapshot, 0, &Tree, gg, ddecomp, &All.CP, GradRho, &rnd, NULL);
+        cooling_and_starformation(&Act, header->TimeSnapshot, 0, Tree_ptr, gg, ddecomp, &All.CP, GradRho, &rnd, NULL);
         free_random_numbers(&rnd);
 
         if(GradRho)

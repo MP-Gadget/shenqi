@@ -134,7 +134,13 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
     tw->tree = tree;
     tw->priv = priv_ptr;
     message(0, "gravity_short_tree: tree structure initialized.\n");
-    treewalk_run(tw, act->ActiveParticle, act->NumActiveParticle, &TreeParams);
+    struct gravshort_tree_params *TreeParams_ptr;
+    cudaMallocManaged(&TreeParams_ptr, sizeof(struct gravshort_tree_params));
+    *TreeParams_ptr = TreeParams;
+    
+    treewalk_run(tw, act->ActiveParticle, act->NumActiveParticle, TreeParams_ptr);
+    /* Free the memory */
+    cudaFree(TreeParams_ptr);
 
     /* Now the force computation is finished */
     /*  gather some diagnostic information */

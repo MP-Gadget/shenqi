@@ -126,6 +126,7 @@ force_tree_full(ForceTree * tree, DomainDecomp * ddecomp, const int HybridNuTrac
         mask = GASMASK + DMMASK + STARMASK + BHMASK;
 
     /*No father array by default, only need it for hmax. We want moments.*/
+    message(0, "Tree construction for all types test.\n");
     *tree = force_tree_build(mask, ddecomp, &act, 1, 1, EmergencyOutputDir);
     /* This is all particles (even if there are neutrinos)*/
     tree->full_particle_tree_flag = 1;
@@ -1407,5 +1408,13 @@ void force_tree_free(ForceTree * tree)
     /* Zero everything, especially the allocation flag*/
     memset(tree, 0, sizeof(ForceTree));
     tree->tree_allocated_flag = 0;  
-    cudaFree(tree);
+    // cudaFree(tree);
+
+    // Check if the memory was allocated with cudaMallocManaged
+    cudaPointerAttributes attributes;
+    cudaPointerGetAttributes(&attributes, tree);
+
+    // If tree was allocated with cudaMallocManaged, free it with cudaFree
+    if (attributes.type == cudaMemoryTypeManaged)
+        cudaFree(tree);
 }

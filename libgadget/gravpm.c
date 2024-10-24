@@ -15,6 +15,7 @@
 
 #include "cosmology.h"
 #include "neutrinos_lra.h"
+#include "cuda_runtime.h"
 
 static int pm_mark_region_for_node(int startno, int rid, int * RegionInd, const ForceTree * tt);
 static void convert_node_to_region(PetaPM * pm, PetaPMRegion * r, struct NODE * Nodes);
@@ -92,9 +93,14 @@ gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, d
     }
 
     /* Tree freed in PM*/
-    ForceTree Tree = {0};
+    // ForceTree Tree = {0};
+    ForceTree * Tree_ptr;
+    cudaMallocManaged(&Tree_ptr, sizeof(ForceTree));
+    memset(Tree_ptr, 0, sizeof(ForceTree));
+    message(0, "Tree allocated by cudaMallocManaged test.\n");
     /* We include neutrinos in this tree unconditionally, so all particles have a Region.*/
-    force_tree_full(&Tree, ddecomp, 0, PowerOutputDir);
+    force_tree_full(Tree_ptr, ddecomp, 0, PowerOutputDir);
+    message(0, "Tree constructed test.\n");
 
     /* Set up parameters*/
     GravPM.Time = Time;
@@ -106,7 +112,7 @@ gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, d
      * Therefore the force transfer functions are based on the potential,
      * not the density.
      * */
-    petapm_force(pm, _prepare, &global_functions, functions, &pstruct, &Tree);
+    petapm_force(pm, _prepare, &global_functions, functions, &pstruct, Tree_ptr);
     powerspectrum_sum(pm->ps);
     /*Now save the power spectrum*/
     powerspectrum_save(pm->ps, PowerOutputDir, "powerspectrum", Time, GrowthFactor(CP, Time, 1.0));

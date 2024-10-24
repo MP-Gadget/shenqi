@@ -48,10 +48,6 @@ void run_gravshort_fill_ntab(const enum ShortRangeForceWindowType ShortRangeForc
 
     // Synchronize to ensure kernel completion and check for errors.
     cudaDeviceSynchronize();
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf("CUDA error in gravshort_fill_ntab: %s\n", cudaGetErrorString(err));
-    }
 }
 
 __device__ double FORCE_SOFTENING_device(void)
@@ -643,7 +639,7 @@ __global__ void test_kernel(TreeWalk *tw, struct particle_data *particles, struc
         treewalk_init_query_device(tw, &input, i, NULL, particles);
         treewalk_init_result_device(tw, &output, &input);
 
-        // Perform treewalk for particle
+        // // Perform treewalk for particle
         lv.target = i;
         force_treeev_shortrange_device(&input, &output, &lv, TreeParams_ptr, particles);
 
@@ -676,10 +672,10 @@ void run_treewalk_kernel(TreeWalk *tw, struct particle_data *particles, struct g
     // test_kernel_1<<<1, 1>>>(tw, particles, TreeParams_ptr, maxNinteractions, minNinteractions, Ninteractions, GravitySoftening);
     // kernel_test_fac<<<blocks, threadsPerBlock>>>();
     cudaDeviceSynchronize();
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        message(0, "CUDA error: %s\n", cudaGetErrorString(err));
-    }
+    // cudaError_t err = cudaGetLastError();
+    // if (err != cudaSuccess) {
+    //     message(0, "CUDA error: %s\n", cudaGetErrorString(err));
+    // }
     // print Ninteractions
     message(0, "run_treewalk_kernel Ninteractions: %llu\n", *Ninteractions);
 }
