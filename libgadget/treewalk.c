@@ -875,9 +875,13 @@ treewalk_run(TreeWalk * tw, int * active_set, size_t size, struct gravshort_tree
             /* Only do this on the first iteration, as we only need to do it once.*/
             tstart = second();
             if(tw->Nexportfull == 0){
-                message(0, "Starting ev_primary for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
+#ifdef TREE_CPU
+                message(0, "Starting ev_primary (cpu) for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
+                ev_primary(tw); // cpu version
+#else
+                message(0, "Starting ev_primary (gpu) for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
                 ev_primary_gpu(tw, TreeParams_ptr); /* do local particles and prepare export list */
-                // ev_primary(tw); // cpu version
+#endif
                 message(0, "Finished ev_primary for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
             }
                 
