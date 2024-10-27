@@ -78,7 +78,7 @@ grav_apply_short_range_window_device(double r, double * fac, double * pot, const
 /* Add the acceleration from a node or particle to the output structure,
  * computing the short-range kernel and softening.*/
 __device__ static void
-apply_accn_to_output_device(TreeWalkResultGravShort * output, const double dx[3], const double r2, const double mass, const double cellsize)
+apply_accn_to_output_device(void * output, const double dx[3], const double r2, const double mass, const double cellsize, int children = 0)
 {
     const double r = sqrt(r2);
 
@@ -105,12 +105,20 @@ apply_accn_to_output_device(TreeWalkResultGravShort * output, const double dx[3]
         }
         facpot = mass / h * wp;
     }
+    if(0 != grav_apply_short_range_window_device(r, &fac, &facpot, cellsize))
+        return;
 
-    if(0 == grav_apply_short_range_window_device(r, &fac, &facpot, cellsize)) {
-        int i;
+    int i;
+    if (children) {
+        TreeWalkResultChildren * result = (TreeWalkResultChildren *) output;
         for(i = 0; i < 3; i++)
-            output->Acc[i] += dx[i] * fac;
-        output->Potential += facpot;
+            result->Acc[i] += dx[i] * fac;
+        result->Potential += facpot;
+    } else {
+        TreeWalkResultGravShort * result = (TreeWalkResultGravShort *) output;
+        for(i = 0; i < 3; i++)
+            result->Acc[i] += dx[i] * fac;
+        result->Potential += facpot;
     }
 }
 
@@ -236,6 +244,8 @@ __device__ int force_treeev_shortrange_device(TreeWalkQueryGravShort * input,
     /*Input particle data*/
     const double * inpos = input->base.Pos;
 
+    TreeWalkResultChildren output_children[1] = {{0}};
+
     /*Start the tree walk*/
     int listindex, ninteractions=0;
 
@@ -285,8 +295,8 @@ __device__ int force_treeev_shortrange_device(TreeWalkQueryGravShort * input,
                 }
                 continue;
             }
-
-            if(lv->mode == TREEWALK_TOPTREE) {
+            // ev_primary does not do anything about export/import
+            if(lv->mode == TREEWALK_TOPTREE) {  
                 if(nop->f.ChildType == PSEUDO_NODE_TYPE) {
                     /* Export the pseudo particle*/
                     if(-1 == treewalk_export_particle_device(lv, nop->s.suns[0]))
@@ -318,7 +328,7 @@ __device__ int force_treeev_shortrange_device(TreeWalkQueryGravShort * input,
                             dx[j] = NEAREST(particles[pp].Pos[j] - inpos[j], BoxSize);
                         const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
                         /* Compute the acceleration and apply it to the output structure*/
-                        apply_accn_to_output_device(output, dx, r2, particles[pp].Mass, cellsize);
+                        apply_accn_to_output_device(output_children, dx, r2, particles[pp].Mass, cellsize, 1);
                     }
                     no = nop->sibling;
                 }
@@ -332,20 +342,12 @@ __device__ int force_treeev_shortrange_device(TreeWalkQueryGravShort * input,
                     no = nop->s.suns[0];
             }
         }
-        // int i;
-        // for(i = 0; i < numcand; i++)
-        // {
-        //     int pp = lv->ngblist[i];
-        //     double dx[3];
-        //     int j;
-        //     for(j = 0; j < 3; j++)
-        //         dx[j] = NEAREST(particles[pp].Pos[j] - inpos[j], BoxSize);
-        //     const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
-        //     /* Compute the acceleration and apply it to the output structure*/
-        //     apply_accn_to_output_device(output, dx, r2, particles[pp].Mass, cellsize);
-        // }
         ninteractions = numcand;
     }
+    for (int i = 0; i < 3; i++)
+        output->Acc[i] += output_children->Acc[i];
+    output->Potential += output_children->Potential;
+
     treewalk_add_counters_device(lv, ninteractions);
     return 1;
 }
