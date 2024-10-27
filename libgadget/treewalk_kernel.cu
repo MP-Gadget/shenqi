@@ -352,134 +352,6 @@ __device__ int force_treeev_shortrange_device(TreeWalkQueryGravShort * input,
     return 1;
 }
 
-// __device__ int force_treeev_shortrange_device_old(TreeWalkQueryGravShort * input,
-//         TreeWalkResultGravShort * output,
-//         LocalTreeWalk * lv, struct gravshort_tree_params * TreeParams_ptr, struct particle_data * particles)
-// {
-//     const ForceTree * tree = lv->tw->tree;
-//     const double BoxSize = tree->BoxSize;
-
-//     /*Tree-opening constants*/
-//     const double cellsize = GRAV_GET_PRIV(lv->tw)->cellsize;
-//     const double rcut = GRAV_GET_PRIV(lv->tw)->Rcut;
-//     const double rcut2 = rcut * rcut;
-//     const double aold = TreeParams_ptr->ErrTolForceAcc * input->OldAcc;
-//     const int TreeUseBH = TreeParams_ptr->TreeUseBH;
-//     double BHOpeningAngle2 = TreeParams_ptr->BHOpeningAngle * TreeParams_ptr->BHOpeningAngle;
-//     /* Enforce a maximum opening angle even for relative acceleration criterion, to avoid
-//      * pathological cases. Default value is 0.9, from Volker Springel.*/
-//     if(TreeUseBH == 0)
-//         BHOpeningAngle2 = TreeParams_ptr->MaxBHOpeningAngle * TreeParams_ptr->MaxBHOpeningAngle;
-
-//     /*Input particle data*/
-//     const double * inpos = input->base.Pos;
-
-//     /*Start the tree walk*/
-//     int listindex, ninteractions=0;
-
-//     /* Primary treewalk only ever has one nodelist entry*/
-//     for(listindex = 0; listindex < NODELISTLENGTH; listindex++)
-//     {
-//         int numcand = 0;
-//         /* Use the next node in the node list if we are doing a secondary walk.
-//          * For a primary walk the node list only ever contains one node. */
-//         int no = input->base.NodeList[listindex];
-//         int startno = no;
-//         if(no < 0)
-//             break;
-
-//         while(no >= 0)
-//         {
-//             /* The tree always walks internal nodes*/
-//             struct NODE *nop = &tree->Nodes[no];
-
-//             if(lv->mode == TREEWALK_GHOSTS && nop->f.TopLevel && no != startno)  /* we reached a top-level node again, which means that we are done with the branch */
-//                 break;
-
-//             int i;
-//             double dx[3];
-//             for(i = 0; i < 3; i++)
-//                 dx[i] = NEAREST(nop->mom.cofm[i] - inpos[i], BoxSize);
-//             const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
-
-//             /* Discard this node, move to sibling*/
-//             if(shall_we_discard_node_device(nop->len, r2, nop->center, inpos, BoxSize, rcut, rcut2))
-//             {
-//                 no = nop->sibling;
-//                 /* Don't add this node*/
-//                 continue;
-//             }
-
-//             /* This node accelerates the particle directly, and is not opened.*/
-//             int open_node = shall_we_open_node_device(nop->len, nop->mom.mass, r2, nop->center, inpos, BoxSize, aold, TreeUseBH, BHOpeningAngle2);
-
-//             if(!open_node)
-//             {
-//                 /* ok, node can be used */
-//                 no = nop->sibling;
-//                 if(lv->mode != TREEWALK_TOPTREE) {
-//                     /* Compute the acceleration and apply it to the output structure*/
-//                     apply_accn_to_output_device(output, dx, r2, nop->mom.mass, cellsize);
-//                 }
-//                 continue;
-//             }
-
-//             if(lv->mode == TREEWALK_TOPTREE) {
-//                 if(nop->f.ChildType == PSEUDO_NODE_TYPE) {
-//                     /* Export the pseudo particle*/
-//                     if(-1 == treewalk_export_particle_device(lv, nop->s.suns[0]))
-//                         return -1;
-//                     /* Move sideways*/
-//                     no = nop->sibling;
-//                     continue;
-//                 }
-//                 /* Only walk toptree nodes here*/
-//                 if(nop->f.TopLevel && !nop->f.InternalTopLevel) {
-//                     no = nop->sibling;
-//                     continue;
-//                 }
-//                 no = nop->s.suns[0];
-//             }
-//             else {
-//                 /* Now we have a cell that needs to be opened.
-//                 * If it contains particles we can add them directly here */
-//                 if(nop->f.ChildType == PARTICLE_NODE_TYPE)
-//                 {
-//                     /* Loop over child particles*/
-//                     for(i = 0; i < nop->s.noccupied; i++) {
-//                         int pp = nop->s.suns[i];
-//                         lv->ngblist[numcand++] = pp;
-//                     }
-//                     no = nop->sibling;
-//                 }
-//                 else if (nop->f.ChildType == PSEUDO_NODE_TYPE)
-//                 {
-//                     /* Move to the sibling (likely also a pseudo node)*/
-//                     no = nop->sibling;
-//                 }
-//                 else //NODE_NODE_TYPE
-//                     /* This node contains other nodes and we need to open it.*/
-//                     no = nop->s.suns[0];
-//             }
-//         }
-//         int i;
-//         for(i = 0; i < numcand; i++)
-//         {
-//             int pp = lv->ngblist[i];
-//             double dx[3];
-//             int j;
-//             for(j = 0; j < 3; j++)
-//                 dx[j] = NEAREST(particles[pp].Pos[j] - inpos[j], BoxSize);
-//             const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
-//             /* Compute the acceleration and apply it to the output structure*/
-//             apply_accn_to_output_device(output, dx, r2, particles[pp].Mass, cellsize);
-//         }
-//         ninteractions = numcand;
-//     }
-//     treewalk_add_counters_device(lv, ninteractions);
-//     return 1;
-// }
-
 __device__ static MyFloat
 grav_get_abs_accel_device(struct particle_data * PP, const double G)
 {
@@ -511,10 +383,7 @@ treewalk_init_query_device(TreeWalk *tw, TreeWalkQueryGravShort *query_short, in
         query_short->base.NodeList[0] = tw->tree->firstnode;  // root node
         query_short->base.NodeList[1] = -1;  // terminate immediately
     }
-    // TreeWalkQueryGravShort * query_short;
-    // // point query_short to the query
-    // query_short = (TreeWalkQueryGravShort *) query;
-    // tw->fill(i, query, tw);
+
     grav_short_copy_device(i, query_short, tw, particles);
 }
 
@@ -583,79 +452,12 @@ ev_init_thread_device(TreeWalk * const tw, LocalTreeWalk * lv)
         lv->DataIndexTable = NULL;
 
     // Assign ngblist specific to each thread, adapted to GPU thread indexing
-    // let us process neighbers one by one without using a list (then we won't need much memory for ngblist)
+    // let us process neighbers one by one with immediate accn calculation so without using a list (then we won't need much memory for ngblist)
     // if (tw->Ngblist)
     //     lv->ngblist = tw->Ngblist + thread_id * tw->tree->NumParticles;
 }
 
-// __device__ static void
-// ev_init_thread_device_old(TreeWalk * const tw, LocalTreeWalk * lv)
-// {
-//     // Use the CUDA thread index instead of omp_get_thread_num
-//     const size_t thread_id = threadIdx.x + blockIdx.x * blockDim.x;
-    
-//     lv->tw = tw;
-//     lv->maxNinteractions = 0;
-//     lv->minNinteractions = 1L << 45;
-//     lv->Ninteractions = 0;
-//     lv->Nexport = 0;
-//     lv->NThisParticleExport = 0;
-//     lv->nodelistindex = 0;
-
-//     // Assign the correct DataIndexTable for each thread
-//     if (tw->ExportTable_thread)
-//         lv->DataIndexTable = tw->ExportTable_thread[thread_id];
-//     else
-//         lv->DataIndexTable = NULL;
-
-//     // Assign ngblist specific to each thread, adapted to GPU thread indexing
-//     if (tw->Ngblist)
-//         lv->ngblist = tw->Ngblist + thread_id * tw->tree->NumParticles;
-// }
-
-__global__ void treewalk_kernel(TreeWalk *tw, struct particle_data *particles, struct gravshort_tree_params * TreeParams_ptr, unsigned long long int *maxNinteractions, unsigned long long int *minNinteractions, unsigned long long int *Ninteractions, const double GravitySoftening) {
-    GravitySoftening_device = GravitySoftening;
-
-    // Use a direct instance rather than an array
-    LocalTreeWalk lv;
-    ev_init_thread_device(tw, &lv);
-    lv.mode = TREEWALK_PRIMARY;
-
-    // Avoid stack-heavy allocations, be mindful of per-thread memory usage
-    TreeWalkQueryBase input;
-    TreeWalkResultBase output;
-
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    
-    // Limit printf usage for debugging
-    if (threadIdx.x == 0 && blockIdx.x == 0) {
-        printf("treewalk_kernel test\n");
-        printf("FractionalGravitySoftening (__global__): %f\n", TreeParams_ptr->FractionalGravitySoftening);
-    }
-
-    if (tid < tw->WorkSetSize) {
-        const int i = tw->WorkSet ? tw->WorkSet[tid] : tid;
-
-        // Initialize query and result using device functions
-        // treewalk_init_query_device(tw, &input, i, NULL, particles);
-        // treewalk_init_result_device(tw, &output, &input);
-
-        // Perform treewalk for particle
-        lv.target = i;
-        force_treeev_shortrange_device((TreeWalkQueryGravShort*) &input, (TreeWalkResultGravShort*) &output, &lv, TreeParams_ptr, particles);
-
-        // Reduce results for this particle
-        // treewalk_reduce_result_device(tw, &output, i, TREEWALK_PRIMARY, particles);
-
-        // Update interactions count using atomic operations
-        atomicAdd(Ninteractions, lv.Ninteractions);
-        atomicMax(maxNinteractions, lv.maxNinteractions);
-        atomicMin(minNinteractions, lv.minNinteractions);
-    }
-}
-
-
-__global__ void test_kernel(TreeWalk *tw, struct particle_data *particles, const struct gravshort_tree_params * TreeParams_ptr, unsigned long long int *maxNinteractions, unsigned long long int *minNinteractions, unsigned long long int *Ninteractions, const double GravitySoftening) {
+__global__ void treewalk_kernel(TreeWalk *tw, struct particle_data *particles, const struct gravshort_tree_params * TreeParams_ptr, unsigned long long int *maxNinteractions, unsigned long long int *minNinteractions, unsigned long long int *Ninteractions, const double GravitySoftening) {
     GravitySoftening_device = GravitySoftening;
 
     // Use a direct instance rather than an array
@@ -700,19 +502,15 @@ __global__ void test_kernel_1(TreeWalk *tw, struct particle_data *particles, str
 
 // Function to launch kernel (wrapper)
 void run_treewalk_kernel(TreeWalk *tw, struct particle_data *particles, const struct gravshort_tree_params * TreeParams_ptr, const double GravitySoftening, unsigned long long int *maxNinteractions, unsigned long long int *minNinteractions, unsigned long long int *Ninteractions) {
-    // message(0, "tw->WorkSet == NULL: %d\n", tw->WorkSet == NULL);
     // workset is NULL at a PM step
     int threadsPerBlock = 256;
     int blocks = (tw->WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
     // treewalk_kernel<<<blocks, threadsPerBlock>>>(tw, particles, TreeParams_ptr, maxNinteractions, minNinteractions, Ninteractions, GravitySoftening);
-    test_kernel<<<blocks, threadsPerBlock>>>(tw, particles, TreeParams_ptr, maxNinteractions, minNinteractions, Ninteractions, GravitySoftening);
-    // test_kernel_1<<<1, 1>>>(tw, particles, TreeParams_ptr, maxNinteractions, minNinteractions, Ninteractions, GravitySoftening);
+    treewalk_kernel<<<blocks, threadsPerBlock>>>(tw, particles, TreeParams_ptr, maxNinteractions, minNinteractions, Ninteractions, GravitySoftening);
     // kernel_test_fac<<<blocks, threadsPerBlock>>>();
     cudaDeviceSynchronize();
     // cudaError_t err = cudaGetLastError();
     // if (err != cudaSuccess) {
     //     message(0, "CUDA error: %s\n", cudaGetErrorString(err));
     // }
-    // print Ninteractions
-    message(0, "run_treewalk_kernel Ninteractions: %llu\n", *Ninteractions);
 }
