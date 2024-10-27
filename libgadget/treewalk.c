@@ -879,8 +879,12 @@ treewalk_run(TreeWalk * tw, int * active_set, size_t size, struct gravshort_tree
                 message(0, "Starting ev_primary (cpu) for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
                 ev_primary(tw); // cpu version
 #else
-                message(0, "Starting ev_primary (gpu) for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
-                ev_primary_gpu(tw, TreeParams_ptr); /* do local particles and prepare export list */
+                if (TreeParams_ptr == NULL)
+                    message(0, "Starting ev_primary (cpu) for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
+                    ev_primary(tw); // cpu version still used for FoF now
+                else
+                    message(0, "Starting ev_primary (gpu) for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
+                    ev_primary_gpu(tw, TreeParams_ptr); /* do local particles and prepare export list */
 #endif
                 message(0, "Finished ev_primary for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
             }
