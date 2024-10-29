@@ -514,3 +514,36 @@ void run_treewalk_kernel(TreeWalk *tw, struct particle_data *particles, const st
     //     message(0, "CUDA error: %s\n", cudaGetErrorString(err));
     // }
 }
+
+__global__ void treewalk_secondary_kernel(TreeWalk *tw, struct particle_data *particles, const struct gravshort_tree_params * TreeParams_ptr, char* databufstart, char* dataresultstart, const int64_t nimports_task) {
+
+    // Use a direct instance rather than an array
+    LocalTreeWalk lv;
+    ev_init_thread_device(tw, &lv);
+    lv.mode = TREEWALK_GHOSTS;
+
+    int64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (tid < nimports_task) {
+
+        TreeWalkQueryGravShort * input = (TreeWalkQueryGravShort *) (databufstart + tid * tw->query_type_elsize);
+        TreeWalkResultGravShort * output = (TreeWalkResultGravShort *) (dataresultstart + tid * tw->result_type_elsize);
+
+        // Initialize query and result using device functions
+        // treewalk_init_query_device(tw, &input, i, NULL, particles);
+        treewalk_init_result_device(tw, output, input);
+
+        // Perform treewalk for particle
+        lv.target = -1;
+        force_treeev_shortrange_device(input, output, &lv, TreeParams_ptr, particles);
+
+    }
+}
+
+void run_treewalk_secondary_kernel(TreeWalk *tw, struct particle_data *particles, const struct gravshort_tree_params * TreeParams_ptr, char* databufstart, char* dataresultstart, const int64_t nimports_task) {
+    // workset is NULL at a PM step
+    int threadsPerBlock = 256;
+    int blocks = (nimports_task + threadsPerBlock - 1) / threadsPerBlock;
+    treewalk_secondary_kernel<<<blocks, threadsPerBlock>>>(tw, particles, TreeParams_ptr, databufstart, dataresultstart, nimports_task);
+    cudaDeviceSynchronize();
+}

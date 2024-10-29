@@ -13,4 +13,6 @@ void run_treewalk_kernel(TreeWalk *tw, struct particle_data *particles, const st
 
 void run_gravshort_fill_ntab(const enum ShortRangeForceWindowType ShortRangeForceWindowType, const double Asmth);
 
+void run_treewalk_secondary_kernel(TreeWalk *tw, struct particle_data *particles, const struct gravshort_tree_params * TreeParams_ptr, char* databufstart, char* dataresultstart, const int64_t nimports_task);
+
 #endif  // TREEWALK_KERNEL_H
