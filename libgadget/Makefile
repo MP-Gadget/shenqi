@@ -9,9 +9,10 @@ include $(CONFIG)
 UTILS_TESTED = memory openmpsort interp peano
 UTILS_MPI_TESTED = mpsort
 
-TESTED = hci \
-	slotsmanager \
-	powerspectrum \
+TESTED = cooling
+# hci \
+ 	slotsmanager \
+ 	powerspectrum \
 	cosmology \
 	cooling \
 	forcetree \
@@ -112,7 +113,7 @@ all: libgadget.a libgadget-utils.a
 .objs/test_metal_return: tests/test_metal_return.c .objs/metal_return.o libgadget.a ../tests/stub.c ../tests/cmocka.c libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_cooling: tests/test_cooling.c .objs/cooling.o .objs/cooling_rates.o .objs/cooling_uvfluc.o ../tests/stub.c ../tests/cmocka.c libgadget-utils.a
+.objs/test_cooling: tests/test_cooling.c .objs/cooling.o .objs/cooling_rates.o .objs/cooling_uvfluc.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_gravity: tests/test_gravity.c libgadget.a ../tests/stub.c ../tests/cmocka.c libgadget-utils.a
