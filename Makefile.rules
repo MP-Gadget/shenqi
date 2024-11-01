@@ -7,10 +7,8 @@ LOW_PRECISION ?= double
 OPTIMIZE ?= -O2 -g -fopenmp -Wall
 GSL_INCL ?= $(shell pkg-config --cflags gsl)
 GSL_LIBS ?= $(shell pkg-config --libs gsl)
-#BOOST_INCL ?= $(shell pkg-config --cflags boost)
-#BOOST_LIBS ?= $(shell pkg-config --libs boost)
-all:
-	@echo "=================$(BOOST_LIBS)======================="
+BOOST_INCL ?= 
+BOOST_LIBS ?= 
 
 ifneq ($(findstring -DUSE_CFITSIO, $(OPT)),)
     # If found, set FITSIO_INCL with the cfitsio flags
