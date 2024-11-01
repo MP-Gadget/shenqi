@@ -11,13 +11,13 @@ TMP="tmp-pfft-$PFFT_VERSION"
 LOGFILE="build.log"
 
 mkdir $TMP 
-ROOT=`dirname $0`/../
-if ! [ -f $ROOT/depends/pfft-$PFFT_VERSION.tar.gz ]; then
+ROOT=`dirname $0`
+if ! [ -f $ROOT/pfft-$PFFT_VERSION.tar.gz ]; then
 wget https://github.com/rainwoodman/pfft/releases/download/$PFFT_VERSION/pfft-$PFFT_VERSION.tar.gz \
-    -O $ROOT/depends/pfft-$PFFT_VERSION.tar.gz 
+    -O $ROOT/pfft-$PFFT_VERSION.tar.gz 
 fi
 
-gzip -dc $ROOT/depends/pfft-$PFFT_VERSION.tar.gz | tar xf - -C $TMP
+gzip -dc $ROOT/pfft-$PFFT_VERSION.tar.gz | tar xf - -C $TMP
 cd $TMP
 
 (
