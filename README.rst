@@ -1,11 +1,10 @@
-MP-Gadget
+shenqi
 =========
 
-Massively Parallel Cosmological SPH Simulation Software - MP-Gadget.
+Massively Parallel Cosmological SPH Simulation Software on a GPU
 
 An out of date source code browser may be found here:
 `Source code browser <https://mp-gadget.github.io/MP-Gadget/classes.html>`_
-
 
 Description
 -----------
@@ -45,8 +44,8 @@ First time users:
 
 .. code:: bash
 
-    git clone https://github.com/MP-Gadget/MP-Gadget.git
-    cd MP-Gadget
+    git clone https://github.com/MP-Gadget/shenqi.git
+    cd shenqi
     make -j
 
 The Makefile will automatically copy Options.mk.example to Options.mk. The default compile flags are appropriate for a linux using gcc, but may not be optimal.
@@ -95,7 +94,7 @@ In the end, we will have 2 binaries:
 
 .. code::
 
-    ls gadget/MP-Gadget genic/MP-GenIC
+    ls gadget/shenqi genic/MP-GenIC
 
 1. MP-Gadget is the main simulation program.
 
