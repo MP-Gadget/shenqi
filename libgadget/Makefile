@@ -9,9 +9,10 @@ include $(CONFIG)
 UTILS_TESTED = #memory openmpsort interp peano
 UTILS_MPI_TESTED = #mpsort
 
-TESTED = cooling cosmology
-# hci \
- 	slotsmanager \
+TESTED = cooling \
+	cosmology \
+	hci \
+# 	slotsmanager \
  	powerspectrum \
 	cooling \
 	forcetree \
