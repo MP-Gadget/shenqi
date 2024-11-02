@@ -1,9 +1,8 @@
 /*Tests for the cooling rates module, ported from python.*/
+#define BOOST_TEST_MODULE cooling_rates
 
-#include <stdarg.h>
-#include <stddef.h>
-#include <setjmp.h>
-#include <cmocka.h>
+#include "booststub.h"
+
 #include <math.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -11,7 +10,6 @@
 #include <libgadget/physconst.h>
 #include <libgadget/cooling_rates.h>
 #include <libgadget/config.h>
-#include "stub.h"
 
 //Stub
 int
@@ -29,7 +27,7 @@ This function returns as an array these rates, for testing purposes.*/
 static const double f92g2[NEXACT] = {5.758e-11, 2.909e-11, 1.440e-11, 6.971e-12,3.282e-12, 1.489e-12, 6.43e-13, 2.588e-13, 9.456e-14, 3.069e-14, 8.793e-15, 2.245e-15, 5.190e-16, 1.107e-16, 2.221e-17, 4.267e-18, 7.960e-19, 1.457e-19,2.636e-20, 4.737e-21};
 //case B recombination rates for hydrogen from Ferland 92, second column of Table 1. For n == 1.
 static const double f92n1[NEXACT] = {9.258e-12, 5.206e-12, 2.927e-12, 1.646e-12, 9.246e-13, 5.184e-13, 2.890e-13, 1.582e-13, 8.255e-14, 3.882e-14, 1.545e-14, 5.058e-15, 1.383e-15, 3.276e-16, 7.006e-17, 1.398e-17, 2.665e-18, 4.940e-19, 9.001e-20, 1.623e-20};
-static const double tt[NEXACT] = {3.16227766e+00, 1.0e+01, 3.16227766e+01, 1.0e+02, 3.16227766e+02, 1.00e+03, 3.16227766e+03, 1.e+04, 3.16227766e+04, 1.e+05, 3.16227766e+05, 1.e+06, 3.16227766e+06, 1.0e+07, 3.16227766e+07, 1.0e+08, 3.16227766e+08, 1.0e+09, 3.16227766e+09, 1.0e+10};
+static const double temps[NEXACT] = {3.16227766e+00, 1.0e+01, 3.16227766e+01, 1.0e+02, 3.16227766e+02, 1.00e+03, 3.16227766e+03, 1.e+04, 3.16227766e+04, 1.e+05, 3.16227766e+05, 1.e+06, 3.16227766e+06, 1.0e+07, 3.16227766e+07, 1.0e+08, 3.16227766e+08, 1.0e+09, 3.16227766e+09, 1.0e+10};
 
 static struct cooling_params get_test_coolpar(void)
 {
@@ -49,7 +47,7 @@ static struct cooling_params get_test_coolpar(void)
 }
 
 /*Test the recombination rates*/
-static void test_recomb_rates(void ** state)
+BOOST_AUTO_TEST_CASE(test_recomb_rates)
 {
     struct cooling_params coolpar = get_test_coolpar();
     int i;
@@ -64,7 +62,7 @@ static void test_recomb_rates(void ** state)
     set_coolpar(coolpar);
     init_cooling_rates(TreeCool,NULL,MetalCool,&CP);
     for(i=0; i< NEXACT; i++) {
-        assert_true(fabs(recomb_alphaHp(tt[i])/(f92g2[i]+f92n1[i])-1.) < 1e-2);
+        BOOST_TEST(recomb_alphaHp(temps[i]) == (f92g2[i]+f92n1[i]), tt::tolerance(0.01));
     }
 
     coolpar.recomb = Cen92;
@@ -72,12 +70,12 @@ static void test_recomb_rates(void ** state)
     init_cooling_rates(TreeCool,NULL,MetalCool,&CP);
     /*Cen rates are not very accurate.*/
     for(i=4; i< 12; i++) {
-        assert_true(fabs(recomb_alphaHp(tt[i])/(f92g2[i]+f92n1[i])-1.) < 0.5);
+        BOOST_TEST(recomb_alphaHp(temps[i]) == (f92g2[i]+f92n1[i]), tt::tolerance(0.5));
     }
 }
 
 /*Test that the UVBG loading code works*/
-static void test_uvbg_loader(void ** state)
+BOOST_AUTO_TEST_CASE(test_uvbg_loader)
 {
     struct cooling_params coolpar = get_test_coolpar();
     coolpar.SelfShieldingOn = 1;
@@ -91,32 +89,33 @@ static void test_uvbg_loader(void ** state)
     init_cooling_rates(TreeCool,NULL,MetalCool,&CP);
     /*Test sensible rates at high redshift*/
     struct UVBG uvbg = get_global_UVBG(16);
-    assert_true(uvbg.epsH0 == 0);
-    assert_true(uvbg.self_shield_dens > 1e8);
-    assert_true(uvbg.gJH0 == 0);
+    BOOST_TEST(uvbg.epsH0 == 0);
+    BOOST_TEST(uvbg.self_shield_dens > 1e8);
+    BOOST_TEST(uvbg.gJH0 == 0);
     /*Test at zero redshift*/
     uvbg = get_global_UVBG(0);
-    assert_true(fabs(uvbg.epsH0/3.65296e-25 -1) < 1e-5);
-    assert_true(fabs(uvbg.epsHe0/3.98942e-25 -1) < 1e-5);
-    assert_true(fabs(uvbg.epsHep/3.33253e-26 -1) < 1e-5);
-    assert_true(fabs(uvbg.gJH0/6.06e-14 -1) < 1e-5);
-    assert_true(fabs(uvbg.gJHe0/3.03e-14 -1) < 1e-5);
-    assert_true(fabs(uvbg.gJHep/1.1e-15 -1) < 1e-5);
-    assert_true(fabs(uvbg.self_shield_dens/0.0010114161149989826 - 1) < 1e-5);
-    /*Test at intermediate redshift*/
+    BOOST_TEST(uvbg.epsH0 == 3.65296e-25, tt::tolerance(1e-5));
+    BOOST_TEST(uvbg.epsHe0 == 3.98942e-25, tt::tolerance(1e-5));
+    BOOST_TEST(uvbg.epsHep == 3.33253e-26, tt::tolerance(1e-5));
+    BOOST_TEST(uvbg.gJH0 == 6.06e-14, tt::tolerance(1e-5));
+    BOOST_TEST(uvbg.gJHe0 == 3.03e-14, tt::tolerance(1e-5));
+    BOOST_TEST(uvbg.gJHep == 1.1e-15, tt::tolerance(1e-5));
+    BOOST_TEST(uvbg.self_shield_dens == 0.0010114161149989826, tt::tolerance(1e-5));
+
+    // Test at intermediate redshift
     uvbg = get_global_UVBG(3.);
     //message(0, "uvbg %g %g %g %g %g %g %g\n", uvbg.gJH0, uvbg.gJHe0, uvbg.gJHep,  uvbg.epsH0, uvbg.epsHe0, uvbg.epsHep, uvbg.self_shield_dens);
-    assert_true(fabs(uvbg.epsH0/5.96570906168362e-24 -1) < 1e-5);
-    assert_true(fabs(uvbg.epsHe0/4.466976578202419e-24 -1) < 1e-5);
-    assert_true(fabs(uvbg.epsHep/2.758535690259892e-26 -1) < 1e-5);
-    assert_true(fabs(uvbg.gJH0/1.0549960730284017e-12 -1) < 1e-5);
-    assert_true(fabs(uvbg.gJHe0/4.759025257653999e-13 -1) < 1e-5);
-    assert_true(fabs(uvbg.gJHep/2.270599708640625e-16 -1) < 1e-5);
-    assert_true(fabs(uvbg.self_shield_dens/0.007691709693529007 - 1) < 1e-5);
+    BOOST_TEST(uvbg.epsH0 == 5.96570906168362e-24, tt::tolerance(1e-5));
+    BOOST_TEST(uvbg.epsHe0 == 4.466976578202419e-24, tt::tolerance(1e-5));
+    BOOST_TEST(uvbg.epsHep == 2.758535690259892e-26, tt::tolerance(1e-5));
+    BOOST_TEST(uvbg.gJH0 == 1.0549960730284017e-12, tt::tolerance(1e-5));
+    BOOST_TEST(uvbg.gJHe0 == 4.759025257653999e-13, tt::tolerance(1e-5));
+    BOOST_TEST(uvbg.gJHep == 2.270599708640625e-16, tt::tolerance(1e-5));
+    BOOST_TEST(uvbg.self_shield_dens == 0.007691709693529007, tt::tolerance(1e-5));
 }
 
 /* Simple tests for the rate network */
-static void test_rate_network(void ** state)
+BOOST_AUTO_TEST_CASE(test_rate_network)
 {
     struct cooling_params coolpar = get_test_coolpar();
     const char * TreeCool = GADGET_TESTDATA_ROOT "/examples/TREECOOL_ep_2018p";
@@ -132,46 +131,44 @@ static void test_rate_network(void ** state)
 
     struct UVBG uvbg = get_global_UVBG(2);
 
-
     //Complete ionisation at low density
     double logt;
-    assert_true( fabs(get_equilib_ne(1e-6, 200.*1e10, 0.24, &logt, &uvbg, 1) / (1e-6*0.76) - (1 + 2* 0.24/(1-0.24)/4)) < 3e-5);
-    assert_true( fabs(get_equilib_ne(1e-6, 200.*1e10, 0.12, &logt, &uvbg, 1) / (1e-6*0.88) - (1 + 2* 0.12/(1-0.12)/4)) < 3e-5);
-    assert_true( fabs(get_equilib_ne(1e-5, 200.*1e10, 0.24, &logt, &uvbg, 1) / (1e-5*0.76) - (1 + 2* 0.24/(1-0.24)/4)) < 3e-4);
-    assert_true( fabs(get_equilib_ne(1e-4, 200.*1e10, 0.24, &logt, &uvbg, 1) / (1e-4*0.76) - (1 + 2* 0.24/(1-0.24)/4)) < 2e-3);
+    BOOST_TEST(get_equilib_ne(1e-6, 200.*1e10, 0.24, &logt, &uvbg, 1) / (1e-6*0.76)  == (1 + 2* 0.24/(1-0.24)/4), tt::tolerance(3e-5));
+    BOOST_TEST(get_equilib_ne(1e-6, 200. * 1e10, 0.12, &logt, &uvbg, 1) / (1e-6 * 0.88) == (1 + 2 * 0.12 / (1 - 0.12) / 4), tt::tolerance(3e-5));
+    BOOST_TEST(get_equilib_ne(1e-5, 200. * 1e10, 0.24, &logt, &uvbg, 1) / (1e-5 * 0.76) == (1 + 2 * 0.24 / (1 - 0.24) / 4), tt::tolerance(3e-4));
+    BOOST_TEST(get_equilib_ne(1e-4, 200. * 1e10, 0.24, &logt, &uvbg, 1) / (1e-4 * 0.76) == (1 + 2 * 0.24 / (1 - 0.24) / 4), tt::tolerance(2e-3));
 
     double ne = 1.;
     double temp = get_temp(1e-4, 200.*1e10,0.24, &uvbg, &ne);
-    assert_true(9500 < temp);
-    assert_true(temp < 9510);
-    //Roughly prop to internal energy when ionised
-    assert_true(fabs(get_temp(1e-4, 400.*1e10,0.24, &uvbg, &ne) / get_temp(1e-4, 200.*1e10,0.24, &uvbg, &ne) - 2.) < 1e-3);
+    BOOST_TEST(9500 < temp);
+    BOOST_TEST(temp < 9510);
+    // Roughly proportional to internal energy when ionised
+    BOOST_TEST(get_temp(1e-4, 400. * 1e10, 0.24, &uvbg, &ne) == 2 * get_temp(1e-4, 200. * 1e10, 0.24, &uvbg, &ne), tt::tolerance(1e-3));
+    BOOST_TEST(get_temp(1, 200. * 1e10, 0.24, &uvbg, &ne) == 14700, tt::tolerance(200.));
 
-    assert_true(fabs(get_temp(1, 200.*1e10,0.24, &uvbg, &ne) - 14700) < 200);
-
-    //Neutral fraction prop to density.
+    // Neutral fraction proportional to density
     double dens[3] = {1e-4, 1e-5, 1e-6};
-    int i;
-    for(i = 0; i < 3; i++) {
-        assert_true(fabs(get_neutral_fraction_phys_cgs(dens[i], 200.*1e10,0.24, &uvbg, &ne) / dens[i] - 0.3113) < 1e-3);
+    for (int i = 0; i < 3; i++) {
+        BOOST_TEST(get_neutral_fraction_phys_cgs(dens[i], 200. * 1e10, 0.24, &uvbg, &ne) == dens[i] * 0.3113, tt::tolerance(1e-3));
     }
-    //Neutral (self-shielded) at high density:
-    assert_true(get_neutral_fraction_phys_cgs(1, 100.,0.24, &uvbg, &ne) > 0.95);
-    assert_true(0.75 > get_neutral_fraction_phys_cgs(0.1, 100.*1e10,0.24, &uvbg, &ne));
-    assert_true(get_neutral_fraction_phys_cgs(0.1, 100.*1e10,0.24, &uvbg, &ne) > 0.735);
+
+    // Neutral (self-shielded) at high density:
+    BOOST_TEST(get_neutral_fraction_phys_cgs(1, 100., 0.24, &uvbg, &ne) > 0.95);
+    BOOST_TEST(0.75 > get_neutral_fraction_phys_cgs(0.1, 100. * 1e10, 0.24, &uvbg, &ne));
+    BOOST_TEST(get_neutral_fraction_phys_cgs(0.1, 100. * 1e10, 0.24, &uvbg, &ne) > 0.735);
 
     //Check self-shielding is working.
     coolpar.SelfShieldingOn = 0;
     set_coolpar(coolpar);
     init_cooling_rates(TreeCool,NULL,MetalCool,&CP);
 
-    assert_true( get_neutral_fraction_phys_cgs(1, 100.*1e10,0.24, &uvbg, &ne) < 0.25);
-    assert_true( get_neutral_fraction_phys_cgs(0.1, 100.*1e10,0.24, &uvbg, &ne) <0.05);
+    BOOST_TEST( get_neutral_fraction_phys_cgs(1, 100.*1e10,0.24, &uvbg, &ne) < 0.25);
+    BOOST_TEST( get_neutral_fraction_phys_cgs(0.1, 100.*1e10,0.24, &uvbg, &ne) <0.05);
 }
 
 /* This test checks that the heating and cooling rate is as expected.
  * In particular the physical density threshold is checked. */
-static void test_heatingcooling_rate(void ** state)
+BOOST_AUTO_TEST_CASE(test_heatingcooling_rate)
 {
     struct cooling_params coolpar = get_test_coolpar();
     coolpar.recomb = Cen92;
@@ -227,29 +224,29 @@ static void test_heatingcooling_rate(void ** state)
     /* This differs by 0.13% from the old cooling code number,
      * apparently just because of rounding errors. The excitation cooling
      * numbers from Cen are not accurate to better than 1% anyway, so don't worry about it*/
-    assert_true(fabs(tcool / 4.68906e-06 - 1) < 1e-3);
+    BOOST_TEST(tcool  == 4.68906e-06, tt::tolerance(1e-3));
 
     /*Now check that we get the desired cooling rate with a UVB*/
     uvbg = get_global_UVBG(0);
 
-    assert_true(uvbg.epsHep > 0);
-    assert_true(uvbg.gJHe0 > 0);
+    BOOST_TEST(uvbg.epsHep > 0);
+    BOOST_TEST(uvbg.gJHe0 > 0);
 
     dens /= 100;
     LambdaNet = get_heatingcooling_rate(dens, egyhot/10., 1 - HYDROGEN_MASSFRAC, 0, 0, &uvbg, &ne);
     //message(1, "LambdaNet = %g, uvbg=%g\n", LambdaNet, uvbg.epsHep);
-    assert_true(fabs(LambdaNet / (-0.0410059) - 1) < 1e-3);
+    BOOST_TEST(LambdaNet == (-0.0410059), tt::tolerance(1e-3));
 
     LambdaNet = get_heatingcooling_rate(dens/2.5, egyhot/10., 1 - HYDROGEN_MASSFRAC, 0, 0, &uvbg, &ne);
-    assert_true(LambdaNet > 0);
+    BOOST_TEST(LambdaNet > 0);
     /*Check self-shielding affects the cooling rates*/
     coolpar.SelfShieldingOn = 1;
     set_coolpar(coolpar);
     init_cooling_rates(TreeCool,NULL,MetalCool,&CP);
     LambdaNet = get_heatingcooling_rate(dens*1.5, egyhot/10., 1 - HYDROGEN_MASSFRAC, 0, 0, &uvbg, &ne);
     //message(1, "LambdaNet = %g, uvbg=%g\n", LambdaNet, uvbg.epsHep);
-    assert_false(LambdaNet > 0);
-    assert_true(fabs(LambdaNet/ (-1.64834) - 1) < 1e-3);
+    BOOST_TEST(!(LambdaNet > 0));
+    BOOST_TEST(LambdaNet == (-1.64834), tt::tolerance(1e-3));
 }
 
 #if 0
@@ -317,13 +314,3 @@ static void test_heatingcooling_rate_sherwood(void ** state)
     fclose(fd2);
 }
 #endif
-
-int main(void) {
-    const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_recomb_rates),
-        cmocka_unit_test(test_rate_network),
-        cmocka_unit_test(test_heatingcooling_rate),
-        cmocka_unit_test(test_uvbg_loader)
-    };
-    return cmocka_run_group_tests_mpi(tests, NULL, NULL);
-}

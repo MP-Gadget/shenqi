@@ -10,6 +10,7 @@ UTILS_TESTED = peano #memory openmpsort interp
 UTILS_MPI_TESTED = #mpsort
 
 TESTED = cooling \
+	cooling_rates \
 	cosmology \
 	hci \
 # 	slotsmanager \
@@ -21,7 +22,6 @@ TESTED = cooling \
 	neutrinos_lra \
 	omega_nu_single \
 	metal_return \
-	cooling_rates \
 	density \
 	gravity \
 	exchange
