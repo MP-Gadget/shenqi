@@ -2,7 +2,7 @@
 
 #define BOOST_TEST_MODULE cooling
 
-#include <boost/test/included/unit_test.hpp>
+#include "booststub.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -16,29 +16,6 @@
 #include <libgadget/cooling_rates.h>
 #include <libgadget/utils/peano.h>
 #include <libgadget/partmanager.h>
-#include <libgadget/utils/endrun.h>
-#include <libgadget/utils/mymalloc.h>
-
-/* Generic MPI setup/teardown code*/
-class MPIGlobalFixture {
-public:
-    MPIGlobalFixture() {};
-    ~MPIGlobalFixture() {};
-    void setup() {
-        int thr;
-        MPI_Init_thread(NULL, NULL, MPI_THREAD_FUNNELED, &thr);
-        init_endrun(1);
-        allocator_init(A_MAIN, "MAIN", 650 * 1024 * 1024, 0, NULL);
-        allocator_init(A_TEMP, "TEMP", 8 * 1024 * 1024, 0, A_MAIN);
-    }
-    void teardown() {
-        MPI_Finalize();
-    }
-};
-
-BOOST_TEST_GLOBAL_FIXTURE(MPIGlobalFixture);
-
-namespace tt = boost::test_tools;
 
 /* Stub.*/
 double get_long_mean_free_path_heating(double redshift)
