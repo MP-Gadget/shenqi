@@ -7,8 +7,8 @@ LOW_PRECISION ?= double
 OPTIMIZE ?= -O2 -g -fopenmp -Wall
 GSL_INCL ?= $(shell pkg-config --cflags gsl)
 GSL_LIBS ?= $(shell pkg-config --libs gsl)
-BOOST_INCL ?= 
-BOOST_LIBS ?= -lboost_system -lboost_math_c99
+BOOST_INCL ?=
+BOOST_LIBS ?=
 
 ifneq ($(findstring -DUSE_CFITSIO, $(OPT)),)
     # If found, set FITSIO_INCL with the cfitsio flags
@@ -17,7 +17,7 @@ ifneq ($(findstring -DUSE_CFITSIO, $(OPT)),)
 endif
 
 ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
-    CUDA_INCL ?= 
+    CUDA_INCL ?=
     CUDA_LIBS ?= -lcudart
     NVCC ?= nvcc
     NVOPTIMIZE ?= -O3
