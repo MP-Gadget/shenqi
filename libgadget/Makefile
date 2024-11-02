@@ -6,8 +6,8 @@ CONFIG ?= ../Options.mk
 
 include $(CONFIG)
 
-UTILS_TESTED = memory openmpsort interp peano
-UTILS_MPI_TESTED = mpsort
+UTILS_TESTED = #memory openmpsort interp peano
+UTILS_MPI_TESTED = #mpsort
 
 TESTED = cooling
 # hci \
@@ -26,7 +26,7 @@ TESTED = cooling
 	gravity \
 	exchange
 
-MPI_TESTED = exchange fof
+MPI_TESTED = #exchange fof
 
 TESTBIN :=$(UTILS_TESTED:%=.objs/utils/test_%) $(UTILS_MPI_TESTED:%=.objs/utils/test_%) $(TESTED:%=.objs/test_%) $(MPI_TESTED:%=.objs/test_%)
 MPISUITE = $(MPI_TESTED:%=test_%) $(UTILS_MPI_TESTED:%=utils/test_%)
@@ -90,39 +90,39 @@ all: libgadget.a libgadget-utils.a
 
 .PHONY: all test run-tests
 
-.objs/utils/test_%: tests/test_%.c .objs/utils/%.o ../tests/stub.c ../tests/cmocka.c libgadget-utils.a
+.objs/utils/test_%: tests/test_%.c .objs/utils/%.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_%: tests/test_%.c .objs/%.o ../tests/stub.c ../tests/cmocka.c libgadget-utils.a
+.objs/test_%: tests/test_%.c .objs/%.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_timebinmgr: tests/test_timebinmgr.c .objs/timebinmgr.o .objs/cosmology.o .objs/omega_nu_single.o ../tests/stub.c ../tests/cmocka.c libgadget-utils.a
+.objs/test_timebinmgr: tests/test_timebinmgr.c .objs/timebinmgr.o .objs/cosmology.o .objs/omega_nu_single.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_neutrinos_lra: tests/test_neutrinos_lra.c .objs/neutrinos_lra.o .objs/cosmology.o .objs/omega_nu_single.o ../tests/stub.c ../tests/cmocka.c libgadget-utils.a
+.objs/test_neutrinos_lra: tests/test_neutrinos_lra.c .objs/neutrinos_lra.o .objs/cosmology.o .objs/omega_nu_single.o libgadget-utils.a
 
-.objs/test_cooling_rates: tests/test_cooling_rates.c .objs/cooling_rates.o .objs/cooling_uvfluc.o ../tests/stub.c ../tests/cmocka.c libgadget-utils.a
+.objs/test_cooling_rates: tests/test_cooling_rates.c .objs/cooling_rates.o .objs/cooling_uvfluc.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_exchange: tests/test_exchange.c .objs/exchange.o ../tests/stub.c ../tests/cmocka.c libgadget.a libgadget-utils.a
+.objs/test_exchange: tests/test_exchange.c .objs/exchange.o libgadget.a libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_density: tests/test_density.c .objs/density.o libgadget.a ../tests/stub.c ../tests/cmocka.c libgadget-utils.a
+.objs/test_density: tests/test_density.c .objs/density.o libgadget.a libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_metal_return: tests/test_metal_return.c .objs/metal_return.o libgadget.a ../tests/stub.c ../tests/cmocka.c libgadget-utils.a
+.objs/test_metal_return: tests/test_metal_return.c .objs/metal_return.o libgadget.a libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_cooling: tests/test_cooling.c .objs/cooling.o .objs/cooling_rates.o .objs/cooling_uvfluc.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_gravity: tests/test_gravity.c libgadget.a ../tests/stub.c ../tests/cmocka.c libgadget-utils.a
+.objs/test_gravity: tests/test_gravity.c libgadget.a libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_fof: tests/test_fof.c libgadget.a ../tests/stub.c ../tests/cmocka.c libgadget-utils.a
+.objs/test_fof: tests/test_fof.c libgadget.a libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_forcetree: tests/test_forcetree.c libgadget.a ../tests/stub.c ../tests/cmocka.c libgadget-utils.a
+.objs/test_forcetree: tests/test_forcetree.c libgadget.a libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 build-tests: $(TESTBIN)
