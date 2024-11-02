@@ -9,11 +9,10 @@ include $(CONFIG)
 UTILS_TESTED = #memory openmpsort interp peano
 UTILS_MPI_TESTED = #mpsort
 
-TESTED = cooling
+TESTED = cooling cosmology
 # hci \
  	slotsmanager \
  	powerspectrum \
-	cosmology \
 	cooling \
 	forcetree \
 	timefac \
@@ -94,6 +93,9 @@ all: libgadget.a libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_%: tests/test_%.c .objs/%.o libgadget-utils.a
+	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+
+.objs/test_cosmology: tests/test_cosmology.c .objs/cosmology.o .objs/timefac.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_timebinmgr: tests/test_timebinmgr.c .objs/timebinmgr.o .objs/cosmology.o .objs/omega_nu_single.o libgadget-utils.a
