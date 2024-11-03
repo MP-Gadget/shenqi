@@ -78,8 +78,8 @@ get_interp_data(const std::vector<double>& xdata, const std::vector<double>& yda
     size_t i = std::distance(xdata.begin(), upper);
     // message(0, "i = %ld z %g lower %g xdata %g %g ydata %g %g\n", i, pow(10, xval)-1, pow(10, *upper)-1, pow(10, xdata[i])-1, pow(10, xdata[i+1])-1, pow(10,ydata[i]), pow(10, ydata[i+1]));
     // Use std::lerp so that floating point roundoff is minimised.
-    // return std::lerp(ydata[i-1], ydata[i], (xval - xdata[i-1]) / (xdata[i] - xdata[i-1]));
-    return (ydata[i-1] *(xdata[i] - xval) + ydata[i] * (xval - xdata[i-1])) / (xdata[i] - xdata[i-1]);
+    return std::lerp(ydata[i-1], ydata[i], (xval - xdata[i-1]) / (xdata[i] - xdata[i-1]));
+    // return (ydata[i-1] *(xdata[i] - xval) + ydata[i] * (xval - xdata[i-1])) / (xdata[i] - xdata[i-1]);
 }
 
 /*Linear interpolation class for two generic vectors.*/
@@ -507,7 +507,8 @@ get_interpolated_recomb(double logt, double * rec_tab, double rec_func(double))
         return rec_func(exp(logt));
     //if (temp_tab[index] > logt || temp_tab[index+1] < logt || index < 0 || index >= NRECOMBTAB)
     //    endrun(2, "Incorrect indexing of recombination array\n");
-    return rec_tab[index + 1] * (dind - index) + rec_tab[index] * (1 - (dind - index));
+    return std::lerp(rec_tab[index], rec_tab[index + 1], dind - index);
+    // return rec_tab[index + 1] * (dind - index) + rec_tab[index] * (1 - (dind - index));
 }
 
 /*The neutral hydrogen number density, divided by the hydrogen number density.
