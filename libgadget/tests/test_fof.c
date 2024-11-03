@@ -1,10 +1,8 @@
 /*Simple test for the exchange function*/
+#define BOOST_TEST_MODULE fof
+#include "booststub.h"
 
-#include <stdarg.h>
-#include <stddef.h>
-#include <setjmp.h>
-#include <cmocka.h>
-#include <math.h>
+#include <cmath>
 #include <mpi.h>
 #include <stdio.h>
 #include <string.h>
@@ -19,7 +17,6 @@
 #include <libgadget/domain.h>
 #include <libgadget/forcetree.h>
 #include <libgadget/partmanager.h>
-#include "stub.h"
 
 static struct ClockTable CT;
 
@@ -62,8 +59,7 @@ setup_particles(int NumPart, double BoxSize)
     return 0;
 }
 
-static void
-test_fof(void **state)
+BOOST_AUTO_TEST_CASE(test_fof)
 {
     int NTask;
     walltime_init(&CT);
@@ -90,8 +86,8 @@ test_fof(void **state)
     FOFGroups fof = fof_fof(&ddecomp, 1, MPI_COMM_WORLD);
 
     /* Example assertion: this checks that the groups were allocated. */
-    assert_all_true(fof.Group);
-    assert_true(fof.TotNgroups == 1);
+    BOOST_TEST(fof.Group);
+    BOOST_TEST(fof.TotNgroups == 1);
     /* Assert some more things about the particles,
      * maybe checking the halo properties*/
 
@@ -100,11 +96,4 @@ test_fof(void **state)
     slots_free(SlotsManager);
     myfree(P);
     return;
-}
-
-int main(void) {
-    const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_fof),
-    };
-    return cmocka_run_group_tests_mpi(tests, NULL, NULL);
 }

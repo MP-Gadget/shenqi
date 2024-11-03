@@ -25,7 +25,7 @@ TESTED = cooling \
 	gravity \
 	exchange
 
-MPI_TESTED = #exchange fof
+MPI_TESTED = fof #exchange
 
 TESTBIN :=$(UTILS_TESTED:%=.objs/utils/test_%) $(UTILS_MPI_TESTED:%=.objs/utils/test_%) $(TESTED:%=.objs/test_%) $(MPI_TESTED:%=.objs/test_%)
 MPISUITE = $(MPI_TESTED:%=test_%) $(UTILS_MPI_TESTED:%=utils/test_%)
