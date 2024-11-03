@@ -154,18 +154,14 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
      * so that the strides will give correct linear indexing for
      * integer coordinates given in order of (y, z, x).
      * */
-
-#define ROLL(a, N, j) { \
-    typeof(a[0]) tmp[N]; \
-    ptrdiff_t k; \
-    for(k = 0; k < N; k ++) tmp[k] = a[k]; \
-    for(k = 0; k < N; k ++) a[k] = tmp[(k + j)% N]; \
+    auto tmp1 = pm->fourier_space_region.offset[0];
+    auto tmp2 = pm->fourier_space_region.size[0];
+    for(k = 0; k < 2; k ++) {
+        pm->fourier_space_region.offset[k] = pm->fourier_space_region.offset[(k + 1)];
+        pm->fourier_space_region.size[k] = pm->fourier_space_region.size[(k + 1)];
     }
-
-    ROLL(pm->fourier_space_region.offset, 3, 1);
-    ROLL(pm->fourier_space_region.size, 3, 1);
-
-#undef ROLL
+    pm->fourier_space_region.offset[2] = tmp1;
+    pm->fourier_space_region.size[2] = tmp2;
 
     /* calculate the strides */
     petapm_region_init_strides(&pm->real_space_region);
