@@ -7,7 +7,7 @@ CONFIG ?= ../Options.mk
 include $(CONFIG)
 
 UTILS_TESTED = peano #memory openmpsort interp
-UTILS_MPI_TESTED = #mpsort
+UTILS_MPI_TESTED = mpsort
 
 TESTED = cooling \
 	cooling_rates \
@@ -15,7 +15,6 @@ TESTED = cooling \
 	hci \
 # 	slotsmanager \
  	powerspectrum \
-	cooling \
 	forcetree \
 	timefac \
 	timebinmgr \
