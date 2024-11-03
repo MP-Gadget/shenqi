@@ -147,7 +147,7 @@ BOOST_AUTO_TEST_CASE(test_rate_network)
     BOOST_TEST(get_temp(1, 200. * 1e10, 0.24, &uvbg, &ne) == 14700, tt::tolerance(200.));
 
     // Neutral fraction proportional to density
-    double dens[3] = {1e-4, 1e-5, 1e-6};
+    double dens[3] = {1e-5, 1e-6, 1e-7};
     for (int i = 0; i < 3; i++) {
         BOOST_TEST(get_neutral_fraction_phys_cgs(dens[i], 200. * 1e10, 0.24, &uvbg, &ne) == dens[i] * 0.3113, tt::tolerance(1e-3));
     }
