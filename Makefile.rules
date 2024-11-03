@@ -5,6 +5,8 @@ MPICC ?= mpic++
 LOW_PRECISION ?= double
 
 OPTIMIZE ?= -O2 -g -fopenmp -Wall
+#Explicitly set C++ standard
+OPTIMIZE += -std=gnu++20
 GSL_INCL ?= $(shell pkg-config --cflags gsl)
 GSL_LIBS ?= $(shell pkg-config --libs gsl)
 BOOST_INCL ?=
