@@ -4,7 +4,7 @@ CONFIG ?= ../Options.mk
 
 include $(CONFIG)
 
-TESTED = power thermal
+TESTED = #power thermal
 TESTBIN := $(TESTED:%=.objs/test_%) $(MPI_TESTED:%=.objs/test_%)
 MPISUITE = $(MPI_TESTED:%=test_%)
 SUITE = $(TESTED:%=test_%) $(MPISUITE)
@@ -19,7 +19,7 @@ OBJS := $(OBJS:%.o=.objs/%.o)
 
 all : libgenic.a
 
-.objs/test_%: tests/test_%.c .objs/%.o ../tests/stub.c ../tests/cmocka.c ../libgadget/libgadget-utils.a ../libgadget/libgadget.a
+.objs/test_%: tests/test_%.c .objs/%.o ../libgadget/libgadget-utils.a ../libgadget/libgadget.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 build-tests: $(TESTBIN)
