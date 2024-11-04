@@ -7,6 +7,27 @@
 
 using int64 = long long int;
 
+#define CUDA_CHECK(ans) { gpu_checkAssert((ans), __FILE__, __LINE__); }
+inline void gpu_checkAssert(cudaError_t code, const char *file, int line, bool abort=true)
+{
+    if (code != cudaSuccess) 
+    {
+        fprintf(stderr,"CUDA_CHECK: %s %s %d\n", cudaGetErrorString(code), file, line);
+        if (abort) exit(code);
+    }
+}
+
+#define CUFFT_CHECK(ans) { cufft_check((ans), __FILE__, __LINE__); }
+inline void cufft_check(int code, const char *file, int line, bool abort=true)
+{
+    if (code != CUFFT_SUCCESS) 
+    {
+        fprintf(stderr,"CUFFT_CHECK: %d %s %d\n", code, file, line);
+        if (abort) exit(code);
+    }
+}
+
+
 
 typedef struct Region {
     /* represents a region in the FFT Mesh */
@@ -57,6 +78,7 @@ typedef struct PetaPMPriv {
     /* These varibles are initialized by petapm_init*/
 
     int fftsize;
+    int fftsize_complex;
     cufftHandle plan_forw; // NC:change plan function call
     cufftHandle plan_back;
     cudaStream_t stream;
@@ -98,7 +120,7 @@ typedef struct {
     int64_t NumPart;
 } PetaPMParticleStruct;
 
-typedef void (*petapm_transfer_func)(PetaPM * pm, int64_t k2, int kpos[3], cufftComplex * value); //NC:change to complex type
+typedef void (*petapm_transfer_func)(PetaPM * pm, int64_t k2, int kpos[3], cufftDoubleComplex * value); //NC:change to complex type
 typedef void (*petapm_readout_func)(PetaPM * pm, int i, double * mesh, double weight);
 typedef PetaPMRegion * (*petapm_prepare_func)(PetaPM * pm, PetaPMParticleStruct * pstruct, void * data, int *Nregions);
 
@@ -138,11 +160,12 @@ PetaPMRegion * petapm_force_init(PetaPM * pm,
         PetaPMParticleStruct * pstruct,
         int * Nregions,
         void * userdata);
-cufftComplex * petapm_force_r2c(PetaPM * pm,
+cufftDoubleComplex * petapm_force_r2c(PetaPM * pm,
         PetaPMGlobalFunctions * global_functions
         ); // NC: changed returned complex type
 void petapm_force_c2r(PetaPM * pm,
-        cufftComplex * rho_k, PetaPMRegion * regions,
+            cufftDoubleComplex * rho_k,
+               PetaPMRegion * regions,
         const int Nregions,
         PetaPMFunctions * functions); // NC: changed input complex type
 void petapm_force_finish(PetaPM * pm);
@@ -152,5 +175,5 @@ PetaPMRegion * petapm_get_real_region(PetaPM * pm);
 int petapm_mesh_to_k(PetaPM * pm, int i);
 int *petapm_get_thistask2d(PetaPM * pm);
 int *petapm_get_ntask2d(PetaPM * pm);
-cufftComplex * petapm_alloc_rhok(PetaPM * pm); // NC: changed returned complex type
+cufftDoubleComplex * petapm_alloc_rhok(PetaPM * pm); // NC: changed returned complex type
 #endif

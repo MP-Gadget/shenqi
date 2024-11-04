@@ -33,7 +33,7 @@ __device__ double diff_kernel(double w) {
 
 
 __global__
-void potential_transfer_kernel(BoxIterator<cufftComplex> begin, BoxIterator<cufftComplex> end, PetaPM *pm) {
+void potential_transfer_kernel(BoxIterator<cufftDoubleComplex> begin, BoxIterator<cufftDoubleComplex> end, PetaPM *pm) {
     const int tid = threadIdx.x + blockIdx.x * blockDim.x;
     begin += tid;
 
@@ -73,6 +73,10 @@ void potential_transfer_kernel(BoxIterator<cufftComplex> begin, BoxIterator<cuff
             begin->y = 0.0;
             return;
         }
+        if(tid < 10) {
+            printf("GPU data (after first transform): global 3D index [%d %d %d], local index %d is (%f,%f)\n", 
+                (int)begin.x(), (int)begin.y(), (int)begin.z(), (int)begin.i(), begin->x, begin->y);
+        }
         // Apply scaling factor
         begin->x *= fac;
         begin->y *= fac;
@@ -80,7 +84,44 @@ void potential_transfer_kernel(BoxIterator<cufftComplex> begin, BoxIterator<cuff
 }
 
 
-extern "C" void launch_potential_transfer(Box3D box_complex, cufftComplex* data, int rank, int size, PetaPM *pm, cudaStream_t stream) {
+__global__ 
+void force_transfer_kernel(BoxIterator<cufftDoubleComplex> begin, BoxIterator<cufftDoubleComplex> end, PetaPM *pm, int ik) {
+    double tmp0;
+    double tmp1;
+    const int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    begin += tid;
+    int pos;
+    
+    if (begin < end) {
+        // Get global 3D coordinates of the current element in real space
+        switch (ik) {
+            case 0:
+                pos = begin.x();
+                break;
+            case 1:
+                pos = begin.y();
+                break;
+            case 2:
+                pos = begin.z();
+                break;
+        }
+        // Compute the corresponding wave numbers (kx, ky, kz), in grid unit
+        int kpos = pos<=pm->Nmesh/2 ? pos : (pos-pm->Nmesh);
+        /*
+         * negative sign is from force_x = - Del_x pot
+         *
+         * filter is   i K(w)
+         * */
+        double fac = -1 * diff_kernel (kpos * (2 * M_PI / pm->Nmesh)) * (pm->Nmesh / pm->BoxSize);
+        tmp0 = - begin->y * fac;
+        tmp1 = begin->x * fac;
+        begin->x = tmp0;
+        begin->y = tmp1;
+    }
+}
+
+
+extern "C" void launch_potential_transfer(Box3D box_complex, cufftDoubleComplex* data, int rank, int size, PetaPM *pm, cudaStream_t stream) {
     auto [begin_d, end_d] = BoxIterators(box_complex, data);
     const size_t num_elements = std::distance(begin_d, end_d);
     const size_t num_threads  = 256;
@@ -89,43 +130,34 @@ extern "C" void launch_potential_transfer(Box3D box_complex, cufftComplex* data,
 }
 
 
+extern "C" void launch_force_x_transfer(Box3D box_complex, cufftDoubleComplex* data, int rank, int size, PetaPM *pm, cudaStream_t stream) {
+    auto [begin_d, end_d] = BoxIterators(box_complex, data);
+    const size_t num_elements = std::distance(begin_d, end_d);
+    const size_t num_threads  = 256;
+    const size_t num_blocks   = (num_elements + num_threads - 1) / num_threads;
+    force_transfer_kernel<<<num_blocks, num_threads, 0, stream>>>(begin_d, end_d, pm, 0);
+}
+
+extern "C" void launch_force_y_transfer(Box3D box_complex, cufftDoubleComplex* data, int rank, int size, PetaPM *pm, cudaStream_t stream) {
+    auto [begin_d, end_d] = BoxIterators(box_complex, data);
+    const size_t num_elements = std::distance(begin_d, end_d);
+    const size_t num_threads  = 256;
+    const size_t num_blocks   = (num_elements + num_threads - 1) / num_threads;
+    force_transfer_kernel<<<num_blocks, num_threads, 0, stream>>>(begin_d, end_d, pm, 1);
+}
+
+extern "C" void launch_force_z_transfer(Box3D box_complex, cufftDoubleComplex* data, int rank, int size, PetaPM *pm, cudaStream_t stream) {
+    auto [begin_d, end_d] = BoxIterators(box_complex, data);
+    const size_t num_elements = std::distance(begin_d, end_d);
+    const size_t num_threads  = 256;
+    const size_t num_blocks   = (num_elements + num_threads - 1) / num_threads;
+    force_transfer_kernel<<<num_blocks, num_threads, 0, stream>>>(begin_d, end_d, pm, 2);
+}
 
 
-// static void force_transfer(PetaPM * pm, int k, cufftComplex * value) {
-//     double tmp0;
-//     double tmp1;
-//     /*
-//      * negative sign is from force_x = - Del_x pot
-//      *
-//      * filter is   i K(w)
-//      * */
-//     double fac = -1 * diff_kernel (k * (2 * M_PI / pm->Nmesh)) * (pm->Nmesh / pm->BoxSize);
-//     tmp0 = - value[0].y * fac;
-//     tmp1 = value[0].x * fac;
-//     value[0].x = tmp0;
-//     value[0].y = tmp1;
-// }
-// static void force_x_transfer(PetaPM * pm, int64_t k2, int kpos[3], cufftComplex * value) {
-//     force_transfer(pm, kpos[0], value);
-// }
-// static void force_y_transfer(PetaPM * pm, int64_t k2, int kpos[3], cufftComplex * value) {
-//     force_transfer(pm, kpos[1], value);
-// }
-// static void force_z_transfer(PetaPM * pm, int64_t k2, int kpos[3], cufftComplex * value) {
-//     force_transfer(pm, kpos[2], value);
-// }
-// static void readout_potential(PetaPM * pm, int i, double * mesh, double weight) {
-//     P[i].Potential += weight * mesh[0];
-// }
-// static void readout_force_x(PetaPM * pm, int i, double * mesh, double weight) {
-//     P[i].GravPM[0] += weight * mesh[0];
-// }
-// static void readout_force_y(PetaPM * pm, int i, double * mesh, double weight) {
-//     P[i].GravPM[1] += weight * mesh[0];
-// }
-// static void readout_force_z(PetaPM * pm, int i, double * mesh, double weight) {
-//     P[i].GravPM[2] += weight * mesh[0];
-// }
+
+
+
 
 
 
