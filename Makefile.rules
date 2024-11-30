@@ -5,8 +5,6 @@ MPICC ?= mpic++
 LOW_PRECISION ?= double
 
 OPTIMIZE ?= -O2 -g -fopenmp -Wall
-GSL_INCL ?= $(shell pkg-config --cflags gsl)
-GSL_LIBS ?= $(shell pkg-config --libs gsl)
 BOOST_INCL ?= 
 BOOST_LIBS ?= -lboost_system -lboost_math_c99
 
@@ -26,7 +24,7 @@ endif
 OPTIONS = $(OPTIMIZE) $(OPT)
 GADGET_TESTDATA_ROOT = $(CURDIR)/../
 
-CFLAGS = $(OPTIONS) $(GSL_INCL) $(BOOST_INCL) $(FITSIO_INCL) $(CUDA_INCL)
+CFLAGS = $(OPTIONS) $(BOOST_INCL) $(FITSIO_INCL) $(CUDA_INCL)
 CFLAGS += -I../depends/include
 CFLAGS += -I../
 CFLAGS += "-DLOW_PRECISION=$(LOW_PRECISION)"
@@ -34,7 +32,7 @@ CFLAGS += "-DLOW_PRECISION=$(LOW_PRECISION)"
 TCFLAGS = $(CFLAGS) -DGADGET_TESTDATA_ROOT=\"$(GADGET_TESTDATA_ROOT)\"
 
 BUNDLEDLIBS = -lbigfile-mpi -lbigfile -lpfft_omp -lfftw3_mpi -lfftw3_omp -lfftw3
-LIBS  = -lm  $(BOOST_LIBS) $(GSL_LIBS) $(FITSIO_LIBS) $(CUDA_LIBS)
+LIBS  = -lm  $(BOOST_LIBS) $(FITSIO_LIBS) $(CUDA_LIBS)
 LIBS += -L../depends/lib $(BUNDLEDLIBS)
 V ?= 0
 
