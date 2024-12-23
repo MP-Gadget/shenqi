@@ -498,7 +498,8 @@ double TopHatSigma2(double R)
   double maxtabk = pow(10, 0.24 + power_table.logk[power_table.Nentry - 1]);
   if(maxk > maxtabk)
       endrun(3, "Trying to do sigma8 integral for rescaling, but need k = %g and largest k in power table is %g\n", maxk, pow(10, power_table.logk[power_table.Nentry - 1]));
-  result = tanh_sinh_integrate_adaptive(integrand, 0, M_PI * (20 + 0.5) / R, &abserr, 1e-4, 0.);
+  // Mink is just the usual boundary of class tables
+  result = tanh_sinh_integrate_adaptive(integrand, 2e-5, M_PI * (20 + 0.5) / R, &abserr, 1e-4, 0.);
   /*   printf("integration in TopHatSigma2. Result %g, error: %g, intervals: %lu\n",result, abserr,w->size); */
   return result;
 }
