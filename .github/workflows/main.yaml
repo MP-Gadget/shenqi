@@ -46,7 +46,7 @@ jobs:
     - name: Install apt packages
       run: |
         sudo apt update
-        sudo apt install -y build-essential libopenmpi-dev openmpi-bin libgsl-dev python3-configobj python3-numpy python3-h5py python3-scipy cython3
+        sudo apt install -y build-essential libopenmpi-dev openmpi-bin libgsl-dev python3-configobj python3-numpy python3-h5py python3-scipy cython3 libboost-all-dev
     - name: Build
       run: |
         cp platform-options/Options.mk.travis Options.mk
