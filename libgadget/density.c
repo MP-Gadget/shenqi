@@ -286,6 +286,7 @@ density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Blac
     init_kick_factor_data(&priv->kf, &times, CP);
     priv->times = &times;
 
+    /* If all particles are active, easiest to compute all the predicted velocities immediately*/
     if(!act->ActiveParticle || act->NumActiveHydro > 0.1 * (SlotsManager->info[0].size + SlotsManager->info[5].size)) {
         priv->SPH_predicted->EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
         #pragma omp parallel for
@@ -293,6 +294,9 @@ density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Blac
             if(P[i].Type == 0 && !P[i].IsGarbage)
                 priv->SPH_predicted->EntVarPred[P[i].PI] = SPH_EntVarPred(i, priv->times);
     }
+    /* But if only some particles are active, the pow function in EntVarPred is slow and we have a lot of overhead, because we are doing 5500^3 exps for 5 particles.
+     * So instead we compute it for active particles and use an atomic to guard the changes inside the loop.
+     * For sufficiently small particle numbers the memset dominates and it is fastest to just compute each predicted entropy as we need it.*/
     else if(act->NumActiveHydro > 0.0001 * (SlotsManager->info[0].size + SlotsManager->info[5].size)){
         priv->SPH_predicted->EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
         memset(priv->SPH_predicted->EntVarPred, 0, sizeof(priv->SPH_predicted->EntVarPred[0]) * SlotsManager->info[0].size);
@@ -716,7 +720,7 @@ set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSepa
 
             /* Check that we didn't somehow get a bad set of nodes*/
             if(p > tree->numnodes + tree->firstnode)
-                endrun(5, "Bad init father: i=%d, mass = %g type %d hsml %g no %d len %g father %d, numnodes %d firstnode %d\n",
+                endrun(5, "Bad init father: i=%d, mass = %g type %d hsml %g no %d len %g father %d, numnodes %ld firstnode %ld\n",
                     i, P[i].Mass, P[i].Type, P[i].Hsml, no, tree->Nodes[no].len, p, tree->numnodes, tree->firstnode);
             no = p;
         } while(10 * DesNumNgb * P[i].Mass > tree->Nodes[no].mom.mass);

@@ -67,21 +67,32 @@ double DeltaSpec(double k, enum TransferType Type)
 
 /* Internal helper function that performs interpolation for a row of the
  * tabulated transfer/mater power table*/
-static double get_Tabulated(double k, enum TransferType Type, double oobval)
+static double get_Tabulated(double k, enum TransferType Type)
 {
     /*Convert k to Mpc/h*/
     const double scale = (CM_PER_MPC / UnitLength_in_cm);
-    const double logk = log10(k*scale);
+    double logk = log10(k*scale);
+    double maxlogk = power_table.logk[power_table.Nentry - 1];
+    /* For interpolation*/
+    double intlogk = logk;
 
-    if(logk < power_table.logk[0] || logk > power_table.logk[power_table.Nentry - 1])
-      return oobval;
+    if(logk < power_table.logk[0]-0.1 || logk > maxlogk + 0.25)
+        endrun(6, "Requested k = %g h/Mpc for type %d but power table is from %g to %g h/Mpc\n",
+               pow(10, logk), Type, pow(10, power_table.logk[0]), pow(10, maxlogk));
+    if(logk < power_table.logk[0])
+        intlogk = power_table.logk[0];
+    if(logk > maxlogk)
+        intlogk = maxlogk;
 
-    double logD = (*power_table.mat_intp[0])(logk);
+    double logD = (*power_table.mat_intp[0])(intlogk);
+    /* If we are past the end of the table, assume the power scales like k^-3 log (k) and the transfer function is constant*/
+    if(logk > maxlogk)
+        logD += -3 * (logk - intlogk) + log(logk / intlogk);
     double trans = 1;
     /*Transfer table stores (T_type(k) / T_tot(k))*/
     if(transfer_table.Nentry > 0)
        if(Type >= DELTA_BAR && Type < DELTA_TOT)
-          trans = (*transfer_table.mat_intp[Type])(logk);
+          trans = (*transfer_table.mat_intp[Type])(intlogk);
 
     /*Convert delta from (Mpc/h)^3/2 to kpc/h^3/2*/
     logD += 1.5 * log10(scale);
@@ -96,7 +107,7 @@ double Delta_Tabulated(double k, enum TransferType Type)
     if(Type >= VEL_BAR && Type <= VEL_TOT)
         endrun(1, "Velocity Type %d passed to Delta_Tabulated\n", Type);
 
-    return get_Tabulated(k, Type, 0);
+    return get_Tabulated(k, Type);
 }
 
 double dlogGrowth(double kmag, enum TransferType Type)
@@ -107,7 +118,7 @@ double dlogGrowth(double kmag, enum TransferType Type)
     else
         /*Type should be an offset from the first velocity*/
         Type = (enum TransferType) ((int) VEL_BAR + ((int) Type - (int) DELTA_BAR));
-    return get_Tabulated(kmag, Type, 1);
+    return get_Tabulated(kmag, Type);
 }
 
 /*Save a transfer function table to the IC file*/
@@ -476,15 +487,19 @@ double tk_eh(double k)		/* from Martin White */
 double TopHatSigma2(double R)
 {
     double result,abserr;
-  
+
   // Define the integrand as a lambda function, wrapping sigma2_int
     auto integrand = [R](double k) {
         return sigma2_int(k, (void*)&R);
     };
 
-  /* note: 500/R is here chosen as integration boundary (infinity) */
-  result = tanh_sinh_integrate_adaptive(integrand, 0, 500. / R, &abserr, 1e-4, 0.);
-/*   printf("integration in TopHatSigma2. Result %g, error: %g, intervals: %lu\n",result, abserr,w->size); */
+  /* Integral is oscillatory but almost zero kr = (n +1/2) pi for odd n. With P(k) ~ n^-3 the integrand is close to zero kr = 20.5 pi */
+  double maxk = M_PI * (20 + 0.5) / R;
+  double maxtabk = pow(10, 0.24 + power_table.logk[power_table.Nentry - 1]);
+  if(maxk > maxtabk)
+      endrun(3, "Trying to do sigma8 integral for rescaling, but need k = %g and largest k in power table is %g\n", maxk, pow(10, power_table.logk[power_table.Nentry - 1]));
+  result = tanh_sinh_integrate_adaptive(integrand, 0, M_PI * (20 + 0.5) / R, &abserr, 1e-4, 0.);
+  /*   printf("integration in TopHatSigma2. Result %g, error: %g, intervals: %lu\n",result, abserr,w->size); */
   return result;
 }
 
