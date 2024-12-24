@@ -14,8 +14,8 @@ TESTED = cooling \
 	cosmology \
 	hci \
 	slotsmanager \
-# 	powerspectrum \
-	forcetree \
+	powerspectrum \
+#	forcetree \
 	timefac \
 	timebinmgr \
 	neutrinos_lra \
