@@ -13,8 +13,8 @@ TESTED = cooling \
 	cooling_rates \
 	cosmology \
 	hci \
-# 	slotsmanager \
- 	powerspectrum \
+	slotsmanager \
+# 	powerspectrum \
 	forcetree \
 	timefac \
 	timebinmgr \
