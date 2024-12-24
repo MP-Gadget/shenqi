@@ -4,7 +4,7 @@ CONFIG ?= ../Options.mk
 
 include $(CONFIG)
 
-TESTED = power #thermal
+TESTED = power thermal
 TESTBIN := $(TESTED:%=.objs/test_%) $(MPI_TESTED:%=.objs/test_%)
 MPISUITE = $(MPI_TESTED:%=test_%)
 SUITE = $(TESTED:%=test_%) $(MPISUITE)
