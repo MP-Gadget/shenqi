@@ -15,8 +15,8 @@ TESTED = cooling \
 	hci \
 	slotsmanager \
 	powerspectrum \
-#	forcetree \
-	timefac \
+	forcetree \
+#	timefac \
 	timebinmgr \
 	neutrinos_lra \
 	omega_nu_single \
