@@ -16,8 +16,8 @@ TESTED = cooling \
 	slotsmanager \
 	powerspectrum \
 	forcetree \
-#	timefac \
-	timebinmgr \
+	timefac \
+#	timebinmgr \
 	neutrinos_lra \
 	omega_nu_single \
 	metal_return \
