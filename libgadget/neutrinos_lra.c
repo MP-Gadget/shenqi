@@ -11,6 +11,7 @@
 #include <bigfile-mpi.h>
 #include <boost/math/interpolators/barycentric_rational.hpp>
 #include <boost/math/special_functions/bessel.hpp>
+#include <boost/math/quadrature/gauss_kronrod.hpp>
 
 #include "neutrinos_lra.h"
 
@@ -211,8 +212,7 @@ void delta_nu_from_power(struct _powerspectrum * PowerSpectrum, Cosmology * CP, 
 
     boost::math::interpolators::barycentric_rational<double> pkint(logwavenum, delta_nu_ratio, delta_tot_table.nk);
 
-    double xmin = logwavenum[0];
-    double xmax = logwavenum[delta_tot_table.nk-1];
+    const double xmax = logwavenum[delta_tot_table.nk-1];
 
     /*We want to interpolate in log space*/
     for(i=0; i < PowerSpectrum->nonzero; i++) {
@@ -523,15 +523,6 @@ void update_delta_tot(_delta_tot_table * const d_tot, const double a, const doub
   }
 }
 
-/*Kernel function for the fslength integration*/
-double fslength_int(const double loga, void *params)
-{
-    Cosmology * CP = (Cosmology *) params;
-    /*This should be M_nu / k_B T_nu (which is dimensionless)*/
-    const double a = exp(loga);
-    return 1./a/(a*hubble_function(CP, a));
-}
-
 /******************************************************************************************************
 Free-streaming length (times Mnu/k_BT_nu, which is dimensionless) for a non-relativistic
 particle of momentum q = T0, from scale factor ai to af.
@@ -543,18 +534,17 @@ Result is in Unit_Length/Unit_Time.
 ******************************************************************************************************/
 double fslength(Cosmology * CP, const double logai, const double logaf, const double light)
 {
-    double abserr;
     if (logai >= logaf)
         return 0;
 
-    // Define the integrand as a lambda function wrapping fslength_int
-    auto integrand = [CP](double loga) {
-        return fslength_int(loga, (void *)CP);
+    /*Kernel function for the fslength integration*/
+    auto fslength_int = [CP](const double loga) {
+        /*This should be M_nu / k_B T_nu (which is dimensionless)*/
+        const double a = exp(loga);
+        return 1./a/(a*hubble_function(CP, a));
     };
 
-    // Use Tanh-Sinh adaptive integration
-    double fslength_val = tanh_sinh_integrate_adaptive(integrand, logai, logaf, &abserr, 1e-6);
-
+    const double fslength_val = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(fslength_int, logai, logaf);
     return light * fslength_val;
 }
 
@@ -641,17 +631,6 @@ struct _delta_nu_int_params
 };
 typedef struct _delta_nu_int_params delta_nu_int_params;
 
-/**integration kernel for get_delta_nu*/
-double get_delta_nu_int(double logai, void * params)
-{
-    delta_nu_int_params * p = (delta_nu_int_params *) params;
-    double fsl_aia = (*p->fs_spline)(logai);
-    double delta_tot_at_a = (*p->spline)(logai);
-    double specJ = specialJ(p->k*fsl_aia/p->mnubykT, p->qc, p->nufrac_low);
-    double ai = exp(logai);
-    return fsl_aia/(ai*hubble_function(p->CP, ai)) * specJ * delta_tot_at_a;
-}
-
 /*
 Main function: given tables of wavenumbers, total delta at Na earlier times (<= a),
 and initial conditions for neutrinos, computes the current delta_nu.
@@ -735,17 +714,21 @@ void get_delta_nu(Cosmology * CP, const _delta_tot_table * const d_tot, const do
         }
 
         for (ik = 0; ik < d_tot->nk; ik++) {
-            double abserr,d_nu_tmp;
+            double d_nu_tmp;
             params.k=d_tot->wavenum[ik];
             params.delta_tot=d_tot->delta_tot[ik];
             // print the number of data points
-            
+
             params.spline = new boost::math::interpolators::barycentric_rational<double>(params.scale,params.delta_tot,Na,approx_order);
-            // Define the integrand as a lambda function wrapping get_delta_nu_int
-            auto integrand = [&params](double logai) {
-                return get_delta_nu_int(logai, (void *)&params);
+            /**integration kernel for get_delta_nu*/
+            auto get_delta_nu_int = [params](const double logai) {
+                double fsl_aia = (*params.fs_spline)(logai);
+                double delta_tot_at_a = (*params.spline)(logai);
+                double specJ = specialJ(params.k*fsl_aia/params.mnubykT, params.qc, params.nufrac_low);
+                double ai = exp(logai);
+                return fsl_aia/(ai*hubble_function(params.CP, ai)) * specJ * delta_tot_at_a;
             };
-            d_nu_tmp = tanh_sinh_integrate_adaptive(integrand, log(d_tot->TimeTransfer), log(a), &abserr, relerr);
+            d_nu_tmp = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(get_delta_nu_int, log(d_tot->TimeTransfer), log(a));
             delta_nu_curr[ik] += d_tot->delta_nu_prefac * d_nu_tmp;
          }
          myfree(fsscales);
