@@ -2,19 +2,7 @@
 #include "timefac.h"
 #include "timebinmgr.h"
 
-#include <boost/math/quadrature/tanh_sinh.hpp>
 #include <boost/math/quadrature/gauss_kronrod.hpp>
-
-// Function to perform tanh-sinh integration with adaptive max_refinements
-double tanh_sinh_integrate_adaptive(
-    std::function<double(double)> func, double a, double b,
-    double* estimated_error, double rel_tol, double abs_tol,
-    int max_refinements_limit, int init_refine, int step)
-{
-    boost::math::quadrature::tanh_sinh<double> integrator(max_refinements_limit);
-    // Perform the integration
-    return integrator.integrate(func, a, b);
-}
 
 // Function to compute a factor using Tanh-Sinh adaptive integration
 static double get_exact_factor(const Cosmology * const CP, const inttime_t t0, const inttime_t t1, const std::function<double(double)> func)
