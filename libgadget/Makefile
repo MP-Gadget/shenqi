@@ -17,8 +17,8 @@ TESTED = cooling \
 	powerspectrum \
 	forcetree \
 	timefac \
-#	timebinmgr \
-	neutrinos_lra \
+	timebinmgr \
+#	neutrinos_lra \
 	omega_nu_single \
 	metal_return \
 	density \
