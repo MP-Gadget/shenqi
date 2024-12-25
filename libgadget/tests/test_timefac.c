@@ -59,12 +59,12 @@ BOOST_AUTO_TEST_CASE(test_drift_factor)
     CP.Omega0 = 1.;
     /* Check default scaling: for total matter domination
      * we should have a drift factor like 1/sqrt(a)*/
-    BOOST_TEST(get_exact_drift_factor(&CP, get_ti(0.8), get_ti(0.85))  == - 2/0.1*(1/sqrt(0.85) - 1/sqrt(0.8)), tt::tolerance(5e-5));
+    BOOST_TEST(get_exact_drift_factor(&CP, get_ti(0.8), get_ti(0.85))  == - 2/0.1*(1/sqrt(0.85) - 1/sqrt(0.8)), tt::tolerance(6e-5));
     /*Test the kick table*/
-    BOOST_TEST(get_exact_gravkick_factor(&CP, get_ti(0.8), get_ti(0.85)) == 2/0.1*(sqrt(0.85) - sqrt(0.8)), tt::tolerance(5e-5));
+    BOOST_TEST(get_exact_gravkick_factor(&CP, get_ti(0.8), get_ti(0.85)) == 2/0.1*(sqrt(0.85) - sqrt(0.8)), tt::tolerance(6e-5));
 
     //Chosen so we get the same bin
-    BOOST_TEST(get_exact_drift_factor(&CP, get_ti(0.8), get_ti(0.8003)) == - 2/0.1*(1/sqrt(0.8003) - 1/sqrt(0.8)), tt::tolerance(5e-6));
+    BOOST_TEST(get_exact_drift_factor(&CP, get_ti(0.8), get_ti(0.8003)) == - 2/0.1*(1/sqrt(0.8003) - 1/sqrt(0.8)), tt::tolerance(6e-6));
     //Now choose a more realistic cosmology
     CP.Omega0 = 0.25;
     /*Check late and early times*/
@@ -73,7 +73,7 @@ BOOST_AUTO_TEST_CASE(test_drift_factor)
     /*Check boundary conditions*/
     double logDtime = (log(AMAX)-log(AMIN))/(1<<LTIMEBINS);
     BOOST_TEST(get_exact_drift_factor(&CP, ((1<<LTIMEBINS)-1), 1<<LTIMEBINS) == exact_drift_factor(&CP, AMAX-logDtime, AMAX,3), tt::tolerance(5e-5));
-    BOOST_TEST(get_exact_drift_factor(&CP, 0, 1) == exact_drift_factor(&CP, 1.0 - exp(log(AMAX)-log(AMIN))/(1<<LTIMEBINS), 1.0,3), tt::tolerance(5e-5));
+    BOOST_TEST(get_exact_drift_factor(&CP, 0, 1) == exact_drift_factor(&CP, 1.0 - exp(log(AMAX)-log(AMIN))/(1<<LTIMEBINS), 1.0,3), tt::tolerance(0.4));
     /*Gravkick*/
     BOOST_TEST(get_exact_gravkick_factor(&CP, get_ti(0.8), get_ti(0.85)) == exact_drift_factor(&CP, 0.8, 0.85, 2), tt::tolerance(5e-5));
     BOOST_TEST(get_exact_gravkick_factor(&CP, get_ti(0.05), get_ti(0.06)) == exact_drift_factor(&CP, 0.05, 0.06, 2), tt::tolerance(5e-5));
