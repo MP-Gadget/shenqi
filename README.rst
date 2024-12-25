@@ -37,6 +37,24 @@ Physics models:
 - Helium reionization
 - Fluctuating UV background
 
+Deprecated Features
+-------------------
+
+These features may be removed from shenqi if they get in the way (they remain in MP-Gadget if we need them):
+- QuickLyaStarFormation
+- SH03 winds (the ones that do not depend on the local velocity dispersion)
+- Old-school SPH (ie, DensityIndependentSphOn = 0)
+- Black hole repositioning
+- The custom memory management stuff
+- lightcone.c
+- lenstools (depends on fftw3)
+- The Gadget-3-style non-hierarchical gravitational timestepping (HierGravOn = 0)
+- HeliumHeatOn model
+- H2 star formation, get_sfr_factor_due_to_h2
+
+Already removed:
+- EXCUR_REION
+
 Installation
 ------------
 
@@ -138,6 +156,7 @@ Refer to https://github.com/rainwoodman/bigfile for usage.
 
 Otherwise directly open the blocks with Fortran or C, noting the data-type
 information and attributes in header and attrs files (in plain text)
+
 
 GLIBC 2.22
 ----------

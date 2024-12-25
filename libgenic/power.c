@@ -3,7 +3,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <mpi.h>
-#include <boost/math/interpolators/barycentric_rational.hpp>
+#include <boost/math/interpolators/makima.hpp>
 #include <bigfile-mpi.h>
 
 #include <libgadget/cosmology.h>
@@ -37,7 +37,7 @@ struct table
     int Nentry;
     double * logk;
     double * logD[MAXCOLS];
-    boost::math::interpolators::barycentric_rational<double>* mat_intp[MAXCOLS];
+    boost::math::interpolators::makima<std::vector<double>>* mat_intp[MAXCOLS];
 };
 
 /*Typedef for a function that parses the table from text*/
@@ -400,9 +400,13 @@ init_transfer_table(int ThisTask, double InitTime, const struct power_params * c
             meangrowth[t-VEL_BAR]/= nmean;
     }
     /*Initialise the interpolation*/
-    for(t = 0; t < MAXCOLS; t++)
-        transfer_table.mat_intp[t] = new boost::math::interpolators::barycentric_rational<double>(transfer_table.logk, transfer_table.logD[t], transfer_table.Nentry);
-
+    for(t = 0; t < MAXCOLS; t++) {
+        /* Initialise in here so we can std::move*/
+        std::vector<double> logk(transfer_table.logk, transfer_table.logk+ transfer_table.Nentry);
+        std::vector<double> logD(transfer_table.logD[t], transfer_table.logD[t]+ transfer_table.Nentry);
+        // message(0, "t=%d size = %ld nentry %d\n", t, logD.size(), transfer_table.Nentry);
+        transfer_table.mat_intp[t] = new boost::math::interpolators::makima(std::move(logk), std::move(logD));
+    }
     message(0,"Scale-dependent growth calculated. Mean = %g %g %g %g %g\n",meangrowth[0], meangrowth[1], meangrowth[2], meangrowth[3], meangrowth[4]);
     message(0, "Power spectrum rows: %d, Transfer: %d (%g -> %g)\n", power_table.Nentry, transfer_table.Nentry, transfer_table.logD[DELTA_BAR][0],transfer_table.logD[DELTA_BAR][transfer_table.Nentry-1]);
     return transfer_table.Nentry;
@@ -418,8 +422,9 @@ int init_powerspectrum(int ThisTask, double InitTime, double UnitLength_in_cm_in
 
     if(ppar->WhichSpectrum == 2) {
         read_power_table(ThisTask, ppar->FileWithInputSpectrum, 1, &power_table, InitTime, parse_power);
-        /*Initialise the interpolation*/
-        power_table.mat_intp[0] = new boost::math::interpolators::barycentric_rational<double>(power_table.logk, power_table.logD[0], power_table.Nentry);
+        std::vector<double> logk(power_table.logk, power_table.logk + power_table.Nentry);
+        std::vector<double> logD(power_table.logD[0], power_table.logD[0]+ power_table.Nentry);
+        power_table.mat_intp[0] = new boost::math::interpolators::makima(std::move(logk), std::move(logD));
         transfer_table.Nentry = 0;
         if(ppar->DifferentTransferFunctions || ppar->ScaleDepVelocity) {
             init_transfer_table(ThisTask, InitTime, ppar);

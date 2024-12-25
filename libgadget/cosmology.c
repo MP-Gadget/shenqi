@@ -1,5 +1,6 @@
 #include <math.h>
 #include <boost/numeric/odeint.hpp>
+#include <boost/math/quadrature/gauss_kronrod.hpp>
 #include "cosmology.h"
 #include "physconst.h"
 #include "utils.h"
@@ -132,9 +133,9 @@ double growth(Cosmology *CP, double a, double *dDda)
     std::vector<double> yinit(2);
 
     // Initial conditions at curtime: [D(curtime), D'(curtime)]
-    yinit[0] = 1.5 * (CP->OmegaCDM + CP->OmegaBaryon) / (curtime * curtime);  
+    yinit[0] = 1.5 * (CP->OmegaCDM + CP->OmegaBaryon) / (curtime * curtime);
     yinit[1] = pow(curtime, 3) * hubble_function(CP, curtime) / CP->Hubble *
-               1.5 * (CP->OmegaCDM + CP->OmegaBaryon) / (curtime * curtime * curtime); 
+               1.5 * (CP->OmegaCDM + CP->OmegaBaryon) / (curtime * curtime * curtime);
 
     // Include radiation if enabled
     if (CP->RadiationOn) {
@@ -189,32 +190,6 @@ static inline double OmegaFLD(const Cosmology * CP, const double a)
     return CP->Omega_fld * pow(a, -3 * (1 + CP->w0_fld + CP->wa_fld))*exp(-3*CP->wa_fld*(1-a));
 }
 
-struct sigma2_params
-{
-    FunctionOfK * fk;
-    double R;
-};
-
-static double sigma2_int(double k, void * p)
-{
-    struct sigma2_params * params = (struct sigma2_params *) p;
-    FunctionOfK * fk = params->fk;
-    const double R = params->R;
-    double kr, kr3, kr2, w, x;
-
-    kr = R * k;
-    kr2 = kr * kr;
-    kr3 = kr2 * kr;
-
-    if(kr < 1e-8)
-        return 0;
-
-    w = 3 * (sin(kr) / kr3 - cos(kr) / kr2);
-    x = 4 * M_PI * k * k * w * w * function_of_k_eval(fk, k);
-
-    return x;
-}
-
 double function_of_k_eval(FunctionOfK * fk, double k)
 {
     /* ignore the 0 mode */
@@ -260,26 +235,27 @@ double function_of_k_eval(FunctionOfK * fk, double k)
 // Adapted function to use Tanh-Sinh adaptive integration
 double function_of_k_tophat_sigma(FunctionOfK *fk, double R)
 {
-    // Create the parameter structure
-    struct sigma2_params params = {fk, R};
-    double abserr;  // To hold the estimated error
-
-    // Define the integrand as a lambda function wrapping the original `sigma2_int`
-    auto integrand = [&params](double k) -> double {
-        return sigma2_int(k, (void*)&params);
+    // Define the integrand as a lambda function
+    auto sigma2_int = [R, fk] (const double k) {
+        const double kr = R * k;
+        const double kr2 = kr * kr;
+        const double kr3 = kr2 * kr;
+        if(kr < 1e-8)
+            return 0.;
+        const double w = 3 * (sin(kr) / kr3 - cos(kr) / kr2);
+        const double x = 4 * M_PI * k * k * w * w * function_of_k_eval(fk, k);
+        return x;
     };
 
-    // Perform the Tanh-Sinh adaptive integration
-    double result = tanh_sinh_integrate_adaptive(integrand, 0, 500.0 / R, &abserr, 1e-4);
-
+    // Perform Gauss-Kronrod adaptive integration. Note this is an oscillatory integral.
+    const double result = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(sigma2_int, 0, 500.0/R);
     // Return the square root of the result
     return sqrt(result);
 }
 
 void function_of_k_normalize_sigma(FunctionOfK * fk, double R, double sigma) {
     double old = function_of_k_tophat_sigma(fk, R);
-    size_t i;
-    for(i = 0; i < fk->size; i ++) {
+    for(size_t i = 0; i < fk->size; i ++) {
         fk->table[i].Pk *= sigma / old;
     };
 }
