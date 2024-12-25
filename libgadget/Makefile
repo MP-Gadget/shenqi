@@ -19,8 +19,8 @@ TESTED = cooling \
 	timefac \
 	timebinmgr \
 	neutrinos_lra \
-#	omega_nu_single \
-	metal_return \
+	omega_nu_single \
+#	metal_return \
 	density \
 	gravity \
 	exchange
