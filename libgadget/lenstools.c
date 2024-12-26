@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <fftw3.h> 
+#include <fftw3.h>
 #include <string.h>
 
 #ifdef USE_CFITSIO
@@ -61,7 +61,7 @@ int find_bin(double value, double *bins, int resolution, const double L) { // L 
 }
 
 void grid3d_ngb(const struct particle_data * Parts, int num_particles, double **binning, GridDimensions dims, double *density) { // adpated from grid3d_nfw in lenstools
-    
+
     #pragma omp parallel for
     // Process each particle
     for (int p = 0; p < num_particles; p++) {
@@ -124,7 +124,7 @@ void projectDensity(double *density, GridDimensions dims, int normal) {
             {
                 ACCESS_2D(density, i, j, Dim1) = ACCESS_3D(density, i, 0, j, dims.ny, dims.nz);
             }
-            
+
         }
     }
 }
@@ -179,7 +179,7 @@ void calculate_lensing_potential(double *density_projected, int plane_resolution
             ACCESS_2D(lensing_potential, i, j, plane_resolution) /= (plane_resolution * plane_resolution);
         }
     }
-    
+
     // Cleanup
     fftw_destroy_plan(forward_plan);
     fftw_destroy_plan(backward_plan);
@@ -206,7 +206,7 @@ int64_t cutPlaneGaussianGrid(int num_particles_tot, double comoving_distance, do
 
     // cosmological normalization factor
     double H0 = 100 * CP->HubbleParam * 3.2407793e-20;  // Hubble constant in cgs units
-    double cosmo_normalization = 1.5 * pow(H0, 2) * CP->Omega0 / pow(LIGHTCGS, 2);  
+    double cosmo_normalization = 1.5 * pow(H0, 2) * CP->Omega0 / pow(LIGHTCGS, 2);
 
     // Binning for directions perpendicular to 'normal'
     double *binning[3];
@@ -240,7 +240,7 @@ int64_t cutPlaneGaussianGrid(int num_particles_tot, double comoving_distance, do
 
     double *density = allocate_3d_array_as_1d(dims.nx, dims.ny, dims.nz);
 
-    grid3d_ngb(P, num_particles_rank, binning, dims, density);
+    grid3d_ngb(PartManager->Base, num_particles_rank, binning, dims, density);
 
     projectDensity(density, dims, normal);
 
@@ -288,7 +288,7 @@ void savePotentialPlane(double *data, int rows, int cols, const char * const fil
         fits_report_error(stderr, status);
         return;
     }
-    
+
     // Create the primary image (double precision)
     if (fits_create_img(fptr, DOUBLE_IMG, 2, naxes, &status)) {
         fits_report_error(stderr, status);
