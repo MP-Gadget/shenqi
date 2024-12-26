@@ -98,7 +98,6 @@ For generic intel compiler based clusters, start with platform-options/Options.m
 Compile-time options may be set in Options.mk. The remaining compile time options are generally only useful for development or debugging. All science options are set using a parameter file at runtime.
 
 - DEBUG which enables various internal code consistency checks for debugging.
-- VALGRIND which if set disables the internal memory allocator and allocates memory from the system. This is required for debugging memory allocation errors with valgrind of the address sanitizer.
 - NO_OPENMP_SPINLOCK uses the OpenMP default locking routines. These are often much slower than the default pthread spinlocks. However, they are necessary for Mac, which does not provide pthreads.
 - USE_CFITSIO enables the output of lenstools compatible potential planes using cfitsio,
 

@@ -23,13 +23,9 @@ OPTIMIZE =  -mp -g -Wall -fast
 #OPTIMIZE =  -mp -O0 -g -Wall
 
 #--------------------------------------- Basic operation mode of code
-#OPT += VALGRIND     # allow debugging with valgrind, disable the GADGET memory allocator.
 #OPT += -DDEBUG      # print a lot of debugging messages
 #Disable openmp locking. This means no threading.
 #OPT += -DNO_OPENMP_SPINLOCK
-
-#-----------
-#OPT += -DEXCUR_REION  # reionization with excursion set
 
 #--------- CFITSIO (required only for saving potential plane files)
 # OPT += -DUSE_CFITSIO
