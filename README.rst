@@ -9,9 +9,14 @@ An out of date source code browser may be found here:
 Description
 -----------
 
-This version of Gadget is derived from main P-Gadget / Gadget-2, with the gravity solver algorithm from Gadget-4.
-It is the source code used to run the BlueTides and ASTRID simulations (http://bluetides-project.org).
-MP-Gadget requires GSL and a C compiler with OpenMP 4.5 support.
+Shenqi is ultimately derived from P-Gadget / Gadget-2, with the gravity solver algorithm from Gadget-4, 
+although there has been significant changes since then. Shenqi's predecessor, MP-Gadget, is the source code 
+used to run the BlueTides and ASTRID simulations (http://bluetides-project.org).
+Shenqi makes heavy use of boost and also requires GSL and a C++ compiler with C++20 and OpenMP 4.5 support.
+
+The random number generator used in ShenqiIC is NOT THE SAME as the random number generator used in N-GenIC.
+As a result the same random seed will produce different structure than N-GenIC. If this is important, use 
+MP-GenIC to generate ICs, as the IC formats are compatible.
 
 The infrastructure is heavily reworked. As a summary:
 
@@ -95,7 +100,6 @@ Compile-time options may be set in Options.mk. The remaining compile time option
 - DEBUG which enables various internal code consistency checks for debugging.
 - VALGRIND which if set disables the internal memory allocator and allocates memory from the system. This is required for debugging memory allocation errors with valgrind of the address sanitizer.
 - NO_OPENMP_SPINLOCK uses the OpenMP default locking routines. These are often much slower than the default pthread spinlocks. However, they are necessary for Mac, which does not provide pthreads.
-- EXCUR_REION enables the excursion set reionization model.
 - USE_CFITSIO enables the output of lenstools compatible potential planes using cfitsio,
 
 If compilation fails with errors related to the GSL, you may also need to set the GSL_INC or GSL_LIB variables in Options.mk to the filesystem path containing the GSL headers and libraries.
