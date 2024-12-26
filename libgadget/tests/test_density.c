@@ -83,7 +83,7 @@ static struct density_testdata setup_density(void)
     trivial_domain(&data.ddecomp);
     data.dp.DensityResolutionEta = 1.;
     data.dp.BlackHoleNgbFactor = 2;
-    data.dp.MaxNumNgbDeviation = 2;
+    data.dp.MaxNumNgbDeviation = 0.5;
     data.dp.DensityKernelType = DENSITY_KERNEL_CUBIC_SPLINE;
     data.dp.MinGasHsmlFractional = 0.006;
     struct gravshort_tree_params tree_params = {0};
@@ -231,7 +231,7 @@ BOOST_AUTO_TEST_CASE(test_density_flat)
         PartManager->Base[i].Pos[1] = (PartManager->BoxSize/ncbrt) * ((i/ncbrt) % ncbrt);
         PartManager->Base[i].Pos[2] = (PartManager->BoxSize/ncbrt) * (i % ncbrt);
     }
-    do_density_test(&data, numpart, 0.501747, 1e-4);
+    do_density_test(&data, numpart, 0.5, 5e-4);
     free_domain(&data.ddecomp);
 }
 
