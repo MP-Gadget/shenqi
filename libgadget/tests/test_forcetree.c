@@ -33,7 +33,7 @@ static int check_moments(const ForceTree * tb, const int numpart, const int nrea
         BOOST_TEST(fnode >= tb->firstnode);
         BOOST_TEST(fnode < tb->lastnode);
         while(fnode > 0) {
-            tb->Nodes[fnode].mom.mass -= P[i].Mass;
+            tb->Nodes[fnode].mom.mass -= PartManager->Base[i].Mass;
             fnode = tb->Nodes[fnode].father;
             /*Validate father*/
             if(fnode != -1) {
@@ -85,7 +85,7 @@ static int check_moments(const ForceTree * tb, const int numpart, const int nrea
             if(tb->Nodes[node].f.ChildType == PARTICLE_NODE_TYPE)
                 for(i = 0; i < nop->s.noccupied; i++) {
                     int nn = nop->s.suns[i];
-                    printf("particles P[%d], Mass=%g\n", nn, P[nn].Mass);
+                    printf("particles PartManager->Base[%d], Mass=%g\n", nn, PartManager->Base[nn].Mass);
                 }
         }
         BOOST_TEST(tb->Nodes[node].mom.mass < 0.5);
@@ -135,7 +135,7 @@ static int check_tree(const ForceTree * tb, const int nnodes, const int numpart)
                 int child = pNode->s.suns[j];
                 BOOST_TEST(child >= 0);
                 BOOST_TEST(child < firstnode);
-                P[child].PI += 1;
+                PartManager->Base[child].PI += 1;
                 BOOST_TEST(force_get_father(child, tb) == i);
             }
         }
@@ -161,7 +161,7 @@ static int check_tree(const ForceTree * tb, const int nnodes, const int numpart)
 
     for(i=0; i<numpart; i++)
     {
-        BOOST_TEST(P[i].PI == 1);
+        BOOST_TEST(PartManager->Base[i].PI == 1);
     }
     printf("Tree filling factor: %g on %d nodes (wasted: %d empty: %d)\n", tot_empty/(8.*nrealnode), nrealnode, nnodes - nrealnode, sevens);
     return nrealnode - sevens;
@@ -173,9 +173,9 @@ static void do_tree_test(const int numpart, ForceTree tb, DomainDecomp * ddecomp
     int i;
     #pragma omp parallel for
     for(i=0; i<numpart; i++) {
-        P[i].Mass = 1;
-        P[i].PI = 0;
-        P[i].IsGarbage = 0;
+        PartManager->Base[i].Mass = 1;
+        PartManager->Base[i].PI = 0;
+        PartManager->Base[i].IsGarbage = 0;
     }
     int maxnode = tb.lastnode - tb.firstnode;
     PartManager->MaxPart = numpart;
@@ -215,7 +215,7 @@ static double compute_distance(int i, struct NODE * node)
         /* Compute each direction independently and take the maximum.
             * This is the largest possible distance away from node center within a cube bounding hsml.
             * Note that because Pos - Center < len/2, the maximum value this can have is Hsml.*/
-        hmax = DMAX(hmax, fabs(P[i].Pos[j] - node->center[j]) + P[i].Hsml - node->len/2.);
+        hmax = DMAX(hmax, fabs(PartManager->Base[i].Pos[j] - node->center[j]) + PartManager->Base[i].Hsml - node->len/2.);
     }
     return hmax;
 }
@@ -226,7 +226,7 @@ static double check_inside(int i, struct NODE * node)
 {
     int j;
     for(j = 0; j < 3; j++)
-        if (fabs(P[i].Pos[j] - node->center[j]) > node->len/2)
+        if (fabs(PartManager->Base[i].Pos[j] - node->center[j]) > node->len/2)
             return 0;
     return 1;
 }
@@ -259,11 +259,11 @@ static void do_tree_mask_hmax_update_test(const int numpart, ForceTree * tb, Dom
     int i;
     #pragma omp parallel for
     for(i=0; i<numpart; i++) {
-        P[i].Mass = 1;
-        P[i].PI = 0;
-        P[i].IsGarbage = 0;
-        P[i].Type = 0;
-        P[i].Hsml = PartManager->BoxSize/cbrt(numpart) * get_random_number(i, &rnd);
+        PartManager->Base[i].Mass = 1;
+        PartManager->Base[i].PI = 0;
+        PartManager->Base[i].IsGarbage = 0;
+        PartManager->Base[i].Type = 0;
+        PartManager->Base[i].Hsml = PartManager->BoxSize/cbrt(numpart) * get_random_number(i, &rnd);
     }
     free_random_numbers(&rnd);
     PartManager->MaxPart = numpart;
@@ -347,10 +347,10 @@ BOOST_AUTO_TEST_CASE(test_rebuild_flat)
     int i;
     #pragma omp parallel for
     for(i=0; i<numpart; i++) {
-        P[i].Type = 1;
-        P[i].Pos[0] = (PartManager->BoxSize/ncbrt) * (i/ncbrt/ncbrt);
-        P[i].Pos[1] = (PartManager->BoxSize/ncbrt) * ((i/ncbrt) % ncbrt);
-        P[i].Pos[2] = (PartManager->BoxSize/ncbrt) * (i % ncbrt);
+        PartManager->Base[i].Type = 1;
+        PartManager->Base[i].Pos[0] = (PartManager->BoxSize/ncbrt) * (i/ncbrt/ncbrt);
+        PartManager->Base[i].Pos[1] = (PartManager->BoxSize/ncbrt) * ((i/ncbrt) % ncbrt);
+        PartManager->Base[i].Pos[2] = (PartManager->BoxSize/ncbrt) * (i % ncbrt);
     }
     PartManager->NumPart = numpart;
     /*Allocate tree*/
@@ -383,10 +383,10 @@ BOOST_AUTO_TEST_CASE(test_rebuild_close)
     int i;
     #pragma omp parallel for
     for(i=0; i<numpart; i++) {
-        P[i].Type = 1;
-        P[i].Pos[0] = 4. + (i/ncbrt/ncbrt)/close;
-        P[i].Pos[1] = 4. + ((i/ncbrt) % ncbrt) /close;
-        P[i].Pos[2] = 4. + (i % ncbrt)/close;
+        PartManager->Base[i].Type = 1;
+        PartManager->Base[i].Pos[0] = 4. + (i/ncbrt/ncbrt)/close;
+        PartManager->Base[i].Pos[1] = 4. + ((i/ncbrt) % ncbrt) /close;
+        PartManager->Base[i].Pos[2] = 4. + (i % ncbrt)/close;
     }
     PartManager->NumPart = numpart;
     ForceTree tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1, 0);
@@ -407,22 +407,22 @@ void do_random_test(boost::random::mt19937 & r, const int numpart, const ForceTr
      * in a box 8 kpc across.*/
     int i;
     for(i=0; i<numpart/4; i++) {
-        P[i].Type = 1;
+        PartManager->Base[i].Type = 1;
         int j;
         for(j=0; j<3; j++)
-            P[i].Pos[j] = PartManager->BoxSize * dist(r);
+            PartManager->Base[i].Pos[j] = PartManager->BoxSize * dist(r);
     }
     for(i=numpart/4; i<3*numpart/4; i++) {
-        P[i].Type = 1;
+        PartManager->Base[i].Type = 1;
         int j;
         for(j=0; j<3; j++)
-            P[i].Pos[j] = PartManager->BoxSize/2 + PartManager->BoxSize/8 * exp(pow(dist(r)-0.5,2));
+            PartManager->Base[i].Pos[j] = PartManager->BoxSize/2 + PartManager->BoxSize/8 * exp(pow(dist(r)-0.5,2));
     }
     for(i=3*numpart/4; i<numpart; i++) {
-        P[i].Type = 1;
+        PartManager->Base[i].Type = 1;
         int j;
         for(j=0; j<3; j++)
-            P[i].Pos[j] = PartManager->BoxSize*0.1 + PartManager->BoxSize/32 * exp(pow(dist(r)-0.5,2));
+            PartManager->Base[i].Pos[j] = PartManager->BoxSize*0.1 + PartManager->BoxSize/32 * exp(pow(dist(r)-0.5,2));
     }
     PartManager->NumPart = numpart;
     do_tree_test(numpart, tb, ddecomp);

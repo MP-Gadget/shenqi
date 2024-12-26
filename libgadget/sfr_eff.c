@@ -223,7 +223,7 @@ cooling_and_starformation(ActiveParticles * act, double Time, double dloga, Forc
             /*Use raw particle number if active_set is null, otherwise use active_set*/
             const int p_i = act->ActiveParticle ? act->ActiveParticle[i] : i;
             /* Skip non-gas or garbage particles */
-            if(P[p_i].Type != 0 || P[p_i].IsGarbage || P[p_i].Mass <= 0)
+            if(Part[p_i].Type != 0 || Part[p_i].IsGarbage || Part[p_i].Mass <= 0)
                 continue;
 
             int shall_we_star_form = 0;
@@ -243,11 +243,11 @@ cooling_and_starformation(ActiveParticles * act, double Time, double dloga, Forc
                 if(sfr_params.QuickLymanAlphaProbability > 0) {
                     /*New star is always the same particle as the parent for quicklya*/
                     newstar = p_i;
-                    sum_sm += P[p_i].Mass;
-                    sm = P[p_i].Mass;
+                    sum_sm += Part[p_i].Mass;
+                    sm = Part[p_i].Mass;
                 } else {
                     newstar = starformation(p_i, &localsfr, &sm, GradRho, redshift, a3inv, hubble, CP->GravInternal, &GlobalUVBG, rnd);
-                    sum_sm += P[p_i].Mass * (1 - exp(-sm/P[p_i].Mass));
+                    sum_sm += Part[p_i].Mass * (1 - exp(-sm/Part[p_i].Mass));
                 }
                 /*Add this particle to the stellar conversion queue if necessary.*/
                 if(newstar >= 0) {
@@ -260,7 +260,7 @@ cooling_and_starformation(ActiveParticles * act, double Time, double dloga, Forc
                  * Only for subgrid winds. */
                 if(MaybeWindThread.sizes && newstar < 0) {
                     MaybeWindThread.srcs[tid][MaybeWindThread.sizes[tid]] = p_i;
-                    StellarMass[P[p_i].PI] = sm;
+                    StellarMass[Part[p_i].PI] = sm;
                     MaybeWindThread.sizes[tid]++;
                 }
             }
@@ -321,7 +321,7 @@ cooling_and_starformation(ActiveParticles * act, double Time, double dloga, Forc
         int child = NewStars[i];
         int parent = NewParents[i];
         make_particle_star(child, parent, firststarslot+i, Time);
-        sum_mass_stars += P[child].Mass;
+        sum_mass_stars += Part[child].Mass;
         if(child == parent)
             stars_converted++;
         else {
@@ -449,7 +449,7 @@ static void
 cooling_direct(int i, const double redshift, const double a3inv, const double hubble, const struct UVBG * const GlobalUVBG)
 {
     /*  the actual time-step */
-    double dloga = get_dloga_for_bin(P[i].TimeBinHydro, P[i].Ti_drift);
+    double dloga = get_dloga_for_bin(Part[i].TimeBinHydro, Part[i].Ti_drift);
     double dtime = dloga / hubble;
 
     double ne = SPHP(i).Ne;	/* electron abundance (gives ionization state and mean molecular weight) */
@@ -464,8 +464,8 @@ cooling_direct(int i, const double redshift, const double a3inv, const double hu
     localJ21 =  SPHP(i).local_J21;
     zreion = SPHP(i).zreion;
 #endif
-    struct UVBG uvbg = get_local_UVBG(redshift, GlobalUVBG, P[i].Pos, PartManager->CurrentParticleOffset, localJ21, zreion);
-    double lasttime = exp(loga_from_ti(P[i].Ti_drift - dti_from_timebin(P[i].TimeBinHydro)));
+    struct UVBG uvbg = get_local_UVBG(redshift, GlobalUVBG, Part[i].Pos, PartManager->CurrentParticleOffset, localJ21, zreion);
+    double lasttime = exp(loga_from_ti(Part[i].Ti_drift - dti_from_timebin(Part[i].TimeBinHydro)));
     double lastred = 1/lasttime - 1;
     double unew;
     /* The particle reionized this timestep, bump the temperature to the HI reionization temperature.
@@ -488,7 +488,7 @@ cooling_direct(int i, const double redshift, const double a3inv, const double hu
         /* mean molecular weight assuming ZERO ionization NEUTRAL GAS*/
         const double meanweight = 4.0 / (1 + 3 * HYDROGEN_MASSFRAC);
         const double MinEgySpec = sfr_params.temp_to_u/meanweight * sfr_params.MinGasTemp;
-        unew = DoCooling(redshift, uold, SPHP(i).Density * a3inv, dtime, &uvbg, &ne, SPHP(i).Metallicity, MinEgySpec, P[i].HeIIIionized);
+        unew = DoCooling(redshift, uold, SPHP(i).Density * a3inv, dtime, &uvbg, &ne, SPHP(i).Metallicity, MinEgySpec, Part[i].HeIIIionized);
     }
 
     SPHP(i).Ne = ne;
@@ -622,7 +622,7 @@ double get_helium_neutral_fraction_sfreff(int ion, double redshift, double hubbl
 static int make_particle_star(int child, int parent, int placement, double Time)
 {
     int retflag = 2;
-    if(P[parent].Type != 0)
+    if(Part[parent].Type != 0)
         endrun(7772, "Only gas forms stars, what's wrong?\n");
 
     /*Store the SPH particle slot properties, as the PI may be over-written
@@ -661,7 +661,7 @@ cooling_relaxed(int i, double dtime, struct UVBG * local_uvbg, const double reds
      * However, the BH is not active each timestep, so rarely very dense gas can have enough internal energy that it doesn't cool in
      * one timestep and can somehow be pressurized to get even hotter. This can make the shortest timestep in the code even shorter,
      * and is unphysical for star forming gas anyway. For this reason, allow gas with U > 5e6 or T > 1e8 to cool using the cooling time. */
-    if(sfr_params.BHFeedbackUseTcool == 3 || (sfr_params.BHFeedbackUseTcool == 1 && (P[i].BHHeated || egycurrent > 5e6)))
+    if(sfr_params.BHFeedbackUseTcool == 3 || (sfr_params.BHFeedbackUseTcool == 1 && (Part[i].BHHeated || egycurrent > 5e6)))
     {
         if(egycurrent > egyeff)
         {
@@ -679,7 +679,7 @@ cooling_relaxed(int i, double dtime, struct UVBG * local_uvbg, const double reds
             if(tcool < trelax && tcool > 0)
                 trelax = tcool;
         }
-        P[i].BHHeated = 0;
+        Part[i].BHHeated = 0;
     }
 
     SPHP(i).Entropy =  (egyeff + (egycurrent - egyeff) * exp(-dtime / trelax)) /densityfac;
@@ -703,7 +703,7 @@ quicklyastarformation(int i, const double a3inv, const RandTable * const rnd)
     if(temp >= sfr_params.QuickLymanAlphaTempThresh)
         return 0;
 
-    if(get_random_number(P[i].ID + 1, rnd) < sfr_params.QuickLymanAlphaProbability)
+    if(get_random_number(Part[i].ID + 1, rnd) < sfr_params.QuickLymanAlphaProbability)
         return 1;
 
     return 0;
@@ -717,7 +717,7 @@ static int
 starformation(int i, double *localsfr, MyFloat * sm_out, MyFloat * GradRho, const double redshift, const double a3inv, const double hubble, const double GravInternal, const struct UVBG * const GlobalUVBG, const RandTable * const rnd)
 {
     /*  the proper time-step */
-    double dloga = get_dloga_for_bin(P[i].TimeBinHydro, P[i].Ti_drift);
+    double dloga = get_dloga_for_bin(Part[i].TimeBinHydro, Part[i].Ti_drift);
     double dtime = dloga / hubble;
     int newstar = -1;
     double localJ21 = 0;
@@ -726,9 +726,9 @@ starformation(int i, double *localsfr, MyFloat * sm_out, MyFloat * GradRho, cons
     localJ21 =  SPHP(i).local_J21;
     zreion = SPHP(i).zreion;
 #endif
-    struct UVBG uvbg = get_local_UVBG(redshift, GlobalUVBG, P[i].Pos, PartManager->CurrentParticleOffset, localJ21, zreion);
+    struct UVBG uvbg = get_local_UVBG(redshift, GlobalUVBG, Part[i].Pos, PartManager->CurrentParticleOffset, localJ21, zreion);
 
-    struct sfr_eeqos_data sfr_data = get_sfr_eeqos(&P[i], &SPHP(i), dtime, &uvbg, redshift, a3inv);
+    struct sfr_eeqos_data sfr_data = get_sfr_eeqos(&Part[i], &SPHP(i), dtime, &uvbg, redshift, a3inv);
 
     double atime = 1/(1+redshift);
     double smr = get_starformation_rate_full(i, GradRho, sfr_data, atime, a3inv, hubble, GravInternal);
@@ -736,31 +736,31 @@ starformation(int i, double *localsfr, MyFloat * sm_out, MyFloat * GradRho, cons
     double sm = smr * dtime;
 
     *sm_out = sm;
-    double p = sm / P[i].Mass;
+    double p = sm / Part[i].Mass;
 
     /* convert to Solar per Year.*/
     SPHP(i).Sfr = smr * sfr_params.UnitSfr_in_solar_per_year;
     SPHP(i).Ne = sfr_data.ne;
     *localsfr += SPHP(i).Sfr;
 
-    const double w = get_random_number(P[i].ID, rnd);
+    const double w = get_random_number(Part[i].ID, rnd);
     const double frac = (1 - exp(-p));
     SPHP(i).Metallicity += w * METAL_YIELD * frac / sfr_params.Generations;
 
     /* upon start-up, we need to protect against dloga ==0 */
-    if(dloga > 0 && P[i].TimeBinHydro)
+    if(dloga > 0 && Part[i].TimeBinHydro)
         cooling_relaxed(i, dtime, &uvbg, redshift, a3inv, sfr_data, GlobalUVBG);
 
     double mass_of_star = find_star_mass(i, sfr_params.avg_baryon_mass);
-    double prob = P[i].Mass / mass_of_star * (1 - exp(-p));
+    double prob = Part[i].Mass / mass_of_star * (1 - exp(-p));
 
-    int form_star = (get_random_number(P[i].ID + 1, rnd) < prob);
+    int form_star = (get_random_number(Part[i].ID + 1, rnd) < prob);
     if(form_star) {
         /* ok, make a star */
         newstar = i;
         /* If we get a fraction of the mass we need to create
          * a new particle for the star and remove mass from i.*/
-        if(P[i].Mass >= 1.1 * mass_of_star)
+        if(Part[i].Mass >= 1.1 * mass_of_star)
             newstar = slots_split_particle(i, mass_of_star, PartManager);
     }
 
@@ -820,7 +820,7 @@ static double get_starformation_rate_full(int i, MyFloat * GradRho, struct sfr_e
         return 0;
     }
 
-    double cloudmass = sfr_data.cloudfrac * P[i].Mass;
+    double cloudmass = sfr_data.cloudfrac * Part[i].Mass;
 
     double rateOfSF = (1 - sfr_params.FactorSN) * cloudmass / sfr_data.tsfr;
 
@@ -978,20 +978,20 @@ find_star_mass(int i, const double avg_baryon_mass)
 {
     /*Quick Lyman Alpha always turns all of a particle into stars*/
     if(sfr_params.QuickLymanAlphaProbability > 0)
-        return P[i].Mass;
+        return Part[i].Mass;
 
     double mass_of_star =  avg_baryon_mass / sfr_params.Generations;
-    if(mass_of_star > P[i].Mass) {
+    if(mass_of_star > Part[i].Mass) {
         /* if some mass has been stolen by BH, e.g */
-        mass_of_star = P[i].Mass;
+        mass_of_star = Part[i].Mass;
     }
     /* Conditions to turn the gas into a star. .
      * The mass check makes sure we never get a gas particle which is lighter
      * than the smallest star particle.
      * The Generations check (which can happen because of mass return)
      * ensures we never instantaneously enrich stars above solar. */
-    if(P[i].Mass < 2 * mass_of_star  || P[i].Generation > sfr_params.Generations) {
-        mass_of_star = P[i].Mass;
+    if(Part[i].Mass < 2 * mass_of_star  || Part[i].Generation > sfr_params.Generations) {
+        mass_of_star = Part[i].Mass;
     }
     return mass_of_star;
 }
@@ -1033,9 +1033,9 @@ static double get_sfr_factor_due_to_h2(int i, MyFloat * GradRho_mag, const doubl
     double tau_fmol;
     const double a2 = atime * atime;
     double zoverzsun = SPHP(i).Metallicity/METAL_YIELD;
-    double gradrho_mag = GradRho_mag[P[i].PI];
-    //message(4, "GradRho %g rho %g hsml %g i %d\n", gradrho_mag, SPHP(i).Density, P[i].Hsml, i);
-    tau_fmol = ev_NH_from_GradRho(gradrho_mag,P[i].Hsml,SPHP(i).Density,1) /a2;
+    double gradrho_mag = GradRho_mag[Part[i].PI];
+    //message(4, "GradRho %g rho %g hsml %g i %d\n", gradrho_mag, SPHP(i).Density, Part[i].Hsml, i);
+    tau_fmol = ev_NH_from_GradRho(gradrho_mag,Part[i].Hsml,SPHP(i).Density,1) /a2;
     tau_fmol *= (0.1 + zoverzsun);
     if(tau_fmol>0) {
         tau_fmol *= 434.78*sfr_params.tau_fmol_unit;
@@ -1094,9 +1094,9 @@ add_new_particle_to_active(const int parent, const int child, ActiveParticles * 
 {
 
     /* If gravity active, increment the counter*/
-    int is_grav_active = is_timebin_active(P[parent].TimeBinGravity, P[parent].Ti_drift);
+    int is_grav_active = is_timebin_active(Part[parent].TimeBinGravity, Part[parent].Ti_drift);
     /* If either is active, need to be in the active list. */
-    if(is_grav_active || is_timebin_active(P[parent].TimeBinHydro, P[parent].Ti_drift)) {
+    if(is_grav_active || is_timebin_active(Part[parent].TimeBinHydro, Part[parent].Ti_drift)) {
         int64_t childactive = atomic_fetch_and_add_64(&act->NumActiveParticle, 1);
         if(act->ActiveParticle) {
             /* This should never happen because we allocate as much space for active particles as we have space
@@ -1114,7 +1114,7 @@ static int
 copy_gravaccel_new_particle(const int parent, const int child, MyFloat (* GravAccel)[3], int64_t nstoredgravaccel)
 {
     /* If gravity active, copy the grav accel to the new child*/
-    int is_grav_active = is_timebin_active(P[parent].TimeBinGravity, P[parent].Ti_drift);
+    int is_grav_active = is_timebin_active(Part[parent].TimeBinGravity, Part[parent].Ti_drift);
     if(is_grav_active && GravAccel) {
         if(child >= nstoredgravaccel)
             endrun(1, "Not enough space (%ld) in stored GravAccel to copy new star %d from parent %d\n", nstoredgravaccel, child, parent);

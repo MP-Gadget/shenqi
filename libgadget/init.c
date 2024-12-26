@@ -124,25 +124,25 @@ inttime_t init(int RestartSnapNum, const char * OutputDir, struct header_data * 
     for(i = 0; i < PartManager->NumPart; i++)	/* initialize sph_properties */
     {
         int j;
-        P[i].Ti_drift = Ti_Current;
+        Part[i].Ti_drift = Ti_Current;
 #ifdef DEBUG
-        P[i].Ti_kick_grav = Ti_Current;
-        P[i].Ti_kick_hydro = Ti_Current;
+        Part[i].Ti_kick_grav = Ti_Current;
+        Part[i].Ti_kick_hydro = Ti_Current;
 #endif
-        if(RestartSnapNum == -1 && P[i].Type == 5 )
+        if(RestartSnapNum == -1 && Part[i].Type == 5 )
         {
             /* Note: Gadget-3 sets this to the seed black hole mass.*/
-            BHP(i).Mass = P[i].Mass;
+            BHP(i).Mass = Part[i].Mass;
         }
 
-        if(P[i].Type == 4 )
+        if(Part[i].Type == 4 )
         {
             /* Touch up zero star smoothing lengths, not saved in the snapshots.*/
-            if(P[i].Hsml == 0)
-                P[i].Hsml = 0.1 * MeanSeparation[0];
+            if(Part[i].Hsml == 0)
+                Part[i].Hsml = 0.1 * MeanSeparation[0];
         }
 
-        if(P[i].Type == 5)
+        if(Part[i].Type == 5)
         {
             for(j = 0; j < 3; j++) {
                 BHP(i).DFAccel[j] = 0;
@@ -150,7 +150,7 @@ inttime_t init(int RestartSnapNum, const char * OutputDir, struct header_data * 
             }
         }
 
-        if(P[i].Type != 0)
+        if(Part[i].Type != 0)
             continue;
 
         for(j = 0; j < 3; j++)
@@ -159,7 +159,7 @@ inttime_t init(int RestartSnapNum, const char * OutputDir, struct header_data * 
         }
 
         if(!isfinite(SPHP(i).DelayTime ))
-            endrun(6, "Bad DelayTime %g for part %d id %ld\n", SPHP(i).DelayTime, i, P[i].ID);
+            endrun(6, "Bad DelayTime %g for part %d id %ld\n", SPHP(i).DelayTime, i, Part[i].ID);
         SPHP(i).DtEntropy = 0;
 
         if(RestartSnapNum == -1)
@@ -208,13 +208,13 @@ void check_omega(struct part_manager_type * PartManager, Cosmology * CP, int gen
     for(i = 0; i < PartManager->NumPart; i++) {
         /* In case zeros have been written to the saved mass array,
          * recover the true masses*/
-        if(P[i].Mass == 0) {
-            P[i].Mass = MassTable[P[i].Type] * ( 1. - (double)P[i].Generation/generations);
+        if(Part[i].Mass == 0) {
+            Part[i].Mass = MassTable[Part[i].Type] * ( 1. - (double)Part[i].Generation/generations);
             badmass++;
         }
-        if(P[i].Type >= 0 && P[i].Type < 6)
-            omegas[P[i].Type] += P[i].Mass;
-        mass += P[i].Mass;
+        if(Part[i].Type >= 0 && Part[i].Type < 6)
+            omegas[Part[i].Type] += Part[i].Mass;
+        mass += Part[i].Mass;
     }
 
     MPI_Allreduce(&mass, &masstot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
@@ -350,16 +350,16 @@ void check_smoothing_length(struct part_manager_type * PartManager, double * Mea
     int lastprob = -1;
     #pragma omp parallel for reduction(+: numprob) reduction(max:lastprob)
     for(i=0; i< PartManager->NumPart; i++){
-        if(P[i].Type != 5 && P[i].Type != 0)
+        if(Part[i].Type != 5 && Part[i].Type != 0)
             continue;
-        if(P[i].Hsml > PartManager->BoxSize || P[i].Hsml <= 0) {
-            P[i].Hsml = MeanSpacing[P[i].Type];
+        if(Part[i].Hsml > PartManager->BoxSize || Part[i].Hsml <= 0) {
+            Part[i].Hsml = MeanSpacing[Part[i].Type];
             numprob++;
             lastprob = i;
         }
     }
     if(numprob > 0)
-        message(5, "Bad smoothing lengths %d last bad %d hsml %g id %ld\n", numprob, lastprob, P[lastprob].Hsml, P[lastprob].ID);
+        message(5, "Bad smoothing lengths %d last bad %d hsml %g id %ld\n", numprob, lastprob, Part[lastprob].Hsml, Part[lastprob].ID);
 }
 
 /* When we restart, validate the SPH properties of the particles.

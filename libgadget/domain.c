@@ -90,7 +90,7 @@ void set_domain_params(ParameterSet * ps)
         if(domain_params.DomainOverDecompositionFactor < 0)
             domain_params.DomainOverDecompositionFactor = omp_get_max_threads();
         if(domain_params.DomainOverDecompositionFactor == 0)
-            domain_params.DomainOverDecompositionFactor = floor(omp_get_max_threads()/2);                
+            domain_params.DomainOverDecompositionFactor = floor(omp_get_max_threads()/2);
         if(domain_params.DomainOverDecompositionFactor < 4)
             domain_params.DomainOverDecompositionFactor = 4;
         domain_params.TopNodeAllocFactor = param_get_double(ps, "TopNodeAllocFactor");
@@ -407,7 +407,7 @@ void domain_free(DomainDecomp * ddecomp)
 
 /*! This function carries out the actual domain decomposition for all
  *  particle types. It will try to balance the work-load for each ddecomp,
- *  as estimated based on the P[i]-GravCost values.  The decomposition will
+ *  as estimated based on the Part[i]-GravCost values.  The decomposition will
  *  respect the maximum allowed memory-imbalance given by the value of
  *  PartAllocFactor.
  */
@@ -1013,13 +1013,13 @@ domain_check_for_local_refine_subsample(
         #pragma omp parallel for reduction(+: garbage)
         for(i = 0; i < PartManager->NumPart; i ++)
         {
-            if(P[i].IsGarbage) {
+            if(Part[i].IsGarbage) {
                 LPfull[i].Key = PEANOCELLS;
                 LPfull[i].Cost = 0;
                 garbage++;
                 continue;
             }
-            LPfull[i].Key = PEANO(P[i].Pos, PartManager->BoxSize);
+            LPfull[i].Key = PEANO(Part[i].Pos, PartManager->BoxSize);
             LPfull[i].Cost = 1;
         }
 
@@ -1043,7 +1043,7 @@ domain_check_for_local_refine_subsample(
         for(i = 0; i < Nsample; i ++)
         {
             int j = i * policy->SubSampleDistance;
-            LP[i].Key = PEANO(P[j].Pos, PartManager->BoxSize);
+            LP[i].Key = PEANO(Part[j].Pos, PartManager->BoxSize);
             LP[i].Cost = 1;
         }
     }
@@ -1393,12 +1393,12 @@ domain_compute_costs(DomainDecomp * ddecomp, int64_t *TopLeafWork, int64_t *TopL
         {
             /* Skip garbage particles: they have zero work
              * and can be removed by exchange if under memory pressure.*/
-            if(P[n].IsGarbage)
+            if(Part[n].IsGarbage)
                 continue;
 
-            const int leaf = domain_get_topleaf(PEANO(P[n].Pos, PartManager->BoxSize), ddecomp);
+            const int leaf = domain_get_topleaf(PEANO(Part[n].Pos, PartManager->BoxSize), ddecomp);
             /* Set the topleaf so we can use it for exchange*/
-            P[n].TopLeaf = leaf;
+            Part[n].TopLeaf = leaf;
 
             if(local_TopLeafWork)
                 local_TopLeafWork[leaf + tid * ddecomp->NTopLeaves] += 1;

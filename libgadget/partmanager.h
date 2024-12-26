@@ -87,7 +87,7 @@ extern struct part_manager_type {
 } PartManager[1];
 
 /*Compatibility define*/
-#define P PartManager->Base
+#define Part PartManager->Base
 
 /*Allocate memory for the particles*/
 void particle_alloc_memory(struct part_manager_type * PartManager, double BoxSize, int64_t MaxPart);

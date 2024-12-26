@@ -373,7 +373,7 @@ gas_ionization_fraction(void)
     int64_t i, n_ionized_tot = 0, n_gas_tot = 0, n_ionized = 0;
     #pragma omp parallel for reduction(+:n_ionized)
     for (i = 0; i < PartManager->NumPart; i++){
-        if (P[i].Type == 0 && P[i].HeIIIionized == 1){
+        if (Part[i].Type == 0 && Part[i].HeIIIionized == 1){
             n_ionized ++;
         }
     }
@@ -392,10 +392,10 @@ static int
 ionize_single_particle(int other, double a3inv, double uu_in_cgs)
 {
     /* Mark it ionized if not done so already.*/
-    if(P[other].HeIIIionized)
+    if(Part[other].HeIIIionized)
         return 0;
 
-    P[other].HeIIIionized = 1;
+    Part[other].HeIIIionized = 1;
     /* Heat the particle*/
     /* Number of helium atoms per g in the particle*/
     double nheperg = (1 - HYDROGEN_MASSFRAC) / (PROTONMASS * HEMASS);
@@ -443,7 +443,7 @@ ionize_ngbiter(TreeWalkQueryQSOLightup * I,
     int other = iter->other;
 
     /* Only ionize gas*/
-    if(P[other].Type != 0)
+    if(Part[other].Type != 0)
         return;
 
     int ionized = ionize_single_particle(other, QSO_GET_PRIV(lv->tw)->a3inv, QSO_GET_PRIV(lv->tw)->uu_in_cgs);
@@ -544,7 +544,7 @@ turn_on_quasars(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmology * 
         int64_t i, nionized=0, nion_tot=0;
         #pragma omp parallel for reduction(+: nionized)
         for (i = 0; i < PartManager->NumPart; i++){
-            if (P[i].Type == 0)
+            if (Part[i].Type == 0)
                 nionized += ionize_single_particle(i, priv.a3inv, priv.uu_in_cgs);
         }
         MPI_Reduce(&nionized, &nion_tot, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);

@@ -42,16 +42,16 @@ setup_particles(int NumPart, double BoxSize)
     int i;
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i ++) {
-        P[i].ID = i + PartManager->NumPart * ThisTask;
+        PartManager->Base[i].ID = i + PartManager->NumPart * ThisTask;
         /* DM only*/
-        P[i].Type = 1;
-        P[i].Mass = 1;
-        P[i].IsGarbage = 0;
+        PartManager->Base[i].Type = 1;
+        PartManager->Base[i].Mass = 1;
+        PartManager->Base[i].IsGarbage = 0;
         int j;
         for(j=0; j<3; j++) {
-            P[i].Pos[j] = BoxSize * (j+1) * P[i].ID / (PartManager->NumPart * NTask);
-            while(P[i].Pos[j] > BoxSize)
-                P[i].Pos[j] -= BoxSize;
+            PartManager->Base[i].Pos[j] = BoxSize * (j+1) * PartManager->Base[i].ID / (PartManager->NumPart * NTask);
+            while(PartManager->Base[i].Pos[j] > BoxSize)
+                PartManager->Base[i].Pos[j] -= BoxSize;
         }
     }
     fof_init(BoxSize/cbrt(PartManager->NumPart));
@@ -94,6 +94,6 @@ BOOST_AUTO_TEST_CASE(test_fof)
     fof_finish(&fof);
     domain_free(&ddecomp);
     slots_free(SlotsManager);
-    myfree(P);
+    myfree(PartManager->Base);
     return;
 }

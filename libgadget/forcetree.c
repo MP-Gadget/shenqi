@@ -362,7 +362,7 @@ modify_internal_node(int parent, int subnode, int p_toplace, const ForceTree tb)
     if(tb.Father)
         tb.Father[p_toplace] = parent;
     tb.Nodes[parent].s.suns[subnode] = p_toplace;
-    add_particle_moment_to_node(&tb.Nodes[parent], &P[p_toplace]);
+    add_particle_moment_to_node(&tb.Nodes[parent], &Part[p_toplace]);
     return 0;
 }
 
@@ -396,9 +396,9 @@ create_new_node_layer(int firstparent, int p_toplace, const ForceTree tb, int *n
             /* This means that we have > NMAXCHILD particles in the same place,
             * which usually indicates a bug in the particle evolution. Print some helpful debug information.*/
             message(1, "Failed placing %d at %g %g %g, type %d, ID %ld. Others were %d (%g %g %g, t %d ID %ld) and %d (%g %g %g, t %d ID %ld).\n",
-                p_toplace, P[p_toplace].Pos[0], P[p_toplace].Pos[1], P[p_toplace].Pos[2], P[p_toplace].Type, P[p_toplace].ID,
-                oldsuns[0], P[oldsuns[0]].Pos[0], P[oldsuns[0]].Pos[1], P[oldsuns[0]].Pos[2], P[oldsuns[0]].Type, P[oldsuns[0]].ID,
-                oldsuns[1], P[oldsuns[1]].Pos[0], P[oldsuns[1]].Pos[1], P[oldsuns[1]].Pos[2], P[oldsuns[1]].Type, P[oldsuns[1]].ID
+                p_toplace, Part[p_toplace].Pos[0], Part[p_toplace].Pos[1], Part[p_toplace].Pos[2], Part[p_toplace].Type, Part[p_toplace].ID,
+                oldsuns[0], Part[oldsuns[0]].Pos[0], Part[oldsuns[0]].Pos[1], Part[oldsuns[0]].Pos[2], Part[oldsuns[0]].Type, Part[oldsuns[0]].ID,
+                oldsuns[1], Part[oldsuns[1]].Pos[0], Part[oldsuns[1]].Pos[1], Part[oldsuns[1]].Pos[2], Part[oldsuns[1]].Type, Part[oldsuns[1]].ID
             );
             nc->nnext_thread = tb.lastnode + 10 * NODECACHE_SIZE;
             /* If this is not the first layer created,
@@ -429,7 +429,7 @@ create_new_node_layer(int firstparent, int p_toplace, const ForceTree tb, int *n
             /* Re-attach each particle to the appropriate new leaf.
             * Notice that since we have NMAXCHILD slots on each child and NMAXCHILD particles,
             * we will always have a free slot. */
-            int subnode = get_subnode(nprnt, P[oldsuns[i]].Pos);
+            int subnode = get_subnode(nprnt, Part[oldsuns[i]].Pos);
             int child = newsuns[subnode];
             struct NODE * nchild = &tb.Nodes[child];
             modify_internal_node(child, nchild->s.noccupied, oldsuns[i], tb);
@@ -451,7 +451,7 @@ create_new_node_layer(int firstparent, int p_toplace, const ForceTree tb, int *n
         memset(&nprnt->mom, 0, sizeof(nprnt->mom));
 
         /* Now try again to add the new particle*/
-        int subnode = get_subnode(nprnt, P[p_toplace].Pos);
+        int subnode = get_subnode(nprnt, Part[p_toplace].Pos);
         int child = nprnt->s.suns[subnode];
         struct NODE * nchild = &tb.Nodes[child];
         if(nchild->s.noccupied < NMAXCHILD) {
@@ -495,7 +495,7 @@ int add_particle_to_tree(int i, int cur_start, const ForceTree tb, struct NodeCa
             break;
 
         /* This node has child subnodes: find them.*/
-        int subnode = get_subnode(&tb.Nodes[cur], P[i].Pos);
+        int subnode = get_subnode(&tb.Nodes[cur], Part[i].Pos);
         /*No lock needed: if we have an internal node here it will be stable*/
         child = tb.Nodes[cur].s.suns[subnode];
 
@@ -801,26 +801,26 @@ force_tree_create_nodes(ForceTree * tree, const ActiveParticles * act, int mask,
             const int i = act->ActiveParticle ? act->ActiveParticle[j] : j;
 
             /* Do not add types that do not have their mask bit set.*/
-            if(!((1<<P[i].Type) & mask)) {
+            if(!((1<<Part[i].Type) & mask)) {
                 continue;
             }
             /* Do not add garbage/swallowed particles to the tree*/
-            if(P[i].IsGarbage || (P[i].Swallowed && P[i].Type==5))
+            if(Part[i].IsGarbage || (Part[i].Swallowed && Part[i].Type==5))
                 continue;
 
-            if(P[i].Mass <= 0)
-                endrun(12, "Zero mass particle %d m %g type %d id %ld pos %g %g %g\n", i, P[i].Mass, P[i].Type, P[i].ID, P[i].Pos[0], P[i].Pos[1], P[i].Pos[2]);
+            if(Part[i].Mass <= 0)
+                endrun(12, "Zero mass particle %d m %g type %d id %ld pos %g %g %g\n", i, Part[i].Mass, Part[i].Type, Part[i].ID, Part[i].Pos[0], Part[i].Pos[1], Part[i].Pos[2]);
             /*First find the Node for the TopLeaf */
             int cur;
-            if(inside_node(&tree->Nodes[this_acc], P[i].Pos)) {
+            if(inside_node(&tree->Nodes[this_acc], Part[i].Pos)) {
                 cur = this_acc;
             } else {
                 /* Get the topnode to which a particle belongs. Each local tree
                  * has a local set of treenodes copying the global topnodes, except tid 0
                  * which has the real topnodes.*/
-                const int topleaf = P[i].TopLeaf;
+                const int topleaf = Part[i].TopLeaf;
                 if(topleaf < StartLeaf || topleaf >= EndLeaf)
-                    endrun(5, "Bad topleaf %d start %d end %d type %d ID %ld\n", topleaf, StartLeaf, EndLeaf, P[i].Type, P[i].ID);
+                    endrun(5, "Bad topleaf %d start %d end %d type %d ID %ld\n", topleaf, StartLeaf, EndLeaf, Part[i].Type, Part[i].ID);
                 //int treenode = ddecomp->TopLeaves[topleaf].treenode;
                 cur = local_topnodes[topleaf - StartLeaf];
             }
@@ -1320,9 +1320,9 @@ update_tree_hmax_father(const ForceTree * const tree, const int p_i, const doubl
  *  of each active particle.
  *
  *  The purpose of the hmax node is for a symmetric treewalk (currently only the hydro).
- *  Particles where P[i].Pos + Hsml pokes beyond the exterior of the tree node may mean
+ *  Particles where Part[i].Pos + Hsml pokes beyond the exterior of the tree node may mean
  *  that a tree node should be included when it would normally be culled. Therefore we don't really
- *  want hmax, we want the maximum amount P[i].Pos + Hsml pokes beyond the tree node.
+ *  want hmax, we want the maximum amount Part[i].Pos + Hsml pokes beyond the tree node.
  */
 void force_update_hmax(ActiveParticles * act, ForceTree * tree, DomainDecomp * ddecomp)
 {

@@ -54,14 +54,14 @@ grav_short_postprocess(int i, TreeWalk * tw)
     if(tw->tree->full_particle_tree_flag) {
         /* On a PM step, update the stored full tree grav accel for the next PM step.
          * Needs to be done here so internal treewalk iterations don't get a partial acceleration.*/
-        P[i].FullTreeGravAccel[0] = GRAV_GET_PRIV(tw)->Accel[i][0];
-        P[i].FullTreeGravAccel[1] = GRAV_GET_PRIV(tw)->Accel[i][1];
-        P[i].FullTreeGravAccel[2] = GRAV_GET_PRIV(tw)->Accel[i][2];
+        Part[i].FullTreeGravAccel[0] = GRAV_GET_PRIV(tw)->Accel[i][0];
+        Part[i].FullTreeGravAccel[1] = GRAV_GET_PRIV(tw)->Accel[i][1];
+        Part[i].FullTreeGravAccel[2] = GRAV_GET_PRIV(tw)->Accel[i][2];
         /* calculate the potential */
-        P[i].Potential += P[i].Mass / (FORCE_SOFTENING() / 2.8);
+        Part[i].Potential += Part[i].Mass / (FORCE_SOFTENING() / 2.8);
         /* remove self-potential */
-        P[i].Potential -= 2.8372975 * pow(P[i].Mass, 2.0 / 3) * GRAV_GET_PRIV(tw)->cbrtrho0;
-        P[i].Potential *= G;
+        Part[i].Potential -= 2.8372975 * pow(Part[i].Mass, 2.0 / 3) * GRAV_GET_PRIV(tw)->cbrtrho0;
+        Part[i].Potential *= G;
     }
 }
 
@@ -81,7 +81,7 @@ grav_get_abs_accel(struct particle_data * PP, const double G)
 static void
 grav_short_copy(int place, TreeWalkQueryGravShort * input, TreeWalk * tw)
 {
-    input->OldAcc = grav_get_abs_accel(&P[place], GRAV_GET_PRIV(tw)->G);
+    input->OldAcc = grav_get_abs_accel(&Part[place], GRAV_GET_PRIV(tw)->G);
 }
 
 static void
@@ -91,7 +91,7 @@ grav_short_reduce(int place, TreeWalkResultGravShort * result, enum TreeWalkRedu
     TREEWALK_REDUCE(GRAV_GET_PRIV(tw)->Accel[place][1], result->Acc[1]);
     TREEWALK_REDUCE(GRAV_GET_PRIV(tw)->Accel[place][2], result->Acc[2]);
     if(tw->tree->full_particle_tree_flag)
-        TREEWALK_REDUCE(P[place].Potential, result->Potential);
+        TREEWALK_REDUCE(Part[place].Potential, result->Potential);
 }
 
 #endif

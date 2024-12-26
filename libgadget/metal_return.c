@@ -463,29 +463,29 @@ metal_return_init(const ActiveParticles * act, Cosmology * CP, struct MetalRetur
     for(i=0; i < act->NumActiveParticle;i++)
     {
         int p_i = act->ActiveParticle ? act->ActiveParticle[i] : i;
-        if(P[p_i].Type != 4)
+        if(Part[p_i].Type != 4)
             continue;
         int tid = omp_get_thread_num();
-        const int slot = P[p_i].PI;
+        const int slot = Part[p_i].PI;
         priv->StellarAges[slot] = atime_to_myr(CP, STARP(p_i).FormationTime, atime, priv->gsl_work[tid]);
         /* Note this takes care of units*/
-        double initialmass = P[p_i].Mass + STARP(p_i).TotalMassReturned;
-        find_mass_bin_limits(&priv->LowDyingMass[slot], &priv->HighDyingMass[slot], STARP(p_i).LastEnrichmentMyr, priv->StellarAges[P[p_i].PI], STARP(p_i).Metallicity, priv->interp.lifetime_interp);
+        double initialmass = Part[p_i].Mass + STARP(p_i).TotalMassReturned;
+        find_mass_bin_limits(&priv->LowDyingMass[slot], &priv->HighDyingMass[slot], STARP(p_i).LastEnrichmentMyr, priv->StellarAges[Part[p_i].PI], STARP(p_i).Metallicity, priv->interp.lifetime_interp);
 
-        priv->MassReturn[slot] = initialmass * mass_yield(STARP(p_i).LastEnrichmentMyr, priv->StellarAges[P[p_i].PI], STARP(p_i).Metallicity, CP->HubbleParam, &priv->interp, priv->imf_norm, priv->gsl_work[tid],priv->LowDyingMass[slot], priv->HighDyingMass[slot]);
-        //message(3, "Particle %d PI %d massgen %g mass %g initmass %g\n", p_i, P[p_i].PI, priv->MassReturn[P[p_i].PI], P[p_i].Mass, initialmass);
+        priv->MassReturn[slot] = initialmass * mass_yield(STARP(p_i).LastEnrichmentMyr, priv->StellarAges[Part[p_i].PI], STARP(p_i).Metallicity, CP->HubbleParam, &priv->interp, priv->imf_norm, priv->gsl_work[tid],priv->LowDyingMass[slot], priv->HighDyingMass[slot]);
+        //message(3, "Particle %d PI %d massgen %g mass %g initmass %g\n", p_i, Part[p_i].PI, priv->MassReturn[Part[p_i].PI], Part[p_i].Mass, initialmass);
         /* Guard against making a zero mass particle and warn since this should not happen.*/
         if(STARP(p_i).TotalMassReturned + priv->MassReturn[slot] > initialmass * maxmassfrac) {
             if(priv->MassReturn[slot] / STARP(p_i).TotalMassReturned > 0.01)
                 message(1, "Large mass return id %ld %g from %d mass %g initial %g (maxfrac %g) age %g lastenrich %g metal %g dymass %g %g\n",
-                    P[p_i].ID, priv->MassReturn[slot], p_i, STARP(p_i).TotalMassReturned, initialmass, maxmassfrac, priv->StellarAges[P[p_i].PI], STARP(p_i).LastEnrichmentMyr, STARP(p_i).Metallicity, priv->LowDyingMass[slot], priv->HighDyingMass[slot]);
+                    Part[p_i].ID, priv->MassReturn[slot], p_i, STARP(p_i).TotalMassReturned, initialmass, maxmassfrac, priv->StellarAges[Part[p_i].PI], STARP(p_i).LastEnrichmentMyr, STARP(p_i).Metallicity, priv->LowDyingMass[slot], priv->HighDyingMass[slot]);
             priv->MassReturn[slot] = initialmass * maxmassfrac - STARP(p_i).TotalMassReturned;
             if(priv->MassReturn[slot] < 0) {
                 priv->MassReturn[slot] = 0;
             }
             /* Ensure that we skip this step*/
             if(!metals_haswork(p_i, priv->MassReturn))
-                STARP(p_i).LastEnrichmentMyr = priv->StellarAges[P[p_i].PI];
+                STARP(p_i).LastEnrichmentMyr = priv->StellarAges[Part[p_i].PI];
 
         }
         /* Keep count of how much work we need to do*/
@@ -579,11 +579,11 @@ static void
 metal_return_copy(int place, TreeWalkQueryMetals * input, TreeWalk * tw)
 {
     input->Metallicity = STARP(place).Metallicity;
-    input->Mass = P[place].Mass;
-    input->Hsml = P[place].Hsml;
-    int pi = P[place].PI;
+    input->Mass = Part[place].Mass;
+    input->Hsml = Part[place].Hsml;
+    int pi = Part[place].PI;
     input->StarVolumeSPH = METALS_GET_PRIV(tw)->StarVolumeSPH[pi];
-    double InitialMass = P[place].Mass + STARP(place).TotalMassReturned;
+    double InitialMass = Part[place].Mass + STARP(place).TotalMassReturned;
     double dtmyrend = METALS_GET_PRIV(tw)->StellarAges[pi];
     double dtmyrstart = STARP(place).LastEnrichmentMyr;
     int tid = omp_get_thread_num();
@@ -594,7 +594,7 @@ metal_return_copy(int place, TreeWalkQueryMetals * input, TreeWalk * tw)
     double total_z_yield = metal_yield(dtmyrstart, dtmyrend, input->Metallicity, METALS_GET_PRIV(tw)->hub, &METALS_GET_PRIV(tw)->interp, input->MetalSpeciesGenerated, METALS_GET_PRIV(tw)->imf_norm, METALS_GET_PRIV(tw)->gsl_work[tid], METALS_GET_PRIV(tw)->LowDyingMass[pi], METALS_GET_PRIV(tw)->HighDyingMass[pi]);
     /* The total metal returned is the metal ejected into the ISM this timestep. total_z_yield is given as a fraction of the initial SSP.*/
     input->MetalGenerated = InitialMass * total_z_yield;
-    //message(3, "Particle %d PI %d z %g massgen %g metallicity %g\n", pi, P[pi].PI, total_z_yield, METALS_GET_PRIV(tw)->MassReturn[pi], STARP(place).Metallicity);
+    //message(3, "Particle %d PI %d z %g massgen %g metallicity %g\n", pi, Part[pi].PI, total_z_yield, METALS_GET_PRIV(tw)->MassReturn[pi], STARP(place).Metallicity);
     /* It should be positive! If it is not, this is some integration error
      * in the yield table as we cannot destroy metal which is not present.*/
     if(input->MetalGenerated < 0)
@@ -612,7 +612,7 @@ metal_return_copy(int place, TreeWalkQueryMetals * input, TreeWalk * tw)
 static void
 metal_return_reduce(int place, TreeWalkResultMetals * remote, enum TreeWalkReduceMode mode, TreeWalk * tw)
 {
-    TREEWALK_REDUCE(METALS_GET_PRIV(tw)->MassReturn[P[place].PI], remote->MassReturn);
+    TREEWALK_REDUCE(METALS_GET_PRIV(tw)->MassReturn[Part[place].PI], remote->MassReturn);
 }
 
 /* Update the mass and enrichment variables for the star.
@@ -622,10 +622,10 @@ static void
 metal_return_postprocess(int place, TreeWalk * tw)
 {
     /* Conserve mass returned*/
-    P[place].Mass -= METALS_GET_PRIV(tw)->MassReturn[P[place].PI];
-    STARP(place).TotalMassReturned += METALS_GET_PRIV(tw)->MassReturn[P[place].PI];
+    Part[place].Mass -= METALS_GET_PRIV(tw)->MassReturn[Part[place].PI];
+    STARP(place).TotalMassReturned += METALS_GET_PRIV(tw)->MassReturn[Part[place].PI];
     /* Update the last enrichment time*/
-    STARP(place).LastEnrichmentMyr = METALS_GET_PRIV(tw)->StellarAges[P[place].PI];
+    STARP(place).LastEnrichmentMyr = METALS_GET_PRIV(tw)->StellarAges[Part[place].PI];
 }
 
 /*! For all gas particles within the density radius of this star,
@@ -666,16 +666,16 @@ metal_return_ngbiter(
         if(I->StarVolumeSPH ==0)
             endrun(3, "StarVolumeSPH %g hsml %g\n", I->StarVolumeSPH, I->Hsml);
         double newmass;
-        int pi = P[other].PI;
+        int pi = Part[other].PI;
         lock_spinlock(pi, METALS_GET_PRIV(lv->tw)->spin);
         /* Volume of particle weighted by the SPH kernel*/
-        double volume = P[other].Mass / SPHP(other).Density;
+        double volume = Part[other].Mass / SPHP(other).Density;
         double returnfraction = wk * volume / I->StarVolumeSPH;
         double thismass = returnfraction * I->MassGenerated;
         /* Ensure that the gas particles don't become overweight.
          * If there are few gas particles around, the star clusters
          * will hold onto their metals.*/
-        if(P[other].Mass + thismass > METALS_GET_PRIV(lv->tw)->MaxGasMass) {
+        if(Part[other].Mass + thismass > METALS_GET_PRIV(lv->tw)->MaxGasMass) {
             unlock_spinlock(pi, METALS_GET_PRIV(lv->tw)->spin);
             return;
         }
@@ -686,23 +686,23 @@ metal_return_ngbiter(
         double thismetal = returnfraction * I->MetalGenerated;
         /* Add the metals to the particle.*/
         for(i = 0; i < NMETALS; i++)
-            SPHP(other).Metals[i] = (SPHP(other).Metals[i] * P[other].Mass + ThisMetals[i])/(P[other].Mass + thismass);
+            SPHP(other).Metals[i] = (SPHP(other).Metals[i] * Part[other].Mass + ThisMetals[i])/(Part[other].Mass + thismass);
         /* Update total metallicity*/
-        SPHP(other).Metallicity = (SPHP(other).Metallicity * P[other].Mass + thismetal)/(P[other].Mass + thismass);
+        SPHP(other).Metallicity = (SPHP(other).Metallicity * Part[other].Mass + thismetal)/(Part[other].Mass + thismass);
         /* Update mass*/
-        double massfrac = (P[other].Mass + thismass) / P[other].Mass;
-        P[other].Mass *= massfrac;
+        double massfrac = (Part[other].Mass + thismass) / Part[other].Mass;
+        Part[other].Mass *= massfrac;
         /* Density also needs a correction so the volume fraction is unchanged.
          * This ensures that volume = Mass/Density is unchanged for the next particle
          * and thus the weighting still sums to unity.*/
         SPHP(other).Density *= massfrac;
         /* Keep track of how much was returned for conservation purposes*/
         O->MassReturn += thismass;
-        newmass = P[other].Mass;
+        newmass = Part[other].Mass;
         unlock_spinlock(pi, METALS_GET_PRIV(lv->tw)->spin);
         if(newmass <= 0)
             endrun(3, "New mass %g new metal %g in particle %d id %ld from star mass %g metallicity %g\n",
-                   newmass, SPHP(other).Metallicity, other, P[other].ID, I->Mass, I->Metallicity);
+                   newmass, SPHP(other).Metallicity, other, Part[other].ID, I->Mass, I->Metallicity);
     }
 }
 
@@ -712,11 +712,11 @@ metal_return_ngbiter(
 int
 metals_haswork(int i, MyFloat * MassReturn)
 {
-    if(P[i].Type != 4)
+    if(Part[i].Type != 4)
         return 0;
-    int pi = P[i].PI;
+    int pi = Part[i].PI;
     /* Don't do enrichment from all stars, just those with significant enrichment*/
-    if(MassReturn[pi] < 1e-3 * (P[i].Mass + STARP(i).TotalMassReturned))
+    if(MassReturn[pi] < 1e-3 * (Part[i].Mass + STARP(i).TotalMassReturned))
         return 0;
     return 1;
 }
@@ -776,24 +776,24 @@ stellar_density_haswork(int i, TreeWalk * tw)
 static inline double
 effhsml(int place, int i, TreeWalk * tw)
 {
-    int pi = P[place].PI;
+    int pi = Part[place].PI;
     double left = STELLAR_DENSITY_GET_PRIV(tw)->Left[pi];
     double right = STELLAR_DENSITY_GET_PRIV(tw)->Right[pi];
     /* If somehow Hsml has become zero through underflow, use something non-zero
      * to make sure we converge. */
-    if(left == 0 && right > 0.99*tw->tree->BoxSize && P[place].Hsml == 0) {
+    if(left == 0 && right > 0.99*tw->tree->BoxSize && Part[place].Hsml == 0) {
         int fat = force_get_father(place, tw->tree);
-        P[place].Hsml = tw->tree->Nodes[fat].len;
-        if(P[place].Hsml == 0)
-            P[place].Hsml = tw->tree->BoxSize / pow(PartManager->NumPart, 1./3)/4.;
+        Part[place].Hsml = tw->tree->Nodes[fat].len;
+        if(Part[place].Hsml == 0)
+            Part[place].Hsml = tw->tree->BoxSize / pow(PartManager->NumPart, 1./3)/4.;
     }
     /* Use slightly past the current Hsml as the right most boundary*/
     if(right > 0.99*tw->tree->BoxSize)
-        right = P[place].Hsml * ((1.+NHSML)/NHSML);
+        right = Part[place].Hsml * ((1.+NHSML)/NHSML);
     /* Use 1/2 of current Hsml for left. The asymmetry is because it is free
      * to compute extra densities for h < Hsml, but not for h > Hsml.*/
     if(left == 0)
-        left = 0.1 * P[place].Hsml;
+        left = 0.1 * Part[place].Hsml;
     /* From left + 1/N  to right - 1/N, evenly spaced in volume,
      * since NumNgb ~ h^3.*/
     double rvol = pow(right, 3);
@@ -812,7 +812,7 @@ stellar_density_copy(int place, TreeWalkQueryStellarDensity * I, TreeWalk * tw)
 static void
 stellar_density_reduce(int place, TreeWalkResultStellarDensity * remote, enum TreeWalkReduceMode mode, TreeWalk * tw)
 {
-    int pi = P[place].PI;
+    int pi = Part[place].PI;
     int i;
     if(mode == TREEWALK_PRIMARY || STELLAR_DENSITY_GET_PRIV(tw)->maxcmpte[pi] > remote->maxcmpte)
         STELLAR_DENSITY_GET_PRIV(tw)->maxcmpte[pi] = remote->maxcmpte;
@@ -827,7 +827,7 @@ void stellar_density_check_neighbours (int i, TreeWalk * tw)
     MyFloat * Left = STELLAR_DENSITY_GET_PRIV(tw)->Left;
     MyFloat * Right = STELLAR_DENSITY_GET_PRIV(tw)->Right;
 
-    int pi = P[i].PI;
+    int pi = Part[i].PI;
     int tid = omp_get_thread_num();
     double desnumngb = STELLAR_DENSITY_GET_PRIV(tw)->DesNumNgb;
 
@@ -839,7 +839,7 @@ void stellar_density_check_neighbours (int i, TreeWalk * tw)
         evalhsml[j] = effhsml(i, j, tw);
 
     int close = 0;
-    P[i].Hsml = ngb_narrow_down(&Right[pi],&Left[pi],evalhsml,STELLAR_DENSITY_GET_PRIV(tw)->NumNgb[pi],maxcmpt,desnumngb,&close,tw->tree->BoxSize);
+    Part[i].Hsml = ngb_narrow_down(&Right[pi],&Left[pi],evalhsml,STELLAR_DENSITY_GET_PRIV(tw)->NumNgb[pi],maxcmpt,desnumngb,&close,tw->tree->BoxSize);
     double numngb = STELLAR_DENSITY_GET_PRIV(tw)->NumNgb[pi][close];
 
     /* Save VolumeSPH*/
@@ -856,7 +856,7 @@ void stellar_density_check_neighbours (int i, TreeWalk * tw)
         {
             /* If this happens probably the exchange is screwed up and all your particles have moved to (0,0,0)*/
             message(1, "Very tight Hsml bounds for i=%d ID=%lu type %d Hsml=%g Left=%g Right=%g Ngbs=%g des = %g Right-Left=%g pos=(%g|%g|%g)\n",
-             i, P[i].ID, P[i].Type, evalhsml[0], Left[pi], Right[pi], numngb, desnumngb, Right[pi] - Left[pi], P[i].Pos[0], P[i].Pos[1], P[i].Pos[2]);
+             i, Part[i].ID, Part[i].Type, evalhsml[0], Left[pi], Right[pi], numngb, desnumngb, Right[pi] - Left[pi], Part[i].Pos[0], Part[i].Pos[1], Part[i].Pos[2]);
             return;
         }
         /* More work needed: add this particle to the redo queue*/
@@ -864,7 +864,7 @@ void stellar_density_check_neighbours (int i, TreeWalk * tw)
         tw->NPLeft[tid] ++;
         if(tw->Niteration >= 10)
             message(1, "i=%d ID=%lu Hsml=%g lastdhsml=%g Left=%g Right=%g Ngbs=%g Right-Left=%g pos=(%g|%g|%g)\n",
-             i, P[i].ID, P[i].Hsml, evalhsml[close], Left[pi], Right[pi], numngb, Right[pi] - Left[pi], P[i].Pos[0], P[i].Pos[1], P[i].Pos[2]);
+             i, Part[i].ID, Part[i].Hsml, evalhsml[close], Left[pi], Right[pi], numngb, Right[pi] - Left[pi], Part[i].Pos[0], Part[i].Pos[1], Part[i].Pos[2]);
 
     }
     if(tw->maxnumngb[tid] < numngb)
@@ -905,7 +905,7 @@ stellar_density_ngbiter(
             double wk = density_kernel_wk(&iter->kernel[i], u);
             O->Ngb[i] += wk * iter->kernel_volume[i];
             /* For stars we need the total weighting, sum(w_k m_k / rho_k).*/
-            double thisvol = P[other].Mass / SPHP(other).Density;
+            double thisvol = Part[other].Mass / SPHP(other).Density;
             if(MetalParams.SPHWeighting)
                 thisvol *= wk;
             O->VolumeSPH[i] += thisvol;
@@ -961,11 +961,11 @@ stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * 
     for(i = 0; i < act->NumActiveParticle; i++) {
         int a = act->ActiveParticle ? act->ActiveParticle[i] : i;
         /* Skip the garbage particles */
-        if(P[a].IsGarbage)
+        if(Part[a].IsGarbage)
             continue;
         if(!stellar_density_haswork(a, tw))
             continue;
-        int pi = P[a].PI;
+        int pi = Part[a].PI;
         priv->Left[pi] = 0;
         priv->Right[pi] = tree->BoxSize;
     }
@@ -977,14 +977,14 @@ stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * 
     for(i = 0; i < act->NumActiveParticle; i++) {
         int a = act->ActiveParticle ? act->ActiveParticle[i] : i;
         /* Skip the garbage particles */
-        if(P[a].IsGarbage)
+        if(Part[a].IsGarbage)
             continue;
         if(!stellar_density_haswork(a, tw))
             continue;
         /* Copy the Star Volume SPH*/
-        StarVolumeSPH[P[a].PI] = priv->VolumeSPH[P[a].PI][0];
-        if(priv->VolumeSPH[P[a].PI][0] == 0)
-            endrun(3, "i = %d pi = %d StarVolumeSPH %g hsml %g\n", a, P[a].PI, priv->VolumeSPH[P[a].PI][0], P[a].Hsml);
+        StarVolumeSPH[Part[a].PI] = priv->VolumeSPH[Part[a].PI][0];
+        if(priv->VolumeSPH[Part[a].PI][0] == 0)
+            endrun(3, "i = %d pi = %d StarVolumeSPH %g hsml %g\n", a, Part[a].PI, priv->VolumeSPH[Part[a].PI][0], Part[a].Hsml);
     }
 
     myfree(priv->maxcmpte);

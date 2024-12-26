@@ -238,14 +238,14 @@ struct state_of_system compute_global_quantities_of_system(const double Time,  s
         int j;
         double entr = 0, egyspec;
 
-        sys.MassComp[P[i].Type] += P[i].Mass;
+        sys.MassComp[Part[i].Type] += Part[i].Mass;
 
-        sys.EnergyPotComp[P[i].Type] += 0.5 * P[i].Mass * P[i].Potential / a1;
+        sys.EnergyPotComp[Part[i].Type] += 0.5 * Part[i].Mass * Part[i].Potential / a1;
 
-        sys.EnergyKinComp[P[i].Type] +=
-            0.5 * P[i].Mass * (P[i].Vel[0] * P[i].Vel[0] + P[i].Vel[1] * P[i].Vel[1] + P[i].Vel[2] * P[i].Vel[2]) / a2;
+        sys.EnergyKinComp[Part[i].Type] +=
+            0.5 * Part[i].Mass * (Part[i].Vel[0] * Part[i].Vel[0] + Part[i].Vel[1] * Part[i].Vel[1] + Part[i].Vel[2] * Part[i].Vel[2]) / a2;
 
-        if(P[i].Type == 0)
+        if(Part[i].Type == 0)
         {
             double localJ21 = 0;
             double zreion = 0;
@@ -253,23 +253,23 @@ struct state_of_system compute_global_quantities_of_system(const double Time,  s
             localJ21 = SPHP(i).local_J21;
             zreion = SPHP(i).zreion;
 #endif
-            struct UVBG uvbg = get_local_UVBG(redshift, &GlobalUVBG, P[i].Pos, PartManager->CurrentParticleOffset, localJ21, zreion);
+            struct UVBG uvbg = get_local_UVBG(redshift, &GlobalUVBG, Part[i].Pos, PartManager->CurrentParticleOffset, localJ21, zreion);
             entr = SPHP(i).Entropy;
             egyspec = entr / (GAMMA_MINUS1) * pow(SPHP(i).Density / a3, GAMMA_MINUS1);
-            sys.EnergyIntComp[0] += P[i].Mass * egyspec;
+            sys.EnergyIntComp[0] += Part[i].Mass * egyspec;
             double ne = SPHP(i).Ne;
-            sys.TemperatureComp[0] += P[i].Mass * get_temp(SPHP(i).Density, egyspec, (1 - HYDROGEN_MASSFRAC), &uvbg, &ne);
+            sys.TemperatureComp[0] += Part[i].Mass * get_temp(SPHP(i).Density, egyspec, (1 - HYDROGEN_MASSFRAC), &uvbg, &ne);
         }
 
         for(j = 0; j < 3; j++)
         {
-            sys.MomentumComp[P[i].Type][j] += P[i].Mass * P[i].Vel[j];
-            sys.CenterOfMassComp[P[i].Type][j] += P[i].Mass * P[i].Pos[j];
+            sys.MomentumComp[Part[i].Type][j] += Part[i].Mass * Part[i].Vel[j];
+            sys.CenterOfMassComp[Part[i].Type][j] += Part[i].Mass * Part[i].Pos[j];
         }
 
-        sys.AngMomentumComp[P[i].Type][0] += P[i].Mass * (P[i].Pos[1] * P[i].Vel[2] - P[i].Pos[2] * P[i].Vel[1]);
-        sys.AngMomentumComp[P[i].Type][1] += P[i].Mass * (P[i].Pos[2] * P[i].Vel[0] - P[i].Pos[0] * P[i].Vel[2]);
-        sys.AngMomentumComp[P[i].Type][2] += P[i].Mass * (P[i].Pos[0] * P[i].Vel[1] - P[i].Pos[1] * P[i].Vel[0]);
+        sys.AngMomentumComp[Part[i].Type][0] += Part[i].Mass * (Part[i].Pos[1] * Part[i].Vel[2] - Part[i].Pos[2] * Part[i].Vel[1]);
+        sys.AngMomentumComp[Part[i].Type][1] += Part[i].Mass * (Part[i].Pos[2] * Part[i].Vel[0] - Part[i].Pos[0] * Part[i].Vel[2]);
+        sys.AngMomentumComp[Part[i].Type][2] += Part[i].Mass * (Part[i].Pos[0] * Part[i].Vel[1] - Part[i].Pos[1] * Part[i].Vel[0]);
     }
 
 
