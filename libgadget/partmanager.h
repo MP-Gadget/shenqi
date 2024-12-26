@@ -59,7 +59,7 @@ struct particle_data
     MyFloat DtHsml;
     MyIDType ID;
     /* FOF Group number: only has meaning during FOF.*/
-    /* Transient but hard to move to private arrays because it needs to 
+    /* Transient but hard to move to private arrays because it needs to
      * travel with the particle during exchange*/
     int64_t GrNr;
     MyFloat Potential;		/* Gravitational potential. This is the total potential only on a PM timestep,

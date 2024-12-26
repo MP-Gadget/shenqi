@@ -1,6 +1,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+#include <boost/math/quadrature/gauss_kronrod.hpp>
 
 #include "timebinmgr.h"
 #include "utils.h"
@@ -21,7 +22,7 @@ static struct sync_params
     int64_t PlaneOutputListLength;
     double PlaneOutputListTimes[MAXTIMES];
 
-    int ExcursionSetReionOn; 
+    int ExcursionSetReionOn;
     double ExcursionSetZStart;
     double ExcursionSetZStop;
     double UVBGTimestep;
@@ -106,35 +107,24 @@ void set_sync_params(ParameterSet * ps){
     return;
 }
 
-static double integrand_time_to_present(double a, void *param)
-{
-    Cosmology * CP = (Cosmology *) param;
-    double h = hubble_function(CP, a);
-    return 1 / a / h;
-}
+#define SEC_PER_MEGAYEAR 3.155e13
 
 //time_to_present in Myr for excursion set syncpoints
-static double time_to_present(double a, Cosmology * CP)
+static double time_to_present(const double a, const Cosmology * const CP)
 {
-#define SEC_PER_MEGAYEAR 3.155e13
-    double time;
-    double result;
-    double abserr;
-
-    double hubble;
-    hubble = CP->Hubble / CP->UnitTime_in_s * SEC_PER_MEGAYEAR * CP->HubbleParam;
+    const double hubble = CP->Hubble / CP->UnitTime_in_s * SEC_PER_MEGAYEAR * CP->HubbleParam;
 
     // Define the integrand as a lambda function
-    auto integrand = [CP](double a) {
-        return integrand_time_to_present(a, (void *)CP);
+    auto integrand_time_to_present = [CP](const double a) {
+        const double h = hubble_function(CP, a);
+        return 1 / a / h;
     };
 
     // Perform the Tanh-Sinh adaptive integration
-    result = tanh_sinh_integrate_adaptive(integrand, a, 1.0, &abserr, 1.0e-8, 1.0 / hubble);
+    const double result = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(integrand_time_to_present, a, 1.0);
 
     //convert to Myr and multiply by h
-    time = result / (hubble/CP->Hubble);
-
+    const double time = result / (hubble/CP->Hubble);
     // return time to present as a function of redshift
     return time;
 }
@@ -192,7 +182,7 @@ setup_sync_points(Cosmology * CP, double TimeIC, double TimeMax, double no_snaps
     //z=20 to z=4 is ~150 syncpoints at 10 Myr spaces
     //
     SyncPoints = (SyncPoint *) mymalloc("SyncPoints", sizeof(SyncPoint) * NSyncPointsAlloc);
-    
+
     /* Set up first and last entry to SyncPoints; TODO we can insert many more! */
     //NOTE(jdavies): these first syncpoints need to be in order
 

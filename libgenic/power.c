@@ -3,7 +3,9 @@
 #include <math.h>
 #include <stddef.h>
 #include <mpi.h>
-#include <boost/math/interpolators/barycentric_rational.hpp>
+#include <boost/math/interpolators/makima.hpp>
+#include <boost/math/quadrature/gauss_kronrod.hpp>
+
 #include <bigfile-mpi.h>
 
 #include <libgadget/cosmology.h>
@@ -12,11 +14,9 @@
 #include <libgadget/physconst.h>
 #include "power.h"
 #include "proto.h"
-#include <libgadget/timefac.h>
 
 static double Delta_EH(double k);
 static double Delta_Tabulated(double k, enum TransferType Type);
-static double sigma2_int(double k, void * params);
 static double TopHatSigma2(double R);
 static double tk_eh(double k);
 
@@ -37,7 +37,7 @@ struct table
     int Nentry;
     double * logk;
     double * logD[MAXCOLS];
-    boost::math::interpolators::barycentric_rational<double>* mat_intp[MAXCOLS];
+    boost::math::interpolators::makima<std::vector<double>>* mat_intp[MAXCOLS];
 };
 
 /*Typedef for a function that parses the table from text*/
@@ -400,9 +400,13 @@ init_transfer_table(int ThisTask, double InitTime, const struct power_params * c
             meangrowth[t-VEL_BAR]/= nmean;
     }
     /*Initialise the interpolation*/
-    for(t = 0; t < MAXCOLS; t++)
-        transfer_table.mat_intp[t] = new boost::math::interpolators::barycentric_rational<double>(transfer_table.logk, transfer_table.logD[t], transfer_table.Nentry);
-
+    for(t = 0; t < MAXCOLS; t++) {
+        /* Initialise in here so we can std::move*/
+        std::vector<double> logk(transfer_table.logk, transfer_table.logk+ transfer_table.Nentry);
+        std::vector<double> logD(transfer_table.logD[t], transfer_table.logD[t]+ transfer_table.Nentry);
+        // message(0, "t=%d size = %ld nentry %d\n", t, logD.size(), transfer_table.Nentry);
+        transfer_table.mat_intp[t] = new boost::math::interpolators::makima(std::move(logk), std::move(logD));
+    }
     message(0,"Scale-dependent growth calculated. Mean = %g %g %g %g %g\n",meangrowth[0], meangrowth[1], meangrowth[2], meangrowth[3], meangrowth[4]);
     message(0, "Power spectrum rows: %d, Transfer: %d (%g -> %g)\n", power_table.Nentry, transfer_table.Nentry, transfer_table.logD[DELTA_BAR][0],transfer_table.logD[DELTA_BAR][transfer_table.Nentry-1]);
     return transfer_table.Nentry;
@@ -418,8 +422,9 @@ int init_powerspectrum(int ThisTask, double InitTime, double UnitLength_in_cm_in
 
     if(ppar->WhichSpectrum == 2) {
         read_power_table(ThisTask, ppar->FileWithInputSpectrum, 1, &power_table, InitTime, parse_power);
-        /*Initialise the interpolation*/
-        power_table.mat_intp[0] = new boost::math::interpolators::barycentric_rational<double>(power_table.logk, power_table.logD[0], power_table.Nentry);
+        std::vector<double> logk(power_table.logk, power_table.logk + power_table.Nentry);
+        std::vector<double> logD(power_table.logD[0], power_table.logD[0]+ power_table.Nentry);
+        power_table.mat_intp[0] = new boost::math::interpolators::makima(std::move(logk), std::move(logD));
         transfer_table.Nentry = 0;
         if(ppar->DifferentTransferFunctions || ppar->ScaleDepVelocity) {
             init_transfer_table(ThisTask, InitTime, ppar);
@@ -486,39 +491,28 @@ double tk_eh(double k)		/* from Martin White */
 
 double TopHatSigma2(double R)
 {
-    double result,abserr;
+    /* Integral is oscillatory but almost zero kr = (n +1/2) pi for odd n. With P(k) ~ n^-3 the integrand is close to zero kr = 20.5 pi */
+    double maxk = M_PI * (20 + 0.5) / R;
+    double maxtabk = pow(10, 0.24 + power_table.logk[power_table.Nentry - 1]);
+    if(maxk > maxtabk)
+        endrun(3, "Trying to do sigma8 integral for rescaling, but need k = %g and largest k in power table is %g\n", maxk, pow(10, power_table.logk[power_table.Nentry - 1]));
 
-  // Define the integrand as a lambda function, wrapping sigma2_int
-    auto integrand = [R](double k) {
-        return sigma2_int(k, (void*)&R);
+    auto sigma2_int = [R](const double k) {
+        const double kr = R * k;
+        const double kr2 = kr * kr;
+        double w;
+        /*Series expansion; actually good until kr~1*/
+        if(kr < 1e-3)
+            w = 1./3. - kr2/30. +kr2*kr2/840.;
+        else
+            w = 3 * (sin(kr) / kr - cos(kr)) / kr2;
+        const double x = 4 * M_PI / (2 * M_PI * 2 * M_PI * 2 * M_PI) * k * k * w * w * pow(DeltaSpec(k, DELTA_TOT),2);
+
+        return x;
     };
-
-  /* Integral is oscillatory but almost zero kr = (n +1/2) pi for odd n. With P(k) ~ n^-3 the integrand is close to zero kr = 20.5 pi */
-  double maxk = M_PI * (20 + 0.5) / R;
-  double maxtabk = pow(10, 0.24 + power_table.logk[power_table.Nentry - 1]);
-  if(maxk > maxtabk)
-      endrun(3, "Trying to do sigma8 integral for rescaling, but need k = %g and largest k in power table is %g\n", maxk, pow(10, power_table.logk[power_table.Nentry - 1]));
-  // Mink is just the usual boundary of class tables
-  result = tanh_sinh_integrate_adaptive(integrand, 2e-5, M_PI * (20 + 0.5) / R, &abserr, 1e-4, 0.);
-  /*   printf("integration in TopHatSigma2. Result %g, error: %g, intervals: %lu\n",result, abserr,w->size); */
-  return result;
-}
-
-double sigma2_int(double k, void * params)
-{
-  double w, x;
-
-  double r_tophat = *(double *) params;
-  const double kr = r_tophat * k;
-  const double kr2 = kr * kr;
-
-  /*Series expansion; actually good until kr~1*/
-  if(kr < 1e-3)
-      w = 1./3. - kr2/30. +kr2*kr2/840.;
-  else
-      w = 3 * (sin(kr) / kr - cos(kr)) / kr2;
-  x = 4 * M_PI / (2 * M_PI * 2 * M_PI * 2 * M_PI) * k * k * w * w * pow(DeltaSpec(k, DELTA_TOT),2);
-
-  return x;
-
+    // Mink is just the usual boundary of class tables
+    // Perform Gauss-Kronrod adaptive integration. Note this is an oscillatory integral so we should not use tanh_sinh.
+    const double result = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(sigma2_int, 2e-5, maxk);
+    /*   printf("integration in TopHatSigma2. Result %g, error: %g, intervals: %lu\n",result, abserr,w->size); */
+    return result;
 }

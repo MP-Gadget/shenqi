@@ -12,7 +12,7 @@
 int GDB_particle_by_id(MyIDType id, int from) {
     int i;
     for(i = from; i < PartManager->NumPart; i++) {
-        if(P[i].ID == id) return i;
+        if(PartManager->Base[i].ID == id) return i;
     }
     return -1;
 }
@@ -20,7 +20,7 @@ int GDB_particle_by_id(MyIDType id, int from) {
 int GDB_particle_by_type(int type, int from) {
     int i;
     for(i = from; i < PartManager->NumPart; i++) {
-        if(P[i].Type == type) return i;
+        if(PartManager->Base[i].Type == type) return i;
     }
     return -1;
 }
@@ -28,7 +28,7 @@ int GDB_particle_by_type(int type, int from) {
 int GDB_particle_by_generation(int gen, int from) {
     int i;
     for(i = from; i < PartManager->NumPart; i++) {
-        if(P[i].Generation == gen) return i;
+        if(PartManager->Base[i].Generation == gen) return i;
     }
     return -1;
 }
@@ -39,7 +39,7 @@ char * GDB_particle_by_timebin(int bin) {
     char tmp[20] = {'\0'};
     strcpy(buf, "");
     for(i = 0; i < PartManager->NumPart; i++) {
-        if(P[i].TimeBinHydro == bin) {
+        if(PartManager->Base[i].TimeBinHydro == bin) {
             snprintf(tmp, 15, " %d", i);
             strncat(buf, tmp, 1024-strlen(tmp)-1);
         }
@@ -50,7 +50,7 @@ char * GDB_particle_by_timebin(int bin) {
 int GDB_find_garbage(int from) {
     int i;
     for(i = from; i < PartManager->NumPart; i++) {
-        if(P[i].IsGarbage) return i;
+        if(PartManager->Base[i].IsGarbage) return i;
     }
     return -1;
 }
@@ -65,14 +65,14 @@ char * GDB_format_particle(int i) {
         p = buf + strlen(buf); \
         n = 4096 - strlen(buf)
 
-    add("P[%d]: ", i);
-    add("ID : %lu ", P[i].ID);
-    add("Generation: %d ", (int) P[i].Generation);
-    add("Mass : %g ", P[i].Mass);
-    add("Pos: %g %g %g ", P[i].Pos[0], P[i].Pos[1], P[i].Pos[2]);
-    add("Vel: %g %g %g ", P[i].Vel[0], P[i].Vel[1], P[i].Vel[2]);
-    add("FullTreeGravAccel: %g %g %g ", P[i].FullTreeGravAccel[0], P[i].FullTreeGravAccel[1], P[i].FullTreeGravAccel[2]);
-    add("GravPM: %g %g %g ", P[i].GravPM[0], P[i].GravPM[1], P[i].GravPM[2]);
+    add("PartManager->Base[%d]: ", i);
+    add("ID : %lu ", PartManager->Base[i].ID);
+    add("Generation: %d ", (int) PartManager->Base[i].Generation);
+    add("Mass : %g ", PartManager->Base[i].Mass);
+    add("Pos: %g %g %g ", PartManager->Base[i].Pos[0], PartManager->Base[i].Pos[1], PartManager->Base[i].Pos[2]);
+    add("Vel: %g %g %g ", PartManager->Base[i].Vel[0], PartManager->Base[i].Vel[1], PartManager->Base[i].Vel[2]);
+    add("FullTreeGravAccel: %g %g %g ", PartManager->Base[i].FullTreeGravAccel[0], PartManager->Base[i].FullTreeGravAccel[1], PartManager->Base[i].FullTreeGravAccel[2]);
+    add("GravPM: %g %g %g ", PartManager->Base[i].GravPM[0], PartManager->Base[i].GravPM[1], PartManager->Base[i].GravPM[2]);
     return buf;
 }
 

@@ -1,37 +1,29 @@
 /* This file tests the power spectrum routines only.
  * The actual PM code is too complicated for now. */
-#include <stdarg.h>
-#include <stddef.h>
-#include <setjmp.h>
-#include <cmocka.h>
-#include <stdio.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <omp.h>
-#include <math.h>
-#include <mpi.h>
-#include "stub.h"
-#include <bigfile-mpi.h>
+#define BOOST_TEST_MODULE powerspectrum
 
+#include "booststub.h"
+
+#include <bigfile-mpi.h>
 #include <libgadget/powerspectrum.h>
 
 #define NUM_THREADS 4
 
 /*Test the total powerspectrum on one processor only*/
-static void test_total_powerspectrum(void **state) {
-    (void) state;
+BOOST_AUTO_TEST_CASE(test_total_powerspectrum)
+{
     /*Check allocation*/
     int nmpi;
     Power PowerSpectrum;
     MPI_Comm_size(MPI_COMM_WORLD, &nmpi);
 
     powerspectrum_alloc(&PowerSpectrum,15,NUM_THREADS, 0, 3.085678e24);
-    assert_true(PowerSpectrum.Nmodes);
-    assert_true(PowerSpectrum.Power);
-    assert_true(PowerSpectrum.kk);
+    BOOST_TEST(PowerSpectrum.Nmodes);
+    BOOST_TEST(PowerSpectrum.Power);
+    BOOST_TEST(PowerSpectrum.kk);
     powerspectrum_zero(&PowerSpectrum);
-    assert_true(PowerSpectrum.Nmodes[0] == 0);
-    assert_true(PowerSpectrum.Nmodes[PowerSpectrum.size-1] == 0);
+    BOOST_TEST(PowerSpectrum.Nmodes[0] == 0);
+    BOOST_TEST(PowerSpectrum.Nmodes[PowerSpectrum.size-1] == 0);
 
     //Construct input power (this would be done by the power spectrum routine in petapm)
     int ii, th;
@@ -47,20 +39,11 @@ static void test_total_powerspectrum(void **state) {
     powerspectrum_sum(&PowerSpectrum);
 
     /*Check summation was done correctly*/
-    assert_true(PowerSpectrum.Nmodes[0] == NUM_THREADS*nmpi);
-    assert_true(PowerSpectrum.Nmodes[13] == NUM_THREADS*nmpi*14);
+    BOOST_TEST(PowerSpectrum.Nmodes[0] == NUM_THREADS*nmpi);
+    BOOST_TEST(PowerSpectrum.Nmodes[13] == NUM_THREADS*nmpi*14);
 
-    assert_true(fabs(PowerSpectrum.Power[0] - sin(1)*sin(1)) < 1e-5);
-    assert_true(fabs(PowerSpectrum.Power[12] - sin(13)*sin(13)) < 1e-5);
-    assert_true(fabs(PowerSpectrum.kk[12] - 2 * M_PI *13) < 1e-5);
-    assert_true(fabs(PowerSpectrum.kk[0] - 2 * M_PI ) < 1e-5);
-
-}
-
-int main(void)
-{
-    const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_total_powerspectrum),
-    };
-    return cmocka_run_group_tests_mpi(tests, NULL, NULL);
+    BOOST_TEST(PowerSpectrum.Power[0] == sin(1)*sin(1), tt::tolerance(1e-5));
+    BOOST_TEST(PowerSpectrum.Power[12] == sin(13)*sin(13), tt::tolerance(1e-5));
+    BOOST_TEST(PowerSpectrum.kk[12] == 2 * M_PI *13, tt::tolerance(1e-5));
+    BOOST_TEST(PowerSpectrum.kk[0] == 2 * M_PI, tt::tolerance(1e-5));
 }

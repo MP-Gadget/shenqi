@@ -665,7 +665,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         /* Compute the list of particles that cross a lightcone and write it to disc.
          * This should happen when kick and drift times are synchronised.*/
         if(All.LightconeOn)
-            lightcone_compute(atime, PartManager->BoxSize, &All.CP, Ti_Last, Ti_Next, &rnd);
+            lightcone_compute(atime, PartManager, &All.CP, Ti_Last, Ti_Next, &rnd);
 
         /* Now done with random numbers*/
         if(rnd.Table)
