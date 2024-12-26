@@ -4,7 +4,7 @@
 
 #include <boost/math/quadrature/gauss_kronrod.hpp>
 
-// Function to compute a factor using Tanh-Sinh adaptive integration
+// Function to compute a factor using Gauss-Kronrod adaptive integration
 static double get_exact_factor(const Cosmology * const CP, const inttime_t t0, const inttime_t t1, const std::function<double(double)> func)
 {
     if (t0 == t1)
@@ -62,9 +62,7 @@ double compute_comoving_distance(Cosmology *CP, double a0, double a1, const doub
     };
 
     // Call the generic adaptive integration function
-    boost::math::quadrature::tanh_sinh<double> integrator;
-    // Perform the integration
-    double result = integrator.integrate(comoving_distance_integ, a0, a1);
+    const double result = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(comoving_distance_integ, a0, a1);
     // Convert the result using the provided units
     return (LIGHTCGS / UnitVelocity_in_cm_per_s) * result;
 }
