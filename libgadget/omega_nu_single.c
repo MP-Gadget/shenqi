@@ -125,13 +125,12 @@ void rho_nu_init(_rho_nu_single * const rho_nu_tab, double a0, const double mnu,
      if(mnu < 1e-6*kBtnu || logaf < logA0)
          return;
 
-     std::vector<double> loga(NRHOTAB);
      std::vector<double> rhonu(NRHOTAB);
      rho_nu_tab->loga0 = logA0;
-
+     const double step = (logaf - logA0)/(NRHOTAB - 1);
      for(i=0; i< NRHOTAB; i++){
-        loga[i]=logA0+i*(logaf-logA0)/(NRHOTAB-1);
-        const double amnu = mnu*exp(loga[i]);
+        const double loga=logA0+i*(logaf-logA0)/(NRHOTAB-1);
+        const double amnu = mnu*exp(loga);
         /*Note q carries units of eV/c. kT/c has units of eV/c.
          * M_nu has units of eV  Here c=1. */
         auto rho_nu_int = [amnu, kBtnu](const double q) {
@@ -142,9 +141,9 @@ void rho_nu_init(_rho_nu_single * const rho_nu_tab, double a0, const double mnu,
 
         // Oscillatory integral!
         double result = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(rho_nu_int, 0, 500 * kBtnu);
-        rhonu[i] = result / pow(exp(loga[i]), 4) * get_rho_nu_conversion();
+        rhonu[i] = result / pow(exp(loga), 4) * get_rho_nu_conversion();
      }
-     rho_nu_tab->interp = new boost::math::interpolators::makima(std::move(loga), std::move(rhonu));
+     rho_nu_tab->interp = new boost::math::interpolators::cardinal_cubic_b_spline<double>(rhonu.begin(), rhonu.end(), rho_nu_tab->loga0, step);
      return;
 }
 
