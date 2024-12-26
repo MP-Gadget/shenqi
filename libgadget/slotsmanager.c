@@ -592,6 +592,7 @@ void
 slots_free(struct slots_manager_type * sman)
 {
     myfree(sman->Base);
+    sman->Base = NULL;
 }
 
 /* mark the i-th base particle as a garbage. */

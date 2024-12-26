@@ -52,6 +52,8 @@ static void free_domain(DomainDecomp * ddecomp) {
     myfree(ddecomp->Tasks);
     myfree(ddecomp->TopLeaves);
     myfree(ddecomp->TopNodes);
+    slots_free(SlotsManager);
+    myfree(PartManager->Base);
 }
 
 static struct density_testdata setup_density(void)
@@ -99,7 +101,6 @@ static void check_densities(double MinGasHsml)
 {
     int i;
     double maxHsml=P[0].Hsml, minHsml= P[0].Hsml;
-    #pragma omp parallel for reduction(min:minHsml) reduction(max:maxHsml)
     for(i=0; i<PartManager->NumPart; i++) {
         BOOST_TEST(std::isfinite(PartManager->Base[i].Hsml));
         BOOST_TEST(std::isfinite(SPHP(i).Density));
@@ -201,7 +202,6 @@ static void do_density_test(struct density_testdata * data, const int numpart, d
     /* Free tree before checks so that we still recover if checks fail*/
     force_tree_free(&tree);
 
-    #pragma omp parallel for reduction(max:diff)
     for(i=0; i<numpart; i++) {
         BOOST_TEST(fabs(Hsml[i]/PartManager->Base[i].Hsml-1) < data->dp.MaxNumNgbDeviation / DesNumNgb);
         if(fabs(Hsml[i] - PartManager->Base[i].Hsml) > diff)
