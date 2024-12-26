@@ -20,10 +20,10 @@ TESTED = cooling \
 	timebinmgr \
 	neutrinos_lra \
 	omega_nu_single \
-#	metal_return \
 	density \
-	gravity \
+#	gravity \
 	exchange
+#	metal_return \
 
 MPI_TESTED = fof #exchange
 
