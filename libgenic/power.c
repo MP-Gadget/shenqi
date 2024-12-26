@@ -512,7 +512,7 @@ double TopHatSigma2(double R)
     };
     // Mink is just the usual boundary of class tables
     // Perform Gauss-Kronrod adaptive integration. Note this is an oscillatory integral so we should not use tanh_sinh.
-    const double result = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(sigma2_int, 2e-5, M_PI * (20 + 0.5) / R);
+    const double result = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(sigma2_int, 2e-5, maxk);
     /*   printf("integration in TopHatSigma2. Result %g, error: %g, intervals: %lu\n",result, abserr,w->size); */
     return result;
 }
