@@ -12,10 +12,10 @@
 
 #define HBAR    6.582119e-16  /*hbar in units of eV s*/
 #define STEFAN_BOLTZMANN 5.670373e-5
-/*Size of matter density tables*/
-#define NRHOTAB 200
 /** Floating point accuracy*/
 #define FLOAT_ACC   1e-6
+/*Size of matter density tables*/
+#define NRHOTAB 200
 
 void init_omega_nu(_omega_nu * omnu, const double MNu[], const double a0, const double HubbleParam, const double tcmb0)
 {
@@ -48,7 +48,7 @@ void init_omega_nu(_omega_nu * omnu, const double MNu[], const double a0, const 
             rho_nu_init(&omnu->RhoNuTab[mi], a0, MNu[mi], omnu->kBtnu);
         }
         else
-            omnu->RhoNuTab[mi].loga = 0;
+            omnu->RhoNuTab[mi].interp = nullptr;
     }
 }
 
@@ -125,15 +125,13 @@ void rho_nu_init(_rho_nu_single * const rho_nu_tab, double a0, const double mnu,
      if(mnu < 1e-6*kBtnu || logaf < logA0)
          return;
 
-     /*Allocate memory for arrays*/
-     rho_nu_tab->loga = (double *) mymalloc("rho_nu_table",2*NRHOTAB*sizeof(double));
-     rho_nu_tab->rhonu = rho_nu_tab->loga+NRHOTAB;
-     if(!rho_nu_tab->loga)
-         endrun(2035,"Could not initialise tables for neutrino matter density\n");
+     std::vector<double> loga(NRHOTAB);
+     std::vector<double> rhonu(NRHOTAB);
+     rho_nu_tab->loga0 = logA0;
 
      for(i=0; i< NRHOTAB; i++){
-        rho_nu_tab->loga[i]=logA0+i*(logaf-logA0)/(NRHOTAB-1);
-        const double amnu = mnu*exp(rho_nu_tab->loga[i]);
+        loga[i]=logA0+i*(logaf-logA0)/(NRHOTAB-1);
+        const double amnu = mnu*exp(loga[i]);
         /*Note q carries units of eV/c. kT/c has units of eV/c.
          * M_nu has units of eV  Here c=1. */
         auto rho_nu_int = [amnu, kBtnu](const double q) {
@@ -144,10 +142,9 @@ void rho_nu_init(_rho_nu_single * const rho_nu_tab, double a0, const double mnu,
 
         // Oscillatory integral!
         double result = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(rho_nu_int, 0, 500 * kBtnu);
-        rho_nu_tab->rhonu[i] = result / pow(exp(rho_nu_tab->loga[i]), 4) * get_rho_nu_conversion();
+        rhonu[i] = result / pow(exp(loga[i]), 4) * get_rho_nu_conversion();
      }
-
-     rho_nu_tab->interp = new boost::math::interpolators::barycentric_rational<double>(rho_nu_tab->loga, rho_nu_tab->rhonu, NRHOTAB);
+     rho_nu_tab->interp = new boost::math::interpolators::makima(std::move(loga), std::move(rhonu));
      return;
 }
 
@@ -167,7 +164,7 @@ static inline double rel_rho_nu(const double a, const double kT)
 
 /*Finds the physical density in neutrinos for a single neutrino species
   1.878 82(24) x 10-29 h02 g/cm3 = 1.053 94(13) x 104 h02 eV/cm3*/
-double rho_nu(const _rho_nu_single * rho_nu_tab, const double a, const double kT)
+double rho_nu(const _rho_nu_single * const rho_nu_tab, const double a, const double kT)
 {
         double rho_nu_val;
         double amnu=a*rho_nu_tab->mnu;
@@ -188,7 +185,7 @@ double rho_nu(const _rho_nu_single * rho_nu_tab, const double a, const double kT
             const double loga = log(a);
             /* Deal with early time case. In practice no need to be very accurate
              * so assume relativistic.*/
-            if (!rho_nu_tab->loga || loga < rho_nu_tab->loga[0])
+            if (!rho_nu_tab->interp || loga < rho_nu_tab->loga0)
                 rho_nu_val = rel_rho_nu(a,kT);
             else
                 rho_nu_val=(*rho_nu_tab->interp)(loga);

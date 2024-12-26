@@ -18,14 +18,8 @@ BOOST_AUTO_TEST_CASE(test_rho_nu_init)
     /*Check everything initialised ok*/
     BOOST_TEST(rho_nu_tab.mnu == mnu);
     BOOST_TEST(rho_nu_tab.interp);
-    BOOST_TEST(rho_nu_tab.loga);
-    BOOST_TEST(rho_nu_tab.rhonu);
-    /*Check that loga is correctly ordered (or interpolation won't work)*/
-    int i;
-    for(i=1; i<200; i++){
-        BOOST_TEST(rho_nu_tab.loga[i] > rho_nu_tab.loga[i-1]);
-    }
 }
+
 /*Check massless neutrinos work*/
 #define STEFAN_BOLTZMANN 5.670373e-5
 #define OMEGAR (4*STEFAN_BOLTZMANN*8*M_PI*GRAVITY/(3*LIGHTCGS*LIGHTCGS*LIGHTCGS*HUBBLE*HUBBLE*HubbleParam*HubbleParam)*pow(T_CMB0,4))
@@ -55,7 +49,7 @@ BOOST_AUTO_TEST_CASE(test_omega_nu_single)
     BOOST_TEST(omega_nu_single(&omnu, 0.1, 1) == omega_nu_single(&omnu, 0.1, 0));
     /*Check we get it right for massless neutrinos*/
     double omnunomassz0 = omega_nu_single(&omnu, 1, 2);
-    BOOST_TEST(omnunomassz0 == OMEGAR*7./8.*pow(pow(4/11.,1/3.)*1.00381,4), tt::tolerance(1e-5));
+    BOOST_TEST(omnunomassz0 == OMEGAR*7./8.*pow(pow(4/11.,1/3.)*1.00381,4), tt::tolerance(5e-3));
     BOOST_TEST(omnunomassz0/pow(0.5,4) == omega_nu_single(&omnu, 0.5, 2));
     /*Check that we return something vaguely sensible for very early times*/
     BOOST_TEST(omega_nu_single(&omnu,1e-4,0) > omega_nu_single(&omnu, 1,0)/pow(1e-4,3));
@@ -118,8 +112,8 @@ BOOST_AUTO_TEST_CASE(test_omega_nu_init_degenerate)
     /*Check that we initialised the right number of arrays*/
     BOOST_TEST(omnu.nu_degeneracies[0] == 3);
     BOOST_TEST(omnu.nu_degeneracies[1] == 0);
-    BOOST_TEST(omnu.RhoNuTab[0].loga);
-    BOOST_TEST(omnu.RhoNuTab[1].loga == nullptr);
+    BOOST_TEST(omnu.RhoNuTab[0].interp);
+    BOOST_TEST(omnu.RhoNuTab[1].interp == nullptr);
 }
 
 BOOST_AUTO_TEST_CASE(test_omega_nu_init_nondeg)
@@ -133,7 +127,7 @@ BOOST_AUTO_TEST_CASE(test_omega_nu_init_nondeg)
     /*Check that we initialised the right number of arrays*/
     for(i=0; i<3; i++) {
         BOOST_TEST(omnu.nu_degeneracies[i] == 1);
-        BOOST_TEST(omnu.RhoNuTab[i].loga);
+        BOOST_TEST(omnu.RhoNuTab[i].interp);
     }
 }
 

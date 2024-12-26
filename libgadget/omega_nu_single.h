@@ -7,7 +7,8 @@
 #ifdef P
 #undef P
 #endif
-#include <boost/math/interpolators/barycentric_rational.hpp>
+#include <vector>
+#include <boost/math/interpolators/makima.hpp>
 
 /** Ratio between the massless neutrino temperature and the CMB temperature.
  * Note there is a slight correction from 4/11
@@ -26,11 +27,11 @@
 /** Tables for rho_nu (neutrino density): stores precomputed values between
  * simulation start and a M_nu = 20 kT_nu for a single neutrino species.*/
 struct _rho_nu_single {
-    double * loga;
-    double * rhonu;
-    boost::math::interpolators::barycentric_rational<double>* interp;
+    boost::math::interpolators::makima<std::vector<double> > * interp;
     /*Neutrino mass for this structure*/
     double mnu;
+    /* Smallest loga the interpolator is built for*/
+    double loga0;
 };
 typedef struct _rho_nu_single _rho_nu_single;
 
