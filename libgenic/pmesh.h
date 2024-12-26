@@ -16,7 +16,7 @@ typedef struct {
 } PMDesc;
 
 static inline void
-SETSEED(PMDesc * pm, unsigned int * table[2][2], int i, int j, boost::random::mt19937 & rng)
+SETSEED(PMDesc * pm, unsigned int * table[2][2], int i, int j, auto & rng)
 {
     boost::random::uniform_real_distribution<double> dist(0, 1);
     unsigned int seed = static_cast<unsigned int>(0x7fffffff * dist(rng));
@@ -53,7 +53,7 @@ GETSEED(PMDesc * pm, unsigned int * table[2][2], int i, int j, int d1, int d2)
 }
 
 static void
-SAMPLE(boost::random::mt19937 & rng, double * ampl, double * phase)
+SAMPLE(auto & rng, double * ampl, double * phase)
 {
     boost::random::uniform_real_distribution<double> dist(0, 1);
     *phase = dist(rng) * 2 * M_PI;
