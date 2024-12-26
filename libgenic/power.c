@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <mpi.h>
 #include <boost/math/interpolators/makima.hpp>
+#include <boost/math/quadrature/gauss_kronrod.hpp>
+
 #include <bigfile-mpi.h>
 
 #include <libgadget/cosmology.h>
@@ -12,11 +14,9 @@
 #include <libgadget/physconst.h>
 #include "power.h"
 #include "proto.h"
-#include <libgadget/timefac.h>
 
 static double Delta_EH(double k);
 static double Delta_Tabulated(double k, enum TransferType Type);
-static double sigma2_int(double k, void * params);
 static double TopHatSigma2(double R);
 static double tk_eh(double k);
 
@@ -491,39 +491,28 @@ double tk_eh(double k)		/* from Martin White */
 
 double TopHatSigma2(double R)
 {
-    double result,abserr;
+    /* Integral is oscillatory but almost zero kr = (n +1/2) pi for odd n. With P(k) ~ n^-3 the integrand is close to zero kr = 20.5 pi */
+    double maxk = M_PI * (20 + 0.5) / R;
+    double maxtabk = pow(10, 0.24 + power_table.logk[power_table.Nentry - 1]);
+    if(maxk > maxtabk)
+        endrun(3, "Trying to do sigma8 integral for rescaling, but need k = %g and largest k in power table is %g\n", maxk, pow(10, power_table.logk[power_table.Nentry - 1]));
 
-  // Define the integrand as a lambda function, wrapping sigma2_int
-    auto integrand = [R](double k) {
-        return sigma2_int(k, (void*)&R);
+    auto sigma2_int = [R](const double k) {
+        const double kr = R * k;
+        const double kr2 = kr * kr;
+        double w;
+        /*Series expansion; actually good until kr~1*/
+        if(kr < 1e-3)
+            w = 1./3. - kr2/30. +kr2*kr2/840.;
+        else
+            w = 3 * (sin(kr) / kr - cos(kr)) / kr2;
+        const double x = 4 * M_PI / (2 * M_PI * 2 * M_PI * 2 * M_PI) * k * k * w * w * pow(DeltaSpec(k, DELTA_TOT),2);
+
+        return x;
     };
-
-  /* Integral is oscillatory but almost zero kr = (n +1/2) pi for odd n. With P(k) ~ n^-3 the integrand is close to zero kr = 20.5 pi */
-  double maxk = M_PI * (20 + 0.5) / R;
-  double maxtabk = pow(10, 0.24 + power_table.logk[power_table.Nentry - 1]);
-  if(maxk > maxtabk)
-      endrun(3, "Trying to do sigma8 integral for rescaling, but need k = %g and largest k in power table is %g\n", maxk, pow(10, power_table.logk[power_table.Nentry - 1]));
-  // Mink is just the usual boundary of class tables
-  result = tanh_sinh_integrate_adaptive(integrand, 2e-5, M_PI * (20 + 0.5) / R, &abserr, 1e-4, 0.);
-  /*   printf("integration in TopHatSigma2. Result %g, error: %g, intervals: %lu\n",result, abserr,w->size); */
-  return result;
-}
-
-double sigma2_int(double k, void * params)
-{
-  double w, x;
-
-  double r_tophat = *(double *) params;
-  const double kr = r_tophat * k;
-  const double kr2 = kr * kr;
-
-  /*Series expansion; actually good until kr~1*/
-  if(kr < 1e-3)
-      w = 1./3. - kr2/30. +kr2*kr2/840.;
-  else
-      w = 3 * (sin(kr) / kr - cos(kr)) / kr2;
-  x = 4 * M_PI / (2 * M_PI * 2 * M_PI * 2 * M_PI) * k * k * w * w * pow(DeltaSpec(k, DELTA_TOT),2);
-
-  return x;
-
+    // Mink is just the usual boundary of class tables
+    // Perform Gauss-Kronrod adaptive integration. Note this is an oscillatory integral so we should not use tanh_sinh.
+    const double result = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(sigma2_int, 2e-5, M_PI * (20 + 0.5) / R);
+    /*   printf("integration in TopHatSigma2. Result %g, error: %g, intervals: %lu\n",result, abserr,w->size); */
+    return result;
 }
