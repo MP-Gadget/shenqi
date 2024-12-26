@@ -21,8 +21,7 @@ TESTED = cooling \
 	neutrinos_lra \
 	omega_nu_single \
 	density \
-#	gravity \
-	exchange
+	gravity
 #	metal_return \
 
 MPI_TESTED = fof #exchange
