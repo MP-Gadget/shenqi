@@ -44,9 +44,9 @@ static double ReferenceRedshift = 2.0; /* write all particles below this redshif
 static double SampleFraction; /* current fraction of particle gets written */
 static FILE * fd_lightcone;
 
-static double lightcone_get_horizon(double a);
-static void lightcone_cross(int p, double ddrift, const RandTable * const rnd);
-static void lightcone_set_time(double a, const double BoxSize);
+static double lightcone_get_horizon(const double a);
+static void lightcone_cross(const int p, const double ddrift, const struct part_manager_type * const PartManager, const RandTable * const rnd);
+static void lightcone_set_time(const double a, const double BoxSize);
 
 static void lightcone_init_entry(Cosmology * CP, int i, const double UnitLength_in_cm) {
     tab_loga[i] = - dloga * (NENTRY - i - 1);
@@ -103,7 +103,7 @@ void lightcone_init(Cosmology * CP, double timeBegin, const double UnitLength_in
 }
 
 /* returns the horizon distance */
-static double lightcone_get_horizon(double a) {
+static double lightcone_get_horizon(const double a) {
     double loga = log(a);
     int bin = (log(a) -tab_loga[0]) / dloga;
     if (bin < 0) {
@@ -161,19 +161,19 @@ static void update_replicas(double a, double BoxSize) {
 /* Compute a list of particles which crossed
  * the lightcone boundaries on this timestep and
  * write them to the lightcone file*/
-void lightcone_compute(double a, double BoxSize, Cosmology * CP, inttime_t ti_curr, inttime_t ti_next, const RandTable * const rnd)
+void lightcone_compute(const double a, const struct part_manager_type * const PartManager, Cosmology * CP, const inttime_t ti_curr, const inttime_t ti_next, const RandTable * const rnd)
 {
     int i;
-    lightcone_set_time(a, BoxSize);
+    lightcone_set_time(a, PartManager->BoxSize);
     const double ddrift = get_exact_drift_factor(CP, ti_curr, ti_next);
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i++)
     {
-        lightcone_cross(i, ddrift, rnd);
+        lightcone_cross(i, ddrift, PartManager, rnd);
     }
 }
 
-void lightcone_set_time(double a, const double BoxSize) {
+void lightcone_set_time(const double a, const double BoxSize) {
     double z = 1 / a - 1;
     if(z > zmin && z < zmax) {
         HorizonDistancePrev = HorizonDistance;
@@ -206,15 +206,15 @@ void lightcone_set_time(double a, const double BoxSize) {
 }
 
 /* check crossing of the horizon, write the particle */
-static void lightcone_cross(int p, double ddrift, const RandTable * const rnd) {
+static void lightcone_cross(const int p, const double ddrift, const struct part_manager_type * const PartManager, const RandTable * const rnd) {
     if(SampleFraction <= 0.0) return;
     int i;
     int k;
     /* DM only */
-    if(P[p].Type != 1) return;
+    if(PartManager->Base[p].Type != 1) return;
 
     for(i = 0; i < Nreplica; i++) {
-        double r = get_random_number(P[p].ID + i, rnd);
+        double r = get_random_number(PartManager->Base[p].ID + i, rnd);
         if(r > SampleFraction) continue;
 
         double pnew[3];
@@ -222,8 +222,8 @@ static void lightcone_cross(int p, double ddrift, const RandTable * const rnd) {
         double p3[4];
         double dnew = 0, dold = 0;
         for(k = 0; k < 3; k ++) {
-            pold[k] = P[p].Pos[k] + Reps[i][k] - PartManager->CurrentParticleOffset[k];
-            pnew[k] = P[p].Pos[k] + P[i].Vel[k] * ddrift - PartManager->CurrentParticleOffset[k];
+            pold[k] = PartManager->Base[p].Pos[k] + Reps[i][k] - PartManager->CurrentParticleOffset[k];
+            pnew[k] = PartManager->Base[p].Pos[k] + PartManager->Base[i].Vel[k] * ddrift - PartManager->CurrentParticleOffset[k];
             dnew += pnew[k] * pnew[k];
             dold += pold[k] * pold[k];
         }
