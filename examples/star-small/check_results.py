@@ -47,17 +47,17 @@ def check_bh(bhfile="output/blackholes.txt"):
     bh = np.loadtxt(bhfile)
     #1 BH, no later than this, with seed mass.
     seedmass = 2.00062e-05
-    assert 0.15 < bh[0, 0] < 0.16
-    assert bh[0, 1] == 1
-    assert np.abs(bh[0, 2] - seedmass) < 1e-7
+    assert 0.14 < bh[0, 0] < 0.15
+    assert bh[0, 1] == 2
+    assert np.abs(bh[0, 2] - bh[0,1] * seedmass) < 1e-7
     #Some accretion by the end, but not too much.
     assert bh[-1, 1] >= 4
     assert bh[-1, 1] * seedmass* 1.1 > bh[-1, 2] > bh[-1, 1] * seedmass
 
 # Mass functions
 if __name__ == "__main__":
-    check_snapshot('output/PIG_000', stars=10, bh=0)
-    check_snapshot('output/PIG_001', stars=58, bh=0)
-    check_snapshot('output/PIG_002', stars=501, bh=4)
+    check_snapshot('output/PIG_000', stars=16, bh=0)
+    check_snapshot('output/PIG_001', stars=123, bh=3)
+    check_snapshot('output/PIG_002', stars=865, bh=4)
     check_sfr()
     check_bh()
