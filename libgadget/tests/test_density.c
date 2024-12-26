@@ -100,7 +100,7 @@ static struct density_testdata setup_density(void)
 static void check_densities(double MinGasHsml)
 {
     int i;
-    double maxHsml=P[0].Hsml, minHsml= P[0].Hsml;
+    double maxHsml=PartManager->Base[0].Hsml, minHsml= PartManager->Base[0].Hsml;
     for(i=0; i<PartManager->NumPart; i++) {
         BOOST_TEST(std::isfinite(PartManager->Base[i].Hsml));
         BOOST_TEST(std::isfinite(SPHP(i).Density));
@@ -264,8 +264,8 @@ BOOST_AUTO_TEST_CASE(test_density_close)
         PartManager->Base[i].Pos[1] = 4.1 + ((i/ncbrt) % ncbrt) /close;
         PartManager->Base[i].Pos[2] = 4.1 + (i % ncbrt)/close;
     }
-    P[numpart-1].Type = 5;
-    P[numpart-1].PI = 0;
+    PartManager->Base[numpart-1].Type = 5;
+    PartManager->Base[numpart-1].PI = 0;
 
     do_density_test(&data, numpart, 0.131726, 1e-4);
     free_domain(&data.ddecomp);

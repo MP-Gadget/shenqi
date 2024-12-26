@@ -47,7 +47,7 @@ grav_force(const int p_i, const int other, const double * offset, double * accns
     double dist[3];
     for(d = 0; d < 3; d ++) {
         /* the distance vector points to 'other' */
-        dist[d] = offset[d] + P[p_i].Pos[d] - P[other].Pos[d];
+        dist[d] = offset[d] + PartManager->Base[p_i].Pos[d] - PartManager->Base[other].Pos[d];
         r2 += dist[d] * dist[d];
     }
 
@@ -69,8 +69,8 @@ grav_force(const int p_i, const int other, const double * offset, double * accns
     }
 
     for(d = 0; d < 3; d ++) {
-        accns[3*p_i + d] += - dist[d] * fac * G * P[other].Mass;
-        accns[3*other + d] += dist[d] * fac * G * P[p_i].Mass;
+        accns[3*p_i + d] += - dist[d] * fac * G * PartManager->Base[other].Mass;
+        accns[3*other + d] += dist[d] * fac * G * PartManager->Base[p_i].Mass;
     }
 }
 
@@ -84,7 +84,7 @@ void check_accns(double * meanerr_tot, double * maxerr_tot, double *PairAccn, do
     {
         int k;
         for(k=0; k<3; k++) {
-            double err = fabs((PairAccn[3*i+k] - (P[i].GravPM[k] + P[i].FullTreeGravAccel[k]))/meanacc);
+            double err = fabs((PairAccn[3*i+k] - (PartManager->Base[i].GravPM[k] + PartManager->Base[i].FullTreeGravAccel[k]))/meanacc);
             meanerr += err;
             if(maxerr < err)
                 maxerr = err;
@@ -109,7 +109,7 @@ static void find_means(double * meangrav, double * suppmean, double * suppaccns)
         for(k=0; k<3; k++) {
             if(suppaccns)
                 meanacc += fabs(suppaccns[3*i+k]);
-            meanforce += fabs(P[i].GravPM[k] + P[i].FullTreeGravAccel[k]);
+            meanforce += fabs(PartManager->Base[i].GravPM[k] + PartManager->Base[i].FullTreeGravAccel[k]);
         }
     }
     int64_t tot_npart;
@@ -169,12 +169,12 @@ static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int di
     int i;
     #pragma omp parallel for
     for(i=0; i<PartManager->NumPart; i++) {
-        P[i].Type = 1;
-        P[i].Mass = 1;
-        P[i].ID = i;
-        P[i].TimeBinHydro = 0;
-        P[i].TimeBinGravity = 0;
-        P[i].IsGarbage = 0;
+        PartManager->Base[i].Type = 1;
+        PartManager->Base[i].Mass = 1;
+        PartManager->Base[i].ID = i;
+        PartManager->Base[i].TimeBinHydro = 0;
+        PartManager->Base[i].TimeBinGravity = 0;
+        PartManager->Base[i].IsGarbage = 0;
     }
 
     DomainDecomp ddecomp = {0};
@@ -235,9 +235,9 @@ BOOST_AUTO_TEST_CASE(test_force_flat)
     int i;
     #pragma omp parallel for
     for(i=0; i<numpart; i++) {
-        P[i].Pos[0] = (PartManager->BoxSize/ncbrt) * (i/ncbrt/ncbrt);
-        P[i].Pos[1] = (PartManager->BoxSize/ncbrt) * ((i/ncbrt) % ncbrt);
-        P[i].Pos[2] = (PartManager->BoxSize/ncbrt) * (i % ncbrt);
+        PartManager->Base[i].Pos[0] = (PartManager->BoxSize/ncbrt) * (i/ncbrt/ncbrt);
+        PartManager->Base[i].Pos[1] = (PartManager->BoxSize/ncbrt) * ((i/ncbrt) % ncbrt);
+        PartManager->Base[i].Pos[2] = (PartManager->BoxSize/ncbrt) * (i % ncbrt);
     }
     PartManager->NumPart = numpart;
     do_force_test(48, 1.5, 0.002, 0);
@@ -248,7 +248,7 @@ BOOST_AUTO_TEST_CASE(test_force_flat)
     {
         int k;
         for(k=0; k<3; k++) {
-            double err = fabs((P[i].GravPM[k] + P[i].FullTreeGravAccel[k]));
+            double err = fabs((PartManager->Base[i].GravPM[k] + PartManager->Base[i].FullTreeGravAccel[k]));
             meanerr += err;
             if(maxerr < err)
                 maxerr = err;
@@ -279,9 +279,9 @@ BOOST_AUTO_TEST_CASE(test_force_close)
     int i;
     #pragma omp parallel for
     for(i=0; i<numpart; i++) {
-        P[i].Pos[0] = 4. + (i/ncbrt/ncbrt)/close;
-        P[i].Pos[1] = 4. + ((i/ncbrt) % ncbrt) /close;
-        P[i].Pos[2] = 4. + (i % ncbrt)/close;
+        PartManager->Base[i].Pos[0] = 4. + (i/ncbrt/ncbrt)/close;
+        PartManager->Base[i].Pos[1] = 4. + ((i/ncbrt) % ncbrt) /close;
+        PartManager->Base[i].Pos[2] = 4. + (i % ncbrt)/close;
     }
     PartManager->NumPart = numpart;
     do_force_test(48, 1.5, 0.002, 1);
@@ -297,17 +297,17 @@ void do_random_test(boost::random::mt19937 & r, const int numpart)
     for(i=0; i<numpart/4; i++) {
         int j;
         for(j=0; j<3; j++)
-            P[i].Pos[j] = PartManager->BoxSize * dist(r);
+            PartManager->Base[i].Pos[j] = PartManager->BoxSize * dist(r);
     }
     for(i=numpart/4; i<3*numpart/4; i++) {
         int j;
         for(j=0; j<3; j++)
-            P[i].Pos[j] = PartManager->BoxSize/2 + PartManager->BoxSize/8 * exp(pow(dist(r)-0.5,2));
+            PartManager->Base[i].Pos[j] = PartManager->BoxSize/2 + PartManager->BoxSize/8 * exp(pow(dist(r)-0.5,2));
     }
     for(i=3*numpart/4; i<numpart; i++) {
         int j;
         for(j=0; j<3; j++)
-            P[i].Pos[j] = PartManager->BoxSize*0.1 + PartManager->BoxSize/32 * exp(pow(dist(r)-0.5,2));
+            PartManager->Base[i].Pos[j] = PartManager->BoxSize*0.1 + PartManager->BoxSize/32 * exp(pow(dist(r)-0.5,2));
     }
     PartManager->NumPart = numpart;
     do_force_test(48, 1.5, 0.002, 1);
