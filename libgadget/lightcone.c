@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <gsl/gsl_integration.h>
+#include <boost/math/quadrature/gauss_kronrod.hpp>
 /*For mkdir*/
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -47,40 +47,28 @@ static FILE * fd_lightcone;
 static double lightcone_get_horizon(double a);
 static void lightcone_cross(int p, double ddrift, const RandTable * const rnd);
 static void lightcone_set_time(double a, const double BoxSize);
-/*
-M, L = self.M, self.L
-  logx = numpy.linspace(log10amin, 0, Np)
-  def kernel(log10a):
-    a = numpy.exp(log10a)
-    return 1 / self.Ea(a) * a ** -1 # dz = - 1 / a dlog10a
-  y = numpy.array( [romberg(kernel, log10a, 0, vec_func=True, divmax=10) for log10a in logx])
-*/
-static double kernel(double loga, void * params) {
-    double a = exp(loga);
-      Cosmology * CP = (Cosmology *) params;
-    return 1 / hubble_function(CP, a) * CP->Hubble / a;
-}
 
 static void lightcone_init_entry(Cosmology * CP, int i, const double UnitLength_in_cm) {
     tab_loga[i] = - dloga * (NENTRY - i - 1);
 
-    gsl_integration_workspace * w = gsl_integration_workspace_alloc (1000);
-
-    double result, error;
-
-    gsl_function F;
-    F.function = &kernel;
-    F.params = CP;
-    gsl_integration_qags (&F, tab_loga[i], 0, 0, 1e-7, 1000,
-            w, &result, &error);
-
+    /* M, L = self.M, self.L
+        logx = numpy.linspace(log10amin, 0, Np)
+        def kernel(log10a):
+            a = numpy.exp(log10a)
+            return 1 / self.Ea(a) * a ** -1 # dz = - 1 / a dlog10a
+        y = numpy.array( [romberg(kernel, log10a, 0, vec_func=True, divmax=10) for log10a in logx])
+    */
+    auto kernel = [CP] (const double loga) {
+        double a = exp(loga);
+        return 1 / hubble_function(CP, a) * CP->Hubble / a;
+    };
+    double result = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(kernel, tab_loga[i], 0);
     /* result is in DH, hubble distance */
     /* convert to cm / h */
     result *= LIGHTCGS / HUBBLE;
     /* convert to Kpc/h or internal units */
     result /= UnitLength_in_cm;
 
-    gsl_integration_workspace_free (w);
     tab_Dc[i] = result;
 //    double a = exp(tab_loga[i]);
 //    double z = 1 / a - 1;
