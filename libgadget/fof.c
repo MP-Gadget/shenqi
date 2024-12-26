@@ -210,7 +210,7 @@ fof_fof(DomainDecomp * ddecomp, const int StoreGrNr, MPI_Comm Comm)
     if(StoreGrNr) {
         #pragma omp parallel for
         for(i = 0; i < PartManager->NumPart; i++)
-            P[i].GrNr = -1;	/* will mark particles that are not in any group */
+            Part[i].GrNr = -1;	/* will mark particles that are not in any group */
 
         int64_t start = 0;
         for(i = 0; i < NgroupsExt; i++)
@@ -223,7 +223,7 @@ fof_fof(DomainDecomp * ddecomp, const int StoreGrNr, MPI_Comm Comm)
             for(;start < PartManager->NumPart; start++) {
                 if (HaloLabel[start].MinID != base[i].MinID)
                     break;
-                P[HaloLabel[start].Pindex].GrNr = base[i].GrNr;
+                Part[HaloLabel[start].Pindex].GrNr = base[i].GrNr;
             }
         }
     }
@@ -350,9 +350,9 @@ static void fof_primary_copy(int place, TreeWalkQueryFOF * I, TreeWalk * tw) {
 }
 
 static int fof_primary_haswork(int n, TreeWalk * tw) {
-    if(P[n].IsGarbage || P[n].Swallowed)
+    if(Part[n].IsGarbage || Part[n].Swallowed)
         return 0;
-    return (((1 << P[n].Type) & (fof_params.FOFPrimaryLinkTypes))) && FOF_PRIMARY_GET_PRIV(tw)->PrimaryActive[n];
+    return (((1 << Part[n].Type) & (fof_params.FOFPrimaryLinkTypes))) && FOF_PRIMARY_GET_PRIV(tw)->PrimaryActive[n];
 }
 
 static void
@@ -396,10 +396,10 @@ void fof_label_primary(struct fof_particle_list * HaloLabel, ForceTree * tree, M
     for(i = 0; i < PartManager->NumPart; i++)
     {
         FOF_PRIMARY_GET_PRIV(tw)->Head[i] = i;
-        FOF_PRIMARY_GET_PRIV(tw)->OldMinID[i]= P[i].ID;
+        FOF_PRIMARY_GET_PRIV(tw)->OldMinID[i]= Part[i].ID;
         FOF_PRIMARY_GET_PRIV(tw)->PrimaryActive[i] = 1;
 
-        HaloLabel[i].MinID = P[i].ID;
+        HaloLabel[i].MinID = Part[i].ID;
         HaloLabel[i].MinIDTask = ThisTask;
     }
 
@@ -638,26 +638,26 @@ static void add_particle_to_group(struct Group * gdst, int i, int ThisTask) {
     }
 
     gdst->Length ++;
-    gdst->Mass += P[index].Mass;
-    gdst->LenType[P[index].Type]++;
-    gdst->MassType[P[index].Type] += P[index].Mass;
+    gdst->Mass += Part[index].Mass;
+    gdst->LenType[Part[index].Type]++;
+    gdst->MassType[Part[index].Type] += Part[index].Mass;
 
-    if(P[index].Type == 0) {
-        gdst->MassHeIonized += P[index].Mass * P[index].HeIIIionized;
+    if(Part[index].Type == 0) {
+        gdst->MassHeIonized += Part[index].Mass * Part[index].HeIIIionized;
         gdst->Sfr += SPHP(index).Sfr;
-        gdst->GasMetalMass += SPHP(index).Metallicity * P[index].Mass;
+        gdst->GasMetalMass += SPHP(index).Metallicity * Part[index].Mass;
         int j;
         for(j = 0; j < NMETALS; j++)
-            gdst->GasMetalElemMass[j] += SPHP(index).Metals[j] * P[index].Mass;
+            gdst->GasMetalElemMass[j] += SPHP(index).Metals[j] * Part[index].Mass;
     }
-    if(P[index].Type == 4) {
+    if(Part[index].Type == 4) {
         int j;
-        gdst->StellarMetalMass += STARP(index).Metallicity * P[index].Mass;
+        gdst->StellarMetalMass += STARP(index).Metallicity * Part[index].Mass;
         for(j = 0; j < NMETALS; j++)
-            gdst->StellarMetalElemMass[j] += STARP(index).Metals[j] * P[index].Mass;
+            gdst->StellarMetalElemMass[j] += STARP(index).Metals[j] * Part[index].Mass;
     }
 
-    if(P[index].Type == 5)
+    if(Part[index].Type == 5)
     {
         gdst->BH_Mdot += BHP(index).Mdot;
         gdst->BH_Mass += BHP(index).Mass;
@@ -665,7 +665,7 @@ static void add_particle_to_group(struct Group * gdst, int i, int ThisTask) {
     /*This used to depend on black holes being enabled, but I do not see why.
      * I think because it is only useful for seeding*/
     /* Don't make bh in wind.*/
-    if(P[index].Type == 0 && !winds_is_particle_decoupled(index))
+    if(Part[index].Type == 0 && !winds_is_particle_decoupled(index))
         if(SPHP(index).Density > gdst->MaxDens)
         {
             gdst->MaxDens = SPHP(index).Density;
@@ -682,20 +682,20 @@ static void add_particle_to_group(struct Group * gdst, int i, int ThisTask) {
     for(d1 = 0; d1 < 3; d1++)
     {
         double first = gdst->base.FirstPos[d1];
-        rel[d1] = NEAREST(P[index].Pos[d1] - first, PartManager->BoxSize) ;
+        rel[d1] = NEAREST(Part[index].Pos[d1] - first, PartManager->BoxSize) ;
         xyz[d1] = rel[d1] + first;
-        vel[d1] = P[index].Vel[d1];
+        vel[d1] = Part[index].Vel[d1];
     }
 
     crossproduct(rel, vel, jmom);
 
     for(d1 = 0; d1 < 3; d1++) {
-        gdst->CM[d1] += P[index].Mass * xyz[d1];
-        gdst->Vel[d1] += P[index].Mass * vel[d1];
-        gdst->Jmom[d1] += P[index].Mass * jmom[d1];
+        gdst->CM[d1] += Part[index].Mass * xyz[d1];
+        gdst->Vel[d1] += Part[index].Mass * vel[d1];
+        gdst->Jmom[d1] += Part[index].Mass * jmom[d1];
 
         for(d2 = 0; d2 < 3; d2++) {
-            gdst->Imom[d1][d2] += P[index].Mass * rel[d1] * rel[d2];
+            gdst->Imom[d1][d2] += Part[index].Mass * rel[d1] * rel[d2];
         }
     }
 }
@@ -768,7 +768,7 @@ fof_compile_base(struct BaseGroup * base, int NgroupsExt, struct fof_particle_li
             base[start].MinIDTask = HaloLabel[i].MinIDTask;
             int d;
             for(d = 0; d < 3; d ++) {
-                base[start].FirstPos[d] = P[HaloLabel[i].Pindex].Pos[d];
+                base[start].FirstPos[d] = Part[HaloLabel[i].Pindex].Pos[d];
             }
             start ++;
         }
@@ -833,10 +833,10 @@ static void fof_set_escapefraction(struct FOFGroups * fof, const int NgroupsExt,
     int i = 0;
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i++){
-        if(P[i].Type == 0){
+        if(Part[i].Type == 0){
             SPHP(i).EscapeFraction = 0.;
         }
-        if(P[i].Type == 4){
+        if(Part[i].Type == 4){
             STARP(i).EscapeFraction = 0.;	/* will mark particles that are not in any group */
         }
     }
@@ -857,10 +857,10 @@ static void fof_set_escapefraction(struct FOFGroups * fof, const int NgroupsExt,
 
             /* putting halo mass in escape fraction for now, converted before uvbg calculation */
             //TODO: switch this off for gas particles if we are smoothing the star formation rate
-            if(P[pi].Type == 0){
+            if(Part[pi].Type == 0){
                 SPHP(pi).EscapeFraction = fof->Group[i].Mass;
             }
-            else if(P[pi].Type == 4){
+            else if(Part[pi].Type == 4){
                 STARP(pi).EscapeFraction = fof->Group[i].Mass;
             }
         }
@@ -1178,12 +1178,12 @@ static void fof_secondary_copy(int place, TreeWalkQueryFOF * I, TreeWalk * tw) {
 }
 
 static int fof_secondary_haswork(int n, TreeWalk * tw) {
-    if(P[n].IsGarbage || P[n].Swallowed)
+    if(Part[n].IsGarbage || Part[n].Swallowed)
         return 0;
     /* Exclude particles where we already found a neighbour*/
     if(FOF_SECONDARY_GET_PRIV(tw)->distance[n] < 0.5 * LARGE)
         return 0;
-    return ((1 << P[n].Type) & fof_params.FOFSecondaryLinkTypes);
+    return ((1 << Part[n].Type) & fof_params.FOFSecondaryLinkTypes);
 }
 static void fof_secondary_reduce(int place, TreeWalkResultFOF * O, enum TreeWalkReduceMode mode, TreeWalk * tw) {
     if(O->Distance < FOF_SECONDARY_GET_PRIV(tw)->distance[place] && O->Distance >= 0 && O->Distance < 0.5 * LARGE)
@@ -1239,8 +1239,8 @@ fof_secondary_postprocess(int p, TreeWalk * tw)
             if(iter >= MAXITER - 10)
             {
                 endrun(1, "i=%d task=%d ID=%llu Hsml=%g  pos=(%g|%g|%g)\n",
-                        p, ThisTask, P[p].ID, FOF_SECONDARY_GET_PRIV(tw)->hsml[p],
-                        P[p].Pos[0], P[p].Pos[1], P[p].Pos[2]);
+                        p, ThisTask, Part[p].ID, FOF_SECONDARY_GET_PRIV(tw)->hsml[p],
+                        Part[p].Pos[0], Part[p].Pos[1], Part[p].Pos[2]);
             }
 */
         } else {
@@ -1283,9 +1283,9 @@ static void fof_label_secondary(struct fof_particle_list * HaloLabel, ForceTree 
         FOF_SECONDARY_GET_PRIV(tw)->distance[n] = LARGE;
         FOF_SECONDARY_GET_PRIV(tw)->hsml[n] = 0.4 * fof_params.FOFHaloComovingLinkingLength;
 
-        if((P[n].Type == 0 || P[n].Type == 4 || P[n].Type == 5) && FOF_SECONDARY_GET_PRIV(tw)->hsml[n] < 0.5 * P[n].Hsml) {
+        if((Part[n].Type == 0 || Part[n].Type == 4 || Part[n].Type == 5) && FOF_SECONDARY_GET_PRIV(tw)->hsml[n] < 0.5 * Part[n].Hsml) {
             /* use gas sml as a hint (faster convergence than 0.1 fof_params.FOFHaloComovingLinkingLength at high-z */
-            FOF_SECONDARY_GET_PRIV(tw)->hsml[n] = 0.5 * P[n].Hsml;
+            FOF_SECONDARY_GET_PRIV(tw)->hsml[n] = 0.5 * Part[n].Hsml;
         }
     }
 

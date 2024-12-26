@@ -77,12 +77,12 @@ grav_short_pair_ngbiter(
     double r2 = iter->base.r2;
     double * dist = iter->base.dist;
 
-    if(P[other].Mass == 0) {
+    if(Part[other].Mass == 0) {
         endrun(12, "Encountered zero mass particle during density;"
                   " We haven't implemented tracer particles and this shall not happen\n");
     }
 
-    double mass = P[other].Mass;
+    double mass = Part[other].Mass;
 
     const double h = FORCE_SOFTENING();
     double fac, pot;

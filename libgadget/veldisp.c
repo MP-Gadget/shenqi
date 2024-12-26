@@ -49,13 +49,13 @@ typedef struct {
 static int
 blackhole_dynfric_haswork(int n, TreeWalk * tw){
     /*Black hole not being swallowed*/
-    return (P[n].Type == 5) && (!P[n].Swallowed);
+    return (Part[n].Type == 5) && (!Part[n].Swallowed);
 }
 
 static void
 blackhole_veldisp_postprocess(int i, TreeWalk * tw)
 {
-    int PI = P[i].PI;
+    int PI = Part[i].PI;
     /*************************************************************************/
     /* decide whether to release KineticFdbkEnergy*/
     double vdisp = 0;
@@ -89,7 +89,7 @@ blackhole_veldisp_ngbiter(TreeWalkQueryBHVelDisp * I,
     double r2 = iter->base.r2;
 
     /* collect info for sigmaDM and Menc for kinetic feedback */
-    if(P[other].Type == 1 && r2 < iter->feedback_kernel.HH){
+    if(Part[other].Type == 1 && r2 < iter->feedback_kernel.HH){
         O->NumDM += 1;
         MyFloat VelPred[3];
         DM_VelPred(other, VelPred, BHVDISP_GET_PRIV(lv->tw)->kf);
@@ -107,7 +107,7 @@ blackhole_veldisp_reduce(int place, TreeWalkResultBHVelDisp * remote, enum TreeW
 {
     int k;
 
-    int PI = P[place].PI;
+    int PI = Part[place].PI;
     for (k = 0; k < 3; k++){
         TREEWALK_REDUCE(BHVDISP_GET_PRIV(tw)->V1sumDM[PI][k], remote->V1sumDM[k]);
     }
@@ -120,8 +120,8 @@ blackhole_veldisp_copy(int place, TreeWalkQueryBHVelDisp * I, TreeWalk * tw)
 {
     int k;
     for(k = 0; k < 3; k++)
-        I->Vel[k] = P[place].Vel[k];
-    I->Hsml = P[place].Hsml;
+        I->Vel[k] = Part[place].Vel[k];
+    I->Hsml = Part[place].Hsml;
 }
 
 static void
@@ -217,10 +217,10 @@ vdispeffdmradius(int place, int i, TreeWalk * tw)
 static void
 wind_vdisp_copy(int place, TreeWalkQueryWindVDisp * input, TreeWalk * tw)
 {
-    input->Mass = P[place].Mass;
+    input->Mass = Part[place].Mass;
     int i;
     for(i=0; i<3; i++)
-        input->Vel[i] = P[place].Vel[i];
+        input->Vel[i] = Part[place].Vel[i];
     for(i = 0; i<NWINDHSML; i++){
         input->DMRadius[i]=vdispeffdmradius(place,i,tw);
     }
@@ -282,7 +282,7 @@ wind_vdisp_ngbiter(TreeWalkQueryWindVDisp * I,
 static void
 wind_vdisp_reduce(int place, TreeWalkResultWindVDisp * O, enum TreeWalkReduceMode mode, TreeWalk * tw)
 {
-    int pi = P[place].PI;
+    int pi = Part[place].PI;
     int i;
     if(mode == TREEWALK_PRIMARY || WINDV_GET_PRIV(tw)->maxcmpte[pi] > O->maxcmpte)
         WINDV_GET_PRIV(tw)->maxcmpte[pi] = O->maxcmpte;
@@ -295,13 +295,13 @@ wind_vdisp_reduce(int place, TreeWalkResultWindVDisp * O, enum TreeWalkReduceMod
         }
     }
 //     message(1, "Reduce ID=%ld, NGB_first=%d NGB_last=%d maxcmpte = %d, left = %g, right = %g\n",
-//             P[place].ID, O->Ngb[0],O->Ngb[O->maxcmpte-1],WINDP(place, Windd).maxcmpte,WINDP(place, Windd).Left,WINDP(place, Windd).Right);
+//             Part[place].ID, O->Ngb[0],O->Ngb[O->maxcmpte-1],WINDP(place, Windd).maxcmpte,WINDP(place, Windd).Left,WINDP(place, Windd).Right);
 }
 
 static void
 wind_vdisp_postprocess(const int i, TreeWalk * tw)
 {
-    const int pi = P[i].PI;
+    const int pi = Part[i].PI;
     const int maxcmpt = WINDV_GET_PRIV(tw)->maxcmpte[pi];
     int j;
     double evaldmradius[NWINDHSML];
@@ -322,7 +322,7 @@ wind_vdisp_postprocess(const int i, TreeWalk * tw)
     }
     else{
         if((WINDV_GET_PRIV(tw)->Right[pi] - WINDV_GET_PRIV(tw)->Left[pi] < 5e-6 * WINDV_GET_PRIV(tw)->Left[pi]))
-            message(1, "Tight dm hsml for id %ld ngb %g radius %g\n",P[i].ID, numngb, evaldmradius[close]);
+            message(1, "Tight dm hsml for id %ld ngb %g radius %g\n",Part[i].ID, numngb, evaldmradius[close]);
 
         double vdisp = WINDV_GET_PRIV(tw)->V2sum[pi][close] / numngb;
         int d;
@@ -330,7 +330,7 @@ wind_vdisp_postprocess(const int i, TreeWalk * tw)
             vdisp -= pow(WINDV_GET_PRIV(tw)->V1sum[pi][close][d] / numngb,2);
         }
         if(vdisp > 0) {
-            if(P[i].Type == 0)
+            if(Part[i].Type == 0)
                 SPHP(i).VDisp = sqrt(vdisp / 3);
         }
     }
@@ -345,14 +345,14 @@ static int
 winds_veldisp_haswork(int n, TreeWalk * tw)
 {
     /* Don't want a density for swallowed particles*/
-    if(P[n].Swallowed || P[n].IsGarbage)
+    if(Part[n].Swallowed || Part[n].IsGarbage)
         return 0;
     /* Only want gas*/
-    if(P[n].Type != 0)
+    if(Part[n].Type != 0)
         return 0;
     /* We only want VDisp for gas particles that may be star-forming over the next PM timestep.
      * Use DtHsml.*/
-    double densfac = (P[n].Hsml + P[n].DtHsml * WINDV_GET_PRIV(tw)->ddrift)/P[n].Hsml;
+    double densfac = (Part[n].Hsml + Part[n].DtHsml * WINDV_GET_PRIV(tw)->ddrift)/Part[n].Hsml;
     if(densfac > 1)
         densfac = 1;
     if(SPHP(n).Density/(densfac * densfac * densfac) < 0.1 * sfr_density_threshold(WINDV_GET_PRIV(tw)->Time))
@@ -361,7 +361,7 @@ winds_veldisp_haswork(int n, TreeWalk * tw)
      * since this is the frequency at which the gravitational acceleration,
      * which is the only thing DM contributes to, could change. This is probably
      * overly conservative, because most of the acceleration will be from other stars. */
-//     if(!is_timebin_active(P[n].TimeBinGravity, P[n].Ti_drift))
+//     if(!is_timebin_active(Part[n].TimeBinGravity, Part[n].Ti_drift))
 //         return 0;
     return 1;
 }
@@ -436,9 +436,9 @@ winds_find_vel_disp(const ActiveParticles * act, const double Time, const double
     #pragma omp parallel for
     for (i = 0; i < act->NumActiveParticle; i++) {
         const int n = act->ActiveParticle ? act->ActiveParticle[i] : i;
-        if(P[n].Type == 0) {
-            const int pi = P[n].PI;
-            priv->DMRadius[pi] = P[n].Hsml;
+        if(Part[n].Type == 0) {
+            const int pi = Part[n].PI;
+            priv->DMRadius[pi] = Part[n].Hsml;
             priv->Left[pi] = 0;
             priv->Right[pi] = tree->BoxSize;
             priv->maxcmpte[pi] = NUMDMNGB;
