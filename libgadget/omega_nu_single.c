@@ -3,10 +3,7 @@
 #include <boost/math/quadrature/gauss_kronrod.hpp>
 #include <boost/math/quadrature/tanh_sinh.hpp>
 
-#include <math.h>
-#include <string.h>
 #include "physconst.h"
-#include "utils/mymalloc.h"
 #include "utils/endrun.h"
 #include "timefac.h"
 
