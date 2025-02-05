@@ -30,7 +30,7 @@
 #include <mpi.h>
 #include <string.h>
 #include <omp.h>
-#include <boost/math/interpolators/barycentric_rational.hpp>
+#include <boost/math/interpolators/makima.hpp>
 #include "physconst.h"
 #include "slotsmanager.h"
 #include "partmanager.h"
@@ -47,8 +47,8 @@
 #define E0_HeII 54.4 /* HeII ionization potential in eV*/
 #define HEMASS 4.002602 /* Helium mass in amu*/
 
-boost::math::interpolators::barycentric_rational<double>* HeIII_intp;
-boost::math::interpolators::barycentric_rational<double>* LMFP_intp;
+boost::math::interpolators::makima<std::vector<double>> * HeIII_intp;
+boost::math::interpolators::makima<std::vector<double>> * LMFP_intp;
 
 typedef struct
 {
@@ -82,10 +82,7 @@ static struct qso_lightup_params QSOLightupParams;
  * Computed from parameters stored in the text file.
  * In ergs.*/
 static double qso_inst_heating;
-static int Nreionhist;
-static double * He_zz;
-static double * XHeIII;
-static double * LMFP;
+static double He_zz_final;
 
 /*This is a helper for the tests*/
 void set_qso_lightup_par(struct qso_lightup_params qso)
@@ -143,6 +140,7 @@ load_heii_reion_hist(const char * reion_hist_file)
     int ThisTask;
     FILE * fd = NULL;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
+    int Nreionhist;
 
     message(0, "HeII: Loading HeII reionization history from file: %s\n",reion_hist_file);
     if(ThisTask == 0) {
@@ -176,9 +174,9 @@ load_heii_reion_hist(const char * reion_hist_file)
         endrun(1, "HeII: Reionization history contains: %d entries, not enough.\n", Nreionhist);
 
     /*Allocate memory for the reionization history table.*/
-    He_zz = (double *) mymalloc("ReionizationTable", 3 * Nreionhist * sizeof(double));
-    XHeIII = He_zz + Nreionhist;
-    LMFP = He_zz + 2 * Nreionhist;
+    double * He_zz = (double *) mymalloc("ReionizationTable", 3 * Nreionhist * sizeof(double));
+    double * XHeIII = He_zz + Nreionhist;
+    double * LMFP = He_zz + 2 * Nreionhist;
 
     if(ThisTask == 0)
     {
@@ -228,10 +226,20 @@ load_heii_reion_hist(const char * reion_hist_file)
     MPI_Bcast(He_zz, 3 * Nreionhist, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(&qso_inst_heating, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-    // Initialize HeIII interpolation using barycentric rational interpolation
-    HeIII_intp = new boost::math::interpolators::barycentric_rational<double>(He_zz, XHeIII, Nreionhist);
-    // Initialize LMFP interpolation
-    LMFP_intp = new boost::math::interpolators::barycentric_rational<double>(He_zz, LMFP, Nreionhist);
+    He_zz_final = He_zz[Nreionhist - 1];
+    std::vector<double> He_zz_i(Nreionhist);
+    std::vector<double> He_zz_i2(Nreionhist);
+    std::vector<double> XHeIII_v(Nreionhist);
+    std::vector<double> LMFP_v(Nreionhist);
+    for(int i = 0; i < Nreionhist; i++) {
+        He_zz_i[i] = He_zz[i];
+        He_zz_i2[i] = He_zz[i];
+        XHeIII_v[i] = XHeIII[i];
+        LMFP_v[i] = LMFP[i];
+    }
+    // Initialize interpolation for the HeIII fraction and the long mean free path heating.
+    HeIII_intp = new boost::math::interpolators::makima<std::vector<double>>(std::move(He_zz_i), std::move(XHeIII_v));
+    LMFP_intp = new boost::math::interpolators::makima<std::vector<double>>(std::move(He_zz_i2), std::move(LMFP_v));
 
     QSOLightupParams.heIIIreion_start = 1/He_zz[0]-1;
 
@@ -244,6 +252,7 @@ load_heii_reion_hist(const char * reion_hist_file)
                 QSOLightupParams.ExcursionSetZStop,QSOLightupParams.heIIIreion_start);
         QSOLightupParams.ExcursionSetZStop = QSOLightupParams.heIIIreion_start;
     }
+    myfree(He_zz);
 }
 
 void
@@ -269,7 +278,7 @@ get_long_mean_free_path_heating(double redshift)
     double atime = 1/(1+redshift);
 
     /* Guard against the end of the table*/
-    if(atime > He_zz[Nreionhist-1])
+    if(atime > He_zz_final)
         return 0;
 
     double long_mfp_heating = (*LMFP_intp)(atime);
@@ -651,7 +660,7 @@ do_heiii_reionization(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmol
         return;
 
     /* Do nothing if we are past the end of the table.*/
-    if(atime > He_zz[Nreionhist-1])
+    if(atime > He_zz_final)
         return;
 
     if(!gasTree->tree_allocated_flag || !(gasTree->mask & GASMASK))
@@ -681,7 +690,7 @@ during_helium_reionization(double redshift)
         return 0;
 
     /* Past the end of the table, it has finished.*/
-    if(redshift < 1./He_zz[Nreionhist-1] - 1)
+    if(redshift < 1./He_zz_final - 1)
         return 0;
 
     return 1;
