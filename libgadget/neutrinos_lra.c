@@ -9,7 +9,7 @@
 #include <math.h>
 #include <string.h>
 #include <bigfile-mpi.h>
-#include <boost/math/interpolators/barycentric_rational.hpp>
+#include <boost/math/interpolators/makima.hpp>
 #include <boost/math/special_functions/bessel.hpp>
 #include <boost/math/quadrature/gauss_kronrod.hpp>
 
@@ -98,16 +98,21 @@ static void delta_tot_first_init(_delta_tot_table * const d_tot, const int nk_in
     d_tot->nk=nk_in;
     const double OmegaNua3=get_omega_nu_nopart(d_tot->omnu, d_tot->TimeTransfer)*pow(d_tot->TimeTransfer,3);
     const double OmegaNu1 = get_omega_nu(d_tot->omnu, 1);
-    boost::math::interpolators::barycentric_rational<double>* spline;
-
-    spline = new boost::math::interpolators::barycentric_rational<double>(t_init->logk,t_init->T_nu,t_init->NPowerTable);
-
     /*Check we have a long enough power table: power tables are in log_10*/
     if(log10(wavenum[d_tot->nk-1]) > t_init->logk[t_init->NPowerTable-1])
         endrun(2,"Want k = %g but maximum in CLASS table is %g\n",wavenum[d_tot->nk-1], pow(10, t_init->logk[t_init->NPowerTable-1]));
+
+    std::vector<double> logk(t_init->NPowerTable);
+    std::vector<double> T_nu(t_init->NPowerTable);
+    for(ik=0;ik<t_init->NPowerTable;ik++) {
+        logk[ik] = t_init->logk[ik];
+        T_nu[ik] = t_init->T_nu[ik];
+    }
+    boost::math::interpolators::makima<std::vector<double> > spline (std::move(logk),std::move(T_nu));
+
     for(ik=0;ik<d_tot->nk;ik++) {
             /* T_nu contains T_nu / T_cdm.*/
-            double T_nubyT_nonu = (*spline)(log10(wavenum[ik]));
+            double T_nubyT_nonu = spline(log10(wavenum[ik]));
             /*Initialise delta_nu_init to use the first timestep's delta_cdm_curr
              * so that it includes potential Rayleigh scattering. */
             d_tot->delta_nu_init[ik] = delta_cdm_curr[ik]*T_nubyT_nonu;
@@ -145,11 +150,14 @@ void delta_nu_from_power(struct _powerspectrum * PowerSpectrum, Cosmology * CP, 
     /* Rebin the input power if necessary*/
     if(delta_tot_table.nk != PowerSpectrum->nonzero) {
         Power_in = (double *) mymalloc("pkint", delta_tot_table.nk * sizeof(double));
-        double * logPower = (double *) mymalloc("logpk", PowerSpectrum->nonzero * sizeof(double));
-        for(i = 0; i < PowerSpectrum->nonzero; i++)
+        std::vector<double> logPower(PowerSpectrum->nonzero);
+        std::vector<double> logknu(PowerSpectrum->nonzero);
+        for(i = 0; i < PowerSpectrum->nonzero; i++) {
             logPower[i] = log(PowerSpectrum->Power[i]);
+            logknu[i] = PowerSpectrum->logknu[i];
+        }
 
-        boost::math::interpolators::barycentric_rational<double> pkint(PowerSpectrum->logknu, logPower, PowerSpectrum->nonzero);
+        boost::math::interpolators::makima<std::vector<double>> pkint(std::move(logknu), std::move(logPower));
         double xmin = PowerSpectrum->logknu[0];
         double xmax = PowerSpectrum->logknu[PowerSpectrum->nonzero-1];
 
@@ -159,9 +167,7 @@ void delta_nu_from_power(struct _powerspectrum * PowerSpectrum, Cosmology * CP, 
                 Power_in[i] = delta_tot_table.delta_tot[i][delta_tot_table.ia-1];
             else
                 Power_in[i] = exp(pkint(logk));
-
         }
-        myfree(logPower);
     }
 
     const double partnu = particle_nu_fraction(&CP->ONu.hybnu, Time, 0);
@@ -194,8 +200,8 @@ void delta_nu_from_power(struct _powerspectrum * PowerSpectrum, Cosmology * CP, 
         /* Omega0 - Omega in neutrinos + Omega in particle neutrinos = Omega in particles*/
         PowerSpectrum->nu_prefac = OmegaNu_nop/(delta_tot_table.Omeganonu/pow(Time,3) + omega_hybrid);
     }
-    double * delta_nu_ratio = (double *) mymalloc2("dnu_rat", delta_tot_table.nk * sizeof(double));
-    double * logwavenum = (double *) mymalloc2("logwavenum", delta_tot_table.nk * sizeof(double));
+    std::vector<double> delta_nu_ratio(delta_tot_table.nk);
+    std::vector<double> logwavenum(delta_tot_table.nk);
 
     /*We want to interpolate in log space*/
     for(i=0; i < delta_tot_table.nk; i++) {
@@ -210,9 +216,8 @@ void delta_nu_from_power(struct _powerspectrum * PowerSpectrum, Cosmology * CP, 
     if(delta_tot_table.nk != PowerSpectrum->nonzero)
         myfree(Power_in);
 
-    boost::math::interpolators::barycentric_rational<double> pkint(logwavenum, delta_nu_ratio, delta_tot_table.nk);
-
     const double xmax = logwavenum[delta_tot_table.nk-1];
+    boost::math::interpolators::makima<std::vector<double>> pkint(std::move(logwavenum), std::move(delta_nu_ratio));
 
     /*We want to interpolate in log space*/
     for(i=0; i < PowerSpectrum->nonzero; i++) {
@@ -225,9 +230,6 @@ void delta_nu_from_power(struct _powerspectrum * PowerSpectrum, Cosmology * CP, 
             PowerSpectrum->delta_nu_ratio[i] = pkint(logk);
         }
     }
-
-    myfree(logwavenum);
-    myfree(delta_nu_ratio);
 }
 
 /*Save the neutrino power spectrum to a file*/
@@ -613,15 +615,7 @@ struct _delta_nu_int_params
     double k;
     /**Neutrino mass divided by k_B T_nu*/
     double mnubykT;
-    boost::math::interpolators::barycentric_rational<double>* spline;
     Cosmology * CP;
-    /**Precomputed free-streaming lengths*/
-    boost::math::interpolators::barycentric_rational<double>* fs_spline;
-    double * fslengths;
-    double * fsscales;
-    /**Make sure this is at the same k as above*/
-    double * delta_tot;
-    double * scale;
     /** qc is a dimensionless momentum (normalized to TNU): v_c * mnu / (k_B * T_nu).
      * This is the critical momentum for hybrid neutrinos: it is unused if
      * hybrid neutrinos are not defined, but left here to save ifdefs.*/
@@ -681,8 +675,6 @@ void get_delta_nu(Cosmology * CP, const _delta_tot_table * const d_tot, const do
   /*If neutrino mass is zero, we are not accurate, just use the initial conditions piece*/
   if(Na > 1 && mnubykT > 0){
         delta_nu_int_params params;
-
-        params.scale=d_tot->scalefact;
         params.mnubykT=mnubykT;
         params.qc = qc;
         params.nufrac_low = d_tot->omnu->hybnu.nufrac_low[0];
@@ -694,36 +686,30 @@ void get_delta_nu(Cosmology * CP, const _delta_tot_table * const d_tot, const do
 
         params.CP = CP;
         /*Pre-compute the free-streaming lengths, which are scale-independent*/
-        double * fslengths = (double *) mymalloc("fslengths", Nfs* sizeof(double));
-        double * fsscales = (double *) mymalloc("fsscales", Nfs* sizeof(double));
+        std::vector<double> fslengths(Nfs);
+        std::vector<double> fsscales(Nfs);
         for(ik=0; ik < Nfs; ik++) {
             fsscales[ik] = log(d_tot->TimeTransfer) + ik*(log(a) - log(d_tot->TimeTransfer))/(Nfs-1.);
             if (ik == Nfs-1)
                 fsscales[ik] = log(a); // Make sure the last point is exactly a without precision loss
             fslengths[ik] = fslength(CP, fsscales[ik], log(a),d_tot->light);
         }
-        params.fslengths = fslengths;
-        params.fsscales = fsscales;
-
-        params.fs_spline = new boost::math::interpolators::barycentric_rational<double>(params.fsscales,params.fslengths,Nfs);
-
-        // if Na is less than 4, the approximation order for interpolation should be adjusted
-        size_t approx_order = 3;
-        if (Na < 4) {
-            approx_order = Na - 1;
-        }
+        boost::math::interpolators::makima<std::vector<double> > fs_spline(std::move(fsscales),std::move(fslengths));
 
         for (ik = 0; ik < d_tot->nk; ik++) {
             double d_nu_tmp;
             params.k=d_tot->wavenum[ik];
-            params.delta_tot=d_tot->delta_tot[ik];
-            // print the number of data points
-
-            params.spline = new boost::math::interpolators::barycentric_rational<double>(params.scale,params.delta_tot,Na,approx_order);
+            std::vector<double> delta_tot_k(Na);
+            std::vector<double> loga(Na);
+            for(int ia = 0; ia < Na; ia++) {
+                delta_tot_k[ia] = d_tot->delta_tot[ik][ia];
+                loga[ia] = d_tot->scalefact[ia];
+            }
+            boost::math::interpolators::makima<std::vector<double>> dtot_spline(std::move(loga),std::move(delta_tot_k));
             /**integration kernel for get_delta_nu*/
-            auto get_delta_nu_int = [params](const double logai) {
-                double fsl_aia = (*params.fs_spline)(logai);
-                double delta_tot_at_a = (*params.spline)(logai);
+            auto get_delta_nu_int = [fs_spline, dtot_spline, params](const double logai) {
+                double fsl_aia = fs_spline(logai);
+                double delta_tot_at_a = dtot_spline(logai);
                 double specJ = specialJ(params.k*fsl_aia/params.mnubykT, params.qc, params.nufrac_low);
                 double ai = exp(logai);
                 return fsl_aia/(ai*hubble_function(params.CP, ai)) * specJ * delta_tot_at_a;
@@ -731,8 +717,6 @@ void get_delta_nu(Cosmology * CP, const _delta_tot_table * const d_tot, const do
             d_nu_tmp = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(get_delta_nu_int, log(d_tot->TimeTransfer), log(a));
             delta_nu_curr[ik] += d_tot->delta_nu_prefac * d_nu_tmp;
          }
-         myfree(fsscales);
-         myfree(fslengths);
    }
 //     for(ik=0; ik< 3; ik++)
 //         message(0,"k %g d_nu %g\n",wavenum[d_tot->nk/8*ik], delta_nu_curr[d_tot->nk/8*ik]);
