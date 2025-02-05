@@ -30,7 +30,7 @@
 /** Update the last value of delta_tot in the table with a new value computed
  from the given delta_cdm_curr and delta_nu_curr.
  If overwrite is true, overwrite the existing final entry.*/
-void update_delta_tot(_delta_tot_table * const d_tot, const double a, const double delta_cdm_curr[], const double delta_nu_curr[], const int overwrite);
+void update_delta_tot(_delta_tot_table * const d_tot, const double a, const std::vector<double> & delta_cdm_curr, const double delta_nu_curr[], const int overwrite);
 
 /** Main function: given tables of wavenumbers, total delta at Na earlier times (< = a),
  * and initial conditions for neutrinos, computes the current delta_nu.
@@ -143,23 +143,23 @@ void delta_nu_from_power(struct _powerspectrum * PowerSpectrum, Cosmology * CP, 
         get_delta_nu_combined(CP, &delta_tot_table, exp(delta_tot_table.scalefact[delta_tot_table.ia-1]), delta_tot_table.delta_nu_last);
         delta_tot_table.delta_tot_init_done = 1;
     }
-    for(i = 0; i < PowerSpectrum->nonzero; i++)
-        PowerSpectrum->logknu[i] = log(PowerSpectrum->kk[i]);
 
-    double * Power_in = PowerSpectrum->Power;
+    std::vector<double> Power_in(delta_tot_table.nk);
     /* Rebin the input power if necessary*/
+    std::vector<double> logknu(PowerSpectrum->nonzero);
+    for(i = 0; i < PowerSpectrum->nonzero; i++) {
+        logknu[i] = log(PowerSpectrum->kk[i]);
+        Power_in[i] = PowerSpectrum->Power[i];
+    }
     if(delta_tot_table.nk != PowerSpectrum->nonzero) {
-        Power_in = (double *) mymalloc("pkint", delta_tot_table.nk * sizeof(double));
         std::vector<double> logPower(PowerSpectrum->nonzero);
-        std::vector<double> logknu(PowerSpectrum->nonzero);
         for(i = 0; i < PowerSpectrum->nonzero; i++) {
             logPower[i] = log(PowerSpectrum->Power[i]);
-            logknu[i] = PowerSpectrum->logknu[i];
         }
-
-        boost::math::interpolators::makima<std::vector<double>> pkint(std::move(logknu), std::move(logPower));
-        double xmin = PowerSpectrum->logknu[0];
-        double xmax = PowerSpectrum->logknu[PowerSpectrum->nonzero-1];
+        const double xmin = logknu[0];
+        const double xmax = logknu[PowerSpectrum->nonzero-1];
+        std::vector<double> logknu_int = logknu;
+        boost::math::interpolators::makima<std::vector<double>> pkint(std::move(logknu_int), std::move(logPower));
 
         for(i = 0; i < delta_tot_table.nk; i++) {
             double logk = log(delta_tot_table.wavenum[i]);
@@ -200,7 +200,7 @@ void delta_nu_from_power(struct _powerspectrum * PowerSpectrum, Cosmology * CP, 
         /* Omega0 - Omega in neutrinos + Omega in particle neutrinos = Omega in particles*/
         PowerSpectrum->nu_prefac = OmegaNu_nop/(delta_tot_table.Omeganonu/pow(Time,3) + omega_hybrid);
     }
-    std::vector<double> delta_nu_ratio(delta_tot_table.nk);
+    std::vector<double> delta_nu_ratio_raw(delta_tot_table.nk);
     std::vector<double> logwavenum(delta_tot_table.nk);
 
     /*We want to interpolate in log space*/
@@ -210,26 +210,27 @@ void delta_nu_from_power(struct _powerspectrum * PowerSpectrum, Cosmology * CP, 
         /*Enforce positivity for sanity reasons*/
         if(delta_tot_table.delta_nu_last[i] < 0)
             delta_tot_table.delta_nu_last[i] = 0;
-        delta_nu_ratio[i] = delta_tot_table.delta_nu_last[i]/ Power_in[i];
+        delta_nu_ratio_raw[i] = delta_tot_table.delta_nu_last[i]/ Power_in[i];
         logwavenum[i] = log(delta_tot_table.wavenum[i]);
     }
-    if(delta_tot_table.nk != PowerSpectrum->nonzero)
-        myfree(Power_in);
 
     const double xmax = logwavenum[delta_tot_table.nk-1];
-    boost::math::interpolators::makima<std::vector<double>> pkint(std::move(logwavenum), std::move(delta_nu_ratio));
+    std::vector<double> delta_nu_ratio(PowerSpectrum->nonzero);
 
-    /*We want to interpolate in log space*/
-    for(i=0; i < PowerSpectrum->nonzero; i++) {
-        if(PowerSpectrum->nonzero == delta_tot_table.nk)
-            PowerSpectrum->delta_nu_ratio[i] = delta_nu_ratio[i];
-        else {
-            double logk = PowerSpectrum->logknu[i];
+    /* Rebin it back if necessary to match the input power spectrum.*/
+    if(PowerSpectrum->nonzero != delta_tot_table.nk) {
+        boost::math::interpolators::makima<std::vector<double>> pkint(std::move(logwavenum), std::move(delta_nu_ratio_raw));
+        /*We want to interpolate in log space*/
+        for(i=0; i < PowerSpectrum->nonzero; i++) {
+            double logk = logknu[i];
             if(logk > xmax)
                 logk = xmax;
-            PowerSpectrum->delta_nu_ratio[i] = pkint(logk);
+            delta_nu_ratio[i] = pkint(logk);
         }
     }
+    else
+        delta_nu_ratio = delta_nu_ratio_raw;
+    PowerSpectrum->nu_spline = new boost::math::interpolators::makima<std::vector<double>>(std::move(logknu), std::move(delta_nu_ratio));
 }
 
 /*Save the neutrino power spectrum to a file*/
@@ -509,7 +510,7 @@ void get_delta_nu_combined(Cosmology * CP, const _delta_tot_table * const d_tot,
 /*Update the last value of delta_tot in the table with a new value computed
  from the given delta_cdm_curr and delta_nu_curr.
  If overwrite is true, overwrite the existing final entry.*/
-void update_delta_tot(_delta_tot_table * const d_tot, const double a, const double delta_cdm_curr[], const double delta_nu_curr[], const int overwrite)
+void update_delta_tot(_delta_tot_table * const d_tot, const double a, const std::vector<double> & delta_cdm_curr, const double delta_nu_curr[], const int overwrite)
 {
   const double OmegaNua3 = get_omega_nu_nopart(d_tot->omnu, a)*pow(a,3);
   const double OmegaNu1 = get_omega_nu(d_tot->omnu, 1);

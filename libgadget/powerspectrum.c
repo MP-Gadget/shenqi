@@ -21,12 +21,7 @@ void powerspectrum_alloc(Power * ps, const int nbins, const int nthreads, const 
     ps->kk = (double *) mymalloc("Powerspectrum", sizeof(double) * 2*nalloc);
     ps->Power = ps->kk + nalloc;
     ps->BoxSize_in_MPC = BoxSize_in_cm / CM_PER_MPC;
-    ps->logknu = NULL;
-    if(MassiveNuLinResp) {
-        /*These arrays are stored separately to make interpolation more accurate*/
-        ps->logknu = (double *) mymalloc("PowerNu", sizeof(double) * 2*nbins);
-        ps->delta_nu_ratio = ps-> logknu + nbins;
-    }
+    ps->nu_spline = nullptr;
     ps->Nmodes = (int64_t *) mymalloc("Powermodes", sizeof(int64_t) * nalloc);
     powerspectrum_zero(ps);
 }
@@ -44,9 +39,9 @@ void powerspectrum_zero(Power * ps)
 void powerspectrum_free(Power * ps)
 {
     myfree(ps->Nmodes);
-    if(ps->logknu)
-        myfree(ps->logknu);
     myfree(ps->kk);
+    if(ps->nu_spline != nullptr)
+        delete ps->nu_spline;
 }
 
 /* Sum the different modes on each thread and processor together to get a power spectrum,

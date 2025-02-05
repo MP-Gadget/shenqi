@@ -4,7 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <boost/math/interpolators/barycentric_rational.hpp>
+#include <vector>
+#include <boost/math/interpolators/makima.hpp>
 
 typedef struct _powerspectrum {
     double * kk;
@@ -18,11 +19,8 @@ typedef struct _powerspectrum {
     double BoxSize_in_MPC;
     /*These are for the LRA neutrino code*/
     /*log k bins and ratio of Pnu to Pcdm: stored so interpolation is accurate*/
-    double * logknu;
-    double * delta_nu_ratio;
     double nu_prefac;
-    boost::math::interpolators::barycentric_rational<double>* nu_spline;
-
+    boost::math::interpolators::makima<std::vector<double>>* nu_spline;
 } Power;
 
 /*Allocate memory for the power spectrum*/
