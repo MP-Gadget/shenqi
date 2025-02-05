@@ -32,7 +32,7 @@ double copy_and_mean_accn(double (* PairAccn)[3])
     {
         int k;
         for(k=0; k<3; k++) {
-            PairAccn[i][k] = P[i].GravPM[k] + P[i].FullTreeGravAccel[k];
+            PairAccn[i][k] = Part[i].GravPM[k] + Part[i].FullTreeGravAccel[k];
             meanacc += fabs(PairAccn[i][k]);
         }
     }
@@ -51,14 +51,14 @@ void check_accns(double * meanerr_tot, double * maxerr_tot, double * meanangle_t
     #pragma omp parallel for reduction(+: meanerr) reduction(max:maxerr)
     for(i = 0; i < PartManager->NumPart; i++)
     {
-        if(P[i].IsGarbage || P[i].Swallowed)
+        if(Part[i].IsGarbage || Part[i].Swallowed)
             continue;
         int k;
         double pairmag = 0, checkmag = 0, dotprod = 0;
         for(k=0; k<3; k++) {
             pairmag += PairAccn[i][k]*PairAccn[i][k];
-            checkmag += (P[i].GravPM[k] + P[i].FullTreeGravAccel[k])*(P[i].GravPM[k] + P[i].FullTreeGravAccel[k]);
-            dotprod += PairAccn[i][k] * (P[i].GravPM[k] + P[i].FullTreeGravAccel[k]);
+            checkmag += (Part[i].GravPM[k] + Part[i].FullTreeGravAccel[k])*(Part[i].GravPM[k] + Part[i].FullTreeGravAccel[k]);
+            dotprod += PairAccn[i][k] * (Part[i].GravPM[k] + Part[i].FullTreeGravAccel[k]);
         }
         checkmag = sqrt(checkmag);
         pairmag = sqrt(pairmag);
@@ -71,11 +71,11 @@ void check_accns(double * meanerr_tot, double * maxerr_tot, double * meanangle_t
         }
         if(maxangle < angle) {
             maxangle = angle;
-            // message(0, "i %d type %d angle %g acc %g %g %g pair %g %g %g\n", i, P[i].Type, angle, P[i].GravPM[0] + P[i].FullTreeGravAccel[0], P[i].GravPM[1] + P[i].FullTreeGravAccel[1], P[i].GravPM[2] + P[i].FullTreeGravAccel[2], PairAccn[i][0], PairAccn[i][1], PairAccn[i][2]);
+            // message(0, "i %d type %d angle %g acc %g %g %g pair %g %g %g\n", i, Part[i].Type, angle, Part[i].GravPM[0] + Part[i].FullTreeGravAccel[0], Part[i].GravPM[1] + Part[i].FullTreeGravAccel[1], Part[i].GravPM[2] + Part[i].FullTreeGravAccel[2], PairAccn[i][0], PairAccn[i][1], PairAccn[i][2]);
         }
         meanerr += err;
         if(maxerr < err) {
-            // message(0, "i %d type %d err %g acc %g %g %g pair %g %g %g\n", i, P[i].Type, err, P[i].GravPM[0] + P[i].FullTreeGravAccel[0], P[i].GravPM[1] + P[i].FullTreeGravAccel[1], P[i].GravPM[2] + P[i].FullTreeGravAccel[2], PairAccn[i][0], PairAccn[i][1], PairAccn[i][2]);
+            // message(0, "i %d type %d err %g acc %g %g %g pair %g %g %g\n", i, Part[i].Type, err, Part[i].GravPM[0] + Part[i].FullTreeGravAccel[0], Part[i].GravPM[1] + Part[i].FullTreeGravAccel[1], Part[i].GravPM[2] + Part[i].FullTreeGravAccel[2], PairAccn[i][0], PairAccn[i][1], PairAccn[i][2]);
             maxerr = err;
         }
     }

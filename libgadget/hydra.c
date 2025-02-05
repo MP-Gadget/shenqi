@@ -234,30 +234,30 @@ hydro_copy(int place, TreeWalkQueryHydro * input, TreeWalk * tw)
     double soundspeed_i;
     SPH_VelPred(place, input->Vel, &HYDRA_GET_PRIV(tw)->kf);
 
-    input->Hsml = P[place].Hsml;
-    input->Mass = P[place].Mass;
+    input->Hsml = Part[place].Hsml;
+    input->Mass = Part[place].Mass;
     input->Density = SPHP(place).Density;
 
     //For DensityIndependentSphOn
     input->EgyRho = SPHP(place).EgyWtDensity;
 
     if(HYDRA_GET_PRIV(tw)->EntVarPred)
-        input->EntVarPred = HYDRA_GET_PRIV(tw)->EntVarPred[P[place].PI];
+        input->EntVarPred = HYDRA_GET_PRIV(tw)->EntVarPred[Part[place].PI];
     else
         input->EntVarPred = SPH_EntVarPred(place, HYDRA_GET_PRIV(tw)->times);
 
     input->SPH_DhsmlDensityFactor = SPHP(place).DhsmlEgyDensityFactor;
     const double eomdensity = SPH_EOMDensity(&SPHP(place));
     if(HYDRA_GET_PRIV(tw)->PressurePred)
-        input->Pressure = HYDRA_GET_PRIV(tw)->PressurePred[P[place].PI];
+        input->Pressure = HYDRA_GET_PRIV(tw)->PressurePred[Part[place].PI];
     else
         input->Pressure = PressurePred(eomdensity, input->EntVarPred);
-    input->dloga = get_dloga_for_bin(P[place].TimeBinHydro, HYDRA_GET_PRIV(tw)->times->Ti_Current);
+    input->dloga = get_dloga_for_bin(Part[place].TimeBinHydro, HYDRA_GET_PRIV(tw)->times->Ti_Current);
     /* calculation of F1 */
     soundspeed_i = sqrt(GAMMA * input->Pressure / eomdensity);
     input->F1 = fabs(SPHP(place).DivVel) /
         (fabs(SPHP(place).DivVel) + SPHP(place).CurlVel +
-         0.0001 * soundspeed_i / P[place].Hsml / HYDRA_GET_PRIV(tw)->fac_mu);
+         0.0001 * soundspeed_i / Part[place].Hsml / HYDRA_GET_PRIV(tw)->fac_mu);
 }
 
 static void
@@ -336,7 +336,7 @@ hydro_ngbiter(
     double * dist = iter->base.dist;
     double r = iter->base.r;
 
-    if(P[other].Mass == 0) {
+    if(Part[other].Mass == 0) {
         endrun(12, "Encountered zero mass particle during hydro;"
                   " We haven't implemented tracer particles and this shall not happen\n");
     }
@@ -348,7 +348,7 @@ hydro_ngbiter(
 
     DensityKernel kernel_j;
 
-    density_kernel_init(&kernel_j, P[other].Hsml, GetDensityKernelType());
+    density_kernel_init(&kernel_j, Part[other].Hsml, GetDensityKernelType());
 
     /* Check we are within the density kernel*/
     if(rsq <= 0 || !(rsq < iter->kernel_i.HH || rsq < kernel_j.HH))
@@ -363,7 +363,7 @@ hydro_ngbiter(
     double EntVarPred;
     if(priv->EntVarPred) {
         #pragma omp atomic read
-        EntVarPred = priv->EntVarPred[P[other].PI];
+        EntVarPred = priv->EntVarPred[Part[other].PI];
         /* Lazily compute the predicted quantities. We need to do this again here, even though we do it in density,
         * because this treewalk is symmetric and that one is asymmetric. In density() hmax has not been computed
         * yet so we cannot merge them. We can do this
@@ -372,7 +372,7 @@ hydro_ngbiter(
         if(EntVarPred == 0) {
             EntVarPred = SPH_EntVarPred(other, priv->times);
             #pragma omp atomic write
-            priv->EntVarPred[P[other].PI] = EntVarPred;
+            priv->EntVarPred[Part[other].PI] = EntVarPred;
         }
     }
     else
@@ -380,7 +380,7 @@ hydro_ngbiter(
 
     /* Predict densities. Note that for active timebins the density is up to date so SPH_DensityPred is just returns the current densities.
      * This improves on the technique used in Gadget-2 by being a linear prediction that does not become pathological in deep timebins.*/
-    int bin = P[other].TimeBinHydro;
+    int bin = Part[other].TimeBinHydro;
     const double density_j = SPH_DensityPred(SPHP(other).Density, SPHP(other).DivVel, priv->drifts[bin]);
     const double eomdensity = SPH_DensityPred(SPH_EOMDensity(&SPHP(other)), SPHP(other).DivVel, priv->drifts[bin]);;
 
@@ -389,11 +389,11 @@ hydro_ngbiter(
 
     if(HYDRA_GET_PRIV(lv->tw)->PressurePred) {
         #pragma omp atomic read
-        Pressure_j = HYDRA_GET_PRIV(lv->tw)->PressurePred[P[other].PI];
+        Pressure_j = HYDRA_GET_PRIV(lv->tw)->PressurePred[Part[other].PI];
         if(Pressure_j == 0) {
             Pressure_j = PressurePred(eomdensity, EntVarPred);
             #pragma omp atomic write
-            priv->PressurePred[P[other].PI] = Pressure_j;
+            priv->PressurePred[Part[other].PI] = Pressure_j;
         }
     }
     else
@@ -431,7 +431,7 @@ hydro_ngbiter(
 
         /* Note this uses the CurlVel of an inactive particle, which is not at the present drift time*/
         const double f2 = fabs(SPHP(other).DivVel) / (fabs(SPHP(other).DivVel) +
-                SPHP(other).CurlVel + 0.0001 * soundspeed_j / HYDRA_GET_PRIV(lv->tw)->fac_mu / P[other].Hsml);
+                SPHP(other).CurlVel + 0.0001 * soundspeed_j / HYDRA_GET_PRIV(lv->tw)->fac_mu / Part[other].Hsml);
 
         /*Gadget-2 paper, eq. 14*/
         visc = 0.25 * HydroParams.ArtBulkViscConst * vsig * (-mu_ij) / rho_ij * (I->F1 + f2);
@@ -439,16 +439,16 @@ hydro_ngbiter(
         /* now make sure that viscous acceleration is not too large */
 
         /*XXX: why is this dloga ?*/
-        double dloga = 2 * DMAX(I->dloga, get_dloga_for_bin(P[other].TimeBinHydro, HYDRA_GET_PRIV(lv->tw)->times->Ti_Current));
+        double dloga = 2 * DMAX(I->dloga, get_dloga_for_bin(Part[other].TimeBinHydro, HYDRA_GET_PRIV(lv->tw)->times->Ti_Current));
         if(dloga > 0 && (dwk_i + dwk_j) < 0)
         {
-            if((I->Mass + P[other].Mass) > 0) {
+            if((I->Mass + Part[other].Mass) > 0) {
                 visc = DMIN(visc, 0.5 * HYDRA_GET_PRIV(lv->tw)->fac_vsic_fix * vdotr2 /
-                        (0.5 * (I->Mass + P[other].Mass) * (dwk_i + dwk_j) * r * dloga));
+                        (0.5 * (I->Mass + Part[other].Mass) * (dwk_i + dwk_j) * r * dloga));
             }
         }
     }
-    const double hfc_visc = 0.5 * P[other].Mass * visc * (dwk_i + dwk_j) / r;
+    const double hfc_visc = 0.5 * Part[other].Mass * visc * (dwk_i + dwk_j) / r;
     double hfc = hfc_visc;
     double rr1 = 1, rr2 = 1;
 
@@ -456,7 +456,7 @@ hydro_ngbiter(
         /*This enables the grad-h corrections*/
         rr1 = 0, rr2 = 0;
         /* leading-order term */
-        hfc += P[other].Mass *
+        hfc += Part[other].Mass *
             (dwk_i*iter->p_over_rho2_i*EntVarPred/I->EntVarPred +
             dwk_j*p_over_rho2_j*I->EntVarPred/EntVarPred) / r;
 
@@ -474,7 +474,7 @@ hydro_ngbiter(
 
     /* grad-h corrections: enabled if DensityIndependentSphOn = 0, or DensityConstrastLimit >= 0 */
     /* Formulation derived from the Lagrangian */
-    hfc += P[other].Mass * (iter->p_over_rho2_i*I->SPH_DhsmlDensityFactor * dwk_i * rr1
+    hfc += Part[other].Mass * (iter->p_over_rho2_i*I->SPH_DhsmlDensityFactor * dwk_i * rr1
                 + p_over_rho2_j*SPHP(other).DhsmlEgyDensityFactor * dwk_j * rr2) / r;
 
     for(d = 0; d < 3; d ++)
@@ -487,13 +487,13 @@ hydro_ngbiter(
 static int
 hydro_haswork(int i, TreeWalk * tw)
 {
-    return P[i].Type == 0;
+    return Part[i].Type == 0;
 }
 
 static void
 hydro_postprocess(int i, TreeWalk * tw)
 {
-    if(P[i].Type == 0)
+    if(Part[i].Type == 0)
     {
         /* Translate energy change rate into entropy change rate */
         SPHP(i).DtEntropy *= GAMMA_MINUS1 / (HYDRA_GET_PRIV(tw)->hubble_a2 * pow(SPHP(i).Density, GAMMA_MINUS1));

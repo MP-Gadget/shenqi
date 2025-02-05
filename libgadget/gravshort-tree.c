@@ -366,10 +366,10 @@ int force_treeev_shortrange(TreeWalkQueryGravShort * input,
             double dx[3];
             int j;
             for(j = 0; j < 3; j++)
-                dx[j] = NEAREST(P[pp].Pos[j] - inpos[j], BoxSize);
+                dx[j] = NEAREST(Part[pp].Pos[j] - inpos[j], BoxSize);
             const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
             /* Compute the acceleration and apply it to the output structure*/
-            apply_accn_to_output(output, dx, r2, P[pp].Mass, cellsize);
+            apply_accn_to_output(output, dx, r2, Part[pp].Mass, cellsize);
         }
         ninteractions = numcand;
     }

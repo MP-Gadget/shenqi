@@ -4,13 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// Undefine P before including Boost
-#ifdef P
-#undef P
-#endif
 #include <boost/math/interpolators/barycentric_rational.hpp>
-
-#define P PartManager->Base
 
 typedef struct _powerspectrum {
     double * kk;

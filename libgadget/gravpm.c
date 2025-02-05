@@ -60,10 +60,10 @@ gravpm_init_periodic(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, doubl
 void
 gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, double UnitLength_in_cm, const char * PowerOutputDir, double TimeIC) {
     PetaPMParticleStruct pstruct = {
-        P,
-        sizeof(P[0]),
-        static_cast<size_t>((char*) &P[0].Pos[0]  - (char*) P),
-        static_cast<size_t>((char*) &P[0].Mass  - (char*) P),
+        PartManager->Base,
+        sizeof(Part[0]),
+        static_cast<size_t>((char*) &Part[0].Pos[0]  - (char*) PartManager->Base),
+        static_cast<size_t>((char*) &Part[0].Mass  - (char*) PartManager->Base),
         /* Regions allocated inside _prepare*/
         NULL,
         /* By default all particles are active. For hybrid neutrinos set below.*/
@@ -88,7 +88,7 @@ gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, d
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i++)
     {
-        P[i].GravPM[0] = P[i].GravPM[1] = P[i].GravPM[2] = 0;
+        Part[i].GravPM[0] = Part[i].GravPM[1] = Part[i].GravPM[2] = 0;
     }
 
     /* Tree freed in PM*/
@@ -173,7 +173,7 @@ static PetaPMRegion * _prepare(PetaPM * pm, PetaPMParticleStruct * pstruct, void
     for(i =0; i < PartManager->NumPart; i ++) {
         /* Swallowed black hole particles stick around but should not gravitate.
          * Short-range is handled by not adding them to the tree. */
-        if(P[i].Swallowed){
+        if(Part[i].Swallowed){
             pstruct->RegionInd[i] = -2;
             numswallowed++;
         }
@@ -227,12 +227,12 @@ static int pm_mark_region_for_node(int startno, int rid, int * RegionInd, const 
                 * unless there is a bug in tree build, or the particles are being moved.*/
                 int k;
                 for(k = 0; k < 3; k ++) {
-                    double l = P[p].Pos[k] - tree->Nodes[startno].center[k];
+                    double l = Part[p].Pos[k] - tree->Nodes[startno].center[k];
                     l = fabs(l * 2);
                     if (l > tree->Nodes[startno].len) {
                         if(l > tree->Nodes[startno].len * (1+ 1e-7))
                         endrun(1, "enlarging node size from %g to %g, due to particle of type %d at %g %g %g id=%ld\n",
-                            tree->Nodes[startno].len, l, P[p].Type, P[p].Pos[0], P[p].Pos[1], P[p].Pos[2], P[p].ID);
+                            tree->Nodes[startno].len, l, Part[p].Type, Part[p].Pos[0], Part[p].Pos[1], Part[p].Pos[2], Part[p].ID);
                         tree->Nodes[startno].len = l;
                     }
                 }
@@ -464,7 +464,7 @@ static double diff_kernel(double w) {
 
 /*This function decides if a particle is actively gravitating; tracers are not.*/
 static int hybrid_nu_gravpm_is_active(int i) {
-    if (P[i].Type == 2)
+    if (Part[i].Type == 2)
         return 0;
     else
         return 1;
@@ -494,14 +494,14 @@ static void force_z_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex 
     force_transfer(pm, kpos[2], value);
 }
 static void readout_potential(PetaPM * pm, int i, double * mesh, double weight) {
-    P[i].Potential += weight * mesh[0];
+    Part[i].Potential += weight * mesh[0];
 }
 static void readout_force_x(PetaPM * pm, int i, double * mesh, double weight) {
-    P[i].GravPM[0] += weight * mesh[0];
+    Part[i].GravPM[0] += weight * mesh[0];
 }
 static void readout_force_y(PetaPM * pm, int i, double * mesh, double weight) {
-    P[i].GravPM[1] += weight * mesh[0];
+    Part[i].GravPM[1] += weight * mesh[0];
 }
 static void readout_force_z(PetaPM * pm, int i, double * mesh, double weight) {
-    P[i].GravPM[2] += weight * mesh[0];
+    Part[i].GravPM[2] += weight * mesh[0];
 }

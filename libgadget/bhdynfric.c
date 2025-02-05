@@ -104,13 +104,13 @@ blackhole_compute_dfaccel(const int n, const double atime, const double Grav)
         /* Calculate Coulumb Logarithm */
         double bhvel = 0;
         for(j = 0; j < 3; j++)
-            bhvel += pow(P[n].Vel[j] - BHP(n).DF_SurroundingVel[j], 2);
+            bhvel += pow(Part[n].Vel[j] - BHP(n).DF_SurroundingVel[j], 2);
         bhvel = sqrt(bhvel);
 
         if(!isfinite(bhvel)) {
             endrun(6, "Bad bhvel %g vel %g %g %g DF vel %g %g %g id %ld n %d mass %g\n",
-                bhvel, P[n].Vel[0], P[n].Vel[1], P[n].Vel[2],
-                BHP(n).DF_SurroundingVel[0], BHP(n).DF_SurroundingVel[1], BHP(n).DF_SurroundingVel[2],P[n].ID, n, P[n].Mass);
+                bhvel, Part[n].Vel[0], Part[n].Vel[1], Part[n].Vel[2],
+                BHP(n).DF_SurroundingVel[0], BHP(n).DF_SurroundingVel[1], BHP(n).DF_SurroundingVel[2],Part[n].ID, n, Part[n].Mass);
         }
         /* There is no parameter in physical unit, so I kept everything in code unit */
 
@@ -123,20 +123,20 @@ blackhole_compute_dfaccel(const int n, const double atime, const double Grav)
         if (f_of_x < 0)
             f_of_x = 0;
 
-        double lambda = 1. + blackhole_dynfric_params.BH_DFbmax * pow((bhvel/atime),2) / Grav / P[n].Mass;
+        double lambda = 1. + blackhole_dynfric_params.BH_DFbmax * pow((bhvel/atime),2) / Grav / Part[n].Mass;
 
         for(j = 0; j < 3; j++)
         {
             /* prevent DFAccel from exploding */
             if(bhvel > 0){
-                BHP(n).DFAccel[j] = - 4. * M_PI * Grav * Grav * P[n].Mass * BHP(n).DF_SurroundingDensity * log(lambda) * f_of_x * (P[n].Vel[j] - BHP(n).DF_SurroundingVel[j]) / pow(bhvel, 3);
+                BHP(n).DFAccel[j] = - 4. * M_PI * Grav * Grav * Part[n].Mass * BHP(n).DF_SurroundingDensity * log(lambda) * f_of_x * (Part[n].Vel[j] - BHP(n).DF_SurroundingVel[j]) / pow(bhvel, 3);
                 BHP(n).DFAccel[j] *= atime;  // convert to code unit of acceleration
                 BHP(n).DFAccel[j] *= blackhole_dynfric_params.BH_DFBoostFactor; // Add a boost factor
             }
         }
 // #ifdef DEBUG
         // message(2,"x=%e, log(lambda)=%e, fof_x=%e, Mbh=%e, ratio=%e \n",
-           // x,log(lambda),f_of_x,P[n].Mass,BHP(n).DFAccel[0]/P[n].FullTreeGravAccel[0]);
+           // x,log(lambda),f_of_x,Part[n].Mass,BHP(n).DFAccel[0]/Part[n].FullTreeGravAccel[0]);
 // #endif
     }
 }
@@ -190,7 +190,7 @@ blackhole_dynfric_reduce(int place, TreeWalkResultBHDynfric * remote, enum TreeW
 static void
 blackhole_dynfric_copy(int place, TreeWalkQueryBHDynfric * I, TreeWalk * tw){
     /* SPH kernel width should be the only thing needed */
-    I->Hsml = P[place].Hsml;
+    I->Hsml = Part[place].Hsml;
 }
 
 static void
@@ -216,13 +216,13 @@ blackhole_minpot_ngbiter(TreeWalkQueryBHDynfric * I,
     double r2 = iter->base.r2;
 
     /* Find the black hole potential minimum. */
-    if(r2 < iter->dynfric_kernel.HH && P[other].Potential < O->BH_MinPot)
+    if(r2 < iter->dynfric_kernel.HH && Part[other].Potential < O->BH_MinPot)
     {
         int d;
-        O->BH_MinPot = P[other].Potential;
+        O->BH_MinPot = Part[other].Potential;
         for(d = 0; d < 3; d++) {
-            O->BH_MinPotPos[d] = P[other].Pos[d];
-            O->BH_MinPotVel[d] = P[other].Vel[d];
+            O->BH_MinPotPos[d] = Part[other].Pos[d];
+            O->BH_MinPotVel[d] = Part[other].Vel[d];
         }
     }
 }
@@ -244,16 +244,16 @@ blackhole_dynfric_ngbiter(TreeWalkQueryBHDynfric * I,
     double r2 = iter->base.r2;
 
     /* Collect Star/+DM/+Gas density/velocity for DF computation */
-    if(P[other].Type == 4 || (P[other].Type == 1 && blackhole_dynfric_params.BH_DynFrictionMethod > 1) ||
-        (P[other].Type == 0 && blackhole_dynfric_params.BH_DynFrictionMethod == 3) ){
+    if(Part[other].Type == 4 || (Part[other].Type == 1 && blackhole_dynfric_params.BH_DynFrictionMethod > 1) ||
+        (Part[other].Type == 0 && blackhole_dynfric_params.BH_DynFrictionMethod == 3) ){
         if(r2 < iter->dynfric_kernel.HH) {
             double u = r * iter->dynfric_kernel.Hinv;
             double wk = density_kernel_wk(&iter->dynfric_kernel, u);
-            float mass_j = P[other].Mass;
+            float mass_j = Part[other].Mass;
             int k;
             O->SurroundingDensity += (mass_j * wk);
             MyFloat VelPred[3];
-            if(P[other].Type == 0)
+            if(Part[other].Type == 0)
                 SPH_VelPred(other, VelPred, BHDYN_GET_PRIV(lv->tw)->kf);
             else {
                 DM_VelPred(other, VelPred, BHDYN_GET_PRIV(lv->tw)->kf);
@@ -275,10 +275,10 @@ blackhole_minpot_preprocess(int n, TreeWalk * tw)
      * In particular this means that it is not updated for hierarchical gravity
      * when the number of active particles is less than the total number of particles
      * (because then the tree does not contain all forces). */
-    BHP(n).MinPot = P[n].Potential;
+    BHP(n).MinPot = Part[n].Potential;
 
     for(j = 0; j < 3; j++) {
-        BHP(n).MinPotPos[j] = P[n].Pos[j];
+        BHP(n).MinPotPos[j] = Part[n].Pos[j];
     }
 }
 
@@ -320,7 +320,7 @@ blackhole_minpot(int * ActiveBlackHoles, const int64_t NumActiveBlackHoles, Doma
 static int
 blackhole_dynfric_haswork(int n, TreeWalk * tw){
     /*Black hole not being swallowed*/
-    return (P[n].Type == 5) && (!P[n].Swallowed) &&
+    return (Part[n].Type == 5) && (!Part[n].Swallowed) &&
     is_timebin_active(BHP(n).TimeBinDynFric, BHDYN_GET_PRIV(tw)->Ti_Current);
 }
 

@@ -114,7 +114,7 @@ int
 winds_is_particle_decoupled(int i)
 {
     if(HAS(wind_params.WindModel, WIND_DECOUPLE_SPH)
-        && P[i].Type == 0 && SPHP(i).DelayTime > 0)
+        && Part[i].Type == 0 && SPHP(i).DelayTime > 0)
             return 1;
     return 0;
 }
@@ -224,7 +224,7 @@ int cmp_by_part_id(const void * a, const void * b)
 }
 
 #define WIND_GET_PRIV(tw) ((struct WindPriv *) (tw->priv))
-#define WINDP(i, wind) wind[P[i].PI]
+#define WINDP(i, wind) wind[Part[i].PI]
 
 /* Find the 1D DM velocity dispersion of the winds by running a density loop.*/
 static void
@@ -288,7 +288,7 @@ winds_subgrid(int * MaybeWind, int NumMaybeWind, const double Time, MyFloat * St
     {
         int i = MaybeWind ? MaybeWind[n] : n;
         /* Notice that StellarMasses is indexed like PI, not i!*/
-        MyFloat sm = StellarMasses[P[i].PI];
+        MyFloat sm = StellarMasses[Part[i].PI];
         winds_make_after_sf(i, sm, SPHP(i).VDisp, Time, rnd);
     }
     walltime_measure("/Cooling/Wind");
@@ -383,7 +383,7 @@ winds_evolve(int i, double a3inv, double hubble)
         /* Enforce the maximum in case of restarts*/
         if(SPHP(i).DelayTime > wind_params.MaxWindFreeTravelTime)
             SPHP(i).DelayTime = wind_params.MaxWindFreeTravelTime;
-        const double dloga = get_dloga_for_bin(P[i].TimeBinHydro, P[i].Ti_drift);
+        const double dloga = get_dloga_for_bin(Part[i].TimeBinHydro, Part[i].Ti_drift);
         /*  the proper time duration of the step */
         const double dtime = dloga / hubble;
         SPHP(i).DelayTime = DMAX(SPHP(i).DelayTime - dtime, 0);
@@ -393,21 +393,21 @@ winds_evolve(int i, double a3inv, double hubble)
 static void
 sfr_wind_reduce_weight(int place, TreeWalkResultWind * O, enum TreeWalkReduceMode mode, TreeWalk * tw)
 {
-    int pi = P[place].PI;
+    int pi = Part[place].PI;
     TREEWALK_REDUCE(WIND_GET_PRIV(tw)->TotalWeight[pi], O->TotalWeight);
 }
 
 static void
 sfr_wind_copy(int place, TreeWalkQueryWind * input, TreeWalk * tw)
 {
-    input->ID = P[place].ID;
-    input->Mass = P[place].Mass;
-    input->Hsml = P[place].Hsml;
-    if(P[place].Type != 4)
-        endrun(5, "Particle %d has type %d not a star, id %ld mass %g\n", place, P[place].Type, P[place].ID, P[place].Mass);
+    input->ID = Part[place].ID;
+    input->Mass = Part[place].Mass;
+    input->Hsml = Part[place].Hsml;
+    if(Part[place].Type != 4)
+        endrun(5, "Particle %d has type %d not a star, id %ld mass %g\n", place, Part[place].Type, Part[place].ID, Part[place].Mass);
     input->Vdisp = STARP(place).VDisp;
 
-    int pi = P[place].PI;
+    int pi = Part[place].PI;
     input->TotalWeight = WIND_GET_PRIV(tw)->TotalWeight[pi];
 }
 
@@ -438,7 +438,7 @@ sfr_wind_weight_ngbiter(TreeWalkQueryWind * I,
     /* NOTE: think twice if we want a symmetric tree walk when wk is used. */
     //double wk = density_kernel_wk(&kernel, r);
     double wk = 1.0;
-    O->TotalWeight += wk * P[other].Mass;
+    O->TotalWeight += wk * Part[other].Mass;
     /* Sum up all particles visited on this processor*/
     WIND_GET_PRIV(lv->tw)->nvisited[omp_get_thread_num()]++;
 
@@ -460,7 +460,7 @@ wind_do_kick(int other, double vel, double therm, double atime, const RandTable 
     if(vel > 0 && atime > 0) {
         for(j = 0; j < 3; j++)
         {
-            P[other].Vel[j] += vel * dir[j];
+            Part[other].Vel[j] += vel * dir[j];
         }
         /* StarTherm is internal energy per unit mass. Need to convert to entropy*/
         const double enttou = pow(SPHP(other).Density / pow(atime, 3), GAMMA_MINUS1) / GAMMA_MINUS1;
@@ -478,10 +478,10 @@ static int
 get_wind_dir(int i, double dir[3], const RandTable * const rnd) {
     /* v and vmean are in internal units (km/s *a ), not km/s !*/
     /* returns 0 if particle i is converted to wind. */
-    // message(1, "%ld Making ID=%ld (%g %g %g) to wind with v= %g\n", ID, P[i].ID, P[i].Pos[0], P[i].Pos[1], P[i].Pos[2], v);
+    // message(1, "%ld Making ID=%ld (%g %g %g) to wind with v= %g\n", ID, Part[i].ID, Part[i].Pos[0], Part[i].Pos[1], Part[i].Pos[2], v);
     /* ok, make the particle go into the wind */
-    double theta = acos(2 * get_random_number(P[i].ID + 3, rnd) - 1);
-    double phi = 2 * M_PI * get_random_number(P[i].ID + 4, rnd);
+    double theta = acos(2 * get_random_number(Part[i].ID + 3, rnd) - 1);
+    double phi = 2 * M_PI * get_random_number(Part[i].ID + 4, rnd);
 
     dir[0] = sin(theta) * cos(phi);
     dir[1] = sin(theta) * sin(phi);
@@ -539,7 +539,7 @@ sfr_wind_feedback_ngbiter(TreeWalkQueryWind * I,
     if(I->TotalWeight == 0 || I->Vdisp <= 0) return;
 
     /* Paranoia*/
-    if(P[other].Type != 0 || P[other].IsGarbage || P[other].Swallowed)
+    if(Part[other].Type != 0 || Part[other].IsGarbage || Part[other].Swallowed)
         return;
 
     /* Get the velocity, thermal energy and efficiency of the kick*/
@@ -547,7 +547,7 @@ sfr_wind_feedback_ngbiter(TreeWalkQueryWind * I,
     get_wind_params(&v, &windeff, &utherm, I->Vdisp, WIND_GET_PRIV(lv->tw)->Time);
 
     double p = windeff * I->Mass / I->TotalWeight;
-    double random = get_random_number(I->ID + P[other].ID, WIND_GET_PRIV(lv->tw)->rnd);
+    double random = get_random_number(I->ID + Part[other].ID, WIND_GET_PRIV(lv->tw)->rnd);
 
     if (random < p && v > 0) {
         /* Store a potential kick. This might not be the kick actually used,
@@ -580,9 +580,9 @@ winds_make_after_sf(int i, double sm, double vdisp, double atime, const RandTabl
 
     /* Here comes the Springel Hernquist 03 wind model */
     /* Notice that this is the mass of the gas particle after forking a star, Mass - Mass/GENERATIONS.*/
-    double pw = windeff * sm / P[i].Mass;
+    double pw = windeff * sm / Part[i].Mass;
     double prob = 1 - exp(-pw);
-    if(get_random_number(P[i].ID + 2, rnd) < prob) {
+    if(get_random_number(Part[i].ID + 2, rnd) < prob) {
         wind_do_kick(i, vel, utherm, atime, rnd);
     }
     return 0;

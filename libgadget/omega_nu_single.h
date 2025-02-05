@@ -3,10 +3,6 @@
 /** \file
  * Routines for computing the matter density in a single neutrino species*/
 
-// Undefine P before including Boost
-#ifdef P
-#undef P
-#endif
 #include <boost/math/interpolators/cardinal_cubic_b_spline.hpp>
 
 /** Ratio between the massless neutrino temperature and the CMB temperature.
