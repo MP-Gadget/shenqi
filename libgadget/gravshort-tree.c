@@ -119,9 +119,7 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
     if(!tree->moments_computed_flag)
         endrun(2, "Gravtree called before tree moments computed!\n");
 
-    cudaMallocManaged(&tw->ev_label, sizeof(char) * strlen("GRAVTREE") + 1);  // Allocate memory for ev_label
-    strcpy(tw->ev_label, "GRAVTREE");
-
+    tw->ev_label = "GRAVTREE";
     tw->visit = (TreeWalkVisitFunction) force_treeev_shortrange;
     /* gravity applies to all gravitationally active particles.*/
     tw->haswork = NULL;
@@ -137,7 +135,7 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
     struct gravshort_tree_params *TreeParams_ptr;
     cudaMallocManaged(&TreeParams_ptr, sizeof(struct gravshort_tree_params));
     *TreeParams_ptr = TreeParams;
-    
+
     treewalk_run(tw, act->ActiveParticle, act->NumActiveParticle, TreeParams_ptr);
     /* Free the memory */
     cudaFree(TreeParams_ptr);
@@ -163,10 +161,10 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
      * avoiding the fully open O(N^2) case.*/
     if(TreeParams.TreeUseBH > 1)
         TreeParams.TreeUseBH = 0;
-    
+
     if(accelstorealloc)
         myfree(priv_ptr->Accel);
-    
+
     cudaFree(priv_ptr);
     cudaFree(tw);
 }
