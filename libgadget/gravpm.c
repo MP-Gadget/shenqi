@@ -111,7 +111,7 @@ gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, d
     /*Now save the power spectrum*/
     powerspectrum_save(pm->ps, PowerOutputDir, "powerspectrum", Time, GrowthFactor(CP, Time, 1.0));
     /* Save the neutrino power if it is allocated*/
-    if(pm->ps->logknu)
+    if(pm->ps->nu_spline != nullptr)
         powerspectrum_nu_save(pm->ps, PowerOutputDir, "powerspectrum-nu", Time);
     /*We are done with the power spectrum, free it*/
     powerspectrum_free(pm->ps);
@@ -314,11 +314,8 @@ static void compute_neutrino_power(PetaPM * pm) {
     for(i=0; i<ps->nonzero; i++) {
         ps->Power[i] = sqrt(ps->Power[i]);
     }
-    /*Get the neutrino power.*/
+    /*Get the neutrino power and initialise the spline*/
     delta_nu_from_power(ps, GravPM.CP, GravPM.Time, GravPM.TimeIC);
-
-    /*Initialize the interpolation for the neutrinos*/
-    ps->nu_spline = new boost::math::interpolators::barycentric_rational<double>(ps->logknu, ps->delta_nu_ratio, ps->nonzero);
     /*Zero power spectrum, which is stored with the neutrinos*/
     powerspectrum_zero(ps);
 }
@@ -415,11 +412,7 @@ potential_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex *value)
     if(GravPM.CP->MassiveNuLinRespOn && k2 > 0) {
         /* Change the units of k to match those of logkk*/
         double logk2 = log(sqrt(k2) * 2 * M_PI / ps->BoxSize_in_MPC);
-        /* Floating point roundoff and the binning means there may be a mode just beyond the box size.*/
-        if(logk2 < ps->logknu[0] && logk2 > ps->logknu[0]-log(2) )
-            logk2 = ps->logknu[0];
-        else if( logk2 > ps->logknu[ps->nonzero-1])
-            logk2 = ps->logknu[ps->nonzero-1];
+        /* Floating point roundoff and the binning means there may be a mode just beyond the box size, but makima should handle that.*/
         /* Note get_neutrino_powerspec returns Omega_nu / (Omega0 -OmegaNu) * delta_nu / P_cdm^1/2, which is dimensionless.
          * So below is: M_cdm * delta_cdm (1 + Omega_nu/(Omega0-OmegaNu) (delta_nu / delta_cdm))
          *            = M_cdm * (delta_cdm (Omega0 - OmegaNu)/Omega0 + Omega_nu/Omega0 delta_nu) * Omega0 / (Omega0-OmegaNu)
