@@ -4,7 +4,7 @@ AR ?= ar
 MPICC ?= mpic++
 LOW_PRECISION ?= double
 NVCC ?= nvcc
-NVOPTIMIZE ?=  
+NVOPTIMIZE ?= -O3 -arch=native
 
 OPTIMIZE ?= -O2 -g -fopenmp -Wall
 GSL_INCL ?= $(shell pkg-config --cflags gsl)
@@ -14,11 +14,15 @@ ifneq ($(findstring -DUSE_CFITSIO, $(OPT)),)
     FITSIO_INCL ?= $(shell pkg-config --cflags cfitsio)
     FITSIO_LIBS ?= $(shell pkg-config --libs cfitsio)
 endif
+ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
+    CUDA_INCL ?= $(shell pkg-config --cflags cuda)
+    CUDA_LIBS ?= $(shell pkg-config --libs cuda)
+endif
 
 OPTIONS = $(OPTIMIZE) $(OPT)
 GADGET_TESTDATA_ROOT = $(CURDIR)/../
 
-CFLAGS = $(OPTIONS) $(GSL_INCL) $(FITSIO_INCL)
+CFLAGS = $(OPTIONS) $(GSL_INCL) $(FITSIO_INCL) $(CUDA_INCL)
 CFLAGS += -I../depends/include
 CFLAGS += -I../
 CFLAGS += "-DLOW_PRECISION=$(LOW_PRECISION)"
