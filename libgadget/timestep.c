@@ -18,6 +18,7 @@
 #include "walltime.h"
 #include "timestep.h"
 #include "gravity.h"
+#include "cuda_runtime.h"
 
 /*! \file timestep.c
  *  \brief routines for 'kicking' particles in
@@ -281,11 +282,16 @@ void
 grav_short_tree_build_tree(const ActiveParticles * subact, PetaPM * pm, DomainDecomp * ddecomp, MyFloat (* AccelStore)[3], inttime_t Ti_Current, const double rho0, int HybridNuGrav, const char * EmergencyOutputDir)
 {
     /* Tree with only particle timesteps below this value*/
-    ForceTree Tree = {0};
+    // ForceTree Tree = {0};
+    ForceTree * Tree_ptr;
+    cudaMallocManaged(&Tree_ptr, sizeof(ForceTree));
+    cudaDeviceSynchronize();
+    memset(Tree_ptr, 0, sizeof(ForceTree)); // Correct initialization to zero
+    message(0, "Tree allocated by cudaMallocManaged.\n");
     /* No Father array here*/
-    force_tree_active_moments(&Tree, ddecomp, subact, HybridNuGrav, 0, EmergencyOutputDir);
-    grav_short_tree(subact, pm, &Tree, AccelStore, rho0, Ti_Current);
-    force_tree_free(&Tree);
+    force_tree_active_moments(Tree_ptr, ddecomp, subact, HybridNuGrav, 0, EmergencyOutputDir);
+    grav_short_tree(subact, pm, Tree_ptr, AccelStore, rho0, Ti_Current);
+    force_tree_free(Tree_ptr);
 }
 
 

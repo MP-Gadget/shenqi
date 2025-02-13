@@ -12,6 +12,9 @@
 #include "forcetree.h"
 
 #include <signal.h>
+#include "treewalk_kernel.h"
+#include "gravshort-tree.c"
+
 #define BREAKPOINT raise(SIGTRAP)
 
 #define FACT1 0.366025403785    /* FACT1 = 0.5 * (sqrt(3)-1) */
@@ -192,13 +195,16 @@ treewalk_reduce_result(TreeWalk * tw, TreeWalkResultBase * result, int i, enum T
 void
 treewalk_build_queue(TreeWalk * tw, int * active_set, const size_t size, int may_have_garbage)
 {
+    message(0, "begin treewalk_build_queue\n");
     tw->NThread = omp_get_max_threads();
 
     if(!tw->haswork && !may_have_garbage)
     {
+        message(0, "Treewalk %s has no work function and no garbage\n", tw->ev_label);
         tw->WorkSetSize = size;
         tw->WorkSet = active_set;
         tw->work_set_stolen_from_active = 1;
+        message(0, "tw->WorkSetSize = %ld\n", tw->WorkSetSize);
         return;
     }
 
@@ -305,6 +311,35 @@ ev_primary(TreeWalk * tw)
     tw->minNinteractions = minNinteractions;
     tw->Ninteractions += Ninteractions;
     tw->Nlistprimary += tw->WorkSetSize;
+}
+
+/* returns struct containing export counts */
+static void
+ev_primary_gpu(TreeWalk * tw, struct gravshort_tree_params* TreeParams_ptr)
+{
+    unsigned long long int *maxNinteractions, *minNinteractions, *Ninteractions;
+    cudaMallocManaged(&maxNinteractions, sizeof(unsigned long long int));
+    cudaMallocManaged(&minNinteractions, sizeof(unsigned long long int));
+    cudaMallocManaged(&Ninteractions, sizeof(unsigned long long int));
+
+    // Initialize
+    *maxNinteractions = 0;
+    *minNinteractions = 1L << 45;
+    *Ninteractions = 0;
+    
+    message(0, "Calling run_treewalk_kernel\n");
+    // Call the GPU kernel wrapper for treewalk
+    run_treewalk_kernel(tw, P, TreeParams_ptr, GravitySoftening, maxNinteractions, minNinteractions, Ninteractions);
+
+    tw->maxNinteractions = (int64_t) *maxNinteractions;
+    tw->minNinteractions = (int64_t) *minNinteractions;
+    tw->Ninteractions += (int64_t) *Ninteractions;
+    tw->Nlistprimary += tw->WorkSetSize;
+
+    // Free memory
+    cudaFree(maxNinteractions);
+    cudaFree(minNinteractions);
+    cudaFree(Ninteractions);
 }
 
 static int ev_ndone(TreeWalk * tw, MPI_Comm comm)
@@ -659,6 +694,68 @@ static struct CommBuffer ev_secondary(struct CommBuffer * imports, struct ImpExp
     return res_imports;
 }
 
+static struct CommBuffer ev_secondary_gpu(struct CommBuffer * imports, struct ImpExpCounts* counts, TreeWalk * tw, const struct gravshort_tree_params * TreeParams_ptr)
+{
+    struct CommBuffer res_imports = {0};
+    alloc_commbuffer(&res_imports, counts->NTask, 1);
+    res_imports.databuf = (char *) mymalloc2("ImportResult", counts->Nimport * tw->result_type_elsize);
+
+    MPI_Datatype type;
+    MPI_Type_contiguous(tw->result_type_elsize, MPI_BYTE, &type);
+    MPI_Type_commit(&type);
+    int * complete_array = ta_malloc("completes", int, imports->nrequest_all);
+
+    int tot_completed = 0;
+    /* Test each request in turn until it completes*/
+    while(tot_completed < imports->nrequest_all) {
+        int complete_cnt = MPI_UNDEFINED;
+        /* Check for some completed requests: note that cleanup is performed if the requests are complete.
+         * There may be only 1 completed request, and we need to wait again until we have more.*/
+        MPI_Waitsome(imports->nrequest_all, imports->rdata_all, &complete_cnt, complete_array, MPI_STATUSES_IGNORE);
+        /* This happens if all requests are MPI_REQUEST_NULL. It should never be hit*/
+        if (complete_cnt == MPI_UNDEFINED)
+            break;
+        int j;
+        for(j = 0; j < complete_cnt; j++) {
+            const int i = complete_array[j];
+            /* Note the task number index is not the index in the request array (some tasks were skipped because we have zero exports)! */
+            const int task = imports->rqst_task[i];
+            const int64_t nimports_task = counts->Import_count[task];
+            // message(1, "starting at %d with %d for iport %d task %d\n", counts->Import_offset[task], counts->Import_count[task], i, task);
+            char * databufstart = imports->databuf + counts->Import_offset[task] * tw->query_type_elsize;
+            char * dataresultstart = res_imports.databuf + counts->Import_offset[task] * tw->result_type_elsize;
+            /* This sends each set of imports to a parallel for loop. This may lead to suboptimal resource allocation if only a small number of imports come from a processor.
+            * If there are a large number of importing ranks each with a small number of imports, a better scheme could be to send each chunk to a separate openmp task.
+            * However, each openmp task by default only uses 1 thread. One may explicitly enable openmp nested parallelism, but I think that is not safe,
+            * or it would be enabled by default.*/
+            // #pragma omp parallel
+            //     {
+            //         int64_t j;
+            //         LocalTreeWalk lv[1];
+
+            //         ev_init_thread(tw, lv);
+            //         lv->mode = TREEWALK_GHOSTS;
+            //         #pragma omp for
+            //         for(j = 0; j < nimports_task; j++) {
+            //             TreeWalkQueryBase * input = (TreeWalkQueryBase *) (databufstart + j * tw->query_type_elsize);
+            //             TreeWalkResultBase * output = (TreeWalkResultBase *) (dataresultstart + j * tw->result_type_elsize);
+            //             treewalk_init_result(tw, output, input);
+            //             lv->target = -1;
+            //             tw->visit(input, output, lv);
+            //         }
+            //     }
+            run_treewalk_secondary_kernel(tw, P, TreeParams_ptr, databufstart, dataresultstart, nimports_task);
+            /* Send the completed data back*/
+            res_imports.rqst_task[res_imports.nrequest_all] = task;
+            MPI_Isend(dataresultstart, nimports_task, type, task, 101923, counts->comm, &res_imports.rdata_all[res_imports.nrequest_all++]);
+            tot_completed++;
+        }
+    };
+    myfree(complete_array);
+    MPI_Type_free(&type);
+    return res_imports;
+}
+
 static struct ImpExpCounts
 ev_export_import_counts(TreeWalk * tw, MPI_Comm comm)
 {
@@ -797,7 +894,7 @@ static void ev_reduce_export_result(struct CommBuffer * exportbuf, struct ImpExp
  *
  * */
 void
-treewalk_run(TreeWalk * tw, int * active_set, size_t size)
+treewalk_run(TreeWalk * tw, int * active_set, size_t size, struct gravshort_tree_params* TreeParams_ptr)
 {
     if(!force_tree_allocated(tw->tree)) {
         endrun(0, "Tree has been freed before this treewalk.\n");
@@ -830,6 +927,7 @@ treewalk_run(TreeWalk * tw, int * active_set, size_t size)
         int Ndone = 0;
         /* Needs to be outside loop because it allocates restart information*/
         alloc_export_memory(tw);
+        message(0, "Starting %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
         do
         {
             tstart = second();
@@ -846,8 +944,23 @@ treewalk_run(TreeWalk * tw, int * active_set, size_t size)
             tw->timecomp0 += timediff(tstart, tend);
             /* Only do this on the first iteration, as we only need to do it once.*/
             tstart = second();
-            if(tw->Nexportfull == 0)
-                ev_primary(tw); /* do local particles and prepare export list */
+            if(tw->Nexportfull == 0){
+#ifdef TREE_CPU
+                message(0, "Starting ev_primary (cpu) for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
+                ev_primary(tw); // cpu version
+#else
+                if (TreeParams_ptr == NULL) {
+                    message(0, "Starting ev_primary (cpu) for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
+                    ev_primary(tw); // cpu version still used for FoF now
+                }
+                else {
+                    message(0, "Starting ev_primary (gpu) for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
+                    ev_primary_gpu(tw, TreeParams_ptr); /* do local particles and prepare export list */
+                }
+#endif
+                message(0, "Finished ev_primary for %s with %ld particles\n", tw->ev_label, tw->WorkSetSize);
+            }
+                
             tend = second();
             tw->timecomp1 += timediff(tstart, tend);
             /* Do processing of received particles. We implement a queue that
@@ -856,7 +969,21 @@ treewalk_run(TreeWalk * tw, int * active_set, size_t size)
             /* Posts recvs to get the export results (which are sent in ev_secondary).*/
             struct CommBuffer res_exports = {0};
             ev_recv_export_result(&res_exports, &counts, tw);
+#ifdef TREE_CPU
+            message(0, "Starting ev_secondary (cpu) for %s with %ld particles\n", tw->ev_label);
             struct CommBuffer res_imports = ev_secondary(&imports, &counts, tw);
+#else
+            struct CommBuffer res_imports;
+            if (TreeParams_ptr == NULL) {
+                message(0, "Starting ev_secondary (cpu) for %s with %ld particles\n", tw->ev_label);
+                res_imports = ev_secondary(&imports, &counts, tw); // cpu version still used for FoF now
+            }
+            else {
+                message(0, "Starting ev_secondary (gpu) for %s\n", tw->ev_label);
+                res_imports = ev_secondary_gpu(&imports, &counts, tw, TreeParams_ptr);
+            }
+#endif
+            message(0, "Finished ev_secondary for %s\n", tw->ev_label);
             // report_memory_usage(tw->ev_label);
             free_commbuffer(&imports);
             tend = second();
@@ -883,6 +1010,7 @@ treewalk_run(TreeWalk * tw, int * active_set, size_t size)
         } while(Ndone < tw->NTask);
         free_export_memory(tw);
     }
+    message(0, "Finished visiting %s with %ld interactions\n", tw->ev_label, tw->Ninteractions);
 
     tstart = second();
     if(tw->postprocess) {

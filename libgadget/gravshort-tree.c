@@ -14,6 +14,7 @@
 #include "timestep.h"
 #include "gravshort.h"
 #include "walltime.h"
+#include "cuda_runtime.h"
 
 /*! \file gravtree.c
  *  \brief main driver routines for gravitational (short-range) force computation
@@ -95,17 +96,23 @@ force_treeev_shortrange(TreeWalkQueryGravShort * input,
 void
 grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current)
 {
-    TreeWalk tw[1] = {{0}};
-    struct GravShortPriv priv;
-    priv.cellsize = tree->BoxSize / pm->Nmesh;
-    priv.Rcut = TreeParams.Rcut * pm->Asmth * priv.cellsize;;
-    priv.G = pm->G;
-    priv.cbrtrho0 = pow(rho0, 1.0 / 3);
-    priv.Ti_Current = Ti_Current;
-    priv.Accel = AccelStore;
+    TreeWalk *tw;
+    cudaMallocManaged(&tw, sizeof(TreeWalk));  // Allocate TreeWalk structure with Unified Memory
+    memset(tw, 0, sizeof(TreeWalk));           // Zero-initialize the structure
+    struct GravShortPriv *priv_ptr;
+    cudaMallocManaged(&priv_ptr, sizeof(struct GravShortPriv));
+
+    // Initialize priv_ptr as usual
+    priv_ptr->cellsize = tree->BoxSize / pm->Nmesh;
+    priv_ptr->Rcut = TreeParams.Rcut * pm->Asmth * priv_ptr->cellsize;
+    priv_ptr->G = pm->G;
+    priv_ptr->cbrtrho0 = pow(rho0, 1.0 / 3);
+    priv_ptr->Ti_Current = Ti_Current;
+    priv_ptr->Accel = AccelStore;
+
     int accelstorealloc = 0;
     if(!AccelStore) {
-        priv.Accel = (MyFloat (*) [3]) mymalloc2("GravAccel", PartManager->NumPart * sizeof(priv.Accel[0]));
+        priv_ptr->Accel = (MyFloat (*) [3]) mymalloc2("GravAccel", PartManager->NumPart * sizeof(priv_ptr->Accel[0]));
         accelstorealloc = 1;
     }
 
@@ -123,9 +130,15 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
     tw->result_type_elsize = sizeof(TreeWalkResultGravShort);
     tw->fill = (TreeWalkFillQueryFunction) grav_short_copy;
     tw->tree = tree;
-    tw->priv = &priv;
+    tw->priv = priv_ptr;
+    message(0, "gravity_short_tree: tree structure initialized.\n");
+    struct gravshort_tree_params *TreeParams_ptr;
+    cudaMallocManaged(&TreeParams_ptr, sizeof(struct gravshort_tree_params));
+    *TreeParams_ptr = TreeParams;
 
-    treewalk_run(tw, act->ActiveParticle, act->NumActiveParticle);
+    treewalk_run(tw, act->ActiveParticle, act->NumActiveParticle, TreeParams_ptr);
+    /* Free the memory */
+    cudaFree(TreeParams_ptr);
 
     /* Now the force computation is finished */
     /*  gather some diagnostic information */
@@ -148,8 +161,12 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
      * avoiding the fully open O(N^2) case.*/
     if(TreeParams.TreeUseBH > 1)
         TreeParams.TreeUseBH = 0;
+
     if(accelstorealloc)
-        myfree(priv.Accel);
+        myfree(priv_ptr->Accel);
+
+    cudaFree(priv_ptr);
+    cudaFree(tw);
 }
 
 /* Add the acceleration from a node or particle to the output structure,

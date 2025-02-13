@@ -3,6 +3,8 @@
 AR ?= ar
 MPICC ?= mpic++
 LOW_PRECISION ?= double
+NVCC ?= nvcc
+NVOPTIMIZE ?= -O3 -arch=native
 
 OPTIMIZE ?= -O2 -g -fopenmp -Wall
 #Explicitly set C++ standard
@@ -16,6 +18,10 @@ ifneq ($(findstring -DUSE_CFITSIO, $(OPT)),)
     # If found, set FITSIO_INCL with the cfitsio flags
     FITSIO_INCL ?= $(shell pkg-config --cflags cfitsio)
     FITSIO_LIBS ?= $(shell pkg-config --libs cfitsio)
+endif
+ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
+    CUDA_INCL ?= $(shell pkg-config --cflags cuda)
+    CUDA_LIBS ?= $(shell pkg-config --libs cuda)
 endif
 
 ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
@@ -46,6 +52,8 @@ V ?= 0
 	mkdir -p `dirname $@`; \
 	echo Compiling $<; $$cmd
 
-# Rule to compile .cu files (using nvcc)
-.objs/%.o: %.cu
-	$(NVCC) $(NVOPTIMIZE) -c $< -o $@
+.objs/%.o: %.cu Makefile $(CONFIG)
+	@cmd="$(NVCC) -MMD -c -o $@ -I../depends/include $<"; \
+	if test "x$(V)" = "x1" ; then echo $$cmd; fi; \
+	mkdir -p `dirname $@`; \
+	echo Compiling $<; $$cmd

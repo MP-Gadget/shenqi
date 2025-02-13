@@ -12,7 +12,7 @@
 #define MPI_INT64 MPI_LONG
 
 /* Check the version of OPENMP. We now require OpenMP 4.5 for array reductions. */
-#if _OPENMP < 201511
+#if !defined(__CUDACC__) and _OPENMP < 201511
 #error MP-Gadget requires OpenMP >= 4.5. Use a newer compiler (gcc >= 6.0, intel >= 17 clang >= 7).
 #endif
 

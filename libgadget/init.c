@@ -24,6 +24,7 @@
 #include "cosmology.h"
 #include "gravity.h"
 #include "physconst.h"
+#include "cuda_runtime.h"
 
 /*! \file init.c
  *  \brief code for initialisation of a simulation from initial conditions
@@ -481,11 +482,14 @@ setup_smoothinglengths(int RestartSnapNum, DomainDecomp * ddecomp, Cosmology * C
     if(tot_sph + tot_bh == 0)
         return;
 
-    ForceTree Tree = {0};
+    // ForceTree Tree = {0};
+    ForceTree * Tree_ptr;
+    cudaMallocManaged(&Tree_ptr, sizeof(ForceTree));
+    memset(Tree_ptr, 0, sizeof(ForceTree));
     /* Finds fathers for each gas and BH particle, so need BH*/
-    force_tree_rebuild_mask(&Tree, ddecomp, GASMASK+BHMASK, NULL);
+    force_tree_rebuild_mask(Tree_ptr, ddecomp, GASMASK+BHMASK, NULL);
     /* Set the initial smoothing length for gas and DM, compute tree moments.*/
-    set_init_hsml(&Tree, ddecomp, MeanGasSeparation);
+    set_init_hsml(Tree_ptr, ddecomp, MeanGasSeparation);
 
     /* for clean IC with U input only, we need to iterate to find entropy */
     double u_init = (1.0 / GAMMA_MINUS1) * (BOLTZMANN / PROTONMASS) * InitParams.InitGasTemp;
@@ -509,11 +513,11 @@ setup_smoothinglengths(int RestartSnapNum, DomainDecomp * ddecomp, Cosmology * C
     DriftKickTimes times = init_driftkicktime(Ti_Current);
     /*At the first time step all particles should be active*/
     ActiveParticles act = init_empty_active_particles(PartManager);
-    density(&act, 1, 0, BlackHoleOn, times, CP, &sph_pred, NULL, &Tree);
+    density(&act, 1, 0, BlackHoleOn, times, CP, &sph_pred, NULL, Tree_ptr);
     slots_free_sph_pred_data(&sph_pred);
 
     if(DensityIndependentSphOn()) {
-        setup_density_indep_entropy(&act, &Tree, CP, &sph_pred, u_init, a3, BlackHoleOn, Ti_Current);
+        setup_density_indep_entropy(&act, Tree_ptr, CP, &sph_pred, u_init, a3, BlackHoleOn, Ti_Current);
     }
     else {
         /*Initialize to initial energy*/
@@ -521,5 +525,5 @@ setup_smoothinglengths(int RestartSnapNum, DomainDecomp * ddecomp, Cosmology * C
         for(i = 0; i < SlotsManager->info[0].size; i++)
             SphP[i].Entropy = GAMMA_MINUS1 * u_init / pow(SphP[i].Density / a3 , GAMMA_MINUS1);
     }
-    force_tree_free(&Tree);
+    force_tree_free(Tree_ptr);
 }
