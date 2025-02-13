@@ -83,9 +83,9 @@ int fof_save_particles(FOFGroups * fof, char * fname, int SaveParticles, Cosmolo
         /* Count how many particles we have: array reductions are an openmp 4.5 feature.*/
         #pragma omp parallel for reduction(+: NpigLocal, atleast[:6])
         for(i = 0; i < PartManager->NumPart; i ++) {
-            if(P[i].GrNr >= 0) {
+            if(Part[i].GrNr >= 0) {
                 NpigLocal++;
-                int type = P[i].Type;
+                int type = Part[i].Type;
                 /* How many of slot type?*/
                 if(type < 6 && type >= 0 && SlotsManager->info[type].enabled)
                     atleast[type]++;
@@ -184,7 +184,7 @@ static void fof_radix_origin(const void * c1, void * out, void * arg) {
 #if 0
 /*Unused functions*/
 static int fof_select_particle(int i) {
-    return P[i].GrNr > 0;
+    return Part[i].GrNr > 0;
 }
 static int fof_cmp_sortkey(const void * c1, const void * c2) {
     const struct PartIndex * p1 = c1;
@@ -300,7 +300,7 @@ fof_distribute_particles(struct part_manager_type * halo_pman, struct slots_mana
     /* Build the index: unfortunately not parallel*/
     NpigLocal = 0;
     for(i = 0; i < PartManager->NumPart; i ++) {
-        if(P[i].GrNr >= 0) {
+        if(Part[i].GrNr >= 0) {
             pi[NpigLocal].sortKey = PartManager->Base[i].GrNr;
             /* This should be the index of the current particle in the particle_data struct.
              * If we are re-using the PartManager, we need it to be the index in P.
@@ -310,8 +310,8 @@ fof_distribute_particles(struct part_manager_type * halo_pman, struct slots_mana
             else
                 pi[NpigLocal].origin = task_origin_offset * ((uint64_t) ThisTask) + NpigLocal;
             NpigLocal++;
-            if(P[i].GrNr > GrNrMax)
-                GrNrMax = P[i].GrNr;
+            if(Part[i].GrNr > GrNrMax)
+                GrNrMax = Part[i].GrNr;
         }
     }
     MPI_Allreduce(&GrNrMax, &GrNrMaxGlobal, 1, MPI_INT64, MPI_MAX, Comm);
@@ -355,17 +355,17 @@ fof_distribute_particles(struct part_manager_type * halo_pman, struct slots_mana
         NpigLocal = 0;
 
         for(i = 0; i < PartManager->NumPart; i ++) {
-            if(P[i].GrNr < 0)
+            if(Part[i].GrNr < 0)
                 continue;
             /* Store TargetTask as it will be over-written.
             * We freed pi above so that we could overlap PI with the slots memory.*/
             int TargetTask = halo_pman->Base[NpigLocal].TopLeaf;
-            memcpy(&halo_pman->Base[NpigLocal], &P[i], sizeof(P[i]));
+            memcpy(&halo_pman->Base[NpigLocal], &Part[i], sizeof(Part[i]));
             halo_pman->Base[NpigLocal].TopLeaf = TargetTask;
-            struct slot_info * info = &(halo_sman->info[P[i].Type]);
-            char * oldslotptr = SlotsManager->info[P[i].Type].ptr;
+            struct slot_info * info = &(halo_sman->info[Part[i].Type]);
+            char * oldslotptr = SlotsManager->info[Part[i].Type].ptr;
             if(info->enabled) {
-                memcpy(info->ptr + info->size * info->elsize, oldslotptr+P[i].PI * info->elsize, info->elsize);
+                memcpy(info->ptr + info->size * info->elsize, oldslotptr+Part[i].PI * info->elsize, info->elsize);
                 halo_pman->Base[NpigLocal].PI = info->size;
                 info->size++;
             }
@@ -430,8 +430,8 @@ static void fof_write_header(BigFile * bf, int64_t TotNgroups, const double atim
     }
     #pragma omp parallel for reduction(+: npartLocal[:6])
     for (i = 0; i < PartManager->NumPart; i ++) {
-        if(P[i].GrNr < 0) continue; /* skip those not in groups */
-        npartLocal[P[i].Type] ++;
+        if(Part[i].GrNr < 0) continue; /* skip those not in groups */
+        npartLocal[Part[i].Type] ++;
     }
 
     MPI_Allreduce(npartLocal, npartTotal, 6, MPI_INT64, MPI_SUM, Comm);

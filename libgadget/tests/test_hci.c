@@ -1,45 +1,34 @@
-#include <stdarg.h>
-#include <stddef.h>
-#include <stdlib.h>
-#include <setjmp.h>
-#include <cmocka.h>
-#include <math.h>
-#include <string.h>
-#include <stdio.h>
-#include "stub.h"
+#define BOOST_TEST_MODULE hci
+
+#include "booststub.h"
+#include <string>
+#include <fstream>
+#include <iostream>
 
 #include <libgadget/hci.h>
 
-char prefix[1024] = "XXXXXXXX";
+char prefix[1024] = ".";
 
 static void
-touch(char * prefix, char * b)
+touch(char * prefix, std::string b)
 {
-    char * fn = fastpm_strdup_printf("%s/%s", prefix, b);
-    FILE * fp = fopen(fn, "w");
-    myfree(fn);
-    fclose(fp);
+    std::string fn = std::string(prefix)+ "/" +  b;
+    std::ofstream tfile(fn, std::ofstream::out);
+    tfile.close();
 }
 
 static int
-exists(char * prefix, char * b)
+exists(char * prefix, std::string b)
 {
-    char * fn = fastpm_strdup_printf("%s/%s", prefix, b);
-    FILE * fp = fopen(fn, "r");
-    myfree(fn);
-    if(fp) {
-        fclose(fp);
-        return 1;
-    }
-    return 0;
+    std::string fn = std::string(prefix)+ "/" +  b;
+    std::ifstream tfile(fn, std::ifstream::in);
+    return tfile.good();
 }
 
-HCIManager manager[1] = {
-    {.OVERRIDE_NOW = 1, ._now = 0.0}};
+HCIManager manager[1] = {0};
 
 
-static void
-test_hci_no_action(void ** state)
+BOOST_AUTO_TEST_CASE(test_hci_no_action)
 {
     HCIAction action[1];
 
@@ -47,13 +36,12 @@ test_hci_no_action(void ** state)
     hci_init(manager, prefix, 10.0, 1.0, 0);
 
     hci_query(manager, action);
-    assert_int_equal(action->type, HCI_NO_ACTION);
-    assert_int_equal(action->write_snapshot, 0);
+    BOOST_TEST(action->type == HCI_NO_ACTION);
+    BOOST_TEST(action->write_snapshot == 0);
 
 }
 
-static void
-test_hci_auto_checkpoint(void ** state)
+BOOST_AUTO_TEST_CASE(test_hci_auto_checkpoint)
 {
     HCIAction action[1];
 
@@ -66,14 +54,13 @@ test_hci_auto_checkpoint(void ** state)
     hci_override_now(manager, 1.0);
     hci_query(manager, action);
 
-    assert_int_equal(action->type, HCI_AUTO_CHECKPOINT);
-    assert_int_equal(action->write_snapshot, 1);
-    assert_int_equal(action->write_fof, 1);
-    assert_true(manager->LongestTimeBetweenQueries == 1.0);
+    BOOST_TEST(action->type == HCI_AUTO_CHECKPOINT);
+    BOOST_TEST(action->write_snapshot == 1);
+    BOOST_TEST(action->write_fof == 1);
+    BOOST_TEST(manager->LongestTimeBetweenQueries == 1.0);
 }
 
-static void
-test_hci_auto_checkpoint2(void ** state)
+BOOST_AUTO_TEST_CASE(test_hci_auto_checkpoint2)
 {
 
     HCIAction action[1];
@@ -86,14 +73,13 @@ test_hci_auto_checkpoint2(void ** state)
     hci_override_now(manager, 4.0);
     hci_query(manager, action);
 
-    assert_true(manager->LongestTimeBetweenQueries == 2.0);
-    assert_int_equal(action->type, HCI_AUTO_CHECKPOINT);
-    assert_int_equal(action->write_snapshot, 1);
-    assert_int_equal(action->write_fof, 0);
+    BOOST_TEST(manager->LongestTimeBetweenQueries == 2.0);
+    BOOST_TEST(action->type == HCI_AUTO_CHECKPOINT);
+    BOOST_TEST(action->write_snapshot == 1);
+    BOOST_TEST(action->write_fof == 0);
 }
 
-static void
-test_hci_timeout(void ** state)
+BOOST_AUTO_TEST_CASE(test_hci_timeout)
 {
     HCIAction action[1];
     hci_override_now(manager, 1.0);
@@ -102,16 +88,15 @@ test_hci_timeout(void ** state)
     hci_override_now(manager, 5.0);
     hci_query(manager, action);
 
-    assert_true(manager->LongestTimeBetweenQueries == 4.0);
+    BOOST_TEST(manager->LongestTimeBetweenQueries == 4.0);
 
     hci_override_now(manager, 8.5);
     hci_query(manager, action);
-    assert_int_equal(action->type, HCI_TIMEOUT);
-    assert_int_equal(action->write_snapshot, 1);
+    BOOST_TEST(action->type == HCI_TIMEOUT);
+    BOOST_TEST(action->write_snapshot == 1);
 }
 
-static void
-test_hci_stop(void ** state)
+BOOST_AUTO_TEST_CASE(test_hci_stop)
 {
     HCIAction action[1];
     hci_override_now(manager, 0.0);
@@ -120,14 +105,13 @@ test_hci_stop(void ** state)
     touch(prefix, "stop");
     hci_override_now(manager, 4.0);
     hci_query(manager, action);
-    assert_false(exists(prefix, "stop"));
+    BOOST_TEST(!exists(prefix, "stop"));
 
-    assert_int_equal(action->type, HCI_STOP);
-    assert_int_equal(action->write_snapshot, 1);
+    BOOST_TEST(action->type == HCI_STOP);
+    BOOST_TEST(action->write_snapshot == 1);
 }
 
-static void
-test_hci_checkpoint(void ** state)
+BOOST_AUTO_TEST_CASE(test_hci_checkpoint)
 {
     HCIAction action[1];
     hci_override_now(manager, 0.0);
@@ -136,14 +120,13 @@ test_hci_checkpoint(void ** state)
     touch(prefix, "checkpoint");
     hci_override_now(manager, 4.0);
     hci_query(manager, action);
-    assert_false(exists(prefix, "checkpoint"));
+    BOOST_TEST(!exists(prefix, "checkpoint"));
 
-    assert_int_equal(action->type, HCI_CHECKPOINT);
-    assert_int_equal(action->write_snapshot, 1);
+    BOOST_TEST(action->type == HCI_CHECKPOINT);
+    BOOST_TEST(action->write_snapshot == 1);
 }
 
-static void
-test_hci_terminate(void ** state)
+BOOST_AUTO_TEST_CASE(test_hci_terminate)
 {
     HCIAction action[1];
     hci_override_now(manager, 0.0);
@@ -152,34 +135,8 @@ test_hci_terminate(void ** state)
     touch(prefix, "terminate");
     hci_override_now(manager, 4.0);
     hci_query(manager, action);
-    assert_false(exists(prefix, "terminate"));
+    BOOST_TEST(!exists(prefix, "terminate"));
 
-    assert_int_equal(action->type, HCI_TERMINATE);
-    assert_int_equal(action->write_snapshot, 0);
-}
-
-static int setup(void ** state)
-{
-    char * ret = mkdtemp(prefix);
-    message(0, "UsingPrefix : '%s'\n", prefix);
-    return !ret;
-}
-
-static int teardown(void ** state)
-{
-    remove(prefix);
-    return 0;
-}
-
-int main(void) {
-    const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_hci_no_action),
-        cmocka_unit_test(test_hci_auto_checkpoint),
-        cmocka_unit_test(test_hci_auto_checkpoint2),
-        cmocka_unit_test(test_hci_timeout),
-        cmocka_unit_test(test_hci_stop),
-        cmocka_unit_test(test_hci_checkpoint),
-        cmocka_unit_test(test_hci_terminate),
-    };
-    return cmocka_run_group_tests_mpi(tests, setup, teardown);
+    BOOST_TEST(action->type == HCI_TERMINATE);
+    BOOST_TEST(action->write_snapshot == 0);
 }

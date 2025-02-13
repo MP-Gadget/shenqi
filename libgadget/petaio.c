@@ -126,7 +126,7 @@ petaio_build_selection(int * selection,
 
     #pragma omp parallel for reduction(+: ptype_count[:6])
     for(i = 0; i < NumPart; i ++) {
-        if(P[i].IsGarbage)
+        if(Part[i].IsGarbage)
             continue;
         if((select_func == NULL) || (select_func(i, Parts) != 0)) {
             int ptype = Parts[i].Type;
@@ -143,7 +143,7 @@ petaio_build_selection(int * selection,
     ptype_count[5] = 0;
     for(i = 0; i < NumPart; i ++) {
         int ptype = Parts[i].Type;
-        if(P[i].IsGarbage)
+        if(Part[i].IsGarbage)
             continue;
         if((select_func == NULL) || (select_func(i, Parts) != 0)) {
             selection[ptype_offset[ptype] + ptype_count[ptype]] = i;
@@ -169,7 +169,7 @@ petaio_save_snapshot(const char * fname, struct IOTable * IOTable, int verbose, 
 
     int * selection = (int *) mymalloc("Selection", sizeof(int) * PartManager->NumPart);
 
-    petaio_build_selection(selection, ptype_offset, ptype_count, P, PartManager->NumPart, NULL);
+    petaio_build_selection(selection, ptype_offset, ptype_count, PartManager->Base, PartManager->NumPart, NULL);
 
     MPI_Allreduce(ptype_count, NTotal, 6, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     struct conversions conv = {0};
@@ -193,7 +193,7 @@ petaio_save_snapshot(const char * fname, struct IOTable * IOTable, int verbose, 
         if(ptype_count[ptype] == 0 && ptype < 4)
             continue;
         sprintf(blockname, "%d/%s", ptype, IOTable->ent[i].name);
-        petaio_build_buffer(&array, &IOTable->ent[i], selection + ptype_offset[ptype], ptype_count[ptype], P, SlotsManager, &conv);
+        petaio_build_buffer(&array, &IOTable->ent[i], selection + ptype_offset[ptype], ptype_count[ptype], PartManager->Base, SlotsManager, &conv);
         petaio_save_block(&bf, blockname, &array, verbose);
         petaio_destroy_buffer(&array);
     }
@@ -544,7 +544,7 @@ void petaio_readout_buffer(BigArray * array, IOTableEntry * ent, struct conversi
     }
 }
 /* build an IO buffer for block, based on selection
- * only check P[ selection[i]]. If selection is NULL, just use P[i].
+ * only check Part[ selection[i]]. If selection is NULL, just use Part[i].
  * NOTE: selected range should contain only one particle type!
 */
 void

@@ -1,16 +1,12 @@
-#include <stdarg.h>
-#include <stddef.h>
-#include <setjmp.h>
-#include <cmocka.h>
+#define BOOST_TEST_MODULE slotsmanager
+
+#include "booststub.h"
+
 #include <math.h>
 #include <mpi.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-#include <gsl/gsl_rng.h>
-
-#include "stub.h"
-
 
 #include <libgadget/partmanager.h>
 #include <libgadget/domain.h>
@@ -19,7 +15,7 @@
 struct part_manager_type PartManager[1] = {{0}};
 
 static int
-setup_particles(void ** state)
+setup_particles(void)
 {
     PartManager->MaxPart = 1024;
     PartManager->NumPart = 128 * 6;
@@ -58,17 +54,16 @@ setup_particles(void ** state)
 }
 
 static int
-teardown_particles(void **state)
+teardown_particles(void)
 {
     slots_free(SlotsManager);
     myfree(PartManager->Base);
     return 0;
 }
 
-static void
-test_slots_gc(void **state)
+BOOST_AUTO_TEST_CASE(test_slots_gc)
 {
-    setup_particles(state);
+    setup_particles();
     int i;
     int compact[6];
     for(i = 0; i < 6; i ++) {
@@ -76,55 +71,53 @@ test_slots_gc(void **state)
         compact[i] = 1;
     }
     slots_gc(compact, PartManager, SlotsManager);
-    assert_int_equal(PartManager->NumPart, 127 * i);
+    BOOST_TEST(PartManager->NumPart == 127 * i);
 
-    assert_int_equal(SlotsManager->info[0].size, 127);
-    assert_int_equal(SlotsManager->info[4].size, 127);
-    assert_int_equal(SlotsManager->info[5].size, 127);
+    BOOST_TEST(SlotsManager->info[0].size == 127);
+    BOOST_TEST(SlotsManager->info[4].size == 127);
+    BOOST_TEST(SlotsManager->info[5].size == 127);
 #ifdef DEBUG
     slots_check_id_consistency(PartManager, SlotsManager);
 #endif
-    teardown_particles(state);
+    teardown_particles();
     return;
 }
 
-static void
-test_slots_gc_sorted(void **state)
+BOOST_AUTO_TEST_CASE(test_slots_gc_sorted)
 {
-    setup_particles(state);
+    setup_particles();
     int i;
     for(i = 0; i < 6; i ++) {
         slots_mark_garbage(128 * i, PartManager, SlotsManager);
     }
     slots_gc_sorted(PartManager, SlotsManager);
-    assert_int_equal(PartManager->NumPart, 127 * i);
+    BOOST_TEST(PartManager->NumPart == 127 * i);
 
-    assert_int_equal(SlotsManager->info[0].size, 127);
-    assert_int_equal(SlotsManager->info[4].size, 127);
-    assert_int_equal(SlotsManager->info[5].size, 127);
-    peano_t * Keys = mymalloc("Keys", PartManager->NumPart * sizeof(peano_t));
+    BOOST_TEST(SlotsManager->info[0].size == 127);
+    BOOST_TEST(SlotsManager->info[4].size == 127);
+    BOOST_TEST(SlotsManager->info[5].size == 127);
+    peano_t * Keys = (peano_t *) mymalloc("Keys", PartManager->NumPart * sizeof(peano_t));
     for(i = 0; i < PartManager->NumPart; i++) {
         Keys[i] = PEANO(PartManager->Base[i].Pos, PartManager->BoxSize);
         if(i >= 1) {
-            assert_true(PartManager->Base[i].Type >=PartManager->Base[i-1].Type);
+            BOOST_TEST(PartManager->Base[i].Type >=PartManager->Base[i-1].Type);
             if(PartManager->Base[i].Type == PartManager->Base[i-1].Type)
-                assert_true(Keys[i] >= Keys[i-1]);
+                BOOST_TEST(Keys[i] >= Keys[i-1]);
         }
     }
     myfree(Keys);
 #ifdef DEBUG
     slots_check_id_consistency(PartManager, SlotsManager);
 #endif
-    teardown_particles(state);
+    teardown_particles();
     return;
 }
 
-static void
-test_slots_reserve(void **state)
+BOOST_AUTO_TEST_CASE(test_slots_reserve)
 {
     /* FIXME: these depends on the magic numbers in slots_reserve. After
      * moving those numbers to All.* we shall rework the code here. */
-    setup_particles(state);
+    setup_particles();
 
     int64_t newSlots[6] = {128, 128, 128, 128, 128, 128};
     int64_t oldSize[6];
@@ -136,7 +129,7 @@ test_slots_reserve(void **state)
 
     /* shall not increase max size*/
     for(ptype = 0; ptype < 6; ptype++) {
-        assert_int_equal(oldSize[ptype], SlotsManager->info[ptype].maxsize);
+        BOOST_TEST(oldSize[ptype] == SlotsManager->info[ptype].maxsize);
     }
 
     for(ptype = 0; ptype < 6; ptype++) {
@@ -146,7 +139,7 @@ test_slots_reserve(void **state)
     /* shall not increase max size; because it is small difference */
     slots_reserve(1, newSlots, SlotsManager);
     for(ptype = 0; ptype < 6; ptype++) {
-        assert_int_equal(oldSize[ptype], SlotsManager->info[ptype].maxsize);
+        BOOST_TEST(oldSize[ptype] == SlotsManager->info[ptype].maxsize);
     }
 
     for(ptype = 0; ptype < 6; ptype++) {
@@ -157,94 +150,79 @@ test_slots_reserve(void **state)
     slots_reserve(1, newSlots, SlotsManager);
 
     for(ptype = 0; ptype < 6; ptype++) {
-        assert_true(oldSize[ptype] < SlotsManager->info[ptype].maxsize);
+        BOOST_TEST(oldSize[ptype] < SlotsManager->info[ptype].maxsize);
     }
-
+    teardown_particles();
 }
 
 /*Check that we behave correctly when the slot is empty*/
-static void
-test_slots_zero(void **state)
+BOOST_AUTO_TEST_CASE(test_slots_zero)
 {
-    setup_particles(state);
+    setup_particles();
     int i;
     int compact[6] = {1,0,0,0,1,1};
     for(i = 0; i < PartManager->NumPart; i ++) {
         slots_mark_garbage(i, PartManager, SlotsManager);
     }
     slots_gc(compact, PartManager, SlotsManager);
-    assert_int_equal(PartManager->NumPart, 0);
-    assert_int_equal(SlotsManager->info[0].size, 0);
-    assert_int_equal(SlotsManager->info[1].size, 128);
-    assert_int_equal(SlotsManager->info[4].size, 0);
-    assert_int_equal(SlotsManager->info[5].size, 0);
+    BOOST_TEST(PartManager->NumPart == 0);
+    BOOST_TEST(SlotsManager->info[0].size == 0);
+    BOOST_TEST(SlotsManager->info[1].size == 128);
+    BOOST_TEST(SlotsManager->info[4].size == 0);
+    BOOST_TEST(SlotsManager->info[5].size == 0);
 
-    teardown_particles(state);
+    teardown_particles();
 
-    setup_particles(state);
+    setup_particles();
     for(i = 0; i < PartManager->NumPart; i ++) {
         slots_mark_garbage(i, PartManager, SlotsManager);
     }
     slots_gc_sorted(PartManager, SlotsManager);
-    assert_int_equal(PartManager->NumPart, 0);
-    assert_int_equal(SlotsManager->info[0].size, 0);
-    assert_int_equal(SlotsManager->info[4].size, 0);
-    assert_int_equal(SlotsManager->info[5].size, 0);
+    BOOST_TEST(PartManager->NumPart == 0);
+    BOOST_TEST(SlotsManager->info[0].size == 0);
+    BOOST_TEST(SlotsManager->info[4].size == 0);
+    BOOST_TEST(SlotsManager->info[5].size == 0);
 
-    teardown_particles(state);
+    teardown_particles();
 
     return;
 
 }
 
-static void
-test_slots_fork(void **state)
+BOOST_AUTO_TEST_CASE(test_slots_fork)
 {
-    setup_particles(state);
+    setup_particles();
     int i;
     for(i = 0; i < 6; i ++) {
         slots_split_particle(128 * i, 0, PartManager);
-        slots_convert(128 * i, P[i * 128].Type, -1, PartManager, SlotsManager);
+        slots_convert(128 * i, PartManager->Base[i * 128].Type, -1, PartManager, SlotsManager);
 
     }
 
-    assert_int_equal(PartManager->NumPart, 129 * i);
+    BOOST_TEST(PartManager->NumPart == 129 * i);
 
-    assert_int_equal(SlotsManager->info[0].size, 129);
-    assert_int_equal(SlotsManager->info[4].size, 129);
-    assert_int_equal(SlotsManager->info[5].size, 129);
+    BOOST_TEST(SlotsManager->info[0].size == 129);
+    BOOST_TEST(SlotsManager->info[4].size == 129);
+    BOOST_TEST(SlotsManager->info[5].size == 129);
 
-    teardown_particles(state);
+    teardown_particles();
     return;
 }
 
-static void
-test_slots_convert(void **state)
+BOOST_AUTO_TEST_CASE(test_slots_convert)
 {
-    setup_particles(state);
+    setup_particles();
     int i;
     for(i = 0; i < 6; i ++) {
-        slots_convert(128 * i, P[i * 128].Type, -1, PartManager, SlotsManager);
+        slots_convert(128 * i, PartManager->Base[i * 128].Type, -1, PartManager, SlotsManager);
     }
 
-    assert_int_equal(PartManager->NumPart, 128 * i);
+    BOOST_TEST(PartManager->NumPart == 128 * i);
 
-    assert_int_equal(SlotsManager->info[0].size, 129);
-    assert_int_equal(SlotsManager->info[4].size, 129);
-    assert_int_equal(SlotsManager->info[5].size, 129);
+    BOOST_TEST(SlotsManager->info[0].size == 129);
+    BOOST_TEST(SlotsManager->info[4].size == 129);
+    BOOST_TEST(SlotsManager->info[5].size == 129);
 
-    teardown_particles(state);
+    teardown_particles();
     return;
-}
-
-int main(void) {
-    const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_slots_gc),
-        cmocka_unit_test(test_slots_gc_sorted),
-        cmocka_unit_test(test_slots_reserve),
-        cmocka_unit_test(test_slots_fork),
-        cmocka_unit_test(test_slots_convert),
-        cmocka_unit_test(test_slots_zero),
-    };
-    return cmocka_run_group_tests_mpi(tests, NULL, NULL);
 }

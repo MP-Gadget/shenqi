@@ -3,7 +3,9 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <gsl/gsl_interp.h>
+
+#include <vector>
+#include <boost/math/interpolators/makima.hpp>
 
 typedef struct _powerspectrum {
     double * kk;
@@ -17,12 +19,8 @@ typedef struct _powerspectrum {
     double BoxSize_in_MPC;
     /*These are for the LRA neutrino code*/
     /*log k bins and ratio of Pnu to Pcdm: stored so interpolation is accurate*/
-    double * logknu;
-    double * delta_nu_ratio;
     double nu_prefac;
-    gsl_interp *nu_spline;
-    gsl_interp_accel * nu_acc;
-
+    boost::math::interpolators::makima<std::vector<double>>* nu_spline;
 } Power;
 
 /*Allocate memory for the power spectrum*/

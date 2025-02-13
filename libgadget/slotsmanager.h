@@ -142,12 +142,9 @@ extern struct slots_manager_type {
 #define BhP ((struct bh_particle_data*) SlotsManager->info[5].ptr)
 
 /* shortcuts for accessing slots from base particle index */
-#define SPHP(i) SphP[P[i].PI]
-#define BHP(i) BhP[P[i].PI]
-#define STARP(i) StarP[P[i].PI]
-
-extern MPI_Datatype MPI_TYPE_PARTICLE;
-extern MPI_Datatype MPI_TYPE_SLOT[6];
+#define SPHP(i) SphP[PartManager->Base[i].PI]
+#define BHP(i) BhP[PartManager->Base[i].PI]
+#define STARP(i) StarP[PartManager->Base[i].PI]
 
 /* shortcuts to access base slot attributes */
 #define BASESLOT_PI(PI, ptype, sman) ((struct particle_data_ext *)(sman->info[ptype].ptr + sman->info[ptype].elsize * (PI)))

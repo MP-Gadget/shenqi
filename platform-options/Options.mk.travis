@@ -1,4 +1,4 @@
-OPTIMIZE =  -fopenmp -O2 -g -std=gnu99
+OPTIMIZE =  -fopenmp -O2 -g
 GSL_INCL = 
 GSL_LIBS = -lgsl -lgslcblas
 AR=ar

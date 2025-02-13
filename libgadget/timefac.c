@@ -1,103 +1,68 @@
-#include <mpi.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-#include <gsl/gsl_integration.h>
-
 #include "physconst.h"
 #include "timefac.h"
 #include "timebinmgr.h"
-#include "utils.h"
 
-#define WORKSIZE 10000
+#include <boost/math/quadrature/gauss_kronrod.hpp>
 
-/* Integrand for the drift table*/
-static double drift_integ(double a, void *param)
+// Function to compute a factor using Gauss-Kronrod adaptive integration
+static double get_exact_factor(const Cosmology * const CP, const inttime_t t0, const inttime_t t1, const std::function<double(double)> func)
 {
-  Cosmology * CP = (Cosmology *) param;
-  double h = hubble_function(CP, a);
-  return 1 / (h * a * a * a);
-}
-
-/* Integrand for the gravkick table*/
-static double gravkick_integ(double a, void *param)
-{
-  Cosmology * CP = (Cosmology *) param;
-  double h = hubble_function(CP, a);
-
-  return 1 / (h * a * a);
-}
-
-/* Integrand for the hydrokick table.
- * Note this is the same function as drift.*/
-static double hydrokick_integ(double a, void *param)
-{
-  double h;
-
-  Cosmology * CP = (Cosmology *) param;
-  h = hubble_function(CP, a);
-
-  return 1 / (h * pow(a, 3 * GAMMA_MINUS1) * a);
-}
-
-/*Do the integral required to get a factor.*/
-static double get_exact_factor(Cosmology * CP, inttime_t t0, inttime_t t1, double (*factor) (double, void *))
-{
-    double result, abserr;
-    if(t0 == t1)
+    if (t0 == t1)
         return 0;
-    double a0 = exp(loga_from_ti(t0));
-    double a1 = exp(loga_from_ti(t1));
-    gsl_function F;
-    gsl_integration_workspace *workspace;
-    workspace = gsl_integration_workspace_alloc(WORKSIZE);
-    F.function = factor;
-    F.params = CP;
-    gsl_integration_qag(&F, a0, a1, 0, 1.0e-8, WORKSIZE, GSL_INTEG_GAUSS61, workspace, &result, &abserr);
-    gsl_integration_workspace_free(workspace);
-    return result;
+
+    // Calculate the scale factors
+    const double a0 = std::exp(loga_from_ti(t0));
+    const double a1 = std::exp(loga_from_ti(t1));
+    // Gauss-Kronrod integration for smooth functions. Boost uses by default the machine precision for accuracy and a max depth of 15.
+    return boost::math::quadrature::gauss_kronrod<double, 61>::integrate(func, a0, a1);
 }
 
 /*Get the exact drift factor*/
 double get_exact_drift_factor(Cosmology * CP, inttime_t ti0, inttime_t ti1)
 {
-    return get_exact_factor(CP, ti0, ti1, &drift_integ);
+    // Define the integrand as a lambda function, for the drift table.
+    auto drift_integ = [CP](const double a) {
+        double h = hubble_function(CP, a);
+        return 1 / (h * a * a * a);
+    };
+    return get_exact_factor(CP, ti0, ti1, drift_integ);
 }
 
 /*Get the exact drift factor*/
 double get_exact_gravkick_factor(Cosmology * CP, inttime_t ti0, inttime_t ti1)
 {
-    return get_exact_factor(CP, ti0, ti1, &gravkick_integ);
+    /* Integrand for the gravkick table*/
+    auto gravkick_integ = [CP](const double a) {
+        double h = hubble_function(CP, a);
+        return 1 / (h * a * a);
+    };
+    return get_exact_factor(CP, ti0, ti1, gravkick_integ);
 }
 
 double get_exact_hydrokick_factor(Cosmology * CP, inttime_t ti0, inttime_t ti1)
 {
-    return get_exact_factor(CP, ti0, ti1, &hydrokick_integ);
+    /* Integrand for the hydrokick table.
+     * Note this is the same function as drift.*/
+    auto hydrokick_integ = [CP](const double a) {
+        double h = hubble_function(CP, a);
+        return 1 / (h * pow(a, 3 * GAMMA_MINUS1) * a);
+    };
+    return get_exact_factor(CP, ti0, ti1, hydrokick_integ);
 }
 
-/* Integrand for comoving distance */
-static double comoving_distance_integ(double a, void *param)
-{
-    Cosmology *CP = (Cosmology *) param;
-    double h = hubble_function(CP, a);
-    return 1. / (h * a * a); 
-}
-
-/* Function to compute the comoving distance between two scale factors */
+/* Function to compute comoving distance using the adaptive integrator */
 double compute_comoving_distance(Cosmology *CP, double a0, double a1, const double UnitVelocity_in_cm_per_s)
 {
-    double result, abserr;
-    gsl_function F;
-    gsl_integration_workspace *workspace = gsl_integration_workspace_alloc(WORKSIZE);
-    
-    F.function = comoving_distance_integ;
-    F.params = CP;
+    // relative error tolerance
+    // double epsrel = 1e-8;
+    /* Integrand for comoving distance */
+    auto comoving_distance_integ = [CP](double a) {
+        double h = hubble_function(CP, a);
+        return 1. / (h * a * a);
+    };
 
-    // Using GSL to perform the integration
-    gsl_integration_qag(&F, a0, a1, 0, 1.0e-8, WORKSIZE, GSL_INTEG_GAUSS61, workspace, &result, &abserr);
-    gsl_integration_workspace_free(workspace);
-
-    return (LIGHTCGS/UnitVelocity_in_cm_per_s) * result;
+    // Call the generic adaptive integration function
+    const double result = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(comoving_distance_integ, a0, a1);
+    // Convert the result using the provided units
+    return (LIGHTCGS / UnitVelocity_in_cm_per_s) * result;
 }
-

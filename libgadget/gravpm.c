@@ -61,10 +61,10 @@ gravpm_init_periodic(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, doubl
 void
 gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, double UnitLength_in_cm, const char * PowerOutputDir, double TimeIC) {
     PetaPMParticleStruct pstruct = {
-        P,
-        sizeof(P[0]),
-        (char*) &P[0].Pos[0]  - (char*) P,
-        (char*) &P[0].Mass  - (char*) P,
+        PartManager->Base,
+        sizeof(Part[0]),
+        static_cast<size_t>((char*) &Part[0].Pos[0]  - (char*) PartManager->Base),
+        static_cast<size_t>((char*) &Part[0].Mass  - (char*) PartManager->Base),
         /* Regions allocated inside _prepare*/
         NULL,
         /* By default all particles are active. For hybrid neutrinos set below.*/
@@ -89,7 +89,7 @@ gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, d
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i++)
     {
-        P[i].GravPM[0] = P[i].GravPM[1] = P[i].GravPM[2] = 0;
+        Part[i].GravPM[0] = Part[i].GravPM[1] = Part[i].GravPM[2] = 0;
     }
 
     /* Tree freed in PM*/
@@ -117,7 +117,7 @@ gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, d
     /*Now save the power spectrum*/
     powerspectrum_save(pm->ps, PowerOutputDir, "powerspectrum", Time, GrowthFactor(CP, Time, 1.0));
     /* Save the neutrino power if it is allocated*/
-    if(pm->ps->logknu)
+    if(pm->ps->nu_spline != nullptr)
         powerspectrum_nu_save(pm->ps, PowerOutputDir, "powerspectrum-nu", Time);
     /*We are done with the power spectrum, free it*/
     powerspectrum_free(pm->ps);
@@ -179,7 +179,7 @@ static PetaPMRegion * _prepare(PetaPM * pm, PetaPMParticleStruct * pstruct, void
     for(i =0; i < PartManager->NumPart; i ++) {
         /* Swallowed black hole particles stick around but should not gravitate.
          * Short-range is handled by not adding them to the tree. */
-        if(P[i].Swallowed){
+        if(Part[i].Swallowed){
             pstruct->RegionInd[i] = -2;
             numswallowed++;
         }
@@ -233,12 +233,12 @@ static int pm_mark_region_for_node(int startno, int rid, int * RegionInd, const 
                 * unless there is a bug in tree build, or the particles are being moved.*/
                 int k;
                 for(k = 0; k < 3; k ++) {
-                    double l = P[p].Pos[k] - tree->Nodes[startno].center[k];
+                    double l = Part[p].Pos[k] - tree->Nodes[startno].center[k];
                     l = fabs(l * 2);
                     if (l > tree->Nodes[startno].len) {
                         if(l > tree->Nodes[startno].len * (1+ 1e-7))
                         endrun(1, "enlarging node size from %g to %g, due to particle of type %d at %g %g %g id=%ld\n",
-                            tree->Nodes[startno].len, l, P[p].Type, P[p].Pos[0], P[p].Pos[1], P[p].Pos[2], P[p].ID);
+                            tree->Nodes[startno].len, l, Part[p].Type, Part[p].Pos[0], Part[p].Pos[1], Part[p].Pos[2], Part[p].ID);
                         tree->Nodes[startno].len = l;
                     }
                 }
@@ -320,13 +320,8 @@ static void compute_neutrino_power(PetaPM * pm) {
     for(i=0; i<ps->nonzero; i++) {
         ps->Power[i] = sqrt(ps->Power[i]);
     }
-    /*Get the neutrino power.*/
+    /*Get the neutrino power and initialise the spline*/
     delta_nu_from_power(ps, GravPM.CP, GravPM.Time, GravPM.TimeIC);
-
-    /*Initialize the interpolation for the neutrinos*/
-    ps->nu_spline = gsl_interp_alloc(gsl_interp_linear,ps->nonzero);
-    ps->nu_acc = gsl_interp_accel_alloc();
-    gsl_interp_init(ps->nu_spline,ps->logknu,ps->delta_nu_ratio,ps->nonzero);
     /*Zero power spectrum, which is stored with the neutrinos*/
     powerspectrum_zero(ps);
 }
@@ -423,11 +418,7 @@ potential_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex *value)
     if(GravPM.CP->MassiveNuLinRespOn && k2 > 0) {
         /* Change the units of k to match those of logkk*/
         double logk2 = log(sqrt(k2) * 2 * M_PI / ps->BoxSize_in_MPC);
-        /* Floating point roundoff and the binning means there may be a mode just beyond the box size.*/
-        if(logk2 < ps->logknu[0] && logk2 > ps->logknu[0]-log(2) )
-            logk2 = ps->logknu[0];
-        else if( logk2 > ps->logknu[ps->nonzero-1])
-            logk2 = ps->logknu[ps->nonzero-1];
+        /* Floating point roundoff and the binning means there may be a mode just beyond the box size, but makima should handle that.*/
         /* Note get_neutrino_powerspec returns Omega_nu / (Omega0 -OmegaNu) * delta_nu / P_cdm^1/2, which is dimensionless.
          * So below is: M_cdm * delta_cdm (1 + Omega_nu/(Omega0-OmegaNu) (delta_nu / delta_cdm))
          *            = M_cdm * (delta_cdm (Omega0 - OmegaNu)/Omega0 + Omega_nu/Omega0 delta_nu) * Omega0 / (Omega0-OmegaNu)
@@ -436,8 +427,7 @@ potential_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex *value)
          *            = (M_cdm + M_nu) * delta_t
          * This is correct for the forces, and gives the right power spectrum,
          * once we multiply PowerSpectrum.Norm by (Omega0 / (Omega0 - OmegaNu))**2 */
-        const double nufac = 1 + ps->nu_prefac * gsl_interp_eval(ps->nu_spline,ps->logknu,
-                                                                       ps->delta_nu_ratio,logk2,ps->nu_acc);
+        const double nufac = 1 + ps->nu_prefac * (*ps->nu_spline)(logk2);
         value[0][0] *= nufac;
         value[0][1] *= nufac;
     }
@@ -473,7 +463,7 @@ static double diff_kernel(double w) {
 
 /*This function decides if a particle is actively gravitating; tracers are not.*/
 static int hybrid_nu_gravpm_is_active(int i) {
-    if (P[i].Type == 2)
+    if (Part[i].Type == 2)
         return 0;
     else
         return 1;
@@ -503,14 +493,14 @@ static void force_z_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex 
     force_transfer(pm, kpos[2], value);
 }
 static void readout_potential(PetaPM * pm, int i, double * mesh, double weight) {
-    P[i].Potential += weight * mesh[0];
+    Part[i].Potential += weight * mesh[0];
 }
 static void readout_force_x(PetaPM * pm, int i, double * mesh, double weight) {
-    P[i].GravPM[0] += weight * mesh[0];
+    Part[i].GravPM[0] += weight * mesh[0];
 }
 static void readout_force_y(PetaPM * pm, int i, double * mesh, double weight) {
-    P[i].GravPM[1] += weight * mesh[0];
+    Part[i].GravPM[1] += weight * mesh[0];
 }
 static void readout_force_z(PetaPM * pm, int i, double * mesh, double weight) {
-    P[i].GravPM[2] += weight * mesh[0];
+    Part[i].GravPM[2] += weight * mesh[0];
 }

@@ -154,12 +154,12 @@ static void
 treewalk_init_query(TreeWalk * tw, TreeWalkQueryBase * query, int i, const int * const NodeList)
 {
 #ifdef DEBUG
-    query->ID = P[i].ID;
+    query->ID = Part[i].ID;
 #endif
 
     int d;
     for(d = 0; d < 3; d ++) {
-        query->Pos[d] = P[i].Pos[d];
+        query->Pos[d] = Part[i].Pos[d];
     }
 
     if(NodeList) {
@@ -187,8 +187,8 @@ treewalk_reduce_result(TreeWalk * tw, TreeWalkResultBase * result, int i, enum T
     if(tw->reduce != NULL)
         tw->reduce(i, result, mode, tw);
 #ifdef DEBUG
-    if(P[i].ID != result->ID)
-        endrun(2, "Mismatched ID (%ld != %ld) for particle %d in treewalk reduction, mode %d\n", P[i].ID, result->ID, i, mode);
+    if(Part[i].ID != result->ID)
+        endrun(2, "Mismatched ID (%ld != %ld) for particle %d in treewalk reduction, mode %d\n", Part[i].ID, result->ID, i, mode);
 #endif
 }
 
@@ -209,6 +209,14 @@ treewalk_build_queue(TreeWalk * tw, int * active_set, const size_t size, int may
     }
 
     tw->work_set_stolen_from_active = 0;
+    /* Explicitly deal with the case where the queue is zero and there is nothing to do.
+     * Some OpenMP compilers (nvcc) seem to still execute the below loop in that case*/
+    if(size == 0) {
+        tw->WorkSet = (int *) mymalloc("ActiveQueue", sizeof(int));
+        tw->WorkSetSize = size;
+        return;
+    }
+
     /*We want a lockless algorithm which preserves the ordering of the particle list.*/
     gadget_thread_arrays gthread = gadget_setup_thread_arrays("ActiveQueue", 0, size);
     /* We enforce schedule static to ensure that each thread executes on contiguous particles.
@@ -227,7 +235,7 @@ treewalk_build_queue(TreeWalk * tw, int * active_set, const size_t size, int may
             const int p_i = active_set ? active_set[i] : (int) i;
 
             /* Skip the garbage /swallowed particles */
-            if(P[p_i].IsGarbage || P[p_i].Swallowed)
+            if(Part[p_i].IsGarbage || Part[p_i].Swallowed)
                 continue;
 
             if(tw->haswork && !tw->haswork(p_i, tw))
@@ -355,7 +363,7 @@ int treewalk_export_particle(LocalTreeWalk * lv, int no)
     if(!lv->DataIndexTable)
         endrun(1, "DataIndexTable not allocated, treewalk_export_particle called in the wrong way\n");
     if(no - lv->tw->tree->lastnode > lv->tw->tree->NTopLeaves)
-        endrun(1, "Bad export leaf: no = %d lastnode %d ntop %d target %d\n", no, lv->tw->tree->lastnode, lv->tw->tree->NTopLeaves, lv->target);
+        endrun(1, "Bad export leaf: no = %d lastnode %ld ntop %d target %d\n", no, lv->tw->tree->lastnode, lv->tw->tree->NTopLeaves, lv->target);
     const int target = lv->target;
     TreeWalk * tw = lv->tw;
     const int task = tw->tree->TopLeaves[no - tw->tree->lastnode].Task;
@@ -870,8 +878,8 @@ static void ev_reduce_export_result(struct CommBuffer * exportbuf, struct ImpExp
                 TreeWalkResultBase * output = (TreeWalkResultBase*) (exportbuf->databuf + tw->result_type_elsize * bufpos);
                 treewalk_reduce_result(tw, output, place, TREEWALK_GHOSTS);
 #ifdef DEBUG
-                if(output->ID != P[place].ID)
-                    endrun(8, "Error in communication: IDs mismatch %ld %ld\n", output->ID, P[place].ID);
+                if(output->ID != Part[place].ID)
+                    endrun(8, "Error in communication: IDs mismatch %ld %ld\n", output->ID, Part[place].ID);
 #endif
             }
         }
@@ -1081,18 +1089,18 @@ int treewalk_visit_ngbiter(TreeWalkQueryBase * I,
             int other = lv->ngblist[numngb];
 
             /* Skip garbage*/
-            if(P[other].IsGarbage)
+            if(Part[other].IsGarbage)
                 continue;
             /* In case the type of the particle has changed since the tree was built.
              * Happens for wind treewalk for gas turned into stars on this timestep.*/
-            if(!((1<<P[other].Type) & iter->mask)) {
+            if(!((1<<Part[other].Type) & iter->mask)) {
                 continue;
             }
 
             double dist;
 
             if(iter->symmetric == NGB_TREEFIND_SYMMETRIC) {
-                dist = DMAX(P[other].Hsml, iter->Hsml);
+                dist = DMAX(Part[other].Hsml, iter->Hsml);
             } else {
                 dist = iter->Hsml;
             }
@@ -1102,7 +1110,7 @@ int treewalk_visit_ngbiter(TreeWalkQueryBase * I,
             double h2 = dist * dist;
             for(d = 0; d < 3; d ++) {
                 /* the distance vector points to 'other' */
-                iter->dist[d] = NEAREST(I->Pos[d] - P[other].Pos[d], BoxSize);
+                iter->dist[d] = NEAREST(I->Pos[d] - Part[other].Pos[d], BoxSize);
                 r2 += iter->dist[d] * iter->dist[d];
                 if(r2 > h2) break;
             }
@@ -1161,7 +1169,7 @@ cull_node(const TreeWalkQueryBase * const I, const TreeWalkNgbIterBase * const i
 /*****
  * This is the internal code that looks for particles in the ngb tree from
  * searchcenter upto hsml. if iter->symmetric is NGB_TREE_FIND_SYMMETRIC, then upto
- * max(P[other].Hsml, iter->Hsml).
+ * max(Part[other].Hsml, iter->Hsml).
  *
  * Particle that intersects with other domains are marked for export.
  * The hosting nodes (leaves of the global tree) are exported as well.
@@ -1293,6 +1301,8 @@ int treewalk_visit_nolist_ngbiter(TreeWalkQueryBase * I,
             * so if we get back to a top-level node again we are done.*/
             if(lv->mode == TREEWALK_GHOSTS) {
                 /* The first node is always top-level*/
+                if(no > tree->lastnode)
+                    endrun(7, "Node is after lastnode. no %d lastnode %ld start %d first %ld\n", no, tree->lastnode, I->NodeList[inode], tree->firstnode);
                 if(current->f.TopLevel && no != I->NodeList[inode]) {
                     /* we reached a top-level node again, which means that we are done with the branch */
                     break;
@@ -1329,11 +1339,11 @@ int treewalk_visit_nolist_ngbiter(TreeWalkQueryBase * I,
                         /* Now evaluate a particle for the list*/
                         int other = suns[i];
                         /* Skip garbage*/
-                        if(P[other].IsGarbage)
+                        if(Part[other].IsGarbage)
                             continue;
                         /* In case the type of the particle has changed since the tree was built.
                         * Happens for wind treewalk for gas turned into stars on this timestep.*/
-                        if(!((1<<P[other].Type) & iter->mask))
+                        if(!((1<<Part[other].Type) & iter->mask))
                             continue;
 
                         double dist = iter->Hsml;
@@ -1342,7 +1352,7 @@ int treewalk_visit_nolist_ngbiter(TreeWalkQueryBase * I,
                         double h2 = dist * dist;
                         for(d = 0; d < 3; d ++) {
                             /* the distance vector points to 'other' */
-                            iter->dist[d] = NEAREST(I->Pos[d] - P[other].Pos[d], BoxSize);
+                            iter->dist[d] = NEAREST(I->Pos[d] - Part[other].Pos[d], BoxSize);
                             r2 += iter->dist[d] * iter->dist[d];
                             if(r2 > h2) break;
                         }
@@ -1460,8 +1470,8 @@ treewalk_do_hsml_loop(TreeWalk * tw, int * queue, int64_t queuesize, int update_
                     MyFloat Left = DENSITY_GET_PRIV(tw)->Left[i];
                     MyFloat Right = DENSITY_GET_PRIV(tw)->Right[i];
                     message (1, "i=%d task=%d ID=%llu type=%d, Hsml=%g Left=%g Right=%g Ngbs=%g Right-Left=%g\n   pos=(%g|%g|%g)\n",
-                         i, ThisTask, P[i].ID, P[i].Type, P[i].Hsml, Left, Right,
-                         (float) P[i].NumNgb, Right - Left, P[i].Pos[0], P[i].Pos[1], P[i].Pos[2]);
+                         i, ThisTask, Part[i].ID, Part[i].Type, Part[i].Hsml, Left, Right,
+                         (float) Part[i].NumNgb, Right - Left, Part[i].Pos[0], Part[i].Pos[1], Part[i].Pos[2]);
                 }
             }
 
@@ -1470,7 +1480,7 @@ treewalk_do_hsml_loop(TreeWalk * tw, int * queue, int64_t queuesize, int update_
 #ifdef DEBUG
         if(size < 10 && tw->Niteration > 20 ) {
             int pp = ReDoQueue[0];
-            message(1, "Remaining i=%d, t %d, pos %g %g %g, hsml: %g\n", pp, P[pp].Type, P[pp].Pos[0], P[pp].Pos[1], P[pp].Pos[2], P[pp].Hsml);
+            message(1, "Remaining i=%d, t %d, pos %g %g %g, hsml: %g\n", pp, Part[pp].Type, Part[pp].Pos[0], Part[pp].Pos[1], Part[pp].Pos[2], Part[pp].Hsml);
         }
 #endif
 

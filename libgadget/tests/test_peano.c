@@ -1,16 +1,11 @@
 /*Simple test for the Peano hilbert key function*/
+#define BOOST_TEST_MODULE peano
 
-#include <stdarg.h>
-#include <stddef.h>
-#include <setjmp.h>
-#include <cmocka.h>
+#include "booststub.h"
 #include <math.h>
-#include <mpi.h>
 #include <stdio.h>
-#include <gsl/gsl_rng.h>
 
 #include <libgadget/utils/peano.h>
-#include "stub.h"
 
 /* This is the old Peano Hilbert key routine from Gadget-2.
  * It is 3-4x slower than the one in peano.c*/
@@ -106,8 +101,7 @@ peano_t peano_hilbert_key_old(const int x, const int y, const int z, const int b
 
 peano_t result_keys[] = {6020610249, 483815267677980425, 3870522191621343542, 3767582776533235958, 1132333615783364415, 627930462752356607, 3891110085746456438, 3947726760453646118, 1152921506754357558, 2285255124148295382, 2305843012818375753, 2326430894279092521, 1297036690084656374, 2182315706524411686, 2449958193349321865, 2429370311902976217, 144115192773494591, 288230379909822719, 4230810164830870390, 4271985931826743040, 952189634125453529, 808074446989125401, 4035225267010758950, 4091841947589974246, 1636736773291449206, 1780851966333379734, 2789658282730152585, 2830834052094008169, 1641883751239952166, 1785998938376280294, 2794805254773053145, 2825687080051107609, 9058668959936226486, 8914553775484263254, 5023443698797515263, 4920504278302312767, 8266035424780819318, 8410150617822749846, 5044031583709523465, 5100648263986747097, 7617517078103921737, 7473401895799450537, 6464595579402677686, 6361656159482713174, 7638104960322013321, 7493989779057710809, 6485183462358946294, 6341068276224452902, 9079256844081281216, 8935141656944953088, 4992561872023905417, 4951386105028032767, 8271182402729322278, 8415297589865650406, 5188146769844016857, 5131530089264801561, 7586635263563326601, 7442520070521396073, 6433713754124623222, 6392537984760767638, 7581488285614823641, 7437373098478495513, 6428566782081722662, 6397684956803668198};
 
-static void
-test_peano(void **state)
+BOOST_AUTO_TEST_CASE(test_peano)
 {
     int i,j,k;
     /* Check against some known good results*/
@@ -115,7 +109,7 @@ test_peano(void **state)
     for(i = 0; i < Box * Box * Box; i++) {
         double Pos[3] = {i % Box, (i / Box) % Box, (i / Box / Box) % Box};
         peano_t Key = PEANO(Pos, Box);
-        assert_true(result_keys[i] == Key);
+        BOOST_TEST(result_keys[i] == Key);
         // printf("K = %ld\n", Key);
     }
 
@@ -125,7 +119,7 @@ test_peano(void **state)
             for(k = 1; k < BITS_PER_DIMENSION-1; k++) {
                 peano_t Key = peano_hilbert_key(1<<i, 1<<j, 1<<k, BITS_PER_DIMENSION);
                 peano_t Key2 = peano_hilbert_key_old(1<<i, 1<<j, 1<<k, BITS_PER_DIMENSION);
-                assert_true(Key == Key2);
+                BOOST_TEST(Key == Key2);
             }
         }
     }
@@ -142,11 +136,4 @@ test_peano(void **state)
     printf("Computed %d keys in %.3g ms (sum %ld)\n", Box*Box*Box, ms, Key);
 
     return;
-}
-
-int main(void) {
-    const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_peano),
-    };
-    return cmocka_run_group_tests_mpi(tests, NULL, NULL);
 }

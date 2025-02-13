@@ -1,10 +1,6 @@
-#include <stdarg.h>
-#include <stddef.h>
-#include <setjmp.h>
-#include <cmocka.h>
-#include <stdio.h>
+#define BOOST_TEST_MODULE mpsort
 
-#include "stub.h"
+#include "booststub.h"
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -71,7 +67,7 @@ check_sorted(void * data, int elsize, size_t localsize, int compar(void * d1, vo
 //             message(1, "cur=(%ld %ld %ld) prev= (%ld %ld %ld)\n", labs(i1->OriginalTask - i1->MinIDTask), i1->MinID, i1->Length, labs(i2->OriginalTask - i2->MinIDTask), i2->MinID, i2->Length);
             endrun(12, "Ordering of local array is broken i=%ld, d=%ld d-1=%ld. \n", i, ((int64_t *)data)[i], ((int64_t *)data)[i-1]);
         }
-        assert_true(compar(data + i*elsize, data + (i - 1)*elsize) >=0);
+        BOOST_TEST(compar(data + i*elsize, data + (i - 1)*elsize) >=0);
     }
 
     if(NTask == 1) return;
@@ -117,15 +113,15 @@ check_sorted(void * data, int elsize, size_t localsize, int compar(void * d1, vo
             if(compar(prev, data) > 0) {
                 endrun(12, "Ordering of global array is broken prev=%d d=%ld (comp: %d). \n", *prev, *(int64_t *)data, compar(prev, data));
             }
-            assert_true(compar(prev, data) <= 0);
+            BOOST_TEST(compar(prev, data) <= 0);
         }
     }
 }
 
 int compar_int(void * d1, void * d2)
 {
-    int64_t * i1 = d1;
-    int64_t * i2 = d2;
+    int64_t * i1 = (int64_t *) d1;
+    int64_t * i2 = (int64_t *) d2;
     if(*i1 < *i2)
         return -1;
     else if(*i1 == *i2)
@@ -162,8 +158,8 @@ do_mpsort_test(int64_t srcsize, int bits, int staggered, int gather)
     message(0, "dest size = %ld\n", destsize);
 //     message(0, "csize = %ld\n", csize);
 
-    int64_t * src = mymalloc("src", srcsize * sizeof(int64_t));
-    int64_t * dest = mymalloc("dest", destsize * sizeof(int64_t));
+    int64_t * src = (int64_t *) mymalloc("src", srcsize * sizeof(int64_t));
+    int64_t * dest = (int64_t *) mymalloc("dest", destsize * sizeof(int64_t));
 
     int seed = 9999 * ThisTask;
     generate(src, srcsize, bits, seed);
@@ -215,8 +211,8 @@ static void fof_radix_Group_TotalCountTaskDiffMinID(const void * a, void * radix
 
 int compar_bg(void * d1, void * d2)
 {
-    struct BaseGroup * i1 = d1;
-    struct BaseGroup * i2 = d2;
+    struct BaseGroup * i1 = (struct BaseGroup *) d1;
+    struct BaseGroup * i2 = (struct BaseGroup *) d2;
     int dist1 = labs(i1->OriginalTask - i1->MinIDTask);
     int dist2 = labs(i2->OriginalTask - i2->MinIDTask);
     /* Note reversed sign! We want the largest groups first.*/
@@ -258,7 +254,7 @@ do_long_radix_test(int srcsize)
     MPI_Comm_size(MPI_COMM_WORLD, &NTask);
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
 
-    struct BaseGroup * base = mymalloc("base", srcsize * sizeof(struct BaseGroup));
+    struct BaseGroup * base = (struct BaseGroup *) mymalloc("base", srcsize * sizeof(struct BaseGroup));
 
     int i;
     for(i = 0; i < srcsize; i++)
@@ -296,16 +292,14 @@ do_long_radix_test(int srcsize)
     myfree(base);
 }
 
-static void
-test_basegroup(void ** state)
+BOOST_AUTO_TEST_CASE(test_basegroup)
 {
     do_long_radix_test(50);
     /* This is chosen because it fails in travis*/
     do_long_radix_test(0);
 }
 
-static void
-test_mpsort_bits(void ** state)
+BOOST_AUTO_TEST_CASE(test_mpsort_bits)
 {
     message(0, "16 bits!\n");
     /* With whatever gather we like*/
@@ -316,8 +310,7 @@ test_mpsort_bits(void ** state)
     do_mpsort_test(2000, 64, 0, -1);
 }
 
-static void
-test_mpsort_stagger(void ** state)
+BOOST_AUTO_TEST_CASE(test_mpsort_stagger)
 {
     /* With stagger*/
     do_mpsort_test(2000, 32, 1, -1);
@@ -325,22 +318,10 @@ test_mpsort_stagger(void ** state)
     do_mpsort_test(1999, 32, 0, -1);
 }
 
-static void
-test_mpsort_gather(void ** state)
+BOOST_AUTO_TEST_CASE(test_mpsort_gather)
 {
     /* With forced gather*/
     do_mpsort_test(2000, 32, 0, 1);
     /* Without forced gather*/
     do_mpsort_test(2000, 32, 0, 0);
-}
-
-int main(void)
-{
-    const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_mpsort_bits),
-        cmocka_unit_test(test_mpsort_stagger),
-        cmocka_unit_test(test_basegroup),
-        cmocka_unit_test(test_mpsort_gather),
-    };
-    return cmocka_run_group_tests_mpi(tests, NULL, NULL);
 }

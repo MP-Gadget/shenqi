@@ -30,7 +30,7 @@
 #include <mpi.h>
 #include <string.h>
 #include <omp.h>
-#include <gsl/gsl_interp.h>
+#include <boost/math/interpolators/makima.hpp>
 #include "physconst.h"
 #include "slotsmanager.h"
 #include "partmanager.h"
@@ -46,6 +46,9 @@
 
 #define E0_HeII 54.4 /* HeII ionization potential in eV*/
 #define HEMASS 4.002602 /* Helium mass in amu*/
+
+boost::math::interpolators::makima<std::vector<double>> * HeIII_intp;
+boost::math::interpolators::makima<std::vector<double>> * LMFP_intp;
 
 typedef struct
 {
@@ -79,12 +82,7 @@ static struct qso_lightup_params QSOLightupParams;
  * Computed from parameters stored in the text file.
  * In ergs.*/
 static double qso_inst_heating;
-static int Nreionhist;
-static double * He_zz;
-static double * XHeIII;
-static double * LMFP;
-static gsl_interp * HeIII_intp;
-static gsl_interp * LMFP_intp;
+static double He_zz_final;
 
 /*This is a helper for the tests*/
 void set_qso_lightup_par(struct qso_lightup_params qso)
@@ -142,6 +140,7 @@ load_heii_reion_hist(const char * reion_hist_file)
     int ThisTask;
     FILE * fd = NULL;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
+    int Nreionhist;
 
     message(0, "HeII: Loading HeII reionization history from file: %s\n",reion_hist_file);
     if(ThisTask == 0) {
@@ -175,9 +174,9 @@ load_heii_reion_hist(const char * reion_hist_file)
         endrun(1, "HeII: Reionization history contains: %d entries, not enough.\n", Nreionhist);
 
     /*Allocate memory for the reionization history table.*/
-    He_zz = (double *) mymalloc("ReionizationTable", 3 * Nreionhist * sizeof(double));
-    XHeIII = He_zz + Nreionhist;
-    LMFP = He_zz + 2 * Nreionhist;
+    double * He_zz = (double *) mymalloc("ReionizationTable", 3 * Nreionhist * sizeof(double));
+    double * XHeIII = He_zz + Nreionhist;
+    double * LMFP = He_zz + 2 * Nreionhist;
 
     if(ThisTask == 0)
     {
@@ -226,11 +225,21 @@ load_heii_reion_hist(const char * reion_hist_file)
     /*Broadcast data to other processors*/
     MPI_Bcast(He_zz, 3 * Nreionhist, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(&qso_inst_heating, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    /* Initialize the interpolators*/
-    HeIII_intp = gsl_interp_alloc(gsl_interp_linear,Nreionhist);
-    LMFP_intp = gsl_interp_alloc(gsl_interp_linear,Nreionhist);
-    gsl_interp_init(HeIII_intp, He_zz, XHeIII, Nreionhist);
-    gsl_interp_init(LMFP_intp, He_zz, LMFP, Nreionhist);
+
+    He_zz_final = He_zz[Nreionhist - 1];
+    std::vector<double> He_zz_i(Nreionhist);
+    std::vector<double> He_zz_i2(Nreionhist);
+    std::vector<double> XHeIII_v(Nreionhist);
+    std::vector<double> LMFP_v(Nreionhist);
+    for(int i = 0; i < Nreionhist; i++) {
+        He_zz_i[i] = He_zz[i];
+        He_zz_i2[i] = He_zz[i];
+        XHeIII_v[i] = XHeIII[i];
+        LMFP_v[i] = LMFP[i];
+    }
+    // Initialize interpolation for the HeIII fraction and the long mean free path heating.
+    HeIII_intp = new boost::math::interpolators::makima<std::vector<double>>(std::move(He_zz_i), std::move(XHeIII_v));
+    LMFP_intp = new boost::math::interpolators::makima<std::vector<double>>(std::move(He_zz_i2), std::move(LMFP_v));
 
     QSOLightupParams.heIIIreion_start = 1/He_zz[0]-1;
 
@@ -243,6 +252,7 @@ load_heii_reion_hist(const char * reion_hist_file)
                 QSOLightupParams.ExcursionSetZStop,QSOLightupParams.heIIIreion_start);
         QSOLightupParams.ExcursionSetZStop = QSOLightupParams.heIIIreion_start;
     }
+    myfree(He_zz);
 }
 
 void
@@ -268,10 +278,10 @@ get_long_mean_free_path_heating(double redshift)
     double atime = 1/(1+redshift);
 
     /* Guard against the end of the table*/
-    if(atime > He_zz[Nreionhist-1])
+    if(atime > He_zz_final)
         return 0;
 
-    double long_mfp_heating = gsl_interp_eval(LMFP_intp, He_zz, LMFP, atime, NULL);
+    double long_mfp_heating = (*LMFP_intp)(atime);
 
     last_zz = redshift;
     last_long_mfp_heating = long_mfp_heating;
@@ -372,7 +382,7 @@ gas_ionization_fraction(void)
     int64_t i, n_ionized_tot = 0, n_gas_tot = 0, n_ionized = 0;
     #pragma omp parallel for reduction(+:n_ionized)
     for (i = 0; i < PartManager->NumPart; i++){
-        if (P[i].Type == 0 && P[i].HeIIIionized == 1){
+        if (Part[i].Type == 0 && Part[i].HeIIIionized == 1){
             n_ionized ++;
         }
     }
@@ -391,10 +401,10 @@ static int
 ionize_single_particle(int other, double a3inv, double uu_in_cgs)
 {
     /* Mark it ionized if not done so already.*/
-    if(P[other].HeIIIionized)
+    if(Part[other].HeIIIionized)
         return 0;
 
-    P[other].HeIIIionized = 1;
+    Part[other].HeIIIionized = 1;
     /* Heat the particle*/
     /* Number of helium atoms per g in the particle*/
     double nheperg = (1 - HYDROGEN_MASSFRAC) / (PROTONMASS * HEMASS);
@@ -442,7 +452,7 @@ ionize_ngbiter(TreeWalkQueryQSOLightup * I,
     int other = iter->other;
 
     /* Only ionize gas*/
-    if(P[other].Type != 0)
+    if(Part[other].Type != 0)
         return;
 
     int ionized = ionize_single_particle(other, QSO_GET_PRIV(lv->tw)->a3inv, QSO_GET_PRIV(lv->tw)->uu_in_cgs);
@@ -529,7 +539,8 @@ turn_on_quasars(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmology * 
     int * qso_cand = NULL;
     int64_t n_gas_tot=0, tot_n_ionized=0, ncand_tot=0;
     MPI_Allreduce(&SlotsManager->info[0].size, &n_gas_tot, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
-    double desired_ion_frac = gsl_interp_eval(HeIII_intp, He_zz, XHeIII, atime, NULL);
+    // Evaluate the interpolators
+    double desired_ion_frac = (*HeIII_intp)(atime);
     struct QSOPriv priv;
     priv.fof = fof;
     priv.uu_in_cgs = uu_in_cgs;
@@ -542,7 +553,7 @@ turn_on_quasars(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmology * 
         int64_t i, nionized=0, nion_tot=0;
         #pragma omp parallel for reduction(+: nionized)
         for (i = 0; i < PartManager->NumPart; i++){
-            if (P[i].Type == 0)
+            if (Part[i].Type == 0)
                 nionized += ionize_single_particle(i, priv.a3inv, priv.uu_in_cgs);
         }
         MPI_Reduce(&nionized, &nion_tot, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -649,7 +660,7 @@ do_heiii_reionization(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmol
         return;
 
     /* Do nothing if we are past the end of the table.*/
-    if(atime > He_zz[Nreionhist-1])
+    if(atime > He_zz_final)
         return;
 
     if(!gasTree->tree_allocated_flag || !(gasTree->mask & GASMASK))
@@ -663,7 +674,7 @@ do_heiii_reionization(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmol
 int
 need_change_helium_ionization_fraction(double atime)
 {
-    double desired_ion_frac = gsl_interp_eval(HeIII_intp, He_zz, XHeIII, atime, NULL);
+    double desired_ion_frac = (*HeIII_intp)(atime);
     double curionfrac = gas_ionization_fraction();
     if(curionfrac < desired_ion_frac)
         return 1;
@@ -679,7 +690,7 @@ during_helium_reionization(double redshift)
         return 0;
 
     /* Past the end of the table, it has finished.*/
-    if(redshift < 1./He_zz[Nreionhist-1] - 1)
+    if(redshift < 1./He_zz_final - 1)
         return 0;
 
     return 1;

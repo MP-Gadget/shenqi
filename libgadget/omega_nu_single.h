@@ -3,7 +3,7 @@
 /** \file
  * Routines for computing the matter density in a single neutrino species*/
 
-#include <gsl/gsl_interp.h>
+#include <boost/math/interpolators/cardinal_cubic_b_spline.hpp>
 
 /** Ratio between the massless neutrino temperature and the CMB temperature.
  * Note there is a slight correction from 4/11
@@ -22,12 +22,11 @@
 /** Tables for rho_nu (neutrino density): stores precomputed values between
  * simulation start and a M_nu = 20 kT_nu for a single neutrino species.*/
 struct _rho_nu_single {
-    double * loga;
-    double * rhonu;
-    gsl_interp * interp;
-    gsl_interp_accel * acc;
+    boost::math::interpolators::cardinal_cubic_b_spline<double> * interp;
     /*Neutrino mass for this structure*/
     double mnu;
+    /* Smallest loga the interpolator is built for*/
+    double loga0;
 };
 typedef struct _rho_nu_single _rho_nu_single;
 

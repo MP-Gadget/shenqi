@@ -1,17 +1,21 @@
 /*Tests for the cosmology module, ported from N-GenIC.*/
+#define BOOST_TEST_MODULE cosmology
 
-#include <stdarg.h>
-#include <stddef.h>
-#include <setjmp.h>
-#include <cmocka.h>
+#include "booststub.h"
+
 #include <math.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <gsl/gsl_sf_hyperg.h>
+#include <boost/math/special_functions/hypergeometric_pFq.hpp>
 #include <libgadget/physconst.h>
 #include <libgadget/cosmology.h>
-#include "stub.h"
+
+/*Get integer from real time*/
+double loga_from_ti(int64_t ti)
+{
+    return ti;
+}
 
 /*Neutrinos are tested elsewhere*/
 void init_omega_nu(_omega_nu * const omnu, const double MNu[], const double a0, const double HubbleParam, const double tcmb0) {}
@@ -51,35 +55,35 @@ static inline double radgrow(double aa, double omegar) {
 
 //Omega_L + Omega_M = 1 => D+ ~ Gauss hypergeometric function
 static inline double growth(double aa, double omegam) {
-    double omegal = 1-omegam;
-    return aa * gsl_sf_hyperg_2F1(1./3, 1, 11./6, -omegal/omegam*pow(aa,3));
+    double omegal = 1 - omegam;
+    return aa * boost::math::hypergeometric_pFq({1./3, 1.}, {11./6.}, -omegal/omegam * pow(aa, 3));
 }
 
-static void test_cosmology(void ** state)
+BOOST_AUTO_TEST_CASE(test_cosmology)
 {
     Cosmology CP = {0};
     //Check that we get the right scalings for total matter domination.
     //Cosmology(double HubbleParam, double Omega, double OmegaLambda, double MNu, int Hierarchy, bool NoRadiation)
     setup_cosmology(&CP, 1., 0.0455, 0.7);
     /*Check some of the setup worked*/
-    assert_true(CP.OmegaK < 1e-5);
-    assert_true(fabs(CP.OmegaG/5.045e-5 - 1) < 2e-3);
+    BOOST_TEST(CP.OmegaK < 1e-5);
+    BOOST_TEST(CP.OmegaG == 5.045e-5, tt::tolerance(2e-3));
     /*Check the hubble function is sane*/
     CP.RadiationOn = 0;
-    assert_true(fabs(hubble_function(&CP, 1) - CP.Hubble) < 1e-5);
+    BOOST_TEST(hubble_function(&CP, 1) == CP.Hubble, tt::tolerance(1e-5));
     CP.RadiationOn = 1;
-    assert_true(fabs(hubble_function(&CP, 1) - CP.Hubble* sqrt(1+CP.OmegaG)) < 1e-7);
+    BOOST_TEST(hubble_function(&CP, 1) == CP.Hubble* sqrt(1+CP.OmegaG), tt::tolerance(1e-7));
 
-    assert_true(fabs(CP.Hubble - 0.1) < 1e-6);
-    assert_true((hubble_function(&CP, 1) - CP.Hubble) < 1e-5);
-    assert_true(fabs(hubble_function(&CP, 0.1) - hubble_function(&CP, 1)/pow(0.1,3/2.)) < 1e-2);
-    assert_true(fabs(GrowthFactor(&CP, 0.5,1.)/0.5 -1) < 2e-4);
+    BOOST_TEST(CP.Hubble == 0.1, tt::tolerance(1e-6));
+    BOOST_TEST(hubble_function(&CP, 1) == CP.Hubble, tt::tolerance(3e-5));
+    BOOST_TEST(hubble_function(&CP, 0.1) == hubble_function(&CP, 1)/pow(0.1,3/2.), tt::tolerance(1e-2));
+    BOOST_TEST(GrowthFactor(&CP, 0.5,1.) == 0.5, tt::tolerance(2e-4));
     //Check that the velocity correction d ln D1/d lna is constant
-    assert_true(fabs(1.0 - F_Omega(&CP, 1.5)) < 1e-1);
-    assert_true(fabs(1.0 - F_Omega(&CP, 2)) < 1e-2);
+    BOOST_TEST(1.0 == F_Omega(&CP, 1.5), tt::tolerance(1e-1));
+    BOOST_TEST(1.0 == F_Omega(&CP, 2) , tt::tolerance(1e-2));
     //Check radiation against exact solution from gr-qc/0504089
-    assert_true(fabs(1/GrowthFactor(&CP, 0.05,1.) - radgrow(1., CP.OmegaG)/radgrow(0.05, CP.OmegaG))< 1e-3);
-    assert_true(fabs(GrowthFactor(&CP, 0.01,0.001) - radgrow(0.01, CP.OmegaG)/radgrow(0.001, CP.OmegaG))< 1e-3);
+    BOOST_TEST(1/GrowthFactor(&CP, 0.05,1.) == radgrow(1., CP.OmegaG)/radgrow(0.05, CP.OmegaG), tt::tolerance(1e-3));
+    BOOST_TEST(GrowthFactor(&CP, 0.01,0.001) == radgrow(0.01, CP.OmegaG)/radgrow(0.001, CP.OmegaG), tt::tolerance(1e-3));
 
     //Check against exact solutions from gr-qc/0504089: No radiation!
     //Note that the GSL hyperg needs the last argument to be < 1
@@ -87,15 +91,8 @@ static void test_cosmology(void ** state)
     setup_cosmology(&CP, omegam, 0.0455, 0.7);
     CP.RadiationOn = 0;
     //Check growth factor during matter domination
-    assert_true(fabs(1/GrowthFactor(&CP, 0.5, 1.) - growth(1., omegam)/growth(0.5, omegam)) < 1e-3);
-    assert_true(fabs(GrowthFactor(&CP, 0.3, 0.15) - growth(0.3, omegam)/growth(0.15, omegam)) < 1e-3);
-    assert_true(fabs(1/GrowthFactor(&CP, 0.01, 1.) - growth(1, omegam)/growth(0.01, omegam)) < 1e-3);
-    assert_true(fabs(0.01*log(GrowthFactor(&CP, 0.01+1e-5,0.01-1e-5))/2e-5 -  F_Omega(&CP, 0.01)) < 1e-3);
-}
-
-int main(void) {
-    const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_cosmology),
-    };
-    return cmocka_run_group_tests_mpi(tests, NULL, NULL);
+    BOOST_TEST(1/GrowthFactor(&CP, 0.5, 1.) == growth(1., omegam)/growth(0.5, omegam), tt::tolerance(1e-3));
+    BOOST_TEST(GrowthFactor(&CP, 0.3, 0.15) == growth(0.3, omegam)/growth(0.15, omegam), tt::tolerance(1e-3));
+    BOOST_TEST(1/GrowthFactor(&CP, 0.01, 1.) == growth(1, omegam)/growth(0.01, omegam), tt::tolerance(1e-3));
+    BOOST_TEST(0.01*log(GrowthFactor(&CP, 0.01+1e-5,0.01-1e-5))/2e-5 == F_Omega(&CP, 0.01), tt::tolerance(1e-3));
 }

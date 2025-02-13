@@ -125,25 +125,25 @@ inttime_t init(int RestartSnapNum, const char * OutputDir, struct header_data * 
     for(i = 0; i < PartManager->NumPart; i++)	/* initialize sph_properties */
     {
         int j;
-        P[i].Ti_drift = Ti_Current;
+        Part[i].Ti_drift = Ti_Current;
 #ifdef DEBUG
-        P[i].Ti_kick_grav = Ti_Current;
-        P[i].Ti_kick_hydro = Ti_Current;
+        Part[i].Ti_kick_grav = Ti_Current;
+        Part[i].Ti_kick_hydro = Ti_Current;
 #endif
-        if(RestartSnapNum == -1 && P[i].Type == 5 )
+        if(RestartSnapNum == -1 && Part[i].Type == 5 )
         {
             /* Note: Gadget-3 sets this to the seed black hole mass.*/
-            BHP(i).Mass = P[i].Mass;
+            BHP(i).Mass = Part[i].Mass;
         }
 
-        if(P[i].Type == 4 )
+        if(Part[i].Type == 4 )
         {
             /* Touch up zero star smoothing lengths, not saved in the snapshots.*/
-            if(P[i].Hsml == 0)
-                P[i].Hsml = 0.1 * MeanSeparation[0];
+            if(Part[i].Hsml == 0)
+                Part[i].Hsml = 0.1 * MeanSeparation[0];
         }
 
-        if(P[i].Type == 5)
+        if(Part[i].Type == 5)
         {
             for(j = 0; j < 3; j++) {
                 BHP(i).DFAccel[j] = 0;
@@ -151,7 +151,7 @@ inttime_t init(int RestartSnapNum, const char * OutputDir, struct header_data * 
             }
         }
 
-        if(P[i].Type != 0)
+        if(Part[i].Type != 0)
             continue;
 
         for(j = 0; j < 3; j++)
@@ -160,7 +160,7 @@ inttime_t init(int RestartSnapNum, const char * OutputDir, struct header_data * 
         }
 
         if(!isfinite(SPHP(i).DelayTime ))
-            endrun(6, "Bad DelayTime %g for part %d id %ld\n", SPHP(i).DelayTime, i, P[i].ID);
+            endrun(6, "Bad DelayTime %g for part %d id %ld\n", SPHP(i).DelayTime, i, Part[i].ID);
         SPHP(i).DtEntropy = 0;
 
         if(RestartSnapNum == -1)
@@ -203,34 +203,42 @@ void check_omega(struct part_manager_type * PartManager, Cosmology * CP, int gen
 {
     double mass = 0, masstot, omega;
     int64_t i, totbad, badmass = 0;
+    double omegas[6] = {0};
 
-    #pragma omp parallel for reduction(+: mass) reduction(+: badmass)
+    #pragma omp parallel for reduction(+: mass) reduction(+: badmass) reduction(+: omegas[:6])
     for(i = 0; i < PartManager->NumPart; i++) {
         /* In case zeros have been written to the saved mass array,
          * recover the true masses*/
-        if(P[i].Mass == 0) {
-            P[i].Mass = MassTable[P[i].Type] * ( 1. - (double)P[i].Generation/generations);
+        if(Part[i].Mass == 0) {
+            Part[i].Mass = MassTable[Part[i].Type] * ( 1. - (double)Part[i].Generation/generations);
             badmass++;
         }
-        mass += P[i].Mass;
+        if(Part[i].Type >= 0 && Part[i].Type < 6)
+            omegas[Part[i].Type] += Part[i].Mass;
+        mass += Part[i].Mass;
     }
 
     MPI_Allreduce(&mass, &masstot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(MPI_IN_PLACE, &omegas, 6, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
     MPI_Allreduce(&badmass, &totbad, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     if(totbad)
         message(0, "Warning: recovering from %ld Mass entries corrupted on disc\n",totbad);
 
-    omega =
-        masstot / (PartManager->BoxSize * PartManager->BoxSize * PartManager->BoxSize) / CP->RhoCrit;
+    double massnorm = (PartManager->BoxSize * PartManager->BoxSize * PartManager->BoxSize) * CP->RhoCrit;
+    omega = masstot / massnorm;
+    for(i = 0; i<6; i++)
+        omegas[i] /= massnorm;
 
+    double omeganu = get_omega_nu_nopart(&CP->ONu, 1);
     /*Add the density for analytically follows massive neutrinos*/
     if(CP->MassiveNuLinRespOn)
-        omega += get_omega_nu_nopart(&CP->ONu, 1);
+        omega += omeganu;
+    message(0, "Matter content: OmegaB = %g OmegaCDM = %g OmegaNu (LRA) = %g OmegaNu (particle) = %g Omega* = %g OmegaBH = %g\n",
+            omegas[0], omegas[1], omeganu, omegas[2], omegas[4], omegas[5]);
+
     if(fabs(omega - CP->Omega0) > 1.0e-3)
-    {
-        endrun(0, "The mass content accounts only for Omega=%g,\nbut you specified Omega=%g in the parameterfile.\n",
-                omega, CP->Omega0);
-    }
+        endrun(0, "The mass content is Omega0 = %g,but you specified Omega0 = %g in the parameterfile.\n", omega, CP->Omega0);
 }
 
 /* Allocate the memory for particles and slots. First the total amount of particles are counted, then allocations are made*/
@@ -343,16 +351,16 @@ void check_smoothing_length(struct part_manager_type * PartManager, double * Mea
     int lastprob = -1;
     #pragma omp parallel for reduction(+: numprob) reduction(max:lastprob)
     for(i=0; i< PartManager->NumPart; i++){
-        if(P[i].Type != 5 && P[i].Type != 0)
+        if(Part[i].Type != 5 && Part[i].Type != 0)
             continue;
-        if(P[i].Hsml > PartManager->BoxSize || P[i].Hsml <= 0) {
-            P[i].Hsml = MeanSpacing[P[i].Type];
+        if(Part[i].Hsml > PartManager->BoxSize || Part[i].Hsml <= 0) {
+            Part[i].Hsml = MeanSpacing[Part[i].Type];
             numprob++;
             lastprob = i;
         }
     }
     if(numprob > 0)
-        message(5, "Bad smoothing lengths %d last bad %d hsml %g id %ld\n", numprob, lastprob, P[lastprob].Hsml, P[lastprob].ID);
+        message(5, "Bad smoothing lengths %d last bad %d hsml %g id %ld\n", numprob, lastprob, Part[lastprob].Hsml, Part[lastprob].ID);
 }
 
 /* When we restart, validate the SPH properties of the particles.

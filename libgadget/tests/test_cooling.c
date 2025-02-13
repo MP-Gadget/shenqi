@@ -1,9 +1,9 @@
 /*Tests for the cooling module. These just check that we get the same answer as Gadget-2.*/
 
-#include <stdarg.h>
-#include <stddef.h>
-#include <setjmp.h>
-#include <cmocka.h>
+#define BOOST_TEST_MODULE cooling
+
+#include "booststub.h"
+
 #include <math.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -16,8 +16,6 @@
 #include <libgadget/cooling_rates.h>
 #include <libgadget/utils/peano.h>
 #include <libgadget/partmanager.h>
-#include <libgadget/utils/endrun.h>
-#include "stub.h"
 
 /* Stub.*/
 double get_long_mean_free_path_heating(double redshift)
@@ -153,7 +151,7 @@ static double tcool_table[NSTEP * NSTEP] = {
 struct part_manager_type PartManager[1];
 /* Check that DoCooling and GetCoolingTime both return
  * a stable value over a wide range of internal energies and densities.*/
-static void test_DoCooling(void ** state)
+BOOST_AUTO_TEST_CASE(testDoCooling)
 {
     int i, j;
     struct cooling_params coolpar;
@@ -173,8 +171,8 @@ static void test_DoCooling(void ** state)
     coolpar.HydrogenHeatAmp = 0;
     coolpar.rho_crit_baryon = 0.045 * 3.0 * pow(0.7*HUBBLE,2.0) /(8.0*M_PI*GRAVITY);
 
-    char * TreeCool = GADGET_TESTDATA_ROOT "/examples/TREECOOL_ep_2018p";
-    char * MetalCool = "";
+    char TreeCool[] = GADGET_TESTDATA_ROOT "/examples/TREECOOL_ep_2018p";
+    char MetalCool[] = "";
 
     /*unit system*/
     double HubbleParam = 0.7;
@@ -203,9 +201,9 @@ static void test_DoCooling(void ** state)
     set_coolpar(coolpar);
     init_cooling(TreeCool, NULL, MetalCool, NULL, coolunits, &CP);
     struct UVBG uvbg = get_global_UVBG(0);
-    assert_true(fabs(uvbg.epsH0/3.65296e-25 -1) < 1e-5);
-    assert_true(fabs(uvbg.epsHe0/3.98942e-25 -1) < 1e-5);
-    assert_true(fabs(uvbg.epsHep/3.33253e-26 -1) < 1e-5);
+    BOOST_TEST(uvbg.epsH0 == 3.65296e-25, tt::tolerance(1e-5));
+    BOOST_TEST(uvbg.epsHe0 == 3.98942e-25, tt::tolerance(1e-5));
+    BOOST_TEST(uvbg.epsHep == 3.33253e-26, tt::tolerance(1e-5));
 
     double umax = 36000, umin = 200;
     double dmax = 1e-2, dmin = 1e-9;
@@ -213,9 +211,9 @@ static void test_DoCooling(void ** state)
     double ne= 1.0;
     /*Check two particular values*/
     double tcool = GetCoolingTime(0, 949.755, 7.07946e-06, &uvbg, &ne, 0);
-    assert_true(fabs(tcool/ 0.0172379) -1 < 1e-3);
+    BOOST_TEST(tcool == 0.0172379,  tt::tolerance(1e-3));
     double unew = DoCooling(0,  9828.44, 7.07946e-06, 0.2, &uvbg, &ne, 0, MinEgySpec, 1);
-    assert_true(fabs(unew/ 531.724) -1 < 1e-3);
+    BOOST_TEST(unew == 531.724, tt::tolerance(1e-3));
 
     double dt = 0.2;
     for(i=0; i < NSTEP; i++)
@@ -227,23 +225,15 @@ static void test_DoCooling(void ** state)
             double uu = exp(log(umin) +  j * (log(umax) - log(umin)) / 1. /NSTEP);
             double tcool = GetCoolingTime(0, uu, dens, &uvbg, &ne2, 0);
             double unew = DoCooling(0, uu, dens, dt, &uvbg, &ne, 0, MinEgySpec, 1);
-            assert_false(isnan(unew));
+            BOOST_TEST(!isnan(unew));
 //             message(0, "d = %g u = %g tcool = %g tcool_table = %g unew = %g ne_after = %g unew_table = %g\n", dens, uu, tcool, tcool_table[i*NSTEP + j], unew, ne, unew_table[i*NSTEP+j]);
-            assert_true(fabs(unew/unew_table[i*NSTEP + j] - 1) < 5e-3);
-            assert_true(fabs(1/(1e-20 + tcool) - 1./(1e-20 + tcool_table[i*NSTEP + j])) < 1 || fabs((1e-20 + tcool)/(1e-20 + tcool_table[i*NSTEP + j]) - 1) < 2e-2);
+            BOOST_TEST(unew == unew_table[i*NSTEP + j], tt::tolerance(5e-3));
+            if(fabs(1/(1e-20 + tcool) - 1./(1e-20 + tcool_table[i*NSTEP + j])) >= 1)
+                    BOOST_TEST(tcool == tcool_table[i*NSTEP + j], tt::tolerance(2e-2));
             /*Make the tables*/
             //printf("%g , ", unew);
            //printf("%g , ", tcool);
-
         }
     }
 //    printf("\n");
-}
-
-int main(void) {
-    const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_DoCooling),
-
-    };
-    return cmocka_run_group_tests_mpi(tests, NULL, NULL);
 }

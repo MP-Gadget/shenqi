@@ -6,4 +6,3 @@
 OPTIMIZE =  -fopenmp -O3 -g -Wall -Zp16 -xHost -fp-model fast=1
 
 #OPT += -DDEBUG
-#OPT += -DVALGRIND  # allow debugging with valgrind, disable the GADGET memory allocator.

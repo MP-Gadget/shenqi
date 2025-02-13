@@ -9,10 +9,9 @@
 #include <math.h>
 #include <string.h>
 #include <bigfile-mpi.h>
-#include <gsl/gsl_integration.h>
-#include <gsl/gsl_errno.h>
-#include <gsl/gsl_interp.h>
-#include <gsl/gsl_sf_bessel.h>
+#include <boost/math/interpolators/makima.hpp>
+#include <boost/math/special_functions/bessel.hpp>
+#include <boost/math/quadrature/gauss_kronrod.hpp>
 
 #include "neutrinos_lra.h"
 
@@ -23,16 +22,15 @@
 #include "cosmology.h"
 #include "powerspectrum.h"
 #include "physconst.h"
+#include "timefac.h"
 
 /** Floating point accuracy*/
 #define FLOAT_ACC   1e-6
-/** Number of bins in integrations*/
-#define GSL_VAL 400
 
 /** Update the last value of delta_tot in the table with a new value computed
  from the given delta_cdm_curr and delta_nu_curr.
  If overwrite is true, overwrite the existing final entry.*/
-void update_delta_tot(_delta_tot_table * const d_tot, const double a, const double delta_cdm_curr[], const double delta_nu_curr[], const int overwrite);
+void update_delta_tot(_delta_tot_table * const d_tot, const double a, const std::vector<double> & delta_cdm_curr, const double delta_nu_curr[], const int overwrite);
 
 /** Main function: given tables of wavenumbers, total delta at Na earlier times (< = a),
  * and initial conditions for neutrinos, computes the current delta_nu.
@@ -100,19 +98,21 @@ static void delta_tot_first_init(_delta_tot_table * const d_tot, const int nk_in
     d_tot->nk=nk_in;
     const double OmegaNua3=get_omega_nu_nopart(d_tot->omnu, d_tot->TimeTransfer)*pow(d_tot->TimeTransfer,3);
     const double OmegaNu1 = get_omega_nu(d_tot->omnu, 1);
-    gsl_interp_accel *acc = gsl_interp_accel_alloc();
-    gsl_interp * spline;
-    if(t_init->NPowerTable > 2)
-        spline = gsl_interp_alloc(gsl_interp_cspline,t_init->NPowerTable);
-    else
-        spline = gsl_interp_alloc(gsl_interp_linear,t_init->NPowerTable);
-    gsl_interp_init(spline,t_init->logk,t_init->T_nu,t_init->NPowerTable);
     /*Check we have a long enough power table: power tables are in log_10*/
     if(log10(wavenum[d_tot->nk-1]) > t_init->logk[t_init->NPowerTable-1])
         endrun(2,"Want k = %g but maximum in CLASS table is %g\n",wavenum[d_tot->nk-1], pow(10, t_init->logk[t_init->NPowerTable-1]));
+
+    std::vector<double> logk(t_init->NPowerTable);
+    std::vector<double> T_nu(t_init->NPowerTable);
+    for(ik=0;ik<t_init->NPowerTable;ik++) {
+        logk[ik] = t_init->logk[ik];
+        T_nu[ik] = t_init->T_nu[ik];
+    }
+    boost::math::interpolators::makima<std::vector<double> > spline (std::move(logk),std::move(T_nu));
+
     for(ik=0;ik<d_tot->nk;ik++) {
             /* T_nu contains T_nu / T_cdm.*/
-            double T_nubyT_nonu = gsl_interp_eval(spline,t_init->logk,t_init->T_nu,log10(wavenum[ik]),acc);
+            double T_nubyT_nonu = spline(log10(wavenum[ik]));
             /*Initialise delta_nu_init to use the first timestep's delta_cdm_curr
              * so that it includes potential Rayleigh scattering. */
             d_tot->delta_nu_init[ik] = delta_cdm_curr[ik]*T_nubyT_nonu;
@@ -122,8 +122,6 @@ static void delta_tot_first_init(_delta_tot_table * const d_tot, const int nk_in
             /*Set up the wavenumber array*/
             d_tot->wavenum[ik] = wavenum[ik];
     }
-    gsl_interp_accel_free(acc);
-    gsl_interp_free(spline);
 
     /*If we are not restarting, make sure we set the scale factor*/
     d_tot->scalefact[0]=log(TimeIC);
@@ -145,29 +143,31 @@ void delta_nu_from_power(struct _powerspectrum * PowerSpectrum, Cosmology * CP, 
         get_delta_nu_combined(CP, &delta_tot_table, exp(delta_tot_table.scalefact[delta_tot_table.ia-1]), delta_tot_table.delta_nu_last);
         delta_tot_table.delta_tot_init_done = 1;
     }
-    for(i = 0; i < PowerSpectrum->nonzero; i++)
-        PowerSpectrum->logknu[i] = log(PowerSpectrum->kk[i]);
 
-    double * Power_in = PowerSpectrum->Power;
+    std::vector<double> Power_in(delta_tot_table.nk);
     /* Rebin the input power if necessary*/
+    std::vector<double> logknu(PowerSpectrum->nonzero);
+    for(i = 0; i < PowerSpectrum->nonzero; i++) {
+        logknu[i] = log(PowerSpectrum->kk[i]);
+        Power_in[i] = PowerSpectrum->Power[i];
+    }
     if(delta_tot_table.nk != PowerSpectrum->nonzero) {
-        Power_in = (double *) mymalloc("pkint", delta_tot_table.nk * sizeof(double));
-        double * logPower = (double *) mymalloc("logpk", PowerSpectrum->nonzero * sizeof(double));
-        for(i = 0; i < PowerSpectrum->nonzero; i++)
+        std::vector<double> logPower(PowerSpectrum->nonzero);
+        for(i = 0; i < PowerSpectrum->nonzero; i++) {
             logPower[i] = log(PowerSpectrum->Power[i]);
-        gsl_interp * pkint = gsl_interp_alloc(gsl_interp_linear, PowerSpectrum->nonzero);
-        gsl_interp_init(pkint, PowerSpectrum->logknu, logPower, PowerSpectrum->nonzero);
-        gsl_interp_accel * pkacc = gsl_interp_accel_alloc();
+        }
+        const double xmin = logknu[0];
+        const double xmax = logknu[PowerSpectrum->nonzero-1];
+        std::vector<double> logknu_int = logknu;
+        boost::math::interpolators::makima<std::vector<double>> pkint(std::move(logknu_int), std::move(logPower));
+
         for(i = 0; i < delta_tot_table.nk; i++) {
             double logk = log(delta_tot_table.wavenum[i]);
-            if(pkint->xmax < logk || pkint->xmin > logk)
+            if(xmax < logk || xmin > logk)
                 Power_in[i] = delta_tot_table.delta_tot[i][delta_tot_table.ia-1];
             else
-                Power_in[i] = exp(gsl_interp_eval(pkint, PowerSpectrum->logknu, logPower, logk, pkacc));
+                Power_in[i] = exp(pkint(logk));
         }
-        myfree(logPower);
-        gsl_interp_accel_free(pkacc);
-        gsl_interp_free(pkint);
     }
 
     const double partnu = particle_nu_fraction(&CP->ONu.hybnu, Time, 0);
@@ -200,10 +200,9 @@ void delta_nu_from_power(struct _powerspectrum * PowerSpectrum, Cosmology * CP, 
         /* Omega0 - Omega in neutrinos + Omega in particle neutrinos = Omega in particles*/
         PowerSpectrum->nu_prefac = OmegaNu_nop/(delta_tot_table.Omeganonu/pow(Time,3) + omega_hybrid);
     }
-    double * delta_nu_ratio = (double *) mymalloc2("dnu_rat", delta_tot_table.nk * sizeof(double));
-    double * logwavenum = (double *) mymalloc2("logwavenum", delta_tot_table.nk * sizeof(double));
-    gsl_interp * pkint = gsl_interp_alloc(gsl_interp_linear, delta_tot_table.nk);
-    gsl_interp_accel * pkacc = gsl_interp_accel_alloc();
+    std::vector<double> delta_nu_ratio_raw(delta_tot_table.nk);
+    std::vector<double> logwavenum(delta_tot_table.nk);
+
     /*We want to interpolate in log space*/
     for(i=0; i < delta_tot_table.nk; i++) {
         if(isnan(delta_tot_table.delta_nu_last[i]))
@@ -211,29 +210,27 @@ void delta_nu_from_power(struct _powerspectrum * PowerSpectrum, Cosmology * CP, 
         /*Enforce positivity for sanity reasons*/
         if(delta_tot_table.delta_nu_last[i] < 0)
             delta_tot_table.delta_nu_last[i] = 0;
-        delta_nu_ratio[i] = delta_tot_table.delta_nu_last[i]/ Power_in[i];
+        delta_nu_ratio_raw[i] = delta_tot_table.delta_nu_last[i]/ Power_in[i];
         logwavenum[i] = log(delta_tot_table.wavenum[i]);
     }
-    if(delta_tot_table.nk != PowerSpectrum->nonzero)
-        myfree(Power_in);
-    gsl_interp_init(pkint, logwavenum, delta_nu_ratio, delta_tot_table.nk);
 
-    /*We want to interpolate in log space*/
-    for(i=0; i < PowerSpectrum->nonzero; i++) {
-        if(PowerSpectrum->nonzero == delta_tot_table.nk)
-            PowerSpectrum->delta_nu_ratio[i] = delta_nu_ratio[i];
-        else {
-            double logk = PowerSpectrum->logknu[i];
-            if(logk > pkint->xmax)
-                logk = pkint->xmax;
-            PowerSpectrum->delta_nu_ratio[i] = gsl_interp_eval(pkint, logwavenum, delta_nu_ratio, logk, pkacc);
+    const double xmax = logwavenum[delta_tot_table.nk-1];
+    std::vector<double> delta_nu_ratio(PowerSpectrum->nonzero);
+
+    /* Rebin it back if necessary to match the input power spectrum.*/
+    if(PowerSpectrum->nonzero != delta_tot_table.nk) {
+        boost::math::interpolators::makima<std::vector<double>> pkint(std::move(logwavenum), std::move(delta_nu_ratio_raw));
+        /*We want to interpolate in log space*/
+        for(i=0; i < PowerSpectrum->nonzero; i++) {
+            double logk = logknu[i];
+            if(logk > xmax)
+                logk = xmax;
+            delta_nu_ratio[i] = pkint(logk);
         }
     }
-
-    gsl_interp_accel_free(pkacc);
-    gsl_interp_free(pkint);
-    myfree(logwavenum);
-    myfree(delta_nu_ratio);
+    else
+        delta_nu_ratio = delta_nu_ratio_raw;
+    PowerSpectrum->nu_spline = new boost::math::interpolators::makima<std::vector<double>>(std::move(logknu), std::move(delta_nu_ratio));
 }
 
 /*Save the neutrino power spectrum to a file*/
@@ -257,9 +254,6 @@ void powerspectrum_nu_save(struct _powerspectrum * PowerSpectrum, const char * O
     }
     fclose(fp);
     myfree(fname);
-    /*Clean up the neutrino memory now we saved the power spectrum.*/
-    gsl_interp_free(PowerSpectrum->nu_spline);
-    gsl_interp_accel_free(PowerSpectrum->nu_acc);
 }
 
 void petaio_save_neutrinos(BigFile * bf, int ThisTask)
@@ -516,7 +510,7 @@ void get_delta_nu_combined(Cosmology * CP, const _delta_tot_table * const d_tot,
 /*Update the last value of delta_tot in the table with a new value computed
  from the given delta_cdm_curr and delta_nu_curr.
  If overwrite is true, overwrite the existing final entry.*/
-void update_delta_tot(_delta_tot_table * const d_tot, const double a, const double delta_cdm_curr[], const double delta_nu_curr[], const int overwrite)
+void update_delta_tot(_delta_tot_table * const d_tot, const double a, const std::vector<double> & delta_cdm_curr, const double delta_nu_curr[], const int overwrite)
 {
   const double OmegaNua3 = get_omega_nu_nopart(d_tot->omnu, a)*pow(a,3);
   const double OmegaNu1 = get_omega_nu(d_tot->omnu, 1);
@@ -532,15 +526,6 @@ void update_delta_tot(_delta_tot_table * const d_tot, const double a, const doub
   }
 }
 
-/*Kernel function for the fslength integration*/
-double fslength_int(const double loga, void *params)
-{
-    Cosmology * CP = (Cosmology *) params;
-    /*This should be M_nu / k_B T_nu (which is dimensionless)*/
-    const double a = exp(loga);
-    return 1./a/(a*hubble_function(CP, a));
-}
-
 /******************************************************************************************************
 Free-streaming length (times Mnu/k_BT_nu, which is dimensionless) for a non-relativistic
 particle of momentum q = T0, from scale factor ai to af.
@@ -552,17 +537,18 @@ Result is in Unit_Length/Unit_Time.
 ******************************************************************************************************/
 double fslength(Cosmology * CP, const double logai, const double logaf, const double light)
 {
-  double abserr;
-  double fslength_val;
-  gsl_function F;
-  gsl_integration_workspace * w = gsl_integration_workspace_alloc (GSL_VAL);
-  F.function = &fslength_int;
-  F.params = CP;
-  if(logai >= logaf)
-      return 0;
-  gsl_integration_qag (&F, logai, logaf, 0, 1e-6,GSL_VAL,6,w,&(fslength_val), &abserr);
-  gsl_integration_workspace_free (w);
-  return light*fslength_val;
+    if (logai >= logaf)
+        return 0;
+
+    /*Kernel function for the fslength integration*/
+    auto fslength_int = [CP](const double loga) {
+        /*This should be M_nu / k_B T_nu (which is dimensionless)*/
+        const double a = exp(loga);
+        return 1./a/(a*hubble_function(CP, a));
+    };
+
+    const double fslength_val = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(fslength_int, logai, logaf);
+    return light * fslength_val;
 }
 
 /**************************************************************************************************
@@ -589,7 +575,9 @@ static inline double specialJ_fit(const double x)
 /*Asymptotic series expansion from YAH. Not good when qc * x is small, but fine otherwise.*/
 static inline double II(const double x, const double qc, const int n)
 {
-    return (n*n+n*n*n*qc+n*qc*x*x - x*x)* qc*gsl_sf_bessel_j0(qc*x) + (2*n+n*n*qc+qc*x*x)*cos(qc*x);
+    using boost::math::cyl_bessel_j;  // Import Boost Bessel function
+    return (n*n+n*n*n*qc+n*qc*x*x - x*x) * qc * cyl_bessel_j(0, qc * x)  // Bessel J0
+           + (2 * n + n * n * qc + qc * x * x) * cos(qc * x);
 }
 
 /* Fourier transform of truncated Fermi Dirac distribution, with support on q > qc only.
@@ -628,17 +616,7 @@ struct _delta_nu_int_params
     double k;
     /**Neutrino mass divided by k_B T_nu*/
     double mnubykT;
-    gsl_interp_accel *acc;
-    gsl_interp *spline;
     Cosmology * CP;
-    /**Precomputed free-streaming lengths*/
-    gsl_interp_accel *fs_acc;
-    gsl_interp *fs_spline;
-    double * fslengths;
-    double * fsscales;
-    /**Make sure this is at the same k as above*/
-    double * delta_tot;
-    double * scale;
     /** qc is a dimensionless momentum (normalized to TNU): v_c * mnu / (k_B * T_nu).
      * This is the critical momentum for hybrid neutrinos: it is unused if
      * hybrid neutrinos are not defined, but left here to save ifdefs.*/
@@ -647,17 +625,6 @@ struct _delta_nu_int_params
     double nufrac_low;
 };
 typedef struct _delta_nu_int_params delta_nu_int_params;
-
-/**GSL integration kernel for get_delta_nu*/
-double get_delta_nu_int(double logai, void * params)
-{
-    delta_nu_int_params * p = (delta_nu_int_params *) params;
-    double fsl_aia = gsl_interp_eval(p->fs_spline,p->fsscales,p->fslengths,logai,p->fs_acc);
-    double delta_tot_at_a = gsl_interp_eval(p->spline,p->scale,p->delta_tot,logai,p->acc);
-    double specJ = specialJ(p->k*fsl_aia/p->mnubykT, p->qc, p->nufrac_low);
-    double ai = exp(logai);
-    return fsl_aia/(ai*hubble_function(p->CP, ai)) * specJ * delta_tot_at_a;
-}
 
 /*
 Main function: given tables of wavenumbers, total delta at Na earlier times (<= a),
@@ -709,20 +676,6 @@ void get_delta_nu(Cosmology * CP, const _delta_tot_table * const d_tot, const do
   /*If neutrino mass is zero, we are not accurate, just use the initial conditions piece*/
   if(Na > 1 && mnubykT > 0){
         delta_nu_int_params params;
-        params.acc = gsl_interp_accel_alloc();
-        gsl_integration_workspace * w = gsl_integration_workspace_alloc (GSL_VAL);
-        gsl_function F;
-        F.function = &get_delta_nu_int;
-        F.params=&params;
-        /*Use cubic interpolation*/
-        if(Na > 2) {
-                params.spline=gsl_interp_alloc(gsl_interp_cspline,Na);
-        }
-        /*Unless we have only two points*/
-        else {
-                params.spline=gsl_interp_alloc(gsl_interp_linear,Na);
-        }
-        params.scale=d_tot->scalefact;
         params.mnubykT=mnubykT;
         params.qc = qc;
         params.nufrac_low = d_tot->omnu->hybnu.nufrac_low[0];
@@ -731,36 +684,40 @@ void get_delta_nu(Cosmology * CP, const _delta_tot_table * const d_tot, const do
          * which is exactly where it doesn't matter, but
          * we still want to be safe. */
         int Nfs = Na*16;
-        params.fs_acc = gsl_interp_accel_alloc();
-        params.fs_spline=gsl_interp_alloc(gsl_interp_cspline,Nfs);
+
         params.CP = CP;
         /*Pre-compute the free-streaming lengths, which are scale-independent*/
-        double * fslengths = (double *) mymalloc("fslengths", Nfs* sizeof(double));
-        double * fsscales = (double *) mymalloc("fsscales", Nfs* sizeof(double));
+        std::vector<double> fslengths(Nfs);
+        std::vector<double> fsscales(Nfs);
         for(ik=0; ik < Nfs; ik++) {
             fsscales[ik] = log(d_tot->TimeTransfer) + ik*(log(a) - log(d_tot->TimeTransfer))/(Nfs-1.);
+            if (ik == Nfs-1)
+                fsscales[ik] = log(a); // Make sure the last point is exactly a without precision loss
             fslengths[ik] = fslength(CP, fsscales[ik], log(a),d_tot->light);
         }
-        params.fslengths = fslengths;
-        params.fsscales = fsscales;
+        boost::math::interpolators::makima<std::vector<double> > fs_spline(std::move(fsscales),std::move(fslengths));
 
-        if(!params.spline || !params.acc || !w || !params.fs_spline || !params.fs_acc || !fslengths || !fsscales)
-              endrun(2016,"Error initialising and allocating memory for gsl interpolator and integrator.\n");
-
-        gsl_interp_init(params.fs_spline,params.fsscales,params.fslengths,Nfs);
         for (ik = 0; ik < d_tot->nk; ik++) {
-            double abserr,d_nu_tmp;
+            double d_nu_tmp;
             params.k=d_tot->wavenum[ik];
-            params.delta_tot=d_tot->delta_tot[ik];
-            gsl_interp_init(params.spline,params.scale,params.delta_tot,Na);
-            gsl_integration_qag (&F, log(d_tot->TimeTransfer), log(a), 0, relerr,GSL_VAL,6,w,&d_nu_tmp, &abserr);
+            std::vector<double> delta_tot_k(Na);
+            std::vector<double> loga(Na);
+            for(int ia = 0; ia < Na; ia++) {
+                delta_tot_k[ia] = d_tot->delta_tot[ik][ia];
+                loga[ia] = d_tot->scalefact[ia];
+            }
+            boost::math::interpolators::makima<std::vector<double>> dtot_spline(std::move(loga),std::move(delta_tot_k));
+            /**integration kernel for get_delta_nu*/
+            auto get_delta_nu_int = [fs_spline, dtot_spline, params](const double logai) {
+                double fsl_aia = fs_spline(logai);
+                double delta_tot_at_a = dtot_spline(logai);
+                double specJ = specialJ(params.k*fsl_aia/params.mnubykT, params.qc, params.nufrac_low);
+                double ai = exp(logai);
+                return fsl_aia/(ai*hubble_function(params.CP, ai)) * specJ * delta_tot_at_a;
+            };
+            d_nu_tmp = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(get_delta_nu_int, log(d_tot->TimeTransfer), log(a));
             delta_nu_curr[ik] += d_tot->delta_nu_prefac * d_nu_tmp;
          }
-         gsl_integration_workspace_free (w);
-         gsl_interp_free(params.spline);
-         gsl_interp_accel_free(params.acc);
-         myfree(fsscales);
-         myfree(fslengths);
    }
 //     for(ik=0; ik< 3; ik++)
 //         message(0,"k %g d_nu %g\n",wavenum[d_tot->nk/8*ik], delta_nu_curr[d_tot->nk/8*ik]);

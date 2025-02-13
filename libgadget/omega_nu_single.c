@@ -1,20 +1,18 @@
 #include "omega_nu_single.h"
 
-#include <math.h>
-#include <gsl/gsl_integration.h>
-#include <string.h>
+#include <boost/math/quadrature/gauss_kronrod.hpp>
+#include <boost/math/quadrature/tanh_sinh.hpp>
+
 #include "physconst.h"
-#include "utils/mymalloc.h"
 #include "utils/endrun.h"
+#include "timefac.h"
 
 #define HBAR    6.582119e-16  /*hbar in units of eV s*/
 #define STEFAN_BOLTZMANN 5.670373e-5
-/*Size of matter density tables*/
-#define NRHOTAB 200
 /** Floating point accuracy*/
 #define FLOAT_ACC   1e-6
-/** Number of bins in integrations*/
-#define GSL_VAL 200
+/*Size of matter density tables*/
+#define NRHOTAB 200
 
 void init_omega_nu(_omega_nu * omnu, const double MNu[], const double a0, const double HubbleParam, const double tcmb0)
 {
@@ -47,7 +45,7 @@ void init_omega_nu(_omega_nu * omnu, const double MNu[], const double a0, const 
             rho_nu_init(&omnu->RhoNuTab[mi], a0, MNu[mi], omnu->kBtnu);
         }
         else
-            omnu->RhoNuTab[mi].loga = 0;
+            omnu->RhoNuTab[mi].interp = nullptr;
     }
 }
 
@@ -85,17 +83,6 @@ double get_omegag(const _omega_nu * const omnu, const double a)
  * analytic expansion to the numerical integration*/
 #define NU_SW 100
 
-/*Note q carries units of eV/c. kT/c has units of eV/c.
- * M_nu has units of eV  Here c=1. */
-double rho_nu_int(double q, void * params)
-{
-        double amnu = *((double *)params);
-        double kT = *((double *)params+1);
-        double epsilon = sqrt(q*q+amnu*amnu);
-        double f0 = 1./(exp(q/kT)+1);
-        return q*q*epsilon*f0;
-}
-
 /*Get the conversion factor to go from (eV/c)^4 to g/cm^3
  * for a **single** neutrino species. */
 double get_rho_nu_conversion()
@@ -118,7 +105,6 @@ double get_rho_nu_conversion()
 void rho_nu_init(_rho_nu_single * const rho_nu_tab, double a0, const double mnu, const double kBtnu)
 {
      int i;
-     double abserr;
      /* Tabulate to 1e-3, unless earlier requested.
       * Need early times for growth function.*/
      if(a0 > 1e-3)
@@ -129,34 +115,32 @@ void rho_nu_init(_rho_nu_single * const rho_nu_tab, double a0, const double mnu,
      /*Make the table over a slightly wider range than requested, in case there is roundoff error*/
      const double logA0=log(a0)-log(1.2);
      const double logaf=log(NU_SW*kBtnu/mnu)+log(1.2);
-     gsl_function F;
-     F.function = &rho_nu_int;
+
      /*Initialise constants*/
      rho_nu_tab->mnu = mnu;
      /*Shortcircuit if we don't need to do the integration*/
      if(mnu < 1e-6*kBtnu || logaf < logA0)
          return;
 
-     /*Allocate memory for arrays*/
-     rho_nu_tab->loga = (double *) mymalloc("rho_nu_table",2*NRHOTAB*sizeof(double));
-     rho_nu_tab->rhonu = rho_nu_tab->loga+NRHOTAB;
-     rho_nu_tab->acc = gsl_interp_accel_alloc();
-     rho_nu_tab->interp=gsl_interp_alloc(gsl_interp_cspline,NRHOTAB);
-     if(!rho_nu_tab->interp || !rho_nu_tab->acc || !rho_nu_tab->loga)
-         endrun(2035,"Could not initialise tables for neutrino matter density\n");
-
-     gsl_integration_workspace * w = gsl_integration_workspace_alloc (GSL_VAL);
+     std::vector<double> rhonu(NRHOTAB);
+     rho_nu_tab->loga0 = logA0;
+     const double step = (logaf - logA0)/(NRHOTAB - 1);
      for(i=0; i< NRHOTAB; i++){
-        double param[2];
-        rho_nu_tab->loga[i]=logA0+i*(logaf-logA0)/(NRHOTAB-1);
-        param[0]=mnu*exp(rho_nu_tab->loga[i]);
-        param[1] = kBtnu;
-        F.params = &param;
-        gsl_integration_qag (&F, 0, 500*kBtnu,0 , 1e-9,GSL_VAL,6,w,&(rho_nu_tab->rhonu[i]), &abserr);
-        rho_nu_tab->rhonu[i]=rho_nu_tab->rhonu[i]/pow(exp(rho_nu_tab->loga[i]),4)*get_rho_nu_conversion();
+        const double loga=logA0+i*(logaf-logA0)/(NRHOTAB-1);
+        const double amnu = mnu*exp(loga);
+        /*Note q carries units of eV/c. kT/c has units of eV/c.
+         * M_nu has units of eV  Here c=1. */
+        auto rho_nu_int = [amnu, kBtnu](const double q) {
+            double epsilon = sqrt(q*q+amnu*amnu);
+            double f0 = 1./(exp(q/kBtnu)+1);
+            return q*q*epsilon*f0;
+        };
+
+        // Oscillatory integral!
+        double result = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(rho_nu_int, 0, 500 * kBtnu);
+        rhonu[i] = result / pow(exp(loga), 4) * get_rho_nu_conversion();
      }
-     gsl_integration_workspace_free (w);
-     gsl_interp_init(rho_nu_tab->interp,rho_nu_tab->loga,rho_nu_tab->rhonu,NRHOTAB);
+     rho_nu_tab->interp = new boost::math::interpolators::cardinal_cubic_b_spline<double>(rhonu.begin(), rhonu.end(), rho_nu_tab->loga0, step);
      return;
 }
 
@@ -176,7 +160,7 @@ static inline double rel_rho_nu(const double a, const double kT)
 
 /*Finds the physical density in neutrinos for a single neutrino species
   1.878 82(24) x 10-29 h02 g/cm3 = 1.053 94(13) x 104 h02 eV/cm3*/
-double rho_nu(const _rho_nu_single * rho_nu_tab, const double a, const double kT)
+double rho_nu(const _rho_nu_single * const rho_nu_tab, const double a, const double kT)
 {
         double rho_nu_val;
         double amnu=a*rho_nu_tab->mnu;
@@ -197,37 +181,30 @@ double rho_nu(const _rho_nu_single * rho_nu_tab, const double a, const double kT
             const double loga = log(a);
             /* Deal with early time case. In practice no need to be very accurate
              * so assume relativistic.*/
-            if (!rho_nu_tab->loga || loga < rho_nu_tab->loga[0])
+            if (!rho_nu_tab->interp || loga < rho_nu_tab->loga0)
                 rho_nu_val = rel_rho_nu(a,kT);
             else
-                rho_nu_val=gsl_interp_eval(rho_nu_tab->interp,rho_nu_tab->loga,rho_nu_tab->rhonu,loga,rho_nu_tab->acc);
+                rho_nu_val=(*rho_nu_tab->interp)(loga);
         }
         return rho_nu_val;
 }
 
 /*The following function definitions are only used for hybrid neutrinos*/
 
-/*Fermi-Dirac kernel for below*/
-double fermi_dirac_kernel(double x, void * params)
-{
-  return x * x / (exp(x) + 1);
-}
-
 /* Fraction of neutrinos not followed analytically
  * This is integral f_0(q) q^2 dq between 0 and qc to compute the fraction of OmegaNu which is in particles.*/
 double nufrac_low(const double qc)
 {
-    /*These functions are so smooth that we don't need much space*/
-    gsl_integration_workspace * w = gsl_integration_workspace_alloc (100);
-    double abserr;
-    gsl_function F;
-    F.function = &fermi_dirac_kernel;
-    F.params = NULL;
-    double total_fd;
-    gsl_integration_qag (&F, 0, qc, 0, 1e-6,100,GSL_INTEG_GAUSS61, w,&(total_fd), &abserr);
+    /*Fermi-Dirac kernel*/
+    auto fermi_dirac_kernel = [](double x) {
+        return x * x / (exp(x) + 1);
+    };
+    // Use Tanh-Sinh adaptive integration for the Fermi-Dirac kernel
+    boost::math::quadrature::tanh_sinh<double> integrator;
+    // Perform the integration
+    double total_fd = integrator.integrate(fermi_dirac_kernel, 0, qc);
     /*divided by the total F-D probability (which is 3 Zeta(3)/2 ~ 1.8 if MAX_FERMI_DIRAC is large enough*/
     total_fd /= 1.5*1.202056903159594;
-    gsl_integration_workspace_free (w);
     return total_fd;
 }
 

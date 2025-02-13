@@ -1,5 +1,4 @@
-#include <gsl/gsl_integration.h>
-#include <assert.h>
+#include <boost/math/quadrature/gauss_kronrod.hpp>
 #include "thermal.h"
 /*For speed of light*/
 #include <libgadget/physconst.h>
@@ -35,7 +34,7 @@ double WDM_V0(const double Time, const double WDM_therm_mass, const double Omega
 
 /*Fermi-Dirac kernel for below*/
 static double
-fermi_dirac_kernel(double x, void * params)
+fermi_dirac_kernel(double x)
 {
   return x * x / (exp(x) + 1);
 }
@@ -52,24 +51,16 @@ init_thermalvel(struct thermalvel* thermals, const double v_amp, double max_fd,c
         max_fd = MAX_FERMI_DIRAC;
     thermals->m_vamp = v_amp;
 
-    /*These functions are so smooth that we don't need much space*/
-    gsl_integration_workspace * w = gsl_integration_workspace_alloc (100);
-    double abserr;
-    gsl_function F;
-    F.function = &fermi_dirac_kernel;
-    F.params = NULL;
     for(i = 0; i < LENGTH_FERMI_DIRAC_TABLE; i++) {
         thermals->fermi_dirac_vel[i] = min_fd+(max_fd-min_fd)* i / (LENGTH_FERMI_DIRAC_TABLE - 1.0);
-        gsl_integration_qag (&F, min_fd, thermals->fermi_dirac_vel[i], 0, 1e-6,100,GSL_INTEG_GAUSS61, w,&(thermals->fermi_dirac_cumprob[i]), &abserr);
+        thermals->fermi_dirac_cumprob[i] = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(fermi_dirac_kernel, min_fd, thermals->fermi_dirac_vel[i]);
     //       printf("gsl_integration_qng in fermi_dirac_init_nu. Result %g, error: %g, intervals: %lu\n",fermi_dirac_cumprob[i], abserr,w->size);
     }
     /*Save the largest cum. probability, pre-normalisation,
      * divided by the total F-D probability (which is 3 Zeta(3)/2 ~ 1.8 if MAX_FERMI_DIRAC is large enough*/
-    double total_fd;
-    gsl_integration_qag (&F, 0, MAX_FERMI_DIRAC, 0, 1e-6,100,GSL_INTEG_GAUSS61, w,&(total_fd), &abserr);
-    assert(total_fd > 1.8);
-
-    gsl_integration_workspace_free (w);
+    double total_fd = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(fermi_dirac_kernel, 0, MAX_FERMI_DIRAC);
+    if(total_fd < 1.8)
+        endrun(5, "Total fd is %g, < 1.8\n", total_fd);
 
     double total_frac = thermals->fermi_dirac_cumprob[LENGTH_FERMI_DIRAC_TABLE-1]/total_fd;
     //Normalise total integral to unity

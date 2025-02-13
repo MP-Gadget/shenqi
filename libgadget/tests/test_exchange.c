@@ -1,15 +1,6 @@
 /*Simple test for the exchange function*/
-
-#include <stdarg.h>
-#include <stddef.h>
-#include <setjmp.h>
-#include <cmocka.h>
-#include <math.h>
-#include <mpi.h>
-#include <stdio.h>
-#include <string.h>
-#include <time.h>
-#include <gsl/gsl_rng.h>
+#define BOOST_TEST_MODULE exchange
+#include "booststub.h"
 
 #define qsort_openmp qsort
 
@@ -17,7 +8,6 @@
 #include <libgadget/domain.h>
 #include <libgadget/slotsmanager.h>
 #include <libgadget/partmanager.h>
-#include "stub.h"
 #include <libgadget/walltime.h>
 
 int NTask, ThisTask;
@@ -25,13 +15,15 @@ int TotNumPart;
 
 static struct ClockTable Clocks;
 
+#define assert_all_true(x) BOOST_TEST(!MPIU_Any(!x, MPI_COMM_WORLD));
+
 #define NUMPART1 8
 static int
 setup_particles(int64_t NType[6])
 {
     walltime_init(&Clocks);
     MPI_Barrier(MPI_COMM_WORLD);
-    PartManager->MaxPart = 1024;
+    particle_alloc_memory(PartManager, 8, 1024);
     int ptype;
     PartManager->NumPart = 0;
     for(ptype = 0; ptype < 6; ptype ++) {
@@ -39,9 +31,6 @@ setup_particles(int64_t NType[6])
     }
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
     MPI_Comm_size(MPI_COMM_WORLD, &NTask);
-
-    P = (struct particle_data *) mymalloc("P", PartManager->MaxPart * sizeof(struct particle_data));
-    memset(P, 0, sizeof(struct particle_data) * PartManager->MaxPart);
 
     slots_init(0.01 * PartManager->MaxPart, SlotsManager);
     slots_set_enabled(0, sizeof(struct sph_particle_data), SlotsManager);
@@ -56,7 +45,7 @@ setup_particles(int64_t NType[6])
     int i;
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i ++) {
-        P[i].ID = i + PartManager->NumPart * ThisTask;
+        PartManager->Base[i].ID = i + PartManager->NumPart * ThisTask;
     }
 
     slots_setup_id(PartManager, SlotsManager);
@@ -66,16 +55,16 @@ setup_particles(int64_t NType[6])
 }
 
 static int
-teardown_particles(void **state)
+teardown_particles(void)
 {
     int TotNumPart2;
 
     int i;
     int nongarbage = 0, garbage = 0;
     for(i = 0; i < PartManager->NumPart; i ++) {
-        if(!P[i].IsGarbage) {
+        if(!PartManager->Base[i].IsGarbage) {
             nongarbage++;
-            assert_true (P[i].ID % NTask == 1Lu * ThisTask);
+            BOOST_TEST (PartManager->Base[i].ID % NTask == 1Lu * ThisTask);
             continue;
         }
         else
@@ -83,10 +72,10 @@ teardown_particles(void **state)
     }
     message(2, "curpart %d (np %ld) tot %d garbage %d\n", nongarbage, PartManager->NumPart, TotNumPart, garbage);
     MPI_Allreduce(&nongarbage, &TotNumPart2, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-    assert_int_equal(TotNumPart2, TotNumPart);
+    BOOST_TEST(TotNumPart2 == TotNumPart);
 
     slots_free(SlotsManager);
-    myfree(P);
+    myfree(PartManager->Base);
     MPI_Barrier(MPI_COMM_WORLD);
     return 0;
 }
@@ -95,11 +84,10 @@ teardown_particles(void **state)
 static int
 test_exchange_layout_func(int i, const void * userdata)
 {
-    return P[i].ID % NTask;
+    return PartManager->Base[i].ID % NTask;
 }
 
-static void
-test_exchange(void **state)
+BOOST_AUTO_TEST_CASE(test_exchange)
 {
     int64_t newSlots[6] = {NUMPART1, NUMPART1, NUMPART1, NUMPART1, NUMPART1, NUMPART1};
 
@@ -112,12 +100,11 @@ test_exchange(void **state)
     slots_check_id_consistency(PartManager, SlotsManager);
 #endif
     domain_test_id_uniqueness(PartManager);
-    teardown_particles(state);
+    teardown_particles();
     return;
 }
 
-static void
-test_exchange_zero_slots(void **state)
+BOOST_AUTO_TEST_CASE(test_exchange_zero_slots)
 {
     int64_t newSlots[6] = {NUMPART1, 0, NUMPART1, 0, NUMPART1, 0};
 
@@ -131,12 +118,11 @@ test_exchange_zero_slots(void **state)
 #endif
     domain_test_id_uniqueness(PartManager);
 
-    teardown_particles(state);
+    teardown_particles();
     return;
 }
 
-static void
-test_exchange_with_garbage(void **state)
+BOOST_AUTO_TEST_CASE(test_exchange_with_garbage)
 {
     int64_t newSlots[6] = {NUMPART1, NUMPART1, NUMPART1, NUMPART1, NUMPART1, NUMPART1};
 
@@ -152,20 +138,19 @@ test_exchange_with_garbage(void **state)
 #ifdef DEBUG
     slots_check_id_consistency(PartManager, SlotsManager);
 #endif
-    teardown_particles(state);
+    teardown_particles();
     return;
 }
 
 static int
 test_exchange_layout_func_uneven(int i, const void * userdata)
 {
-    if(P[i].Type == 0) return 0;
+    if(PartManager->Base[i].Type == 0) return 0;
 
-    return P[i].ID % NTask;
+    return PartManager->Base[i].ID % NTask;
 }
 
-static void
-test_exchange_uneven(void **state)
+BOOST_AUTO_TEST_CASE(test_exchange_uneven)
 {
     int64_t newSlots[6] = {NUMPART1, NUMPART1, NUMPART1, NUMPART1, NUMPART1, NUMPART1};
 
@@ -179,7 +164,7 @@ test_exchange_uneven(void **state)
 
     if(ThisTask == 0) {
         /* the slot type must have grown automatically to handle the new particles. */
-        assert_int_equal(SlotsManager->info[0].size, NUMPART1 * NTask);
+        BOOST_TEST(SlotsManager->info[0].size == NUMPART1 * NTask);
     }
 
 #ifdef DEBUG
@@ -191,31 +176,21 @@ test_exchange_uneven(void **state)
 
     int nongarbage = 0;
     for(i = 0; i < PartManager->NumPart; i ++) {
-        if(!P[i].IsGarbage) {
+        if(!PartManager->Base[i].IsGarbage) {
             nongarbage++;
-            if(P[i].Type == 0) {
-                assert_true (ThisTask == 0);
+            if(PartManager->Base[i].Type == 0) {
+                BOOST_TEST (ThisTask == 0);
             } else {
-                assert_true(P[i].ID % NTask == 1Lu * ThisTask);
+                BOOST_TEST(PartManager->Base[i].ID % NTask == 1Lu * ThisTask);
             }
             continue;
         }
     }
     MPI_Allreduce(&nongarbage, &TotNumPart2, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-    assert_int_equal(TotNumPart2, TotNumPart);
+    BOOST_TEST(TotNumPart2 == TotNumPart);
 
     slots_free(SlotsManager);
-    myfree(P);
+    myfree(PartManager->Base);
     MPI_Barrier(MPI_COMM_WORLD);
     return;
-}
-
-int main(void) {
-    const struct CMUnitTest tests[] = {
-        cmocka_unit_test(test_exchange_with_garbage),
-        cmocka_unit_test(test_exchange),
-        cmocka_unit_test(test_exchange_zero_slots),
-        cmocka_unit_test(test_exchange_uneven),
-    };
-    return cmocka_run_group_tests_mpi(tests, NULL, NULL);
 }

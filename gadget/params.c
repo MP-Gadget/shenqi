@@ -145,7 +145,7 @@ create_gadget_parameter_set()
     param_declare_double(ps, "DensityResolutionEta", OPTIONAL, 1.0, "Resolution eta factor (See Price 2008) 1 = 33 for Cubic Spline");
 
     param_declare_double(ps, "DensityContrastLimit", OPTIONAL, 100, "Has an effect only if DensityIndepndentSphOn=1. If = 0 enables the grad-h term in the SPH calculation. If > 0 also sets a maximum density contrast for hydro force calculation.");
-    param_declare_double(ps, "MaxNumNgbDeviation", OPTIONAL, 2, "Maximal deviation from the desired number of neighbours for each SPH particle.");
+    param_declare_double(ps, "MaxNumNgbDeviation", OPTIONAL, 0.5, "Maximal deviation from the desired number of neighbours for each SPH particle.");
     param_declare_double(ps, "HydroCostFactor", OPTIONAL, 1, "Unused.");
 
     param_declare_int(ps, "BytesPerFile", OPTIONAL, 1024 * 1024 * 1024, "number of bytes per file");

@@ -59,7 +59,7 @@ struct particle_data
     MyFloat DtHsml;
     MyIDType ID;
     /* FOF Group number: only has meaning during FOF.*/
-    /* Transient but hard to move to private arrays because it needs to 
+    /* Transient but hard to move to private arrays because it needs to
      * travel with the particle during exchange*/
     int64_t GrNr;
     MyFloat Potential;		/* Gravitational potential. This is the total potential only on a PM timestep,
@@ -87,7 +87,7 @@ extern struct part_manager_type {
 } PartManager[1];
 
 /*Compatibility define*/
-#define P PartManager->Base
+#define Part PartManager->Base
 
 /*Allocate memory for the particles*/
 void particle_alloc_memory(struct part_manager_type * PartManager, double BoxSize, int64_t MaxPart);

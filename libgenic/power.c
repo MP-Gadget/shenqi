@@ -3,8 +3,9 @@
 #include <math.h>
 #include <stddef.h>
 #include <mpi.h>
-#include <gsl/gsl_integration.h>
-#include <gsl/gsl_interp.h>
+#include <boost/math/interpolators/makima.hpp>
+#include <boost/math/quadrature/gauss_kronrod.hpp>
+
 #include <bigfile-mpi.h>
 
 #include <libgadget/cosmology.h>
@@ -13,9 +14,9 @@
 #include <libgadget/physconst.h>
 #include "power.h"
 #include "proto.h"
+
 static double Delta_EH(double k);
 static double Delta_Tabulated(double k, enum TransferType Type);
-static double sigma2_int(double k, void * params);
 static double TopHatSigma2(double R);
 static double tk_eh(double k);
 
@@ -36,7 +37,7 @@ struct table
     int Nentry;
     double * logk;
     double * logD[MAXCOLS];
-    gsl_interp * mat_intp[MAXCOLS];
+    boost::math::interpolators::makima<std::vector<double>>* mat_intp[MAXCOLS];
 };
 
 /*Typedef for a function that parses the table from text*/
@@ -66,21 +67,32 @@ double DeltaSpec(double k, enum TransferType Type)
 
 /* Internal helper function that performs interpolation for a row of the
  * tabulated transfer/mater power table*/
-static double get_Tabulated(double k, enum TransferType Type, double oobval)
+static double get_Tabulated(double k, enum TransferType Type)
 {
     /*Convert k to Mpc/h*/
     const double scale = (CM_PER_MPC / UnitLength_in_cm);
-    const double logk = log10(k*scale);
+    double logk = log10(k*scale);
+    double maxlogk = power_table.logk[power_table.Nentry - 1];
+    /* For interpolation*/
+    double intlogk = logk;
 
-    if(logk < power_table.logk[0] || logk > power_table.logk[power_table.Nentry - 1])
-      return oobval;
+    if(logk < power_table.logk[0]-0.1 || logk > maxlogk + 0.25)
+        endrun(6, "Requested k = %g h/Mpc for type %d but power table is from %g to %g h/Mpc\n",
+               pow(10, logk), Type, pow(10, power_table.logk[0]), pow(10, maxlogk));
+    if(logk < power_table.logk[0])
+        intlogk = power_table.logk[0];
+    if(logk > maxlogk)
+        intlogk = maxlogk;
 
-    double logD = gsl_interp_eval(power_table.mat_intp[0], power_table.logk, power_table.logD[0], logk, NULL);
+    double logD = (*power_table.mat_intp[0])(intlogk);
+    /* If we are past the end of the table, assume the power scales like k^-3 log (k) and the transfer function is constant*/
+    if(logk > maxlogk)
+        logD += -3 * (logk - intlogk) + log(logk / intlogk);
     double trans = 1;
     /*Transfer table stores (T_type(k) / T_tot(k))*/
     if(transfer_table.Nentry > 0)
        if(Type >= DELTA_BAR && Type < DELTA_TOT)
-          trans = gsl_interp_eval(transfer_table.mat_intp[Type], transfer_table.logk, transfer_table.logD[Type], logk, NULL);
+          trans = (*transfer_table.mat_intp[Type])(intlogk);
 
     /*Convert delta from (Mpc/h)^3/2 to kpc/h^3/2*/
     logD += 1.5 * log10(scale);
@@ -95,7 +107,7 @@ double Delta_Tabulated(double k, enum TransferType Type)
     if(Type >= VEL_BAR && Type <= VEL_TOT)
         endrun(1, "Velocity Type %d passed to Delta_Tabulated\n", Type);
 
-    return get_Tabulated(k, Type, 0);
+    return get_Tabulated(k, Type);
 }
 
 double dlogGrowth(double kmag, enum TransferType Type)
@@ -106,7 +118,7 @@ double dlogGrowth(double kmag, enum TransferType Type)
     else
         /*Type should be an offset from the first velocity*/
         Type = (enum TransferType) ((int) VEL_BAR + ((int) Type - (int) DELTA_BAR));
-    return get_Tabulated(kmag, Type, 1);
+    return get_Tabulated(kmag, Type);
 }
 
 /*Save a transfer function table to the IC file*/
@@ -321,9 +333,6 @@ void read_power_table(int ThisTask, const char * inputfile, const int ncols, str
     }
 
     MPI_Bcast(out_tab->logk, (ncols+1)*out_tab->Nentry, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    for(j=0; j<ncols; j++) {
-        out_tab->mat_intp[j] = gsl_interp_alloc(gsl_interp_cspline,out_tab->Nentry);
-    }
 }
 
 int
@@ -391,9 +400,13 @@ init_transfer_table(int ThisTask, double InitTime, const struct power_params * c
             meangrowth[t-VEL_BAR]/= nmean;
     }
     /*Initialise the interpolation*/
-    for(t = 0; t < MAXCOLS; t++)
-        gsl_interp_init(transfer_table.mat_intp[t],transfer_table.logk, transfer_table.logD[t],transfer_table.Nentry);
-
+    for(t = 0; t < MAXCOLS; t++) {
+        /* Initialise in here so we can std::move*/
+        std::vector<double> logk(transfer_table.logk, transfer_table.logk+ transfer_table.Nentry);
+        std::vector<double> logD(transfer_table.logD[t], transfer_table.logD[t]+ transfer_table.Nentry);
+        // message(0, "t=%d size = %ld nentry %d\n", t, logD.size(), transfer_table.Nentry);
+        transfer_table.mat_intp[t] = new boost::math::interpolators::makima(std::move(logk), std::move(logD));
+    }
     message(0,"Scale-dependent growth calculated. Mean = %g %g %g %g %g\n",meangrowth[0], meangrowth[1], meangrowth[2], meangrowth[3], meangrowth[4]);
     message(0, "Power spectrum rows: %d, Transfer: %d (%g -> %g)\n", power_table.Nentry, transfer_table.Nentry, transfer_table.logD[DELTA_BAR][0],transfer_table.logD[DELTA_BAR][transfer_table.Nentry-1]);
     return transfer_table.Nentry;
@@ -409,8 +422,9 @@ int init_powerspectrum(int ThisTask, double InitTime, double UnitLength_in_cm_in
 
     if(ppar->WhichSpectrum == 2) {
         read_power_table(ThisTask, ppar->FileWithInputSpectrum, 1, &power_table, InitTime, parse_power);
-        /*Initialise the interpolation*/
-        gsl_interp_init(power_table.mat_intp[0],power_table.logk, power_table.logD[0],power_table.Nentry);
+        std::vector<double> logk(power_table.logk, power_table.logk + power_table.Nentry);
+        std::vector<double> logD(power_table.logD[0], power_table.logD[0]+ power_table.Nentry);
+        power_table.mat_intp[0] = new boost::math::interpolators::makima(std::move(logk), std::move(logD));
         transfer_table.Nentry = 0;
         if(ppar->DifferentTransferFunctions || ppar->ScaleDepVelocity) {
             init_transfer_table(ThisTask, InitTime, ppar);
@@ -477,35 +491,28 @@ double tk_eh(double k)		/* from Martin White */
 
 double TopHatSigma2(double R)
 {
-  gsl_integration_workspace * w = gsl_integration_workspace_alloc (1000);
-  double result,abserr;
-  gsl_function F;
-  F.function = &sigma2_int;
-  F.params = &R;
+    /* Integral is oscillatory but almost zero kr = (n +1/2) pi for odd n. With P(k) ~ n^-3 the integrand is close to zero kr = 20.5 pi */
+    double maxk = M_PI * (20 + 0.5) / R;
+    double maxtabk = pow(10, 0.24 + power_table.logk[power_table.Nentry - 1]);
+    if(maxk > maxtabk)
+        endrun(3, "Trying to do sigma8 integral for rescaling, but need k = %g and largest k in power table is %g\n", maxk, pow(10, power_table.logk[power_table.Nentry - 1]));
 
-  /* note: 500/R is here chosen as integration boundary (infinity) */
-  gsl_integration_qags (&F, 0, 500. / R, 0, 1e-4,1000,w,&result, &abserr);
-/*   printf("gsl_integration_qng in TopHatSigma2. Result %g, error: %g, intervals: %lu\n",result, abserr,w->size); */
-  gsl_integration_workspace_free (w);
-  return result;
-}
+    auto sigma2_int = [R](const double k) {
+        const double kr = R * k;
+        const double kr2 = kr * kr;
+        double w;
+        /*Series expansion; actually good until kr~1*/
+        if(kr < 1e-3)
+            w = 1./3. - kr2/30. +kr2*kr2/840.;
+        else
+            w = 3 * (sin(kr) / kr - cos(kr)) / kr2;
+        const double x = 4 * M_PI / (2 * M_PI * 2 * M_PI * 2 * M_PI) * k * k * w * w * pow(DeltaSpec(k, DELTA_TOT),2);
 
-
-double sigma2_int(double k, void * params)
-{
-  double w, x;
-
-  double r_tophat = *(double *) params;
-  const double kr = r_tophat * k;
-  const double kr2 = kr * kr;
-
-  /*Series expansion; actually good until kr~1*/
-  if(kr < 1e-3)
-      w = 1./3. - kr2/30. +kr2*kr2/840.;
-  else
-      w = 3 * (sin(kr) / kr - cos(kr)) / kr2;
-  x = 4 * M_PI / (2 * M_PI * 2 * M_PI * 2 * M_PI) * k * k * w * w * pow(DeltaSpec(k, DELTA_TOT),2);
-
-  return x;
-
+        return x;
+    };
+    // Mink is just the usual boundary of class tables
+    // Perform Gauss-Kronrod adaptive integration. Note this is an oscillatory integral so we should not use tanh_sinh.
+    const double result = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(sigma2_int, 2e-5, maxk);
+    /*   printf("integration in TopHatSigma2. Result %g, error: %g, intervals: %lu\n",result, abserr,w->size); */
+    return result;
 }

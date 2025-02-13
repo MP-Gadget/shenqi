@@ -8,5 +8,4 @@ OPTIMIZE =-fopenmp -O3 -g -Wall -xCORE-AVX512 -fp-model fast=1 -ipo -qopt-mem-la
 #OPTIMIZE =  -fopenmp -O0 -g -Wall -Zp16
 
 #--------------------------------------- Basic operation mode of code
-#OPT += -DVALGRIND     # allow debugging with valgrind, disable the GADGET memory allocator.
 #OPT += -DDEBUG      # print a lot of debugging messages
