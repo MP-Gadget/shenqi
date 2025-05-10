@@ -62,9 +62,7 @@ GADGET_OBJS =  \
 	 neutrinos_lra.o \
      omega_nu_single.o \
 	 config.o \
-	 uvbg.o \
-	 plane.o\
-	 lenstools.o
+	 plane.o 
 
 GADGET_UTILS_OBJS= \
 utils/endrun.o \
