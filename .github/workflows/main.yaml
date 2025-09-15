@@ -47,7 +47,7 @@ jobs:
         make test
     - name: Install python packages for make_class_power
       run: |
-        sudo pip install classy bigfile
+        sudo pip install classy==3.3.1 bigfile
     - name: examples/travis
       run: |
         cd examples/travis
