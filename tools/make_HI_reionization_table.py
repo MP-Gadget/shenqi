@@ -47,6 +47,7 @@ HubbleParam = float(0,2)
 Redshift = float(0,1100)
 Sigma8 = float(default=-1)
 Seed = integer(min=0)
+InvertPhase = integer(default=0)
 InputPowerRedshift = float(default=-1)
 DifferentTransferFunctions = integer(0,1, default=1)
 UnitLength_in_cm  = float(default=3.085678e21)
@@ -83,22 +84,23 @@ def Bofk(k):
     ans =  b0/pow(1 + (k/k0),al)
     return ans
 
-def get_lpt(pm,z, cosmology, seed):
+def get_lpt(pm,z, cosmology, seed, unitary=False, invertphase=False):
     """Evolve the linear power using a 2LPT solver,
        so we get a good model of the density structure at the reionization redshift."""
     a = 1/(1+z)
     Plin = LinearPower(cosmology, redshift=0, transfer='EisensteinHu')
     solver = Solver(pm, cosmology, B=1)
-    Q = pm.generate_uniform_particle_grid()
+    Q = pm.generate_uniform_particle_grid(shift=0.5)
 
-    wn = solver.whitenoise(seed)
+    wn = pm.generate_whitenoise(seed, type='complex', unitary=unitary, invertphase=invertphase)
+
     dlin = solver.linear(wn, Plin)
 
     state = solver.lpt(dlin, Q, a=a, order=2)
 
     return state
 
-def generate_zreion_file(paramfile, output, redshift, resolution):
+def generate_zreion_file(paramfile, output, redshift, resolution, ignoreunitary=False):
     """Do the work and output the file.
     This reads parameters from the MP-GenIC paramfile, generates a table of patchy reionization redshifts, and saves it.
     This table can be read by MP-Gadget. The core of the method is a correlation between large-scale overdensity and
@@ -141,7 +143,10 @@ def generate_zreion_file(paramfile, output, redshift, resolution):
     mnu = numpy.array([config["MNue"], config["MNum"], config["MNut"]])
     omegacdm = config["Omega0"] - config["OmegaBaryon"] - numpy.sum(mnu)/93.14/config["HubbleParam"]**2
     cosmo = Cosmology(h=config["HubbleParam"],Omega0_cdm=omegacdm,T0_cmb=config["CMBTemperature"])
-    state = get_lpt(pm,Redshift, cosmo, config["Seed"])
+    unitary = False
+    if not ignoreunitary:
+        unitary = config["Unitary"]
+    state = get_lpt(pm,Redshift, cosmo, config["Seed"], unitary=unitary, invertphase=config["InvertPhase"])
     real = state.to_mesh()
 
     logger.info("field painted")
@@ -204,7 +209,8 @@ if __name__ == '__main__':
     ap.add_argument("--genic", help="Name of genic parameter file to read for cosmology and box size", required=True)
     ap.add_argument("--resolution", type=float, default=1.0, help='Resolution of the reionization field in Mpc/h. 1 Mpc is the value from Battaglia 2013')
     ap.add_argument("--redshift",type=float,default=7.5,help='median redshift of reionisation')
+    ap.add_argument("--ignoreunitary", type=bool, default=0, help="Ignore the Unitary parameter in the GenIC config file. This is for compatibility. It restores behaviour from before 9/2025.")
     ns = ap.parse_args()
     logging.basicConfig(level=logging.INFO)
 
-    generate_zreion_file(output=ns.output, paramfile = ns.genic, resolution=ns.resolution, redshift = ns.redshift)
+    generate_zreion_file(output=ns.output, paramfile = ns.genic, resolution=ns.resolution, redshift = ns.redshift, ignoreunitary = ns.ignoreunitary)
