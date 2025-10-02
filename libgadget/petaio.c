@@ -317,6 +317,9 @@ petaio_read_snapshot(int num, const char * OutputDir, Cosmology * CP, struct hea
                 keep |= (0 == strcmp(IOTable->ent[i].name, "BlackholeMass"));
                 keep |= (0 == strcmp(IOTable->ent[i].name, "MinPotPos"));
             }
+            /* Some IC codes may set the gas particle mass directly, rather than in the header*/
+            if(ptype == 0 && header->MassTable[ptype] <= 0)
+                keep |= (0 == strcmp(IOTable->ent[i].name, "Mass"));
             if(!keep) continue;
         }
         if(IOTable->ent[i].setter == NULL) {
