@@ -245,13 +245,13 @@ int main(int argc, char **argv)
   message(0, "IC's generated.\n");
   message(0, "Initial scale factor = %g\n", All2.TimeIC);
 
-  print_spec(ThisTask, All2.Nmesh, All2, &CP);
+  print_spec(ThisTask, NumPartCDM, All2, &CP);
 
   MPI_Finalize();		/* clean up & finalize MPI */
   return 0;
 }
 
-void print_spec(int ThisTask, const int Nmesh, struct genic_config All2, Cosmology * CP)
+void print_spec(int ThisTask, const int NumPart, struct genic_config All2, Cosmology * CP)
 {
   if(ThisTask == 0)
     {
@@ -272,7 +272,7 @@ void print_spec(int ThisTask, const int Nmesh, struct genic_config All2, Cosmolo
       /* print actual starting redshift and linear growth factor for this cosmology */
       double scale =  (CM_PER_MPC / All2.units.UnitLength_in_cm);
       kstart = 2 * M_PI / (2*All2.BoxSize);	/* 2x box size Mpc/h */
-      kend = 2 * M_PI / (All2.BoxSize/(sqrt(3)*Nmesh));	/* smallest power mode in sim*/
+      kend = 2 * M_PI / (All2.BoxSize/(NumPart));	/* smallest power mode in sim*/
 
       message(1,"kstart=%lg kend=%lg (h/Mpc)\n",kstart * scale,kend * scale);
 
