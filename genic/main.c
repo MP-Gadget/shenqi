@@ -245,7 +245,7 @@ int main(int argc, char **argv)
   message(0, "IC's generated.\n");
   message(0, "Initial scale factor = %g\n", All2.TimeIC);
 
-  print_spec(ThisTask, NumPartCDM, All2, &CP);
+  print_spec(ThisTask, All2.Ngrid, All2, &CP);
 
   MPI_Finalize();		/* clean up & finalize MPI */
   return 0;
