@@ -7,11 +7,11 @@
 #include "libgadget/petapm.h"
 
 typedef struct IDGenerator {
-    int size[3];
-    int offset[3];
-    int Ngrid;
+    int64_t size[3];
+    int64_t offset[3];
+    int64_t Ngrid;
     double BoxSize;
-    int NumPart;
+    int64_t NumPart;
 } IDGenerator;
 
 void
