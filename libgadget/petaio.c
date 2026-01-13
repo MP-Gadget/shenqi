@@ -127,7 +127,7 @@ petaio_build_selection(int * selection,
 
     #pragma omp parallel for reduction(+: ptype_count[:6])
     for(i = 0; i < NumPart; i ++) {
-        if(P[i].IsGarbage)
+        if(Parts[i].IsGarbage)
             continue;
         if((select_func == NULL) || (select_func(i, Parts) != 0)) {
             int ptype = Parts[i].Type;
@@ -144,7 +144,7 @@ petaio_build_selection(int * selection,
     ptype_count[5] = 0;
     for(i = 0; i < NumPart; i ++) {
         int ptype = Parts[i].Type;
-        if(P[i].IsGarbage)
+        if(Parts[i].IsGarbage)
             continue;
         if((select_func == NULL) || (select_func(i, Parts) != 0)) {
             selection[ptype_offset[ptype] + ptype_count[ptype]] = i;
