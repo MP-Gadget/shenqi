@@ -127,8 +127,8 @@ int main(int argc, char **argv)
   idgen_init(idgen_cdm, pm, All2.Ngrid, All2.BoxSize);
   idgen_init(idgen_gas, pm, All2.NgridGas, All2.BoxSize);
 
-  int NumPartCDM = idgen_cdm->NumPart;
-  int NumPartGas = idgen_gas->NumPart;
+  int64_t NumPartCDM = idgen_cdm->NumPart;
+  int64_t NumPartGas = idgen_gas->NumPart;
 
   /*Space for both CDM and baryons*/
   struct ic_part_data * ICP = (struct ic_part_data *) mymalloc("PartTable", (NumPartCDM + All2.ProduceGas * NumPartGas)*sizeof(struct ic_part_data));
@@ -155,7 +155,7 @@ int main(int argc, char **argv)
   }
 
   /*Write initial positions into ICP struct (for CDM and gas)*/
-  int j,k;
+  int64_t j,k;
   for(j=0; j<NumPartCDM+NumPartGas; j++)
       for(k=0; k<3; k++)
           ICP[j].PrePos[k] = ICP[j].Pos[k];
@@ -165,7 +165,7 @@ int main(int argc, char **argv)
 
     /*Add a thermal velocity to WDM particles*/
     if(All2.WDM_therm_mass > 0){
-        int i;
+        int64_t i;
         double v_th = WDM_V0(All2.TimeIC, All2.WDM_therm_mass, CP.Omega0 - CP.OmegaBaryon - get_omega_nu(&CP.ONu, 1), CP.HubbleParam, All2.units.UnitVelocity_in_cm_per_s);
         if(!All2.UsePeculiarVelocity)
            v_th /= sqrt(All2.TimeIC);
@@ -201,11 +201,11 @@ int main(int argc, char **argv)
 
   /*Now add random velocity neutrino particles*/
   if(All2.NGridNu > 0) {
-      int i;
+      int64_t i;
       IDGenerator idgen_nu[1];
       idgen_init(idgen_nu, pm, All2.NGridNu, All2.BoxSize);
 
-      int NumPartNu = idgen_nu->NumPart;
+      int64_t NumPartNu = idgen_nu->NumPart;
       ICP = (struct ic_part_data *) mymalloc("PartTable", NumPartNu*sizeof(struct ic_part_data));
 
       NumPartNu = setup_grid(idgen_nu, shift_nu, mass[2], ICP);
