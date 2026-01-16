@@ -758,7 +758,14 @@ starformation(int i, double *localsfr, MyFloat * sm_out, MyFloat * sum_sm, MyFlo
     *sum_sm += dM;
 
     /* convert to Solar per Year: this is dM_* / dt = p_* M_* / dt ~ smr when smr << 1 */
-    SPHP(i).Sfr = dM /dtime * sfr_params.UnitSfr_in_solar_per_year;
+    if(dtime > 0) {
+        SPHP(i).Sfr = dM / dtime * sfr_params.UnitSfr_in_solar_per_year;
+    } else {
+        /* At the final sync point Dloga_interval_ti==0 so dtime can be zero.
+         * Use the dtime->0 limit to avoid NaNs in the last snapshot. */
+        SPHP(i).Sfr = smr * sfr_params.UnitSfr_in_solar_per_year;
+    }
+
     SPHP(i).Ne = sfr_data.ne;
     *localsfr += SPHP(i).Sfr;
 
