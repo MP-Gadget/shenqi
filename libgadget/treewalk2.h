@@ -62,24 +62,93 @@ struct data_index
     int NodeList[NODELISTLENGTH];
 };
 
-struct LocalTreeWalk {
-    int mode; /* 0 for Primary, 1 for Secondary */
-    int target; /* defined only for primary (mode == 0) */
+template <typename NgbIterType = TreeWalkNgbIterBase> class LocalTreeWalk
+{
+public:
 
-    /* Thread local export variables*/
+    const int mode; /* 0 for Primary, 1 for Secondary */
+    int target; /* Current particle, defined only for primary (mode == TREEWALK_PRIMARY) */
+    /* Interaction counters */
+    int64_t maxNinteractions;
+    int64_t minNinteractions;
+    int64_t Ninteractions;
+    /* Current number of exports from this chunk*/
     size_t Nexport;
+
+    /* Constructor from treewalk */
+    LocalTreeWalk(const int i_mode, const ForceTree * const i_tree, const char * const i_ev_label, const size_t query_type_elsize, const size_t result_type_elsize, int * Ngblist, data_index ** ExportTable_thread);
+
+    /**
+     * Neighbour iteration function - called for each particle pair.
+     * Override when using ngbiter-based visits.
+     *
+     * @param input  Query data
+     * @param output Result accumulator
+     * @param iter   Neighbour iterator with distance info
+     * @param lv     Thread-local walk state
+     */
+    virtual void ngbiter(TreeWalkQueryBase * input, TreeWalkResultBase * output, NgbIterType iter) {};
+
+    /**
+     * Visit function - called between a tree node and a particle.
+     * Override this to implement custom tree traversal logic.
+     * Default implementation calls treewalk_visit_ngbiter.
+     *
+     * @param input  Query data for the particle
+     * @param output Result accumulator
+     * @param lv     Thread-local walk state
+     * @return 0 on success, -1 if export buffer is full
+     */
+    virtual int visit(TreeWalkQueryBase * input, TreeWalkResultBase * output);
+
+    /* Wrapper of the regular particle visit with some extra cleanup of the particle export table for the toptree walk */
+    int toptree_visit(TreeWalkQueryBase * input, TreeWalkResultBase * output);
+
+    /*****
+     * Variant of ngbiter that doesn't use the Ngblist.
+     * The ngblist is generally preferred for memory locality reasons and
+     * to avoid particles being partially evaluated
+     * twice if the buffer fills up. Use this variant if the evaluation
+     * wants to change the search radius, such as for knn algorithms
+     * or some density code. Don't use it if the treewalk modifies other particles.
+     * */
+    int visit_nolist_ngbiter(TreeWalkQueryBase * input, TreeWalkResultBase * output);
+
+    int ngb_treefind_threads(TreeWalkQueryBase * I, TreeWalkNgbIterBase * iter, int startnode);
+
+private:
+    /* Adds a remote tree node to the export list for this particle.
+    returns -1 if the buffer is full. */
+    int export_particle(int no);
+
+    void
+    treewalk_add_counters(const int64_t ninteractions)
+    {
+        if(maxNinteractions < ninteractions)
+            maxNinteractions = ninteractions;
+        if(minNinteractions > ninteractions)
+            minNinteractions = ninteractions;
+        Ninteractions += ninteractions;
+    }
+
+    /* A pointer to the force tree structure to walk.*/
+    const ForceTree * const tree;
+
+    int * ngblist;
+
+    /* name of the evaluator (used in printing messages) */
+    const char * ev_label;
+
     /* Number of entries in the export table for this particle*/
     size_t NThisParticleExport;
     /* Index to use in the current node list*/
     size_t nodelistindex;
     /* Pointer to memory for exports*/
     data_index * DataIndexTable;
-
-    int * ngblist;
-    int64_t maxNinteractions;
-    int64_t minNinteractions;
-    int64_t Ninteractions;
+    /* Number of particles we can fit into the export buffer*/
+    const size_t BunchSize;
 };
+
 
 /**
  * TreeWalk - Base class for tree-based particle interactions.
@@ -109,7 +178,6 @@ public:
 
     size_t query_type_elsize;
     size_t result_type_elsize;
-    size_t ngbiter_type_elsize;
 
     /* Set to true if haswork() is overridden to do actual filtering.
      * Used to optimize queue building when haswork always returns true. */
@@ -157,8 +225,6 @@ public:
     data_index ** ExportTable_thread;
     /* Flags that our export buffer is full*/
     int BufferFullFlag;
-    /* Number of particles we can fit into the export buffer*/
-    size_t BunchSize;
     /* List of neighbour candidates.*/
     int *Ngblist;
     /* Flag not allocating neighbour list*/
@@ -191,14 +257,13 @@ public:
         use_openmp_target(0),
         query_type_elsize(0),
         result_type_elsize(0),
-        ngbiter_type_elsize(0),
         haswork_defined(false),
         NThread(0),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
         Nlistprimary(0), Nexport_sum(0), Nexportfull(0), NExportTargets(0), Niteration(0),
         maxNinteractions(0), minNinteractions(0), Ninteractions(0),
         Nexport_thread(nullptr), QueueChunkRestart(nullptr), QueueChunkEnd(nullptr),
-        ExportTable_thread(nullptr), BufferFullFlag(0), BunchSize(0),
+        ExportTable_thread(nullptr), BufferFullFlag(0),
         Ngblist(nullptr), NoNgblist(0), work_set_stolen_from_active(0),
         WorkSetStart(0), WorkSet(nullptr), WorkSetSize(0),
         NPLeft(nullptr), NPRedo(nullptr), Redo_thread_alloc(0),
@@ -227,28 +292,6 @@ public:
     void build_queue(int * active_set, const size_t size, int may_have_garbage);
 
     /* ===== Virtual callback methods ===== */
-
-    /**
-     * Visit function - called between a tree node and a particle.
-     * Override this to implement custom tree traversal logic.
-     * Default implementation calls treewalk_visit_ngbiter.
-     *
-     * @param input  Query data for the particle
-     * @param output Result accumulator
-     * @param lv     Thread-local walk state
-     * @return 0 on success, -1 if export buffer is full
-     */
-    virtual int visit(TreeWalkQueryBase * input, TreeWalkResultBase * output, LocalTreeWalk * lv);
-
-    /*****
-     * Variant of ngbiter that doesn't use the Ngblist.
-     * The ngblist is generally preferred for memory locality reasons and
-     * to avoid particles being partially evaluated
-     * twice if the buffer fills up. Use this variant if the evaluation
-     * wants to change the search radius, such as for knn algorithms
-     * or some density code. Don't use it if the treewalk modifies other particles.
-     * */
-    int visit_nolist_ngbiter(TreeWalkQueryBase * I, TreeWalkResultBase * O, LocalTreeWalk * lv);
 
     /**
      * Check if a particle should be processed in this tree walk.
@@ -281,18 +324,6 @@ public:
     virtual void reduce(const int j, TreeWalkResultBase * result, const TreeWalkReduceMode mode) {}
 
     /**
-     * Neighbour iteration function - called for each particle pair.
-     * Override when using ngbiter-based visits.
-     *
-     * @param input  Query data
-     * @param output Result accumulator
-     * @param iter   Neighbour iterator with distance info
-     * @param lv     Thread-local walk state
-     */
-    virtual void ngbiter(TreeWalkQueryBase * input, TreeWalkResultBase * output,
-                         TreeWalkNgbIterBase * iter, LocalTreeWalk * lv) {}
-
-    /**
      * Postprocess - finalize quantities after tree walk completes.
      * Override to normalize results, compute derived quantities, etc.
      *
@@ -314,8 +345,6 @@ public:
         void ev_finish(void);
         void ev_primary(void);
         struct CommBuffer ev_secondary(struct CommBuffer * imports, struct ImpExpCounts* counts);
-        /*returns -1 if the buffer is full */
-        int export_particle(LocalTreeWalk * lv, int no);
         struct ImpExpCounts ev_export_import_counts(MPI_Comm comm);
         void ev_send_recv_export_import(struct ImpExpCounts * counts, struct CommBuffer * exports, struct CommBuffer * imports);
         void ev_recv_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts);
@@ -324,11 +353,6 @@ public:
         void alloc_export_memory(void);
         void free_export_memory(void);
         void wait_commbuffer(struct CommBuffer * buffer);
-        int ngb_treefind_threads(TreeWalkQueryBase * I,
-                TreeWalkNgbIterBase * iter,
-                int startnode,
-                LocalTreeWalk * lv);
-
 
         /* Print some counters for a completed treewalk*/
         void print_stats();
@@ -348,9 +372,6 @@ void set_treewalk_params(ParameterSet * ps);
 
 /* This function find the closest index in the multi-evaluation list of hsml and numNgb, update left and right bound, and return the new hsml */
 double ngb_narrow_down(double *right, double *left, const double *radius, const double *numNgb, int maxcmpt, int desnumngb, int *closeidx, double BoxSize);
-
-/* Increment some counters in the ngbiter function*/
-void treewalk_add_counters(LocalTreeWalk * lv, const int64_t ninteractions);
 
 /* Change the size of the export buffer, for tests*/
 void treewalk_set_max_export_buffer(size_t maxbuf);
