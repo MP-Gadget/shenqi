@@ -73,10 +73,10 @@ size_t compute_bunchsize(const size_t query_type_elsize, const size_t result_typ
 static TreeWalk * GDB_current_ev = NULL;
 #endif
 
-template <typename NgbIterType>
-LocalTreeWalk<NgbIterType>::LocalTreeWalk(const int i_mode, const ForceTree * const i_tree, const char * const i_ev_label, const size_t query_type_elsize, const size_t result_type_elsize, int * Ngblist, data_index ** ExportTable_thread):
+template <typename NgbIterType,typename QueryType,typename ResultType>
+LocalTreeWalk<NgbIterType, QueryType, ResultType>::LocalTreeWalk(const int i_mode, const ForceTree * const i_tree, const char * const i_ev_label, int * Ngblist, data_index ** ExportTable_thread):
  mode(i_mode), maxNinteractions(0), minNinteractions(1L<<45), Ninteractions(0), Nexport(0), tree(i_tree), ev_label(i_ev_label),
- BunchSize(compute_bunchsize(query_type_elsize, result_type_elsize, i_ev_label))
+ BunchSize(compute_bunchsize(sizeof(QueryType), sizeof(ResultType), i_ev_label))
 {
     const size_t thread_id = omp_get_thread_num();
     NThisParticleExport = 0;
@@ -259,7 +259,7 @@ TreeWalk::ev_primary(void)
 #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
     {
         /* Note: exportflag is local to each thread */
-        LocalTreeWalk<> lv(TREEWALK_PRIMARY, tree, ev_label, query_type_elsize, result_type_elsize, Ngblist, ExportTable_thread);
+        LocalTreeWalk<> lv(TREEWALK_PRIMARY, tree, ev_label, Ngblist, ExportTable_thread);
 
         /* use old index to recover from a buffer overflow*/;
         TreeWalkQueryBase * input = (TreeWalkQueryBase *) alloca(query_type_elsize);
@@ -307,8 +307,8 @@ int TreeWalk::ev_ndone(MPI_Comm comm)
  * This can also be called from a nonthreaded code
  *
  * */
-template <typename NgbIterType>
-int LocalTreeWalk<NgbIterType>::export_particle(int no)
+template <typename NgbIterType, typename QueryType, typename ResultType>
+int LocalTreeWalk<NgbIterType, QueryType, ResultType>::export_particle(const int no)
 {
     if(mode != TREEWALK_TOPTREE || no < tree->lastnode) {
         endrun(1, "Called export not from a toptree.\n");
@@ -355,8 +355,8 @@ int LocalTreeWalk<NgbIterType>::export_particle(int no)
 }
 
 /* Do the regular particle visit with some extra cleanup of the particle export table for the toptree walk */
-template <typename NgbIterType>
-int LocalTreeWalk<NgbIterType>::toptree_visit(TreeWalkQueryBase * input, TreeWalkResultBase * output)
+template <typename NgbIterType, typename QueryType, typename ResultType>
+int LocalTreeWalk<NgbIterType, QueryType, ResultType>::toptree_visit(QueryType * input, ResultType * output)
 {
     /* Reset the number of exported particles.*/
     NThisParticleExport = 0;
@@ -419,7 +419,7 @@ TreeWalk::ev_toptree()
 
 #pragma omp parallel reduction(+: BufferFullFlag)
     {
-        LocalTreeWalk<> lv(TREEWALK_TOPTREE, tree, ev_label, query_type_elsize, result_type_elsize, Ngblist, ExportTable_thread);
+        LocalTreeWalk<> lv(TREEWALK_TOPTREE, tree, ev_label, Ngblist, ExportTable_thread);
         /* Signals a full export buffer on this thread*/
         int BufferFull_thread = 0;
         const int tid = omp_get_thread_num();
@@ -630,7 +630,7 @@ struct CommBuffer TreeWalk::ev_secondary(struct CommBuffer * imports, struct Imp
             #pragma omp parallel
                 {
                     int64_t j;
-                    LocalTreeWalk<> lv(TREEWALK_GHOSTS, tree, ev_label, query_type_elsize, result_type_elsize, Ngblist, ExportTable_thread);
+                    LocalTreeWalk<> lv(TREEWALK_GHOSTS, tree, ev_label, Ngblist, ExportTable_thread);
                     #pragma omp for
                     for(j = 0; j < nimports_task; j++) {
                         TreeWalkQueryBase * input = (TreeWalkQueryBase *) (databufstart + j * query_type_elsize);
@@ -905,10 +905,9 @@ TreeWalk::run(int * active_set, size_t size)
  * The callback function shall initialize the interator with Hsml, mask, and symmetric.
  *
  *****/
-template <typename NgbIterType>
-int LocalTreeWalk<NgbIterType>::visit(TreeWalkQueryBase * I, TreeWalkResultBase * O)
+template <typename NgbIterType, typename QueryType, typename ResultType>
+int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(QueryType * I, ResultType * O)
 {
-
     NgbIterType iter;
 
     /* Kick-start the iteration with other == -1 */
@@ -990,13 +989,13 @@ int LocalTreeWalk<NgbIterType>::visit(TreeWalkQueryBase * I, TreeWalkResultBase 
  * Returns 0 if the node has no business with this query.
  */
 static int
-cull_node(const TreeWalkQueryBase * const I, const TreeWalkNgbIterBase * const iter, const struct NODE * const current, const double BoxSize)
+cull_node(const double * const Pos, const double BoxSize, const double Hsml, const NgbTreeFindSymmetric symmetric, const struct NODE * const current)
 {
     double dist;
-    if(iter->symmetric == NGB_TREEFIND_SYMMETRIC) {
-        dist = DMAX(current->mom.hmax, iter->Hsml) + 0.5 * current->len;
+    if(symmetric == NGB_TREEFIND_SYMMETRIC) {
+        dist = DMAX(current->mom.hmax, Hsml) + 0.5 * current->len;
     } else {
-        dist = iter->Hsml + 0.5 * current->len;
+        dist = Hsml + 0.5 * current->len;
     }
 
     double r2 = 0;
@@ -1004,7 +1003,7 @@ cull_node(const TreeWalkQueryBase * const I, const TreeWalkNgbIterBase * const i
     /* do each direction */
     int d;
     for(d = 0; d < 3; d ++) {
-        dx = NEAREST(current->center[d] - I->Pos[d], BoxSize);
+        dx = NEAREST(current->center[d] - Pos[d], BoxSize);
         if(dx > dist) return 0;
         if(dx < -dist) return 0;
         r2 += dx * dx;
@@ -1030,9 +1029,9 @@ cull_node(const TreeWalkQueryBase * const I, const TreeWalkNgbIterBase * const i
  * iter->base.other, iter->base.dist iter->base.r2, iter->base.r, are properly initialized.
  *
  * */
- template <typename NgbIterType>
- int LocalTreeWalk<NgbIterType>::ngb_treefind_threads(TreeWalkQueryBase * I,
-        TreeWalkNgbIterBase * iter,
+ template <typename NgbIterType, typename QueryType, typename ResultType>
+ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::ngb_treefind_threads(QueryType * I,
+        NgbIterType * iter,
         int startnode)
 {
     int no;
@@ -1065,8 +1064,7 @@ cull_node(const TreeWalkQueryBase * const I, const TreeWalkNgbIterBase * const i
             }
         }
 
-        /* Cull the node */
-        if(0 == cull_node(I, iter, current, BoxSize)) {
+        if(0 == cull_node(I->Pos, BoxSize, iter->Hsml, iter->symmetric, current)) {
             /* in case the node can be discarded */
             no = current->sibling;
             continue;
@@ -1124,9 +1122,8 @@ cull_node(const TreeWalkQueryBase * const I, const TreeWalkNgbIterBase * const i
  * wants to change the search radius, such as for knn algorithms
  * or some density code. Don't use it if the treewalk modifies other particles.
  * */
- template <typename NgbIterType>
- int LocalTreeWalk<NgbIterType>::visit_nolist_ngbiter(TreeWalkQueryBase * I,
-            TreeWalkResultBase * O)
+ template <typename NgbIterType, typename QueryType, typename ResultType>
+ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit_nolist_ngbiter(QueryType * I, ResultType * O)
 {
     NgbIterType iter;
     /* Kick-start the iteration with other == -1 */
@@ -1157,7 +1154,7 @@ cull_node(const TreeWalkQueryBase * const I, const TreeWalkNgbIterBase * const i
             }
 
             /* Cull the node */
-            if(0 == cull_node(I, iter, current, BoxSize)) {
+            if(0 == cull_node(I->Pos, BoxSize, iter->Hsml, iter->symmetric, current)) {
                 /* in case the node can be discarded */
                 no = current->sibling;
                 continue;
@@ -1407,7 +1404,7 @@ ngb_narrow_down(double *right, double *left, const double *radius, const double 
 }
 
 void
-TreeWalk::print_stats()
+TreeWalk::print_stats(void)
 {
     int64_t o_NExportTargets;
     int64_t o_minNinteractions, o_maxNinteractions, o_Ninteractions, o_Nlistprimary, Nexport;
