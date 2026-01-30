@@ -618,87 +618,80 @@ TreeWalk<NgbIterType, QueryType, ResultType>::run(int * active_set, size_t size)
     tstart = second();
     ev_begin(active_set, size);
 
-    {
-        int64_t i;
-        #pragma omp parallel for
-        for(i = 0; i < WorkSetSize; i ++) {
-            const int p_i = WorkSet ? WorkSet[i] : i;
-            preprocess(p_i);
-        }
+    int64_t i;
+    #pragma omp parallel for
+    for(i = 0; i < WorkSetSize; i ++) {
+        const int p_i = WorkSet ? WorkSet[i] : i;
+        preprocess(p_i);
     }
 
     tend = second();
     timecomp3 += timediff(tstart, tend);
 
+    Nexportfull = 0;
+    Nexport_sum = 0;
+    Ninteractions = 0;
+    int Ndone = 0;
+    /* Needs to be outside loop because it allocates restart information*/
+    alloc_export_memory();
+    do
     {
-        Nexportfull = 0;
-        Nexport_sum = 0;
-        Ninteractions = 0;
-        int Ndone = 0;
-        /* Needs to be outside loop because it allocates restart information*/
-        alloc_export_memory();
-        do
-        {
-            tstart = second();
-            /* First do the toptree and export particles for sending.*/
-            ev_toptree();
-            /* All processes sync via alltoall.*/
-            struct ImpExpCounts counts = ev_export_import_counts(MPI_COMM_WORLD);
-            Ndone = ev_ndone(MPI_COMM_WORLD);
-            /* Send the exported particle data */
-            struct CommBuffer exports = {0}, imports = {0};
-            /* exports is allocated first, then imports*/
-            ev_send_recv_export_import(&counts, &exports, &imports);
-            tend = second();
-            timecomp0 += timediff(tstart, tend);
-            /* Only do this on the first iteration, as we only need to do it once.*/
-            tstart = second();
-            if(Nexportfull == 0)
-                ev_primary(); /* do local particles and prepare export list */
-            tend = second();
-            timecomp1 += timediff(tstart, tend);
-            /* Do processing of received particles. We implement a queue that
-             * checks each incoming task in turn and processes them as they arrive.*/
-            tstart = second();
-            /* Posts recvs to get the export results (which are sent in ev_secondary).*/
-            struct CommBuffer res_exports = {0};
-            ev_recv_export_result(&res_exports, &counts);
-            struct CommBuffer res_imports = ev_secondary(&imports, &counts);
-            // report_memory_usage(ev_label);
-            free_commbuffer(&imports);
-            tend = second();
-            timecomp2 += timediff(tstart, tend);
-            /* Now clear the sent data buffer, waiting for the send to complete.
-             * This needs to be after the other end has called recv.*/
-            tstart = second();
-            wait_commbuffer(&res_exports);
-            tend = second();
-            timewait1 += timediff(tstart, tend);
-            tstart = second();
-            ev_reduce_export_result(&res_exports, &counts);
-            wait_commbuffer(&exports);
-            free_commbuffer(&exports);
-            wait_commbuffer(&res_imports);
-            tend = second();
-            timecommsumm += timediff(tstart, tend);
-            free_commbuffer(&res_imports);
-            free_commbuffer(&res_exports);
-            free_impexpcount(&counts);
-            /* Free export memory*/
-            Nexportfull++;
-            /* Note there is no sync at the end!*/
-        } while(Ndone < NTask);
-        free_export_memory();
-    }
+        tstart = second();
+        /* First do the toptree and export particles for sending.*/
+        ev_toptree();
+        /* All processes sync via alltoall.*/
+        struct ImpExpCounts counts = ev_export_import_counts(MPI_COMM_WORLD);
+        Ndone = ev_ndone(MPI_COMM_WORLD);
+        /* Send the exported particle data */
+        struct CommBuffer exports = {0}, imports = {0};
+        /* exports is allocated first, then imports*/
+        ev_send_recv_export_import(&counts, &exports, &imports);
+        tend = second();
+        timecomp0 += timediff(tstart, tend);
+        /* Only do this on the first iteration, as we only need to do it once.*/
+        tstart = second();
+        if(Nexportfull == 0)
+            ev_primary(); /* do local particles and prepare export list */
+        tend = second();
+        timecomp1 += timediff(tstart, tend);
+        /* Do processing of received particles. We implement a queue that
+            * checks each incoming task in turn and processes them as they arrive.*/
+        tstart = second();
+        /* Posts recvs to get the export results (which are sent in ev_secondary).*/
+        struct CommBuffer res_exports = {0};
+        ev_recv_export_result(&res_exports, &counts);
+        struct CommBuffer res_imports = ev_secondary(&imports, &counts);
+        // report_memory_usage(ev_label);
+        free_commbuffer(&imports);
+        tend = second();
+        timecomp2 += timediff(tstart, tend);
+        /* Now clear the sent data buffer, waiting for the send to complete.
+            * This needs to be after the other end has called recv.*/
+        tstart = second();
+        wait_commbuffer(&res_exports);
+        tend = second();
+        timewait1 += timediff(tstart, tend);
+        tstart = second();
+        ev_reduce_export_result(&res_exports, &counts);
+        wait_commbuffer(&exports);
+        free_commbuffer(&exports);
+        wait_commbuffer(&res_imports);
+        tend = second();
+        timecommsumm += timediff(tstart, tend);
+        free_commbuffer(&res_imports);
+        free_commbuffer(&res_exports);
+        free_impexpcount(&counts);
+        /* Free export memory*/
+        Nexportfull++;
+        /* Note there is no sync at the end!*/
+    } while(Ndone < NTask);
+    free_export_memory();
 
     tstart = second();
-    {
-        int64_t i;
-        #pragma omp parallel for
-        for(i = 0; i < WorkSetSize; i ++) {
-            const int p_i = WorkSet ? WorkSet[i] : i;
-            postprocess(p_i);
-        }
+    #pragma omp parallel for
+    for(i = 0; i < WorkSetSize; i ++) {
+        const int p_i = WorkSet ? WorkSet[i] : i;
+        postprocess(p_i);
     }
     tend = second();
     timecomp3 += timediff(tstart, tend);
