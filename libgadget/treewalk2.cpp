@@ -62,29 +62,6 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_finish(void)
 
 template <typename NgbIterType,typename QueryType,typename ResultType>
 void
-TreeWalk<NgbIterType, QueryType, ResultType>::init_query(QueryType * query, int i, const int * const NodeList)
-{
-#ifdef DEBUG
-    query->ID = Part[i].ID;
-#endif
-
-    int d;
-    for(d = 0; d < 3; d ++) {
-        query->Pos[d] = Part[i].Pos[d];
-    }
-
-    if(NodeList) {
-        memcpy(query->NodeList, NodeList, sizeof(query->NodeList[0]) * NODELISTLENGTH);
-    } else {
-        query->NodeList[0] = tree->firstnode; /* root node */
-        query->NodeList[1] = -1; /* terminate immediately */
-    }
-
-    fill(i, query);
-}
-
-template <typename NgbIterType,typename QueryType,typename ResultType>
-void
 TreeWalk<NgbIterType, QueryType, ResultType>::init_result(ResultType * result, QueryType * query)
 {
     memset(result, 0, sizeof(ResultType));
@@ -187,7 +164,6 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_primary(void)
         /* Note: exportflag is local to each thread */
         LocalTreeWalk<NgbIterType, QueryType, ResultType> lv(TREEWALK_PRIMARY, tree, ev_label, Ngblist, ExportTable_thread);
 
-        QueryType input;
         ResultType output;
         /* We must schedule dynamically so that we have reduced imbalance.
         * We do not need to worry about the export buffer filling up.*/
@@ -203,7 +179,7 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_primary(void)
         for(k = 0; k < WorkSetSize; k++) {
             const int i = WorkSet ? WorkSet[k] : k;
             /* Primary never uses node list */
-            init_query(input, i, NULL);
+            QueryType input(Part[i], NULL, tree->firstnode);
             init_result(output, input);
             lv.target = i;
             lv.visit(input, output);
@@ -275,7 +251,6 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_toptree(void)
         int BufferFull_thread = 0;
         const int tid = omp_get_thread_num();
 
-        QueryType input;
         ResultType output;
 
         /* We schedule dynamically so that we have reduced imbalance.
@@ -314,7 +289,7 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_toptree(void)
             for(k = chnk; k < end; k++) {
                 const int i = WorkSet ? WorkSet[k] : k;
                 /* Toptree never uses node list */
-                init_query(input, i, NULL);
+                QueryType input(Part[i], NULL, tree->firstnode);
                 lv.target = i;
                 /* Reset the number of exported particles.*/
                 const int rt = lv.visit(input, output);
@@ -574,6 +549,7 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_send_recv_export_import(struct 
     int64_t * real_send_count = ta_malloc("tmp_send_count", int64_t, NTask);
     memset(real_send_count, 0, sizeof(int64_t)*NTask);
     int64_t i;
+    QueryType * export_queries = reinterpret_cast<QueryType*>(exports->databuf);
     for(i = 0; i < NThread; i++)
     {
         size_t k;
@@ -581,9 +557,9 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_send_recv_export_import(struct 
             const int place = ExportTable_thread[i][k].Index;
             const int task = ExportTable_thread[i][k].Task;
             const int64_t bufpos = real_send_count[task] + counts->Export_offset[task];
-            QueryType * input = ((QueryType *) exports->databuf)[bufpos];
             real_send_count[task]++;
-            init_query(input, place, ExportTable_thread[i][k].NodeList);
+            /* Initialize the query in this memory */
+            QueryType * input = new(export_queries[bufpos]) QueryType(Part[place], ExportTable_thread[i][k].NodeList, -1);
         }
     }
 #ifdef DEBUG

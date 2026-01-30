@@ -160,17 +160,6 @@ public:
     bool haswork(const int i) { return true; }
 
     /**
-     * Fill a query structure with particle data.
-     * Override to copy relevant particle attributes to the query.
-     * NOTE: May be called multiple times (including after reduce),
-     * so MUST NOT copy attributes modified by reduce.
-     *
-     * @param j     Particle index
-     * @param query Query structure to fill
-     */
-    virtual void fill(const int j, TreeWalkQueryBase * query) = 0;
-
-    /**
      * Reduce partial results back to the local particle.
      * Override to accumulate results from tree walk iterations.
      *
@@ -214,7 +203,6 @@ public:
         /* Print some counters for a completed treewalk*/
         void print_stats(void);
 
-        void init_query(QueryType * query, int i, const int * const NodeList);
         void init_result(ResultType * result, QueryType * query);
         void reduce_result(ResultType * result, int i, TreeWalkReduceMode mode);
 };
