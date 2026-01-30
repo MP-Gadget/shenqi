@@ -35,36 +35,36 @@ enum TreeWalkReduceMode {
 /* Base class for the TreeWalk queries. You should subclass this and subclass the constructor. */
 class TreeWalkQueryBase
 {
-    double Pos[3];
-    int NodeList[NODELISTLENGTH];
-#ifdef DEBUG
-    MyIDType ID;
-#endif
-
-    /* Constructor:
-     * particle_data: particle that is walking the tree.
-     * i_NodeList: list of topnodes to start the treewalk from.
-     * firstnode is used only if i_NodeList is NULL, in practice this is for primary treewalks.
-     * This should be subclassed: the new constructor was called 'fill' in treewalk v1. */
-    TreeWalkQueryBase(const particle_data& particle, const int * const i_NodeList, int firstnode)
-    {
+    public:
+        double Pos[3];
+        int NodeList[NODELISTLENGTH];
     #ifdef DEBUG
-        query->ID = particle.ID;
+        MyIDType ID;
     #endif
 
-        int d;
-        for(d = 0; d < 3; d ++) {
-            Pos[d] = particle.Pos[d];
-        }
+        /* Constructor:
+        * particle_data: particle that is walking the tree.
+        * i_NodeList: list of topnodes to start the treewalk from.
+        * firstnode is used only if i_NodeList is NULL, in practice this is for primary treewalks.
+        * This should be subclassed: the new constructor was called 'fill' in treewalk v1. */
+        TreeWalkQueryBase(const particle_data& particle, const int * const i_NodeList, int firstnode)
+        {
+        #ifdef DEBUG
+            query->ID = particle.ID;
+        #endif
 
-        if(i_NodeList) {
-            memcpy(NodeList, i_NodeList, sizeof(i_NodeList[0]) * NODELISTLENGTH);
-        } else {
-            NodeList[0] = firstnode; /* root node */
-            NodeList[1] = -1; /* terminate immediately */
-        }
-    }
+            int d;
+            for(d = 0; d < 3; d ++) {
+                Pos[d] = particle.Pos[d];
+            }
 
+            if(i_NodeList) {
+                memcpy(NodeList, i_NodeList, sizeof(i_NodeList[0]) * NODELISTLENGTH);
+            } else {
+                NodeList[0] = firstnode; /* root node */
+                NodeList[1] = -1; /* terminate immediately */
+            }
+        }
 };
 
 class TreeWalkResultBase

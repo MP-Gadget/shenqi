@@ -12,9 +12,9 @@
 #include "forcetree.h"
 
 
-template <typename NgbIterType,typename QueryType,typename ResultType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
 void
-TreeWalk<NgbIterType, QueryType, ResultType>::ev_begin(int * active_set, const size_t size)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_begin(int * active_set, const size_t size)
 {
     /* Needs to be 64-bit so that the multiplication in Ngblist malloc doesn't overflow*/
     const size_t NumThreads = omp_get_max_threads();
@@ -49,19 +49,9 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_begin(int * active_set, const s
     report_memory_usage(ev_label);
 }
 
-template <typename NgbIterType,typename QueryType,typename ResultType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
 void
-TreeWalk<NgbIterType, QueryType, ResultType>::ev_finish(void)
-{
-    if(Ngblist)
-        myfree(Ngblist);
-    if(!work_set_stolen_from_active)
-        myfree(WorkSet);
-}
-
-template <typename NgbIterType,typename QueryType,typename ResultType>
-void
-TreeWalk<NgbIterType, QueryType, ResultType>::build_queue(int * active_set, const size_t size, int may_have_garbage)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType>::build_queue(int * active_set, const size_t size, int may_have_garbage)
 {
     if(!should_rebuild_queue && !may_have_garbage)
     {
@@ -130,15 +120,15 @@ TreeWalk<NgbIterType, QueryType, ResultType>::build_queue(int * active_set, cons
 }
 
 /* returns struct containing export counts */
-template <typename NgbIterType,typename QueryType,typename ResultType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
 void
-TreeWalk<NgbIterType, QueryType, ResultType>::ev_primary(void)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_primary(void)
 {
     int64_t maxNinteractions = 0, minNinteractions = 1L << 45, Ninteractions=0;
 #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
     {
         /* Note: exportflag is local to each thread */
-        LocalTreeWalk<NgbIterType, QueryType, ResultType> lv(TREEWALK_PRIMARY, tree, ev_label, Ngblist, ExportTable_thread);
+        LocalTreeWalkType lv(TREEWALK_PRIMARY, tree, ev_label, Ngblist, ExportTable_thread);
 
         /* We must schedule dynamically so that we have reduced imbalance.
         * We do not need to worry about the export buffer filling up.*/
@@ -170,19 +160,9 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_primary(void)
     Nlistprimary += WorkSetSize;
 }
 
-template <typename NgbIterType,typename QueryType,typename ResultType>
-int
-TreeWalk<NgbIterType, QueryType, ResultType>::ev_ndone(MPI_Comm comm)
-{
-    int ndone;
-    int done = !(BufferFullFlag);
-    MPI_Allreduce(&done, &ndone, 1, MPI_INT, MPI_SUM, comm);
-    return ndone;
-}
-
-template <typename NgbIterType,typename QueryType,typename ResultType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
 void
-TreeWalk<NgbIterType, QueryType, ResultType>::alloc_export_memory()
+TreeWalk<QueryType, ResultType, LocalTreeWalkType>::alloc_export_memory()
 {
     Nexport_thread = ta_malloc2("localexports", size_t, NThread);
     ExportTable_thread = ta_malloc2("localexports", data_index *, NThread);
@@ -195,9 +175,9 @@ TreeWalk<NgbIterType, QueryType, ResultType>::alloc_export_memory()
     QueueChunkRestart = ta_malloc2("queuerestart", int, NThread);
 }
 
-template <typename NgbIterType,typename QueryType,typename ResultType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
 void
-TreeWalk<NgbIterType, QueryType, ResultType>::free_export_memory()
+TreeWalk<QueryType, ResultType, LocalTreeWalkType>::free_export_memory()
 {
     myfree(QueueChunkRestart);
     myfree(QueueChunkEnd);
@@ -208,9 +188,9 @@ TreeWalk<NgbIterType, QueryType, ResultType>::free_export_memory()
     myfree(Nexport_thread);
 }
 
-template <typename NgbIterType,typename QueryType,typename ResultType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
 int
-TreeWalk<NgbIterType, QueryType, ResultType>::ev_toptree(void)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_toptree(void)
 {
     BufferFullFlag = 0;
     int64_t currentIndex = WorkSetStart;
@@ -221,7 +201,7 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_toptree(void)
 
 #pragma omp parallel reduction(+: BufferFullFlag)
     {
-        LocalTreeWalk<NgbIterType, QueryType, ResultType> lv(TREEWALK_TOPTREE, tree, ev_label, Ngblist, ExportTable_thread);
+        LocalTreeWalkType lv(TREEWALK_TOPTREE, tree, ev_label, Ngblist, ExportTable_thread);
         /* Signals a full export buffer on this thread*/
         int BufferFull_thread = 0;
         const int tid = omp_get_thread_num();
@@ -389,16 +369,14 @@ MPI_fill_commbuffer(struct CommBuffer * buffer, int64_t *cnts, int64_t *displs, 
 }
 
 /* Waits for all the requests in the bufferbuffer to be complete*/
-template <typename NgbIterType,typename QueryType,typename ResultType>
-void
-TreeWalk<NgbIterType, QueryType, ResultType>::wait_commbuffer(struct CommBuffer * buffer)
+static void wait_commbuffer(struct CommBuffer * buffer)
 {
     MPI_Waitall(buffer->nrequest_all, buffer->rdata_all, MPI_STATUSES_IGNORE);
 }
 
-template <typename NgbIterType,typename QueryType,typename ResultType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
 struct CommBuffer
-TreeWalk<NgbIterType, QueryType, ResultType>::ev_secondary(struct CommBuffer * imports, struct ImpExpCounts* counts)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_secondary(struct CommBuffer * imports, struct ImpExpCounts* counts)
 {
     struct CommBuffer res_imports = {0};
     alloc_commbuffer(&res_imports, counts->NTask, 1);
@@ -436,7 +414,7 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_secondary(struct CommBuffer * i
                 {
                     ResultType * results = (ResultType *) dataresultstart;
                     int64_t j;
-                    LocalTreeWalk<NgbIterType, QueryType, ResultType> lv(TREEWALK_GHOSTS, tree, ev_label, Ngblist, ExportTable_thread);
+                    LocalTreeWalkType lv(TREEWALK_GHOSTS, tree, ev_label, Ngblist, ExportTable_thread);
                     #pragma omp for
                     for(j = 0; j < nimports_task; j++) {
                         QueryType * input = ((QueryType *) databufstart)[j];
@@ -456,9 +434,10 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_secondary(struct CommBuffer * i
     return res_imports;
 }
 
-template <typename NgbIterType,typename QueryType,typename ResultType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
 struct ImpExpCounts
-TreeWalk<NgbIterType, QueryType, ResultType>::ev_export_import_counts(MPI_Comm comm)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType>::
+ev_export_import_counts(MPI_Comm comm)
 {
     int NTask;
     struct ImpExpCounts counts = {0};
@@ -503,9 +482,9 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_export_import_counts(MPI_Comm c
 }
 
 /* Builds the list of exported particles and async sends the export queries. */
-template <typename NgbIterType,typename QueryType,typename ResultType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
 void
-TreeWalk<NgbIterType, QueryType, ResultType>::ev_send_recv_export_import(struct ImpExpCounts * counts, struct CommBuffer * exports, struct CommBuffer * imports)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_send_recv_export_import(struct ImpExpCounts * counts, struct CommBuffer * exports, struct CommBuffer * imports)
 {
     alloc_commbuffer(exports, counts->NTask, 0);
     exports->databuf = (char *) mymalloc("ExportQuery", counts->Nexport * sizeof(QueryType));
@@ -549,9 +528,9 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_send_recv_export_import(struct 
     return;
 }
 
-template <typename NgbIterType,typename QueryType,typename ResultType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
 void
-TreeWalk<NgbIterType, QueryType, ResultType>::ev_recv_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_recv_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts)
 {
     alloc_commbuffer(exportbuf, counts->NTask, 1);
     MPI_Datatype type;
@@ -565,9 +544,9 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_recv_export_result(struct CommB
     MPI_Type_free(&type);
 }
 
-template <typename NgbIterType,typename QueryType,typename ResultType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
 void
-TreeWalk<NgbIterType, QueryType, ResultType>::ev_reduce_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_reduce_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts)
 {
     int64_t i;
     /* Notice that we build the dataindex table individually
@@ -599,9 +578,9 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_reduce_export_result(struct Com
  *              all (NumPart) particles are used.
  *
  * */
-template <typename NgbIterType,typename QueryType,typename ResultType>
-void
-TreeWalk<NgbIterType, QueryType, ResultType>::run(int * active_set, size_t size)
+ template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
+ void
+ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::run(int * active_set, size_t size)
 {
     if(!force_tree_allocated(tree)) {
         endrun(0, "Tree has been freed before this treewalk.\n");
@@ -698,9 +677,9 @@ TreeWalk<NgbIterType, QueryType, ResultType>::run(int * active_set, size_t size)
 
 /* This function does treewalk_run in a loop, allocating a queue to allow some particles to be redone.
  * This loop is used primarily in density estimation.*/
- template <typename NgbIterType,typename QueryType,typename ResultType>
+ template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
  void
- TreeWalk<NgbIterType, QueryType, ResultType>::do_hsml_loop(int * queue, int64_t queuesize, int update_hsml)
+ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::do_hsml_loop(int * queue, int64_t queuesize, int update_hsml)
 {
     int NumThreads = omp_get_max_threads();
     maxnumngb = ta_malloc("numngb", double, NumThreads);
@@ -864,20 +843,4 @@ ngb_narrow_down(double *right, double *left, const double *radius, const double 
         hsml = *left;
 
     return hsml;
-}
-
-template <typename NgbIterType,typename QueryType,typename ResultType>
-void
-TreeWalk<NgbIterType, QueryType, ResultType>::print_stats(void)
-{
-    int64_t o_NExportTargets;
-    int64_t o_minNinteractions, o_maxNinteractions, o_Ninteractions, o_Nlistprimary, Nexport;
-    MPI_Reduce(&minNinteractions, &o_minNinteractions, 1, MPI_INT64, MPI_MIN, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&maxNinteractions, &o_maxNinteractions, 1, MPI_INT64, MPI_MAX, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&Ninteractions, &o_Ninteractions, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&Nlistprimary, &o_Nlistprimary, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&Nexport_sum, &Nexport, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&NExportTargets, &o_NExportTargets, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
-    message(0, "%s Ngblist: min %ld max %ld avg %g average exports: %g avg target ranks: %g\n", ev_label, o_minNinteractions, o_maxNinteractions,
-            (double) o_Ninteractions / o_Nlistprimary, ((double) Nexport)/ NTask, ((double) o_NExportTargets)/ NTask);
 }

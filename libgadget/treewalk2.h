@@ -4,7 +4,10 @@
 #include <cstdint>
 #include <omp.h>
 #include "forcetree.h"
+#include "libgadget/treewalk.h"
 #include "localtreewalk2.h"
+#include "utils/mymalloc.h"
+#include "utils/endrun.h"
 
 enum TreeWalkType {
     TREEWALK_ACTIVE = 0,
@@ -24,7 +27,7 @@ enum TreeWalkType {
  *   2. Set tree, ev_label, type, and element sizes in the constructor
  *   3. Call treewalk_run() to execute the tree walk
  */
-template <typename NgbIterType = TreeWalkNgbIterBase, typename QueryType=TreeWalkQueryBase, typename ResultType=TreeWalkResultBase>
+template <typename QueryType=TreeWalkQueryBase, typename ResultType=TreeWalkResultBase, typename LocalTreeWalkType = LocalTreeWalk<TreeWalkNgbIterBase, QueryType, ResultType> >
 class TreeWalk {
 public:
     /* A pointer to the force tree structure to walk.*/
@@ -173,20 +176,48 @@ public:
     private:
         int ev_toptree(void);
         void ev_begin(int * active_set, const size_t size);
-        void ev_finish(void);
+
+        /* Cleans up and frees memory */
+        void ev_finish(void)
+        {
+            if(Ngblist)
+                myfree(Ngblist);
+            if(!work_set_stolen_from_active)
+                myfree(WorkSet);
+        }
+
         void ev_primary(void);
         struct CommBuffer ev_secondary(struct CommBuffer * imports, struct ImpExpCounts* counts);
         struct ImpExpCounts ev_export_import_counts(MPI_Comm comm);
         void ev_send_recv_export_import(struct ImpExpCounts * counts, struct CommBuffer * exports, struct CommBuffer * imports);
         void ev_recv_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts);
         void ev_reduce_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts);
-        int ev_ndone(MPI_Comm comm);
+
+        /* Checks whether all tasks have finished iterating */
+        int ev_ndone(MPI_Comm comm)
+        {
+            int ndone;
+            int done = !(BufferFullFlag);
+            MPI_Allreduce(&done, &ndone, 1, MPI_INT, MPI_SUM, comm);
+            return ndone;
+        }
+
         void alloc_export_memory(void);
         void free_export_memory(void);
-        void wait_commbuffer(struct CommBuffer * buffer);
-
         /* Print some counters for a completed treewalk*/
-        void print_stats(void);
+        void print_stats(void)
+        {
+            int64_t o_NExportTargets;
+            int64_t o_minNinteractions, o_maxNinteractions, o_Ninteractions, o_Nlistprimary, Nexport;
+            MPI_Reduce(&minNinteractions, &o_minNinteractions, 1, MPI_INT64, MPI_MIN, 0, MPI_COMM_WORLD);
+            MPI_Reduce(&maxNinteractions, &o_maxNinteractions, 1, MPI_INT64, MPI_MAX, 0, MPI_COMM_WORLD);
+            MPI_Reduce(&Ninteractions, &o_Ninteractions, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
+            MPI_Reduce(&Nlistprimary, &o_Nlistprimary, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
+            MPI_Reduce(&Nexport_sum, &Nexport, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
+            MPI_Reduce(&NExportTargets, &o_NExportTargets, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
+            message(0, "%s Ngblist: min %ld max %ld avg %g average exports: %g avg target ranks: %g\n", ev_label, o_minNinteractions, o_maxNinteractions,
+                    (double) o_Ninteractions / o_Nlistprimary, ((double) Nexport)/ NTask, ((double) o_NExportTargets)/ NTask);
+        }
 };
 
 #define MAXITER 400

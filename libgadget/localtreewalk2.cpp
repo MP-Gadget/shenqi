@@ -1,5 +1,7 @@
 #include "localtreewalk2.h"
 #include "omp.h"
+#include "utils/endrun.h"
+#include "utils/mymalloc.h"
 /*!< Memory factor to leave for (N imported particles) > (N exported particles). */
 static double ImportBufferBoost;
 /* 7/9/24: The code segfaults if the send/recv buffer is larger than 4GB in size.
