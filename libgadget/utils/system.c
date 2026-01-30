@@ -11,7 +11,7 @@
 #include <sys/resource.h>
 #include <unistd.h>
 #include <signal.h>
-#include <boost/random/mersenne_twister.hpp>
+#include <boost/random/ranlux.hpp>
 #include <boost/random/uniform_real_distribution.hpp>
 #include <omp.h>
 
