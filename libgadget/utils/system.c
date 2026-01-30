@@ -68,10 +68,14 @@ RandTable set_random_numbers(uint64_t seed, const size_t rndtablesize)
     rnd.tablesize = rndtablesize;
     /* start-up seed */
 
-    boost::random::mt19937 random_generator(seed);
+    boost::random::ranlux48 random_generator(seed);
     boost::random::uniform_real_distribution<double> dist(0, 1);
     /* Populate a table with uniform random numbers between 0 and 1*/
     size_t i;
+    /* Draw a few random numbers. Some RNGs have bad behaviour
+     * near the beginning for small seeds, and discarding the first 100 numbers helps. */
+    for(i = 0; i < 100; i++)
+        dist(random_generator);
     for(i = 0; i < rndtablesize; i++)
         rnd.Table[i] = dist(random_generator);
 

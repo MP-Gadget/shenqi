@@ -4,18 +4,19 @@
 #include <string.h>
 #include <math.h>
 #include <unistd.h>
-#include <ctype.h>
 #include <omp.h>
 
-#include "utils.h"
+#include "utils/endrun.h"
+#include "utils/mymalloc.h"
+#include "utils/string.h"
 
+#include "uvbg.h"
 #include "walltime.h"
 #include "gravity.h"
 #include "density.h"
 #include "domain.h"
 #include "run.h"
 #include "init.h"
-#include "cooling.h"
 #include "checkpoint.h"
 #include "petaio.h"
 #include "petapm.h"
@@ -31,11 +32,10 @@
 #include "fof.h"
 #include "cooling_qso_lightup.h"
 #include "lightcone.h"
-#include "timefac.h"
-#include "uvbg.h"
 #include "neutrinos_lra.h"
 #include "stats.h"
 #include "veldisp.h"
+#include "physconst.h"
 #include "plane.h"
 
 static struct ClockTable Clocks;
@@ -102,7 +102,7 @@ static struct run_params
          FOFFileBase[100];
 
     int SnapshotWithFOF; /*Flag that doing FOF for snapshot outputs is on*/
-
+    int ParticlesAlwaysSorted; /*Flag that particles should be Peano sorted after every domain exchange.*/
     uint64_t RandomSeed; /*Initial seed for the random number table*/
 
     int ExcursionSetReionOn; /*Flag for enabling the excursion set reionisation model*/
@@ -156,7 +156,7 @@ set_all_global_params(ParameterSet * ps)
         All.SlotsIncreaseFactor = param_get_double(ps, "SlotsIncreaseFactor");
 
         All.SnapshotWithFOF = param_get_int(ps, "SnapshotWithFOF");
-
+        All.ParticlesAlwaysSorted = param_get_int(ps, "ParticlesAlwaysSorted");
         All.RandomSeed = param_get_int(ps, "RandomSeed");
 
         All.BlackHoleOn = param_get_int(ps, "BlackHoleOn");
@@ -271,7 +271,7 @@ begrun(const int RestartSnapNum, struct header_data * head)
 
     if(RestartSnapNum < 0) {
         DomainDecomp ddecomp[1] = {0};
-        domain_decompose_full(ddecomp); /* do initial domain decomposition (gives equal numbers of particles) so density() is safe*/
+        domain_decompose_full(ddecomp, MPI_COMM_WORLD); /* do initial domain decomposition (gives equal numbers of particles) so density() is safe*/
         /* On first run, generate smoothing lengths and set initial entropies based on CMB temperature*/
         setup_smoothinglengths(RestartSnapNum, ddecomp, &All.CP, All.BlackHoleOn, get_MinEgySpec(), units.UnitInternalEnergy_in_cgs, ti_init, head->TimeSnapshot, head->NTotalInit[0]);
         domain_free(ddecomp);
@@ -402,9 +402,9 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
          * value each timestep. Only the lowest 32 bits are used in the GSL
          * random number generator. The populated part of the timestep hierarchy
          * is added to the random seed. The current snapshot is folded into
-         * bits 32 - 23 so that the random tables do not cycle after every snapshot.
-         * We may still cycle after 512 snapshots but that should be far enough apart. */
-        uint64_t seed = All.RandomSeed + (times.Ti_Current >> times.mintimebin) + ((times.Ti_Current >> TIMEBINS) << 23L);
+         * bits 32 - 22 so that the random tables do not cycle after every snapshot.
+         * We may still cycle after 1024 snapshots but we don't usually have more snapshots than that. */
+        uint64_t seed = All.RandomSeed + ((times.Ti_Current) >> (TIMEBINS-22L)) + (SnapshotFileCount << 22L);
         message(0, "New step random seed: %ld Ti %lx\n", seed % (1L<<32L), times.Ti_Current);
 
         double rel_random_shift[3] = {0};
@@ -419,7 +419,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             /* Sync positions of all particles */
             drift_all_particles(Ti_Last, times.Ti_Current, &All.CP, rel_random_shift);
             /* full decomposition rebuilds the domain, needs keys.*/
-            domain_decompose_full(ddecomp);
+            domain_decompose_full(ddecomp, MPI_COMM_WORLD);
         } else {
             /* If it is not a PM step, do a shorter version
              * of the ddecomp decomp which just exchanges particles.
@@ -431,8 +431,11 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             drift.ti1 = times.Ti_Current;
             int needfull = domain_maintain(ddecomp, &drift);
             if(needfull)
-                domain_decompose_full(ddecomp);
+                domain_decompose_full(ddecomp, MPI_COMM_WORLD);
         }
+        if(All.ParticlesAlwaysSorted)
+            slots_gc_sorted(PartManager, SlotsManager);
+
         update_lastactive_drift(&times);
 
         ActiveParticles Act = init_empty_active_particles(PartManager);
@@ -542,6 +545,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
                     const double rho0 = All.CP.Omega0 * 3 * All.CP.Hubble * All.CP.Hubble / (8 * M_PI * All.CP.GravInternal);
                     force_tree_full(&Tree, ddecomp, HybridNuTracer, All.OutputDir);
                     grav_short_tree(&Act, &pm, &Tree, NULL, rho0, times.Ti_Current);
+                    force_tree_free(&Tree);
             }
         }
         message(0, "Forces computed.\n");
@@ -814,7 +818,7 @@ runfof(const int RestartSnapNum, const inttime_t Ti_Current, const struct header
     DomainDecomp ddecomp[1] = {0};
     /* ... read in initial model */
 
-    domain_decompose_full(ddecomp);	/* do initial domain decomposition (gives equal numbers of particles) */
+    domain_decompose_full(ddecomp, MPI_COMM_WORLD);	/* do initial domain decomposition (gives equal numbers of particles) */
 
     DriftKickTimes times = init_driftkicktime(Ti_Current);
     /* Regenerate the star formation rate for the FOF table.*/
@@ -854,7 +858,7 @@ runpower(const struct header_data * header)
     gravpm_init_periodic(&pm, PartManager->BoxSize, All.Asmth, All.Nmesh, All.CP.GravInternal);
     DomainDecomp ddecomp[1] = {0};
     /* ... read in initial model */
-    domain_decompose_full(ddecomp);	/* do initial domain decomposition (gives equal numbers of particles) */
+    domain_decompose_full(ddecomp, MPI_COMM_WORLD);	/* do initial domain decomposition (gives equal numbers of particles) */
     /*PM needs a tree*/
     gravpm_force(&pm, ddecomp, &All.CP, header->TimeSnapshot, header->UnitLength_in_cm, All.OutputDir, header->TimeSnapshot);
 }

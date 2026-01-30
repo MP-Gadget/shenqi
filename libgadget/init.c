@@ -4,13 +4,12 @@
 #include <mpi.h>
 
 #include "init.h"
-#include "utils.h"
+#include "utils/endrun.h"
+#include "utils/mymalloc.h"
 
-#include "cooling.h"
 #include "forcetree.h"
 #include "density.h"
 
-#include "timefac.h"
 #include "petaio.h"
 #include "domain.h"
 #include "walltime.h"
@@ -212,7 +211,7 @@ void check_omega(struct part_manager_type * PartManager, Cosmology * CP, int gen
             Part[i].Mass = MassTable[Part[i].Type] * ( 1. - (double)Part[i].Generation/generations);
             badmass++;
         }
-        if(Part[i].Type >= 0 && Part[i].Type < 6)
+        if(Part[i].Type < 6)
             omegas[Part[i].Type] += Part[i].Mass;
         mass += Part[i].Mass;
     }

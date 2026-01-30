@@ -2,8 +2,6 @@
 #define _PART_DATA_H
 
 #include "types.h"
-#include "utils/peano.h"
-#include "utils/system.h"
 
 /*! This structure holds all the information that is
  * stored for each particle of the simulation.

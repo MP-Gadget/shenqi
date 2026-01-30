@@ -1,8 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-
 #include <libgadget/gravity.h>
 #include <libgadget/densitykernel.h>
 #include <libgadget/timebinmgr.h>
@@ -153,7 +148,7 @@ create_gadget_parameter_set()
     param_declare_int(ps, "MinNumWriters", OPTIONAL, 1, "Min number of concurrent writer processes. We increase number of Files to avoid too few writers. ");
     param_declare_int(ps, "WritersPerFile", OPTIONAL, 8, "Number of Writer groups assigned to a file; total number of writers is capped by NumWriters.");
 
-    param_declare_int(ps, "EnableAggregatedIO", OPTIONAL, 0, "Use the Aggregated IO policy for small data set (Experimental).");
+    param_declare_int(ps, "EnableAggregatedIO", OPTIONAL, 1, "Reduces the number of open files in snapshots so that each file has size BytesPerFile.");
     param_declare_int(ps, "AggregatedIOThreshold", OPTIONAL, 256, "Max size (in MB) on a writer before reverting to throttled IO.");
 
     /*Parameters of the cooling module*/
@@ -202,6 +197,8 @@ create_gadget_parameter_set()
 
     param_declare_double(ps, "InitGasTemp", OPTIONAL, -1, "Initial gas temperature. By default set to CMB temperature at starting redshift.");
     param_declare_double(ps, "MinGasTemp", OPTIONAL, 5, "Minimum gas temperature");
+
+    param_declare_int(ps, "ParticlesAlwaysSorted", OPTIONAL, 0, "If enabled, peano-sort all particles after domain exchange. Much slower, but good for testing.");
 
     param_declare_int(ps, "SnapshotWithFOF", REQUIRED, 0, "Enable Friends-of-Friends halo finder.");
     param_declare_int(ps, "FOFPrimaryLinkTypes", OPTIONAL, 2, "2^ particle types to use as primary FOF targets.");

@@ -1,6 +1,4 @@
 #include <mpi.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <math.h>
 #include <fftw3.h>
 #include <string.h>
@@ -13,7 +11,8 @@
 #include "partmanager.h"
 #include "cosmology.h"
 #include "physconst.h"
-#include "utils.h"
+#include "utils/endrun.h"
+#include "utils/mymalloc.h"
 
 void linspace(double start, double stop, int num, double *result) {
     double step = (stop - start) / (num - 1);
@@ -334,4 +333,3 @@ void savePotentialPlane(double *data, int rows, int cols, const char * const fil
     }
 }
 #endif
-

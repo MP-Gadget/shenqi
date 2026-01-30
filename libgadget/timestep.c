@@ -5,18 +5,19 @@
 #include <math.h>
 #include <omp.h>
 
-#include "utils.h"
+#include "utils/endrun.h"
+#include "utils/mymalloc.h"
+#include "utils/system.h"
 #include "physconst.h"
 #include "timebinmgr.h"
 #include "domain.h"
 #include "timefac.h"
 #include "cosmology.h"
-#include "checkpoint.h"
 #include "slotsmanager.h"
 #include "partmanager.h"
-#include "hydra.h"
 #include "walltime.h"
 #include "timestep.h"
+#include "timefac.h"
 #include "gravity.h"
 
 /*! \file timestep.c
@@ -706,28 +707,13 @@ find_hydro_timesteps(const ActiveParticles * act, DriftKickTimes * times, const 
 
     /* This logic handles the special case when all gas particles in the shortest timebin have become stars
      * and so there are now zero active gas particles. In this case mTimeBin will be TIMEBINS.
-     * We need to find a new timebin to advance by, which we do by using the hydro steps in the active star particles.*/
+     * We continue with the same timestep that we have, increasing it by one if the next timebin up is active.*/
     if(!is_timebin_active(mTimeBin, times->Ti_Current)) {
-        message(1, "Current min hydro timebin %d is not active, using star hydro timestep.\n", mTimeBin);
-        #pragma omp parallel for reduction(min: mTimeBin) reduction(+: badstepsizecount)
-        for(pa = 0; pa < act->NumActiveParticle; pa++) {
-            const int i = get_active_particle(act, pa);
-            /* Look for stars*/
-            if(Part[i].Type != 4)
-                continue;
-            /* Need stars that were just formed with active hydro timesteps.*/
-            if(STARP(i).FormationTime < get_atime(times->Ti_Current) - get_dloga_for_bin(Part[i].TimeBinHydro, times->Ti_Current))
-                continue;
-            /* You could imagine that only the gravitational timesteps are active,
-             * because this star is not new this timestep.*/
-            if(!is_timebin_active(Part[i].TimeBinHydro, times->Ti_Current))
-                continue;
-            /* Note that the hydro timestep of the star particle is not changed after it stops being gas.
-             * So it is zero after a restart.*/
-            if(Part[i].TimeBinHydro < mTimeBin && Part[i].TimeBinHydro >= 1)
-                mTimeBin = Part[i].TimeBinHydro;
-        }
-        MPI_Allreduce(MPI_IN_PLACE, &mTimeBin, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+        mTimeBin = times->mintimebin;
+        /* Try to make the timestep longer if we can. */
+        if(is_timebin_active(mTimeBin+1, times->Ti_Current))
+            mTimeBin++;
+        message(0, "Current min hydro timebin %d has no active particles, using new hydro timestep %d.\n", times->mintimebin, mTimeBin);
     }
 
     MPI_Allreduce(MPI_IN_PLACE, &badstepsizecount, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);

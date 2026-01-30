@@ -1,15 +1,12 @@
 #include <mpi.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <time.h>
 #include <omp.h>
 
 #include "domain.h"
 #include "forcetree.h"
-#include "checkpoint.h"
 #include "walltime.h"
+#include "checkpoint.h"
 #include "slotsmanager.h"
 #include "partmanager.h"
 #include "utils/endrun.h"
@@ -287,15 +284,16 @@ int get_subnode(const struct NODE * node, const double Pos[3])
 }
 
 /*Check whether a particle is inside the volume covered by a node,
- * by checking whether each dimension is close enough to center (L1 metric).*/
-static inline int inside_node(const struct NODE * node, const double Pos[3])
+ * by checking whether each dimension is close enough to center (L1 metric).
+ * 'Nugget' is the allowed floating point error.*/
+static inline int inside_node(const struct NODE * node, const double Pos[3], const double nugget)
 {
     /*One can also use a loop, but the compiler unrolls it only at -O3,
      *so this is a little faster*/
     int inside =
-        (fabs(2*(Pos[0] - node->center[0])) <= node->len) *
-        (fabs(2*(Pos[1] - node->center[1])) <= node->len) *
-        (fabs(2*(Pos[2] - node->center[2])) <= node->len);
+        (fabs(2*(Pos[0] - node->center[0])) <= node->len + nugget) *
+        (fabs(2*(Pos[1] - node->center[1])) <= node->len + nugget) *
+        (fabs(2*(Pos[2] - node->center[2])) <= node->len + nugget);
     return inside;
 }
 
@@ -812,7 +810,7 @@ force_tree_create_nodes(ForceTree * tree, const ActiveParticles * act, int mask,
                 endrun(12, "Zero mass particle %d m %g type %d id %ld pos %g %g %g\n", i, Part[i].Mass, Part[i].Type, Part[i].ID, Part[i].Pos[0], Part[i].Pos[1], Part[i].Pos[2]);
             /*First find the Node for the TopLeaf */
             int cur;
-            if(inside_node(&tree->Nodes[this_acc], Part[i].Pos)) {
+            if(inside_node(&tree->Nodes[this_acc], Part[i].Pos, 0)) {
                 cur = this_acc;
             } else {
                 /* Get the topnode to which a particle belongs. Each local tree
@@ -823,6 +821,11 @@ force_tree_create_nodes(ForceTree * tree, const ActiveParticles * act, int mask,
                     endrun(5, "Bad topleaf %d start %d end %d type %d ID %ld\n", topleaf, StartLeaf, EndLeaf, Part[i].Type, Part[i].ID);
                 //int treenode = ddecomp->TopLeaves[topleaf].treenode;
                 cur = local_topnodes[topleaf - StartLeaf];
+#ifdef DEBUG
+                if(!inside_node(&tree->Nodes[cur], Part[i].Pos, 1e-7))
+                    endrun(13, "Particle %d at %g %g %g not inside topnode %d center %g %g %g len %g\n", i,
+                        Part[i].Pos[0], Part[i].Pos[1], Part[i].Pos[2], cur, tree->Nodes[cur].center[0], tree->Nodes[cur].center[1], tree->Nodes[cur].center[2], tree->Nodes[cur].len);
+#endif
             }
             numparticles++;
             this_acc = add_particle_to_tree(i, cur, *tree, &nc, &nnext);
