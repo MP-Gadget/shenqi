@@ -1,11 +1,9 @@
 #ifndef _EVALUATOR_H_
 #define _EVALUATOR_H_
 
-#include "localtreewalk2.h"
-
 #include <cstdint>
-#include "utils/paramset.h"
 #include "forcetree.h"
+#include "localtreewalk2.h"
 
 enum TreeWalkType {
     TREEWALK_ACTIVE = 0,
@@ -163,7 +161,7 @@ public:
      * @param i  Particle index
      * @return true if the particle should be processed
      */
-    virtual bool haswork(const int i) { return true; }
+    bool haswork(const int i) { return true; }
 
     /**
      * Fill a query structure with particle data.
@@ -184,7 +182,7 @@ public:
      * @param result Result data to reduce
      * @param mode   Whether this is primary, ghost, or toptree reduction
      */
-    virtual void reduce(const int j, TreeWalkResultBase * result, const TreeWalkReduceMode mode) {}
+    void reduce(const int j, TreeWalkResultBase * result, const TreeWalkReduceMode mode) {}
 
     /**
      * Postprocess - finalize quantities after tree walk completes.
@@ -192,7 +190,7 @@ public:
      *
      * @param i Particle index
      */
-    virtual void postprocess(const int i) {}
+    void postprocess(const int i) {}
 
     /**
      * Preprocess - initialize quantities before tree walk starts.
@@ -200,7 +198,7 @@ public:
      *
      * @param i Particle index
      */
-    virtual void preprocess(const int i) {}
+    void preprocess(const int i) {}
 
     private:
         int ev_toptree(void);
