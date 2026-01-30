@@ -6,6 +6,19 @@ static double ImportBufferBoost;
  * Likely a 32-bit variable is overflowing but it is hard to debug. Easier to enforce a maximum buffer size.*/
 static size_t MaxExportBufferBytes = 3584*1024*1024L;
 
+#define FACT1 0.366025403785    /* FACT1 = 0.5 * (sqrt(3)-1) */
+
+#ifdef DEBUG
+/*
+ * for debugging
+ */
+#define WATCH { \
+        printf("WorkSet[0] = %d (%d) %s:%d\n", WorkSet ? WorkSet[0] : 0, WorkSetSize, __FILE__, __LINE__); \
+    }
+static TreeWalk * GDB_current_ev = NULL;
+#endif
+
+
 /*Initialise global treewalk parameters*/
 void set_treewalk_params(ParameterSet * ps)
 {
@@ -268,6 +281,7 @@ cull_node(const double * const Pos, const double BoxSize, const double Hsml, con
     }
     return 1;
 }
+
 /*****
  * This is the internal code that looks for particles in the ngb tree from
  * searchcenter upto hsml. if iter->symmetric is NGB_TREE_FIND_SYMMETRIC, then upto

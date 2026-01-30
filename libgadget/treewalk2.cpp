@@ -11,21 +11,6 @@
 #include "domain.h"
 #include "forcetree.h"
 
-#include <signal.h>
-#define BREAKPOINT raise(SIGTRAP)
-
-#define FACT1 0.366025403785    /* FACT1 = 0.5 * (sqrt(3)-1) */
-
-#ifdef DEBUG
-/*
- * for debugging
- */
-#define WATCH { \
-        printf("WorkSet[0] = %d (%d) %s:%d\n", WorkSet ? WorkSet[0] : 0, WorkSetSize, __FILE__, __LINE__); \
-    }
-static TreeWalk * GDB_current_ev = NULL;
-#endif
-
 void
 TreeWalk::ev_begin(int * active_set, const size_t size)
 {

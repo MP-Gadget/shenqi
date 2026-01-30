@@ -117,9 +117,10 @@ public:
      * */
     int visit_nolist_ngbiter(QueryType * input, ResultType * output);
 
+private:
+
     int ngb_treefind_threads(QueryType * I, NgbIterType * iter, int startnode);
 
-private:
     /* Adds a remote tree node to the export list for this particle.
     returns -1 if the buffer is full. */
     int export_particle(const int no);
