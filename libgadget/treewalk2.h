@@ -160,16 +160,6 @@ public:
     bool haswork(const int i) { return true; }
 
     /**
-     * Reduce partial results back to the local particle.
-     * Override to accumulate results from tree walk iterations.
-     *
-     * @param j      Particle index
-     * @param result Result data to reduce
-     * @param mode   Whether this is primary, ghost, or toptree reduction
-     */
-    void reduce(const int j, TreeWalkResultBase * result, const TreeWalkReduceMode mode) {}
-
-    /**
      * Postprocess - finalize quantities after tree walk completes.
      * Override to normalize results, compute derived quantities, etc.
      *
@@ -202,9 +192,6 @@ public:
 
         /* Print some counters for a completed treewalk*/
         void print_stats(void);
-
-        void init_result(ResultType * result, QueryType * query);
-        void reduce_result(ResultType * result, int i, TreeWalkReduceMode mode);
 };
 
 #define TREEWALK_REDUCE(A, B) (A) = (mode==TREEWALK_PRIMARY)?(B):((A) + (B))

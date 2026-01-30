@@ -9,7 +9,7 @@
 void set_treewalk_params(ParameterSet * ps);
 
 /* Change the size of the export buffer, for tests*/
-void treewalk_set_max_export_buffer(size_t maxbuf);
+void treewalk_set_max_export_buffer(const size_t maxbuf);
 
 /* Compute the number of entries that can live in an export table */
 size_t compute_bunchsize(const size_t query_type_elsize, const size_t result_type_elsize, const char * const ev_label);
@@ -65,10 +65,35 @@ class TreeWalkQueryBase
 
 };
 
-struct TreeWalkResultBase {
-#ifdef DEBUG
-    MyIDType ID;
-#endif
+class TreeWalkResultBase
+{
+    #ifdef DEBUG
+        MyIDType ID;
+    #endif
+
+    TreeWalkResultBase(const TreeWalkQueryBase& query)
+    {
+        memset(this, 0, sizeof(*this));
+    #ifdef DEBUG
+        ID = query.ID;
+    #endif
+    }
+
+    /**
+    * Reduce partial results back to the local particle.
+    * Override to accumulate results from tree walk iterations.
+    *
+    * @param j      Particle index
+    * @param mode   Whether this is primary, ghost, or toptree reduction
+    */
+    void reduce(const int j, const TreeWalkReduceMode mode)
+    {
+        #ifdef DEBUG
+            if(Part[j].ID != ID)
+                endrun(2, "Mismatched ID (%ld != %ld) for particle %d in treewalk reduction, mode %d\n", Part[j].ID, ID, j, mode);
+        #endif
+    }
+
 };
 
 struct TreeWalkNgbIterBase {
@@ -118,7 +143,7 @@ public:
      * @param iter   Neighbour iterator with distance info
      * @param lv     Thread-local walk state
      */
-    void ngbiter(QueryType * input, ResultType * output, NgbIterType iter) {};
+    void ngbiter(const QueryType& input, ResultType * output, NgbIterType iter) {};
 
     /**
      * Visit function - called between a tree node and a particle.
@@ -127,13 +152,12 @@ public:
      *
      * @param input  Query data for the particle
      * @param output Result accumulator
-     * @param lv     Thread-local walk state
      * @return 0 on success, -1 if export buffer is full
      */
-    int visit(QueryType * input, ResultType * output);
+    int visit(const QueryType& input, ResultType * output);
 
     /* Wrapper of the regular particle visit with some extra cleanup of the particle export table for the toptree walk */
-    int toptree_visit(QueryType * input, ResultType * output);
+    int toptree_visit(const QueryType& input, ResultType * output);
 
     /*****
      * Variant of ngbiter that doesn't use the Ngblist.
@@ -143,11 +167,10 @@ public:
      * wants to change the search radius, such as for knn algorithms
      * or some density code. Don't use it if the treewalk modifies other particles.
      * */
-    int visit_nolist_ngbiter(QueryType * input, ResultType * output);
+    int visit_nolist_ngbiter(const QueryType& input, ResultType * output);
 
 private:
-
-    int ngb_treefind_threads(QueryType * I, NgbIterType * iter, int startnode);
+    int ngb_treefind_threads(const QueryType& I, NgbIterType * iter, int startnode);
 
     /* Adds a remote tree node to the export list for this particle.
     returns -1 if the buffer is full. */

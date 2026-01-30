@@ -62,27 +62,6 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_finish(void)
 
 template <typename NgbIterType,typename QueryType,typename ResultType>
 void
-TreeWalk<NgbIterType, QueryType, ResultType>::init_result(ResultType * result, QueryType * query)
-{
-    memset(result, 0, sizeof(ResultType));
-#ifdef DEBUG
-    result->ID = query->ID;
-#endif
-}
-
-template <typename NgbIterType,typename QueryType,typename ResultType>
-void
-TreeWalk<NgbIterType, QueryType, ResultType>::reduce_result(ResultType * result, int i, TreeWalkReduceMode mode)
-{
-    reduce(i, result, mode);
-#ifdef DEBUG
-    if(Part[i].ID != result->ID)
-        endrun(2, "Mismatched ID (%ld != %ld) for particle %d in treewalk reduction, mode %d\n", Part[i].ID, result->ID, i, mode);
-#endif
-}
-
-template <typename NgbIterType,typename QueryType,typename ResultType>
-void
 TreeWalk<NgbIterType, QueryType, ResultType>::build_queue(int * active_set, const size_t size, int may_have_garbage)
 {
     NThread = omp_get_max_threads();
@@ -164,7 +143,6 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_primary(void)
         /* Note: exportflag is local to each thread */
         LocalTreeWalk<NgbIterType, QueryType, ResultType> lv(TREEWALK_PRIMARY, tree, ev_label, Ngblist, ExportTable_thread);
 
-        ResultType output;
         /* We must schedule dynamically so that we have reduced imbalance.
         * We do not need to worry about the export buffer filling up.*/
         /* chunk size: 1 and 1000 were slightly (3 percent) slower than 8.
@@ -180,10 +158,10 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_primary(void)
             const int i = WorkSet ? WorkSet[k] : k;
             /* Primary never uses node list */
             QueryType input(Part[i], NULL, tree->firstnode);
-            init_result(output, input);
+            ResultType output(input);
             lv.target = i;
             lv.visit(input, output);
-            reduce_result(output, i, TREEWALK_PRIMARY);
+            output.reduce(i, TREEWALK_PRIMARY);
         }
         if(maxNinteractions < lv.maxNinteractions)
             maxNinteractions = lv.maxNinteractions;
@@ -459,13 +437,13 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_secondary(struct CommBuffer * i
             * or it would be enabled by default.*/
             #pragma omp parallel
                 {
+                    ResultType * results = (ResultType *) dataresultstart;
                     int64_t j;
                     LocalTreeWalk<NgbIterType, QueryType, ResultType> lv(TREEWALK_GHOSTS, tree, ev_label, Ngblist, ExportTable_thread);
                     #pragma omp for
                     for(j = 0; j < nimports_task; j++) {
                         QueryType * input = ((QueryType *) databufstart)[j];
-                        ResultType * output = ((ResultType *) dataresultstart)[j];
-                        init_result(output, input);
+                        ResultType * output = new (results[j]) ResultType(*input);
                         lv.target = -1;
                         lv.visit(input, output);
                     }
@@ -608,7 +586,7 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_reduce_export_result(struct Com
             const int64_t bufpos = real_recv_count[task] + counts->Export_offset[task];
             real_recv_count[task]++;
             ResultType * output = ((ResultType *) exportbuf->databuf)[bufpos];
-            reduce_result(output, place, TREEWALK_GHOSTS);
+            output->reduce(place, TREEWALK_GHOSTS);
 #ifdef DEBUG
             if(output->ID != Part[place].ID)
                 endrun(8, "Error in communication: IDs mismatch %ld %ld\n", output->ID, Part[place].ID);

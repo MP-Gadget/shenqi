@@ -129,7 +129,7 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::export_particle(const int
 
 /* Do the regular particle visit with some extra cleanup of the particle export table for the toptree walk */
 template <typename NgbIterType, typename QueryType, typename ResultType>
-int LocalTreeWalk<NgbIterType, QueryType, ResultType>::toptree_visit(QueryType * input, ResultType * output)
+int LocalTreeWalk<NgbIterType, QueryType, ResultType>::toptree_visit(const QueryType& input, ResultType * output)
 {
     /* Reset the number of exported particles.*/
     NThisParticleExport = 0;
@@ -171,13 +171,13 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::toptree_visit(QueryType *
  *
  *****/
 template <typename NgbIterType, typename QueryType, typename ResultType>
-int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(QueryType * I, ResultType * O)
+int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(const QueryType& I, ResultType * O)
 {
     NgbIterType iter;
 
     /* Kick-start the iteration with other == -1 */
     iter.other = -1;
-    ngbiter(I, O, iter);
+    ngbiter(I, O, &iter);
     /* Check whether the tree contains the particles we are looking for*/
     if((tree->mask & iter.mask) != iter.mask)
         endrun(5, "Treewalk for particles with mask %d but tree mask is only %d overlap %d.\n", iter.mask, tree->mask, tree->mask & iter.mask);
@@ -236,7 +236,7 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(QueryType * I, Resu
             iter.r = sqrt(r2);
             iter.other = other;
 
-            ngbiter(I, O, iter);
+            ngbiter(I, O, &iter);
         }
 
         ninteractions += numngb;
@@ -296,7 +296,7 @@ cull_node(const double * const Pos, const double BoxSize, const double Hsml, con
  *
  * */
  template <typename NgbIterType, typename QueryType, typename ResultType>
- int LocalTreeWalk<NgbIterType, QueryType, ResultType>::ngb_treefind_threads(QueryType * I,
+ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::ngb_treefind_threads(const QueryType& I,
         NgbIterType * iter,
         int startnode)
 {
@@ -330,7 +330,7 @@ cull_node(const double * const Pos, const double BoxSize, const double Hsml, con
             }
         }
 
-        if(0 == cull_node(I->Pos, BoxSize, iter->Hsml, iter->symmetric, current)) {
+        if(0 == cull_node(I.Pos, BoxSize, iter->Hsml, iter->symmetric, current)) {
             /* in case the node can be discarded */
             no = current->sibling;
             continue;
@@ -389,12 +389,12 @@ cull_node(const double * const Pos, const double BoxSize, const double Hsml, con
  * or some density code. Don't use it if the treewalk modifies other particles.
  * */
  template <typename NgbIterType, typename QueryType, typename ResultType>
- int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit_nolist_ngbiter(QueryType * I, ResultType * O)
+ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit_nolist_ngbiter(const QueryType& I, ResultType * O)
 {
     NgbIterType iter;
     /* Kick-start the iteration with other == -1 */
     iter->other = -1;
-    ngbiter(I, O, iter);
+    ngbiter(I, O, &iter);
 
     int64_t ninteractions = 0;
     int inode;
@@ -472,7 +472,7 @@ cull_node(const double * const Pos, const double BoxSize, const double Hsml, con
                         iter->r2 = r2;
                         iter->other = other;
                         iter->r = sqrt(r2);
-                        ngbiter(I, O, iter);
+                        ngbiter(I, O, &iter);
                         ninteractions++;
                     }
                     /* Move sideways*/
