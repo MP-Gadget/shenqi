@@ -23,6 +23,7 @@ enum TreeWalkType {
  *   2. Set tree, ev_label, type, and element sizes in the constructor
  *   3. Call treewalk_run() to execute the tree walk
  */
+template <typename NgbIterType = TreeWalkNgbIterBase, typename QueryType=TreeWalkQueryBase, typename ResultType=TreeWalkResultBase>
 class TreeWalk {
 public:
     /* A pointer to the force tree structure to walk.*/
@@ -36,9 +37,6 @@ public:
     /* If this is true, the primary and secondary treewalks will be offloaded to an accelerator device (a GPU).
      * This imposes certain limitations, most notably atomics will be slow.*/
     int use_openmp_target;
-
-    size_t query_type_elsize;
-    size_t result_type_elsize;
 
     /* Set to true if haswork() is overridden to do actual filtering.
      * Used to optimize queue building when haswork always returns true. */
@@ -116,8 +114,6 @@ public:
         type(TREEWALK_ACTIVE),
         NTask(0),
         use_openmp_target(0),
-        query_type_elsize(0),
-        result_type_elsize(0),
         haswork_defined(false),
         NThread(0),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
@@ -216,12 +212,11 @@ public:
         void wait_commbuffer(struct CommBuffer * buffer);
 
         /* Print some counters for a completed treewalk*/
-        void print_stats();
+        void print_stats(void);
 
-        void init_query(TreeWalkQueryBase * query, int i, const int * const NodeList);
-        void init_result(TreeWalkResultBase * result, TreeWalkQueryBase * query);
-        void reduce_result(TreeWalkResultBase * result, int i, TreeWalkReduceMode mode);
-
+        void init_query(QueryType * query, int i, const int * const NodeList);
+        void init_result(ResultType * result, QueryType * query);
+        void reduce_result(ResultType * result, int i, TreeWalkReduceMode mode);
 };
 
 #define TREEWALK_REDUCE(A, B) (A) = (mode==TREEWALK_PRIMARY)?(B):((A) + (B))

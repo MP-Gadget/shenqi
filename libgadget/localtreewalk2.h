@@ -64,13 +64,13 @@ struct data_index
     int NodeList[NODELISTLENGTH];
 };
 
-template <typename NgbIterType = TreeWalkNgbIterBase, typename QueryType=TreeWalkQueryBase, typename ResultType=TreeWalkResultBase>
+template <typename NgbIterType, typename QueryType, typename ResultType>
 class LocalTreeWalk
 {
 public:
 
     const int mode; /* 0 for Primary, 1 for Secondary */
-    int target; /* Current particle, defined only for primary (mode == TREEWALK_PRIMARY) */
+    int target; /* Current particle, defined only for primary and toptree walks (mode == TREEWALK_PRIMARY and TREEWALK_TOPTREE) */
     /* Interaction counters */
     int64_t maxNinteractions;
     int64_t minNinteractions;
