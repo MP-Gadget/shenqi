@@ -9,12 +9,6 @@
 #include "utils/mymalloc.h"
 #include "utils/endrun.h"
 
-enum TreeWalkType {
-    TREEWALK_ACTIVE = 0,
-    TREEWALK_ALL,
-    TREEWALK_SPLIT,
-};
-
 /**
  * TreeWalk - Base class for tree-based particle interactions.
  *
@@ -27,7 +21,7 @@ enum TreeWalkType {
  *   2. Set tree, ev_label, type, and element sizes in the constructor
  *   3. Call treewalk_run() to execute the tree walk
  */
-template <typename QueryType=TreeWalkQueryBase, typename ResultType=TreeWalkResultBase, typename LocalTreeWalkType = LocalTreeWalk<TreeWalkNgbIterBase, QueryType, ResultType> >
+template <typename QueryType=TreeWalkQueryBase<ParamTypeBase>, typename ResultType=TreeWalkResultBase<ParamTypeBase>, typename LocalTreeWalkType = LocalTreeWalk<TreeWalkNgbIterBase, QueryType, ResultType>, typename ParamType=ParamTypeBase >
 class TreeWalk {
 public:
     /* A pointer to the force tree structure to walk.*/
@@ -36,7 +30,7 @@ public:
     /* name of the evaluator (used in printing messages) */
     const char * const ev_label;
 
-    const TreeWalkType type;
+    const ParamType priv;
     int NTask; /*Number of MPI tasks*/
     /* If this is true, the primary and secondary treewalks will be offloaded to an accelerator device (a GPU).
      * This imposes certain limitations, most notably atomics will be slow.*/
@@ -112,9 +106,9 @@ public:
     /**
      * Constructor - initializes all members to safe defaults.
      */
-    TreeWalk(const TreeWalkType i_type, const ForceTree * const i_tree, const char * const i_ev_label) :
+    TreeWalk(const ForceTree * const i_tree, const char * const i_ev_label, const ParamType& i_priv) :
         tree(i_tree), ev_label(i_ev_label),
-        type(i_type), NThread(omp_get_max_threads()),
+        NThread(omp_get_max_threads()), priv(priv),
         should_rebuild_queue(true),
         use_openmp_target(0),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),

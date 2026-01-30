@@ -2,6 +2,7 @@
 #include "omp.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
+
 /*!< Memory factor to leave for (N imported particles) > (N exported particles). */
 static double ImportBufferBoost;
 /* 7/9/24: The code segfaults if the send/recv buffer is larger than 4GB in size.
@@ -173,13 +174,13 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::toptree_visit(const Query
  *
  *****/
 template <typename NgbIterType, typename QueryType, typename ResultType>
-int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(const QueryType& I, ResultType * O)
+int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(const QueryType& input, ResultType * output)
 {
     NgbIterType iter;
 
     /* Kick-start the iteration with other == -1 */
     iter.other = -1;
-    ngbiter(I, O, &iter);
+    ngbiter(input, output, &iter);
     /* Check whether the tree contains the particles we are looking for*/
     if((tree->mask & iter.mask) != iter.mask)
         endrun(5, "Treewalk for particles with mask %d but tree mask is only %d overlap %d.\n", iter.mask, tree->mask, tree->mask & iter.mask);
@@ -191,9 +192,9 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(const QueryType& I,
     int64_t ninteractions = 0;
     int inode = 0;
 
-    for(inode = 0; inode < NODELISTLENGTH && I->NodeList[inode] >= 0; inode++)
+    for(inode = 0; inode < NODELISTLENGTH && input->NodeList[inode] >= 0; inode++)
     {
-        int numcand = ngb_treefind_threads(I, &iter, I->NodeList[inode]);
+        int numcand = ngb_treefind_threads(input, &iter, input->NodeList[inode]);
         /* Export buffer is full end prematurally */
         if(numcand < 0)
             return numcand;
@@ -227,7 +228,7 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(const QueryType& I,
             double h2 = dist * dist;
             for(d = 0; d < 3; d ++) {
                 /* the distance vector points to 'other' */
-                iter.dist[d] = NEAREST(I->Pos[d] - Part[other].Pos[d], BoxSize);
+                iter.dist[d] = NEAREST(input->Pos[d] - Part[other].Pos[d], BoxSize);
                 r2 += iter.dist[d] * iter.dist[d];
                 if(r2 > h2) break;
             }
@@ -238,7 +239,7 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(const QueryType& I,
             iter.r = sqrt(r2);
             iter.other = other;
 
-            ngbiter(I, O, &iter);
+            ngbiter(input, output, &iter);
         }
 
         ninteractions += numngb;

@@ -32,8 +32,15 @@ enum TreeWalkReduceMode {
     TREEWALK_TOPTREE,
 };
 
+/* Should be subclassed to contain the treewalk parameters specific to each treewalk.
+ * Used to be called XX_GET_PRIV(tw)->priv.
+ */
+class ParamTypeBase
+{
+};
+
 /* Base class for the TreeWalk queries. You should subclass this and subclass the constructor. */
-class TreeWalkQueryBase
+template <typename ParamType=ParamTypeBase> class TreeWalkQueryBase
 {
     public:
         double Pos[3];
@@ -47,7 +54,7 @@ class TreeWalkQueryBase
         * i_NodeList: list of topnodes to start the treewalk from.
         * firstnode is used only if i_NodeList is NULL, in practice this is for primary treewalks.
         * This should be subclassed: the new constructor was called 'fill' in treewalk v1. */
-        TreeWalkQueryBase(const particle_data& particle, const int * const i_NodeList, int firstnode)
+        TreeWalkQueryBase(const particle_data& particle, const int * const i_NodeList, const int firstnode, const ParamType& priv)
         {
         #ifdef DEBUG
             query->ID = particle.ID;
@@ -67,45 +74,48 @@ class TreeWalkQueryBase
         }
 };
 
+template <typename ParamType=ParamTypeBase>
 class TreeWalkResultBase
 {
-    #ifdef DEBUG
-        MyIDType ID;
-    #endif
-
-    TreeWalkResultBase(const TreeWalkQueryBase& query)
-    {
-        memset(this, 0, sizeof(*this));
-    #ifdef DEBUG
-        ID = query.ID;
-    #endif
-    }
-
-    /**
-    * Reduce partial results back to the local particle.
-    * Override to accumulate results from tree walk iterations.
-    *
-    * @param j      Particle index
-    * @param mode   Whether this is primary, ghost, or toptree reduction
-    */
-    void reduce(const int j, const TreeWalkReduceMode mode)
-    {
+    public:
         #ifdef DEBUG
-            if(Part[j].ID != ID)
-                endrun(2, "Mismatched ID (%ld != %ld) for particle %d in treewalk reduction, mode %d\n", Part[j].ID, ID, j, mode);
+            MyIDType ID;
         #endif
-    }
+
+        TreeWalkResultBase(const TreeWalkQueryBase<ParamType>& query)
+        {
+            memset(this, 0, sizeof(*this));
+        #ifdef DEBUG
+            ID = query.ID;
+        #endif
+        }
+
+        /**
+        * Reduce partial results back to the local particle.
+        * Override to accumulate results from tree walk iterations.
+        *
+        * @param j      Particle index
+        * @param mode   Whether this is primary, ghost, or toptree reduction
+        */
+        void reduce(const int j, const TreeWalkReduceMode mode, const ParamType& priv)
+        {
+            #ifdef DEBUG
+                if(Part[j].ID != ID)
+                    endrun(2, "Mismatched ID (%ld != %ld) for particle %d in treewalk reduction, mode %d\n", Part[j].ID, ID, j, mode);
+            #endif
+        }
 
 };
 
 class TreeWalkNgbIterBase {
-    int mask;
-    int other;
-    double Hsml;
-    double dist[3];
-    double r2;
-    double r;
-    NgbTreeFindSymmetric symmetric;
+    public:
+        int mask;
+        int other;
+        double Hsml;
+        double dist[3];
+        double r2;
+        double r;
+        NgbTreeFindSymmetric symmetric;
 };
 
 /*!< Thread-local list of the particles to be exported,
@@ -145,7 +155,7 @@ public:
      * @param iter   Neighbour iterator with distance info
      * @param lv     Thread-local walk state
      */
-    void ngbiter(const QueryType& input, ResultType * output, NgbIterType iter) {};
+    void ngbiter(const QueryType& input, ResultType * output, NgbIterType * iter) {};
 
     /**
      * Visit function - called between a tree node and a particle.
@@ -158,7 +168,11 @@ public:
      */
     int visit(const QueryType& input, ResultType * output);
 
-    /* Wrapper of the regular particle visit with some extra cleanup of the particle export table for the toptree walk */
+    /* Wrapper of the regular particle visit with some extra cleanup of the particle export table for the toptree walk
+     * @param input  Query data for the particle
+     * @param output Result accumulator
+     * @return 0 on success, -1 if export buffer is full
+     */
     int toptree_visit(const QueryType& input, ResultType * output);
 
     /*****
@@ -171,7 +185,7 @@ public:
      * */
     int visit_nolist_ngbiter(const QueryType& input, ResultType * output);
 
-private:
+protected:
     int ngb_treefind_threads(const QueryType& I, NgbIterType * iter, int startnode);
 
     /* Adds a remote tree node to the export list for this particle.

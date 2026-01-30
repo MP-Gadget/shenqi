@@ -11,10 +11,9 @@
 #include "domain.h"
 #include "forcetree.h"
 
-
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 void
-TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_begin(int * active_set, const size_t size)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_begin(int * active_set, const size_t size)
 {
     /* Needs to be 64-bit so that the multiplication in Ngblist malloc doesn't overflow*/
     const size_t NumThreads = omp_get_max_threads();
@@ -49,9 +48,9 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_begin(int * active_set, c
     report_memory_usage(ev_label);
 }
 
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 void
-TreeWalk<QueryType, ResultType, LocalTreeWalkType>::build_queue(int * active_set, const size_t size, int may_have_garbage)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::build_queue(int * active_set, const size_t size, int may_have_garbage)
 {
     if(!should_rebuild_queue && !may_have_garbage)
     {
@@ -120,9 +119,9 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::build_queue(int * active_set
 }
 
 /* returns struct containing export counts */
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 void
-TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_primary(void)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_primary(void)
 {
     int64_t maxNinteractions = 0, minNinteractions = 1L << 45, Ninteractions=0;
 #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
@@ -144,11 +143,11 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_primary(void)
         for(k = 0; k < WorkSetSize; k++) {
             const int i = WorkSet ? WorkSet[k] : k;
             /* Primary never uses node list */
-            QueryType input(Part[i], NULL, tree->firstnode);
+            QueryType input(Part[i], NULL, tree->firstnode, priv);
             ResultType output(input);
             lv.target = i;
             lv.visit(input, output);
-            output.reduce(i, TREEWALK_PRIMARY);
+            output.reduce(i, TREEWALK_PRIMARY, priv);
         }
         if(maxNinteractions < lv.maxNinteractions)
             maxNinteractions = lv.maxNinteractions;
@@ -160,9 +159,9 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_primary(void)
     Nlistprimary += WorkSetSize;
 }
 
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 void
-TreeWalk<QueryType, ResultType, LocalTreeWalkType>::alloc_export_memory()
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::alloc_export_memory()
 {
     Nexport_thread = ta_malloc2("localexports", size_t, NThread);
     ExportTable_thread = ta_malloc2("localexports", data_index *, NThread);
@@ -175,9 +174,9 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::alloc_export_memory()
     QueueChunkRestart = ta_malloc2("queuerestart", int, NThread);
 }
 
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 void
-TreeWalk<QueryType, ResultType, LocalTreeWalkType>::free_export_memory()
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::free_export_memory()
 {
     myfree(QueueChunkRestart);
     myfree(QueueChunkEnd);
@@ -188,9 +187,9 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::free_export_memory()
     myfree(Nexport_thread);
 }
 
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 int
-TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_toptree(void)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_toptree(void)
 {
     BufferFullFlag = 0;
     int64_t currentIndex = WorkSetStart;
@@ -244,7 +243,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_toptree(void)
             for(k = chnk; k < end; k++) {
                 const int i = WorkSet ? WorkSet[k] : k;
                 /* Toptree never uses node list */
-                QueryType input(Part[i], NULL, tree->firstnode);
+                QueryType input(Part[i], NULL, tree->firstnode, priv);
                 lv.target = i;
                 /* Reset the number of exported particles.*/
                 const int rt = lv.visit(input, output);
@@ -374,9 +373,9 @@ static void wait_commbuffer(struct CommBuffer * buffer)
     MPI_Waitall(buffer->nrequest_all, buffer->rdata_all, MPI_STATUSES_IGNORE);
 }
 
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 struct CommBuffer
-TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_secondary(struct CommBuffer * imports, struct ImpExpCounts* counts)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_secondary(struct CommBuffer * imports, struct ImpExpCounts* counts)
 {
     struct CommBuffer res_imports = {0};
     alloc_commbuffer(&res_imports, counts->NTask, 1);
@@ -434,9 +433,9 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_secondary(struct CommBuff
     return res_imports;
 }
 
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 struct ImpExpCounts
-TreeWalk<QueryType, ResultType, LocalTreeWalkType>::
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::
 ev_export_import_counts(MPI_Comm comm)
 {
     int NTask;
@@ -482,9 +481,9 @@ ev_export_import_counts(MPI_Comm comm)
 }
 
 /* Builds the list of exported particles and async sends the export queries. */
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 void
-TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_send_recv_export_import(struct ImpExpCounts * counts, struct CommBuffer * exports, struct CommBuffer * imports)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_send_recv_export_import(struct ImpExpCounts * counts, struct CommBuffer * exports, struct CommBuffer * imports)
 {
     alloc_commbuffer(exports, counts->NTask, 0);
     exports->databuf = (char *) mymalloc("ExportQuery", counts->Nexport * sizeof(QueryType));
@@ -513,7 +512,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_send_recv_export_import(s
             const int64_t bufpos = real_send_count[task] + counts->Export_offset[task];
             real_send_count[task]++;
             /* Initialize the query in this memory */
-            QueryType * input = new(export_queries[bufpos]) QueryType(Part[place], ExportTable_thread[i][k].NodeList, -1);
+            QueryType * input = new(export_queries[bufpos]) QueryType(Part[place], ExportTable_thread[i][k].NodeList, -1, priv);
         }
     }
 #ifdef DEBUG
@@ -528,9 +527,9 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_send_recv_export_import(s
     return;
 }
 
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 void
-TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_recv_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_recv_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts)
 {
     alloc_commbuffer(exportbuf, counts->NTask, 1);
     MPI_Datatype type;
@@ -544,9 +543,9 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_recv_export_result(struct
     MPI_Type_free(&type);
 }
 
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 void
-TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_reduce_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_reduce_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts)
 {
     int64_t i;
     /* Notice that we build the dataindex table individually
@@ -562,7 +561,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_reduce_export_result(stru
             const int64_t bufpos = real_recv_count[task] + counts->Export_offset[task];
             real_recv_count[task]++;
             ResultType * output = ((ResultType *) exportbuf->databuf)[bufpos];
-            output->reduce(place, TREEWALK_GHOSTS);
+            output->reduce(place, TREEWALK_GHOSTS, priv);
 #ifdef DEBUG
             if(output->ID != Part[place].ID)
                 endrun(8, "Error in communication: IDs mismatch %ld %ld\n", output->ID, Part[place].ID);
@@ -578,9 +577,9 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_reduce_export_result(stru
  *              all (NumPart) particles are used.
  *
  * */
- template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
+ template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
  void
- TreeWalk<QueryType, ResultType, LocalTreeWalkType>::run(int * active_set, size_t size)
+ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::run(int * active_set, size_t size)
 {
     if(!force_tree_allocated(tree)) {
         endrun(0, "Tree has been freed before this treewalk.\n");
@@ -677,9 +676,9 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType>::ev_reduce_export_result(stru
 
 /* This function does treewalk_run in a loop, allocating a queue to allow some particles to be redone.
  * This loop is used primarily in density estimation.*/
- template <typename QueryType, typename ResultType, typename LocalTreeWalkType>
+ template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
  void
- TreeWalk<QueryType, ResultType, LocalTreeWalkType>::do_hsml_loop(int * queue, int64_t queuesize, int update_hsml)
+ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::do_hsml_loop(int * queue, int64_t queuesize, int update_hsml)
 {
     int NumThreads = omp_get_max_threads();
     maxnumngb = ta_malloc("numngb", double, NumThreads);
