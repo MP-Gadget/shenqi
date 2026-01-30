@@ -14,6 +14,8 @@ void treewalk_set_max_export_buffer(const size_t maxbuf);
 /* Compute the number of entries that can live in an export table */
 size_t compute_bunchsize(const size_t query_type_elsize, const size_t result_type_elsize, const char * const ev_label);
 
+#define TREEWALK_REDUCE(A, B) (A) = (mode==TREEWALK_PRIMARY)?(B):((A) + (B))
+
 /* Use a low number here. Larger numbers decrease the size of the export table, up to a point.
  * The need for a large Nodelist in older versions
  * was because we were sorting the DIT, so had incentive to keep it small.*/
@@ -96,7 +98,7 @@ class TreeWalkResultBase
 
 };
 
-struct TreeWalkNgbIterBase {
+class TreeWalkNgbIterBase {
     int mask;
     int other;
     double Hsml;

@@ -18,7 +18,6 @@ TreeWalk<NgbIterType, QueryType, ResultType>::ev_begin(int * active_set, const s
 {
     /* Needs to be 64-bit so that the multiplication in Ngblist malloc doesn't overflow*/
     const size_t NumThreads = omp_get_max_threads();
-    MPI_Comm_size(MPI_COMM_WORLD, &NTask);
     /* The last argument is may_have_garbage: in practice the only
      * trivial haswork is the gravtree. This has no (active) garbage because
      * the active list was just rebuilt, but on a PM step the active list is NULL
@@ -64,9 +63,7 @@ template <typename NgbIterType,typename QueryType,typename ResultType>
 void
 TreeWalk<NgbIterType, QueryType, ResultType>::build_queue(int * active_set, const size_t size, int may_have_garbage)
 {
-    NThread = omp_get_max_threads();
-
-    if(!haswork_defined && !may_have_garbage)
+    if(!should_rebuild_queue && !may_have_garbage)
     {
         WorkSetSize = size;
         WorkSet = active_set;
@@ -104,7 +101,7 @@ TreeWalk<NgbIterType, QueryType, ResultType>::build_queue(int * active_set, cons
             if(Part[p_i].IsGarbage || Part[p_i].Swallowed)
                 continue;
 
-            if(haswork_defined && !haswork(p_i))
+            if(!haswork(p_i))
                 continue;
     #ifdef DEBUG
             if(nqthrlocal >= gthread.total_size)
@@ -721,8 +718,8 @@ TreeWalk<NgbIterType, QueryType, ResultType>::run(int * active_set, size_t size)
     int alloc_high = 0;
     /* We don't need to redo the queue generation
      * but need to keep track of allocated memory.*/
-    bool orig_haswork_defined = haswork_defined;
-    haswork_defined = false;
+    bool orig_build_queue = should_rebuild_queue;
+    should_rebuild_queue = false;
     timecomp3 += timediff(tstart, tend);
     /* we will repeat the whole thing for those particles where we didn't find enough neighbours */
     do {
@@ -746,7 +743,7 @@ TreeWalk<NgbIterType, QueryType, ResultType>::run(int * active_set, size_t size)
         run(CurQueue, size);
 
         /* Now done with the current queue*/
-        if(orig_haswork_defined || Niteration > 1)
+        if(orig_build_queue || Niteration > 1)
             myfree(CurQueue);
 
         size = gadget_compact_thread_arrays(&ReDoQueue, &loop);

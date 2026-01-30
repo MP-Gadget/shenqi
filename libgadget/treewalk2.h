@@ -2,6 +2,7 @@
 #define _EVALUATOR_H_
 
 #include <cstdint>
+#include <omp.h>
 #include "forcetree.h"
 #include "localtreewalk2.h"
 
@@ -27,12 +28,12 @@ template <typename NgbIterType = TreeWalkNgbIterBase, typename QueryType=TreeWal
 class TreeWalk {
 public:
     /* A pointer to the force tree structure to walk.*/
-    const ForceTree * tree;
+    const ForceTree * const tree;
 
     /* name of the evaluator (used in printing messages) */
-    const char * ev_label;
+    const char * const ev_label;
 
-    TreeWalkType type;
+    const TreeWalkType type;
     int NTask; /*Number of MPI tasks*/
     /* If this is true, the primary and secondary treewalks will be offloaded to an accelerator device (a GPU).
      * This imposes certain limitations, most notably atomics will be slow.*/
@@ -40,9 +41,9 @@ public:
 
     /* Set to true if haswork() is overridden to do actual filtering.
      * Used to optimize queue building when haswork always returns true. */
-    bool haswork_defined;
+    bool should_rebuild_queue;
 
-    int64_t NThread; /*Number of OpenMP threads*/
+    const int64_t NThread; /*Number of OpenMP threads*/
 
     /* performance metrics */
     /* Wait for remotes to finish.*/
@@ -108,14 +109,11 @@ public:
     /**
      * Constructor - initializes all members to safe defaults.
      */
-    TreeWalk() :
-        tree(nullptr),
-        ev_label(nullptr),
-        type(TREEWALK_ACTIVE),
-        NTask(0),
+    TreeWalk(const TreeWalkType i_type, const ForceTree * const i_tree, const char * const i_ev_label) :
+        tree(i_tree), ev_label(i_ev_label),
+        type(i_type), NThread(omp_get_max_threads()),
+        should_rebuild_queue(true),
         use_openmp_target(0),
-        haswork_defined(false),
-        NThread(0),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
         Nlistprimary(0), Nexport_sum(0), Nexportfull(0), NExportTargets(0), Niteration(0),
         maxNinteractions(0), minNinteractions(0), Ninteractions(0),
@@ -125,12 +123,9 @@ public:
         WorkSetStart(0), WorkSet(nullptr), WorkSetSize(0),
         NPLeft(nullptr), NPRedo(nullptr), Redo_thread_alloc(0),
         maxnumngb(nullptr), minnumngb(nullptr)
-    {}
-
-    /**
-     * Virtual destructor for proper cleanup in derived classes.
-     */
-    virtual ~TreeWalk() = default;
+    {
+        MPI_Comm_size(MPI_COMM_WORLD, &NTask);
+    }
 
     /* This function does treewalk_run in a loop, allocating a queue to allow some particles to be redone.
      * This loop is used primarily in density estimation.*/
@@ -193,8 +188,6 @@ public:
         /* Print some counters for a completed treewalk*/
         void print_stats(void);
 };
-
-#define TREEWALK_REDUCE(A, B) (A) = (mode==TREEWALK_PRIMARY)?(B):((A) + (B))
 
 #define MAXITER 400
 
