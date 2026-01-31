@@ -4,16 +4,12 @@
 #include <stdlib.h>
 #include <omp.h>
 #include <alloca.h>
-#include "utils.h"
 
 #include "treewalk2.h"
-#include "partmanager.h"
-#include "domain.h"
-#include "forcetree.h"
 
 template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 void
-TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_begin(int * active_set, const size_t size)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_begin(int * active_set, const size_t size, particle_data * parts)
 {
     /* Needs to be 64-bit so that the multiplication in Ngblist malloc doesn't overflow*/
     const size_t NumThreads = omp_get_max_threads();
@@ -26,7 +22,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_begin(int * ac
     /* Note this is not collective, but that should not matter.*/
     if(!active_set && SlotsManager->info[5].size > 0)
         may_have_garbage = 1;
-    build_queue(active_set, size, may_have_garbage);
+    build_queue(active_set, size, may_have_garbage, parts);
 
     /* Start first iteration at the beginning*/
     WorkSetStart = 0;
@@ -50,7 +46,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_begin(int * ac
 
 template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 void
-TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::build_queue(int * active_set, const size_t size, int may_have_garbage)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::build_queue(int * active_set, const size_t size, int may_have_garbage, const particle_data * const Parts)
 {
     if(!should_rebuild_queue && !may_have_garbage)
     {
@@ -85,12 +81,12 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::build_queue(int *
         {
             /*Use raw particle number if active_set is null, otherwise use active_set*/
             const int p_i = active_set ? active_set[i] : (int) i;
-
+            const particle_data& pp = Parts[p_i];
             /* Skip the garbage /swallowed particles */
-            if(Part[p_i].IsGarbage || Part[p_i].Swallowed)
+            if(pp.IsGarbage || pp.Swallowed)
                 continue;
 
-            if(!haswork(p_i))
+            if(!haswork(pp))
                 continue;
     #ifdef DEBUG
             if(nqthrlocal >= gthread.total_size)
@@ -121,7 +117,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::build_queue(int *
 /* returns struct containing export counts */
 template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 void
-TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_primary(void)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_primary(const particle_data * const parts)
 {
     int64_t maxNinteractions = 0, minNinteractions = 1L << 45, Ninteractions=0;
 #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
@@ -143,11 +139,11 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_primary(void)
         for(k = 0; k < WorkSetSize; k++) {
             const int i = WorkSet ? WorkSet[k] : k;
             /* Primary never uses node list */
-            QueryType input(Part[i], NULL, tree->firstnode, priv);
+            QueryType input(parts[i], NULL, tree->firstnode, priv);
             ResultType output(input);
             lv.target = i;
-            lv.visit(input, output);
-            output.reduce(i, TREEWALK_PRIMARY, priv);
+            lv.visit(input, output, priv, parts);
+            output.reduce(i, TREEWALK_PRIMARY, priv, parts);
         }
         if(maxNinteractions < lv.maxNinteractions)
             maxNinteractions = lv.maxNinteractions;
@@ -189,7 +185,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::free_export_memor
 
 template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 int
-TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_toptree(void)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_toptree(const particle_data * const parts)
 {
     BufferFullFlag = 0;
     int64_t currentIndex = WorkSetStart;
@@ -243,10 +239,10 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_toptree(void)
             for(k = chnk; k < end; k++) {
                 const int i = WorkSet ? WorkSet[k] : k;
                 /* Toptree never uses node list */
-                QueryType input(Part[i], NULL, tree->firstnode, priv);
+                QueryType input(parts[i], NULL, tree->firstnode, priv);
                 lv.target = i;
                 /* Reset the number of exported particles.*/
-                const int rt = lv.visit(input, output);
+                const int rt = lv.visit(input, output, priv, parts);
                 /* If we filled up, we need to save the partially evaluated chunk, and leave this loop.*/
                 if(rt < 0) {
                     //message(5, "Export buffer full for particle %d chnk: %ld -> %ld on thread %d with %ld exports\n", i, chnk, end, tid, lv->NThisParticleExport);
@@ -375,7 +371,7 @@ static void wait_commbuffer(struct CommBuffer * buffer)
 
 template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 struct CommBuffer
-TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_secondary(struct CommBuffer * imports, struct ImpExpCounts* counts)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_secondary(struct CommBuffer * imports, struct ImpExpCounts* counts, const struct particle_data * const parts)
 {
     struct CommBuffer res_imports = {0};
     alloc_commbuffer(&res_imports, counts->NTask, 1);
@@ -419,7 +415,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_secondary(stru
                         QueryType * input = ((QueryType *) databufstart)[j];
                         ResultType * output = new (results[j]) ResultType(*input);
                         lv.target = -1;
-                        lv.visit(input, output);
+                        lv.visit(input, output, priv, parts);
                     }
                 }
             /* Send the completed data back*/
@@ -483,7 +479,7 @@ ev_export_import_counts(MPI_Comm comm)
 /* Builds the list of exported particles and async sends the export queries. */
 template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 void
-TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_send_recv_export_import(struct ImpExpCounts * counts, struct CommBuffer * exports, struct CommBuffer * imports)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_send_recv_export_import(struct ImpExpCounts * counts, struct CommBuffer * exports, struct CommBuffer * imports, const particle_data * const parts)
 {
     alloc_commbuffer(exports, counts->NTask, 0);
     exports->databuf = (char *) mymalloc("ExportQuery", counts->Nexport * sizeof(QueryType));
@@ -512,7 +508,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_send_recv_expo
             const int64_t bufpos = real_send_count[task] + counts->Export_offset[task];
             real_send_count[task]++;
             /* Initialize the query in this memory */
-            QueryType * input = new(export_queries[bufpos]) QueryType(Part[place], ExportTable_thread[i][k].NodeList, -1, priv);
+            QueryType * input = new(export_queries[bufpos]) QueryType(parts[place], ExportTable_thread[i][k].NodeList, -1, priv);
         }
     }
 #ifdef DEBUG
@@ -545,7 +541,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_recv_export_re
 
 template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 void
-TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_reduce_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts)
+TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_reduce_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts, const struct particle_data * const parts)
 {
     int64_t i;
     /* Notice that we build the dataindex table individually
@@ -561,10 +557,10 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_reduce_export_
             const int64_t bufpos = real_recv_count[task] + counts->Export_offset[task];
             real_recv_count[task]++;
             ResultType * output = ((ResultType *) exportbuf->databuf)[bufpos];
-            output->reduce(place, TREEWALK_GHOSTS, priv);
+            output->reduce(place, TREEWALK_GHOSTS, priv, parts);
 #ifdef DEBUG
-            if(output->ID != Part[place].ID)
-                endrun(8, "Error in communication: IDs mismatch %ld %ld\n", output->ID, Part[place].ID);
+            if(output->ID != parts[place].ID)
+                endrun(8, "Error in communication: IDs mismatch %ld %ld\n", output->ID, parts[place].ID);
 #endif
         }
     }
@@ -579,7 +575,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_reduce_export_
  * */
  template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
  void
- TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::run(int * active_set, size_t size)
+ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::run(int * active_set, size_t size, particle_data * const parts)
 {
     if(!force_tree_allocated(tree)) {
         endrun(0, "Tree has been freed before this treewalk.\n");
@@ -597,7 +593,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_reduce_export_
     #pragma omp parallel for
     for(i = 0; i < WorkSetSize; i ++) {
         const int p_i = WorkSet ? WorkSet[i] : i;
-        preprocess(p_i);
+        preprocess(p_i, parts);
     }
 
     tend = second();
@@ -626,7 +622,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_reduce_export_
         /* Only do this on the first iteration, as we only need to do it once.*/
         tstart = second();
         if(Nexportfull == 0)
-            ev_primary(); /* do local particles and prepare export list */
+            ev_primary(parts); /* do local particles and prepare export list */
         tend = second();
         timecomp1 += timediff(tstart, tend);
         /* Do processing of received particles. We implement a queue that
@@ -666,7 +662,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_reduce_export_
     #pragma omp parallel for
     for(i = 0; i < WorkSetSize; i ++) {
         const int p_i = WorkSet ? WorkSet[i] : i;
-        postprocess(p_i);
+        postprocess(p_i, parts);
     }
     tend = second();
     timecomp3 += timediff(tstart, tend);
@@ -678,7 +674,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_reduce_export_
  * This loop is used primarily in density estimation.*/
  template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
  void
- TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::do_hsml_loop(int * queue, int64_t queuesize, int update_hsml)
+ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::do_hsml_loop(int * queue, int64_t queuesize, const int update_hsml, particle_data * parts)
 {
     int NumThreads = omp_get_max_threads();
     maxnumngb = ta_malloc("numngb", double, NumThreads);
@@ -686,7 +682,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_reduce_export_
 
     /* Build the first queue */
     double tstart = second();
-    build_queue(queue, queuesize, 0);
+    build_queue(queue, queuesize, 0, parts);
     double tend = second();
 
     /* Next call to treewalk_run will over-write these pointers*/
@@ -718,7 +714,7 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_reduce_export_
         NPRedo = loop.srcs;
         NPLeft = loop.sizes;
         Redo_thread_alloc = loop.total_size;
-        run(CurQueue, size);
+        run(CurQueue, size, parts);
 
         /* Now done with the current queue*/
         if(orig_build_queue || Niteration > 1)
@@ -746,26 +742,10 @@ TreeWalk<QueryType, ResultType, LocalTreeWalkType, ParamType>::ev_reduce_export_
 
         /*Shrink memory*/
         ReDoQueue = (int *) myrealloc(ReDoQueue, sizeof(int) * size);
-
-        /*
-        if(ntot < 1 ) {
-            foreach(ActiveParticle)
-            {
-                if(density_haswork(i)) {
-                    MyFloat Left = DENSITY_GET_PRIV(tw)->Left[i];
-                    MyFloat Right = DENSITY_GET_PRIV(tw)->Right[i];
-                    message (1, "i=%d task=%d ID=%llu type=%d, Hsml=%g Left=%g Right=%g Ngbs=%g Right-Left=%g\n   pos=(%g|%g|%g)\n",
-                         i, ThisTask, Part[i].ID, Part[i].Type, Part[i].Hsml, Left, Right,
-                         (float) Part[i].NumNgb, Right - Left, Part[i].Pos[0], Part[i].Pos[1], Part[i].Pos[2]);
-                }
-            }
-
-        }
-        */
 #ifdef DEBUG
         if(size < 10 && Niteration > 20 ) {
             int pp = ReDoQueue[0];
-            message(1, "Remaining i=%d, t %d, pos %g %g %g, hsml: %g\n", pp, Part[pp].Type, Part[pp].Pos[0], Part[pp].Pos[1], Part[pp].Pos[2], Part[pp].Hsml);
+            message(1, "Remaining i=%d, t %d, pos %g %g %g, hsml: %g\n", pp, parts[pp].Type, parts[pp].Pos[0], parts[pp].Pos[1], parts[pp].Pos[2], parts[pp].Hsml);
         }
 #endif
 

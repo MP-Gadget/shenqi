@@ -1,5 +1,5 @@
 #include "localtreewalk2.h"
-#include "omp.h"
+#include <omp.h>
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
 
@@ -132,11 +132,11 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::export_particl
 
 /* Do the regular particle visit with some extra cleanup of the particle export table for the toptree walk */
 template <typename NgbIterType, typename QueryType, typename ResultType, typename ParamType>
-int LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::toptree_visit(const QueryType& input, ResultType * output)
+int LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::toptree_visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
 {
     /* Reset the number of exported particles.*/
     NThisParticleExport = 0;
-    const int rt = visit(input, output);
+    const int rt = visit(input, output, priv, parts);
     if(NThisParticleExport > 1000)
         message(5, "%ld exports for particle %d! Odd.\n", NThisParticleExport, target);
     /* If we filled up, we need to remove the partially evaluated last particle from the export list,
@@ -194,8 +194,8 @@ cull_node(const double * const Pos, const double BoxSize, const double Hsml, con
 
 /*****
  * This is the internal code that looks for particles in the ngb tree from
- * searchcenter upto hsml. if iter->symmetric is NGB_TREE_FIND_SYMMETRIC, then upto
- * max(Part[other].Hsml, iter->Hsml).
+ * searchcenter upto hsml. if iter->symmetric is NGB_TREE_FIND_SYMMETRIC, then up to
+ * max(part.Hsml, iter->Hsml).
  *
  * Particle that intersects with other domains are marked for export.
  * The hosting nodes (leaves of the global tree) are exported as well.
@@ -308,7 +308,7 @@ cull_node(const double * const Pos, const double BoxSize, const double Hsml, con
  *
  *****/
 template <typename NgbIterType, typename QueryType, typename ResultType, typename ParamType>
-int LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::visit_ngblist(const QueryType& input, ResultType * output, const ParamType& priv)
+int LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::visit_ngblist(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
 {
     NgbIterType iter(input);
     /* Check whether the tree contains the particles we are looking for*/
@@ -335,14 +335,14 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::visit_ngblist(
             int other = ngblist[numngb];
 
             /* Skip garbage*/
-            if(Part[other].IsGarbage)
+            if(parts[other].IsGarbage)
                 continue;
             /* In case the type of the particle has changed since the tree was built.
              * Happens for wind treewalk for gas turned into stars on this timestep.*/
-            if(!((1<<Part[other].Type) & iter.mask)) {
+            if(!((1<<parts[other].Type) & iter.mask)) {
                 continue;
             }
-            iter.ngbiter(input, other, output, priv);
+            iter.ngbiter(input, other, output, priv, parts);
         }
 
         ninteractions += numngb;
@@ -361,7 +361,7 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::visit_ngblist(
  * or some density code. Don't use it if the treewalk modifies other particles.
  * */
 template <typename NgbIterType, typename QueryType, typename ResultType, typename ParamType>
-int LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::visit(const QueryType& input, ResultType * output, const ParamType& priv)
+int LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
 {
     NgbIterType iter(input);
 
@@ -418,13 +418,13 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::visit(const Qu
                         /* Now evaluate a particle for the list*/
                         int other = suns[i];
                         /* Skip garbage*/
-                        if(Part[other].IsGarbage)
+                        if(parts[other].IsGarbage)
                             continue;
                         /* In case the type of the particle has changed since the tree was built.
                         * Happens for wind treewalk for gas turned into stars on this timestep.*/
-                        if(!((1<<Part[other].Type) & iter->mask))
+                        if(!((1<<parts[other].Type) & iter->mask))
                             continue;
-                        iter.ngbiter(input, other, output, priv);
+                        iter.ngbiter(input, other, output, priv, parts);
                         ninteractions++;
                     }
                     /* Move sideways*/

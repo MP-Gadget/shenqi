@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <cmath>
 #include "forcetree.h"
-#include "libgadget/partmanager.h"
+#include "partmanager.h"
 
 /*Initialise treewalk parameters on first run*/
 void set_treewalk_params(ParameterSet * ps);
@@ -39,8 +39,8 @@ enum TreeWalkReduceMode {
 class ParamTypeBase
 {
     public:
-        const struct part_manager_type * const PartManager;
-        ParamTypeBase(const struct part_manager_type * const i_PartManager) : PartManager(i_PartManager) {};
+        const double BoxSize;
+        ParamTypeBase(const double i_BoxSize) : BoxSize(i_BoxSize) {};
 };
 
 /* Base class for the TreeWalk queries. You should subclass this and subclass the constructor. */
@@ -101,11 +101,11 @@ class TreeWalkResultBase
         * @param j      Particle index
         * @param mode   Whether this is primary, ghost, or toptree reduction
         */
-        void reduce(const int j, const TreeWalkReduceMode mode, const ParamType& priv)
+        void reduce(const int j, const TreeWalkReduceMode mode, const ParamType& priv, struct particle_data * const parts)
         {
             #ifdef DEBUG
-                if(Part[j].ID != ID)
-                    endrun(2, "Mismatched ID (%ld != %ld) for particle %d in treewalk reduction, mode %d\n", Part[j].ID, ID, j, mode);
+                if(parts[j].ID != ID)
+                    endrun(2, "Mismatched ID (%ld != %ld) for particle %d in treewalk reduction, mode %d\n", parts[j].ID, ID, j, mode);
             #endif
         }
 
@@ -133,9 +133,9 @@ class TreeWalkNgbIterBase {
          * @param iter   Neighbour iterator with distance info
          * @param lv     Thread-local walk state
          */
-        void ngbiter(const QueryType& input, const int i_other, ResultType * output, const ParamType& priv)
+        void ngbiter(const QueryType& input, const int i_other, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
         {
-            const particle_data& particle = priv.PartManager->Base[other];
+            const particle_data& particle = parts[other];
             double symHsml = Hsml;
             if(symmetric == NGB_TREEFIND_SYMMETRIC) {
                 symHsml = DMAX(particle.Hsml, Hsml);
@@ -146,7 +146,7 @@ class TreeWalkNgbIterBase {
             double h2 = symHsml * symHsml;
             for(d = 0; d < 3; d ++) {
                 /* the distance vector points to 'other' */
-                dist[d] = NEAREST(input.Pos[d] - particle.Pos[d], priv.PartManager->BoxSize);
+                dist[d] = NEAREST(input.Pos[d] - particle.Pos[d], priv.BoxSize);
                 r2 += dist[d] * dist[d];
                 if(r2 > h2) break;
             }
@@ -193,14 +193,14 @@ public:
      * @param output Result accumulator
      * @return 0 on success, -1 if export buffer is full
      */
-     int visit(const QueryType& input, ResultType * output, const ParamType& priv);
+     int visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts);
 
     /* Wrapper of the regular particle visit with some extra cleanup of the particle export table for the toptree walk
      * @param input  Query data for the particle
      * @param output Result accumulator
      * @return 0 on success, -1 if export buffer is full
      */
-    int toptree_visit(const QueryType& input, ResultType * output);
+    int toptree_visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts);
 
     /*****
      * Variant of ngbiter that uses an Ngblist: first it builds a list of
@@ -211,7 +211,7 @@ public:
      * wants to change the search radius, such as for density code.
      * Use this one if the treewalk modifies other particles.
      * */
-    int visit_ngblist(const QueryType& input, ResultType * output, const ParamType& priv);
+    int visit_ngblist(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts);
 
 protected:
     int ngb_treefind_threads(const QueryType& input, NgbIterType * iter, int startnode);

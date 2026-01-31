@@ -3,9 +3,8 @@
 
 #include <cstdint>
 #include <omp.h>
-#include "forcetree.h"
-#include "libgadget/treewalk.h"
 #include "localtreewalk2.h"
+#include "forcetree.h"
 #include "utils/mymalloc.h"
 #include "utils/endrun.h"
 #include "utils/system.h"
@@ -126,11 +125,11 @@ public:
 
     /* This function does treewalk_run in a loop, allocating a queue to allow some particles to be redone.
      * This loop is used primarily in density estimation.*/
-    void do_hsml_loop(int * queue, int64_t queuesize, int update_hsml);
+    void do_hsml_loop(int * queue, int64_t queuesize, const int update_hsml, particle_data * const parts);
     /* Do the distributed tree walking. Warning: as this is a threaded treewalk,
      * it may call tw->visit on particles more than once and in a noneterministic order.
      * Your module should behave correctly in this case! */
-    void run(int * active_set, size_t size);
+    void run(int * active_set, size_t size, particle_data * const parts);
 
     /* Build the queue from the haswork function, in case we want to reuse it.
      * Arguments:
@@ -138,38 +137,36 @@ public:
      * size: size of the active set.
      * may_have_garbage: flags whether the active set may contain garbage. If the haswork is trivial and this is not set,
      * we can just reuse the active set as the queue.*/
-    void build_queue(int * active_set, const size_t size, int may_have_garbage);
-
-    /* ===== Virtual callback methods ===== */
-
-    /**
-     * Check if a particle should be processed in this tree walk.
-     * Override to filter particles based on type, flags, etc.
-     *
-     * @param i  Particle index
-     * @return true if the particle should be processed
-     */
-    bool haswork(const int i) { return true; }
-
-    /**
-     * Postprocess - finalize quantities after tree walk completes.
-     * Override to normalize results, compute derived quantities, etc.
-     *
-     * @param i Particle index
-     */
-    void postprocess(const int i) {}
-
-    /**
-     * Preprocess - initialize quantities before tree walk starts.
-     * Override to set up accumulators, clear buffers, etc.
-     *
-     * @param i Particle index
-     */
-    void preprocess(const int i) {}
+    void build_queue(int * active_set, const size_t size, int may_have_garbage, const particle_data * const parts);
 
     private:
-        int ev_toptree(void);
-        void ev_begin(int * active_set, const size_t size);
+        /**
+        * Check if a particle should be processed in this tree walk.
+        * Override to filter particles based on type, flags, etc.
+        *
+        * @param i  Particle index
+        * @return true if the particle should be processed
+        */
+        bool haswork(const particle_data& part) { return true; }
+
+        /**
+        * Postprocess - finalize quantities after tree walk completes.
+        * Override to normalize results, compute derived quantities, etc.
+        *
+        * @param i Particle index
+        */
+        void postprocess(const int i, particle_data * const part) {}
+
+        /**
+        * Preprocess - initialize quantities before tree walk starts.
+        * Override to set up accumulators, clear buffers, etc.
+        *
+        * @param i Particle index
+        */
+        void preprocess(const int i, particle_data * const part) {}
+
+        int ev_toptree(const particle_data * const parts);
+        void ev_begin(int * active_set, const size_t size, particle_data * const parts);
 
         /* Cleans up and frees memory */
         void ev_finish(void)
@@ -180,12 +177,12 @@ public:
                 myfree(WorkSet);
         }
 
-        void ev_primary(void);
-        struct CommBuffer ev_secondary(struct CommBuffer * imports, struct ImpExpCounts* counts);
+        void ev_primary(const particle_data * const parts);
+        struct CommBuffer ev_secondary(struct CommBuffer * imports, struct ImpExpCounts* counts, const struct particle_data * const parts);
         struct ImpExpCounts ev_export_import_counts(MPI_Comm comm);
-        void ev_send_recv_export_import(struct ImpExpCounts * counts, struct CommBuffer * exports, struct CommBuffer * imports);
+        void ev_send_recv_export_import(struct ImpExpCounts * counts, struct CommBuffer * exports, struct CommBuffer * imports, const particle_data * const parts);
         void ev_recv_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts);
-        void ev_reduce_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts);
+        void ev_reduce_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts, const struct particle_data * const parts);
 
         /* Checks whether all tasks have finished iterating */
         int ev_ndone(MPI_Comm comm)

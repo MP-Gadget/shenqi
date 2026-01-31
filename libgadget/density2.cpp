@@ -69,10 +69,10 @@ GetDensityKernelType(void)
 /* The evolved entropy at drift time: evolved dlog a.
  * Used to predict pressure and entropy for SPH */
 MyFloat
-SPH_EntVarPred(const int p_i, const DriftKickTimes * times)
+SPH_EntVarPred(const particle_data& particle, const DriftKickTimes * times)
 {
-        const int bin = Part[p_i].TimeBinHydro;
-        const int PI = Part[p_i].PI;
+        const int bin = particle.TimeBinHydro;
+        const int PI = particle.PI;
         const double dloga = dloga_from_dti(times->Ti_Current - times->Ti_kick[bin], times->Ti_Current);
         double EntVarPred = SphP[PI].Entropy + SphP[PI].DtEntropy * dloga;
         /*Entropy limiter for the predicted entropy: makes sure entropy stays positive. */
@@ -135,11 +135,11 @@ class KickFactorData
      * which always coincides with the Drift inttime.
      * For hydro forces.*/
     void
-    DM_VelPred(int i, MyFloat * VelPred)
+    DM_VelPred(const particle_data& particle, MyFloat * VelPred)
     {
         int j;
         for(j = 0; j < 3; j++)
-            VelPred[j] = Part[i].Vel[j] + gravkicks[Part[i].TimeBinGravity] * Part[i].FullTreeGravAccel[j]+ Part[i].GravPM[j] * FgravkickB;
+            VelPred[j] = particle.Vel[j] + gravkicks[particle.TimeBinGravity] * particle.FullTreeGravAccel[j]+ particle.GravPM[j] * FgravkickB;
     }
 
 };
@@ -179,9 +179,10 @@ class DensityPriv : public ParamTypeBase {
     KickFactorData kf;
 
     DensityPriv(const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, const DriftKickTimes * const i_times, const bool GradRho_mag, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const struct part_manager_type * const i_PartManager):
-    ParamTypeBase(i_PartManager),
+    ParamTypeBase(i_PartManager->BoxSize),
     update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), times(i_times), kf(i_times, CP)
     {
+        struct particle_data * parts = i_PartManager->Base;
         Left = (MyFloat *) mymalloc("DENS_PRIV->Left", PartManager->NumPart * sizeof(MyFloat));
         Right = (MyFloat *) mymalloc("DENS_PRIV->Right", PartManager->NumPart * sizeof(MyFloat));
         NumNgb = (MyFloat *) mymalloc("DENS_PRIV->NumNgb", PartManager->NumPart * sizeof(MyFloat));
@@ -214,8 +215,8 @@ class DensityPriv : public ParamTypeBase {
             SPH_predicted.EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
             #pragma omp parallel for
             for(i = 0; i < PartManager->NumPart; i++)
-                if(Part[i].Type == 0 && !Part[i].IsGarbage)
-                    SPH_predicted.EntVarPred[Part[i].PI] = SPH_EntVarPred(i, times);
+                if(parts[i].Type == 0 && !parts[i].IsGarbage)
+                    SPH_predicted.EntVarPred[parts[i].PI] = SPH_EntVarPred(parts[i], times);
         }
         /* But if only some particles are active, the pow function in EntVarPred is slow and we have a lot of overhead, because we are doing 5500^3 exps for 5 particles.
         * So instead we compute it for active particles and use an atomic to guard the changes inside the loop.
@@ -227,8 +228,8 @@ class DensityPriv : public ParamTypeBase {
             for(i = 0; i < act->NumActiveParticle; i++)
             {
                 int p_i = act->ActiveParticle ? act->ActiveParticle[i] : i;
-                if(Part[p_i].Type == 0 && !Part[p_i].IsGarbage)
-                    SPH_predicted.EntVarPred[Part[p_i].PI] = SPH_EntVarPred(p_i, times);
+                if(parts[p_i].Type == 0 && !parts[p_i].IsGarbage)
+                    SPH_predicted.EntVarPred[parts[p_i].PI] = SPH_EntVarPred(parts[p_i], times);
             }
         }
     }
@@ -281,17 +282,17 @@ class DensityResult : public TreeWalkResultBase<DensityPriv> {
         /*Only used if sfr_need_to_compute_sph_grad_rho is true*/
         MyFloat GradRho[3];
 
-        void reduce(int place, enum TreeWalkReduceMode mode, const DensityPriv& priv)
+        void reduce(int place, enum TreeWalkReduceMode mode, const DensityPriv& priv, struct particle_data * const parts)
         {
             TREEWALK_REDUCE(priv.NumNgb[place], Ngb);
             TREEWALK_REDUCE(priv.DhsmlDensityFactor[place], DhsmlDensity);
 
-            if(Part[place].Type == 0)
+            if(parts[place].Type == 0)
             {
-                TREEWALK_REDUCE(SPHP(place).Density, Rho);
+                TREEWALK_REDUCE(SphP[parts[place].PI].Density, Rho);
 
-                TREEWALK_REDUCE(SPHP(place).DivVel, Div);
-                int pi = Part[place].PI;
+                TREEWALK_REDUCE(SphP[parts[place].PI].DivVel, Div);
+                int pi = parts[place].PI;
                 TREEWALK_REDUCE(priv.Rot[pi][0], Rot[0]);
                 TREEWALK_REDUCE(priv.Rot[pi][1], Rot[1]);
                 TREEWALK_REDUCE(priv.Rot[pi][2], Rot[2]);
@@ -306,14 +307,14 @@ class DensityResult : public TreeWalkResultBase<DensityPriv> {
 
                 /*Only used for density independent SPH*/
                 if(priv.DoEgyDensity) {
-                    TREEWALK_REDUCE(SPHP(place).EgyWtDensity, EgyRho);
-                    TREEWALK_REDUCE(SPHP(place).DhsmlEgyDensityFactor, DhsmlEgyDensity);
+                    TREEWALK_REDUCE(SphP[parts[place].PI].EgyWtDensity, EgyRho);
+                    TREEWALK_REDUCE(SphP[parts[place].PI].DhsmlEgyDensityFactor, DhsmlEgyDensity);
                 }
             }
-            else if(Part[place].Type == 5)
+            else if(parts[place].Type == 5)
             {
-                TREEWALK_REDUCE(BHP(place).Density, Rho);
-                TREEWALK_REDUCE(BHP(place).DivVel, Div);
+                TREEWALK_REDUCE(BhP[parts[place].PI].Density, Rho);
+                TREEWALK_REDUCE(BhP[parts[place].PI].DivVel, Div);
             }
         }
 
@@ -343,12 +344,13 @@ class TreeWalkNgbIterDensity : TreeWalkNgbIterBase<DensityQuery, DensityResult, 
         *  initialize.
         *
         */
-        void ngbiter(DensityQuery& input, const int other, DensityResult * output, DensityPriv& priv)
+        void ngbiter(DensityQuery& input, const int other, DensityResult * output, DensityPriv& priv, const struct particle_data * const parts)
         {
-            TreeWalkNgbIterBase::ngbiter(input, other, output, priv);
-            if(Part[other].Mass == 0) {
+            TreeWalkNgbIterBase::ngbiter(input, other, output, priv, parts);
+            const particle_data& particle = parts[other];
+            if(particle.Mass == 0) {
                 endrun(12, "Density found zero mass particle %d type %d id %ld pos %g %g %g\n",
-                    other, Part[other].Type, Part[other].ID, Part[other].Pos[0], Part[other].Pos[1], Part[other].Pos[2]);
+                    other, particle.Type, particle.ID, particle.Pos[0], particle.Pos[1], particle.Pos[2]);
             }
 
             /* We are too far away from the kernel */
@@ -366,7 +368,7 @@ class TreeWalkNgbIterDensity : TreeWalkNgbIterBase<DensityQuery, DensityResult, 
 
             const double dwk = density_kernel_dwk(&kernel, u);
 
-            const double mass_j = Part[other].Mass;
+            const double mass_j = particle.Mass;
 
             output->Rho += (mass_j * wk);
 
@@ -377,22 +379,22 @@ class TreeWalkNgbIterDensity : TreeWalkNgbIterBase<DensityQuery, DensityResult, 
 
             double EntVarPred;
             MyFloat VelPred[3];
-            priv.kf.SPH_VelPred(Part[other], VelPred);
+            priv.kf.SPH_VelPred(particle, VelPred);
 
             if(priv.SPH_predicted.EntVarPred) {
                 #pragma omp atomic read
-                EntVarPred = priv.SPH_predicted.EntVarPred[Part[other].PI];
+                EntVarPred = priv.SPH_predicted.EntVarPred[particle.PI];
                 /* Lazily compute the predicted quantities. We can do this
                 * with minimal locking since nothing happens should we compute them twice.
                 * Zero can be the special value since there should never be zero entropy.*/
                 if(EntVarPred == 0) {
-                    EntVarPred = SPH_EntVarPred(other, priv.times);
+                    EntVarPred = SPH_EntVarPred(particle, priv.times);
                     #pragma omp atomic write
-                    priv.SPH_predicted.EntVarPred[Part[other].PI] = EntVarPred;
+                    priv.SPH_predicted.EntVarPred[particle.PI] = EntVarPred;
                 }
             }
             else
-                EntVarPred = SPH_EntVarPred(other, priv.times);
+                EntVarPred = SPH_EntVarPred(particle, priv.times);
 
             if(priv.DoEgyDensity) {
                 output->EgyRho += mass_j * EntVarPred * wk;
@@ -431,25 +433,25 @@ class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocal
     public:
     DensityTreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const DensityPriv& i_priv) : TreeWalk<DensityQuery, DensityResult, DensityLocalTreeWalk, DensityPriv>(i_ev_label, i_tree, i_priv) {}
 
-    bool haswork(int n)
+    bool haswork(const particle_data& particle)
     {
         /* Don't want a density for swallowed black hole particles*/
-        if(Part[n].Swallowed)
+        if(particle.Swallowed)
             return 0;
-        if(Part[n].Type == 0 || Part[n].Type == 5)
+        if(particle.Type == 0 || particle.Type == 5)
             return 1;
         return 0;
     }
 
     /* Returns 1 if we are done and do not need to loop. 0 if we need to repeat.*/
     int
-    density_check_neighbours (int i)
+    density_check_neighbours (const int i, struct particle_data * const parts)
     {
         /* now check whether we had enough neighbours */
         int tid = omp_get_thread_num();
         double desnumngb = priv.DesNumNgb;
 
-        if(priv.BlackHoleOn && Part[i].Type == 5)
+        if(priv.BlackHoleOn && parts[i].Type == 5)
             desnumngb = desnumngb * DensityParams.BlackHoleNgbFactor;
 
         MyFloat * Left = priv.Left;
@@ -464,8 +466,8 @@ class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocal
         if(Niteration >= MAXITER - 5)
         {
              message(1, "i=%d ID=%lu Hsml=%g Left=%g Right=%g Ngbs=%g Right-Left=%g\n   pos=(%g|%g|%g)\n",
-                 i, Part[i].ID, Part[i].Hsml, Left[i], Right[i],
-                 NumNgb[i], Right[i] - Left[i], Part[i].Pos[0], Part[i].Pos[1], Part[i].Pos[2]);
+                 i, parts[i].ID, parts[i].Hsml, Left[i], Right[i],
+                 NumNgb[i], Right[i] - Left[i], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
         }
 
         if(NumNgb[i] < (desnumngb - DensityParams.MaxNumNgbDeviation) ||
@@ -478,25 +480,25 @@ class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocal
             {
                 /* If this happens probably the exchange is screwed up and all your particles have moved to (0,0,0)*/
                 message(1, "Very tight Hsml bounds for i=%d ID=%lu Hsml=%g Left=%g Right=%g Ngbs=%g Right-Left=%g pos=(%g|%g|%g)\n",
-                 i, Part[i].ID, Part[i].Hsml, Left[i], Right[i], NumNgb[i], Right[i] - Left[i], Part[i].Pos[0], Part[i].Pos[1], Part[i].Pos[2]);
-                Part[i].Hsml = Right[i];
+                 i, parts[i].ID, parts[i].Hsml, Left[i], Right[i], NumNgb[i], Right[i] - Left[i], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
+                parts[i].Hsml = Right[i];
                 return 1;
             }
 
             /* If we need more neighbours, move the lower bound up. If we need fewer, move the upper bound down.*/
             if(NumNgb[i] < desnumngb) {
-                    Left[i] = Part[i].Hsml;
+                    Left[i] = parts[i].Hsml;
             } else {
-                    Right[i] = Part[i].Hsml;
+                    Right[i] = parts[i].Hsml;
             }
 
             /* Next step is geometric mean of previous. */
-            if((Right[i] < tree->BoxSize && Left[i] > 0) || (Part[i].Hsml * 1.26 > 0.99 * tree->BoxSize))
-                Part[i].Hsml = cbrt(0.5 * (pow(Left[i], 3) + pow(Right[i], 3)));
+            if((Right[i] < tree->BoxSize && Left[i] > 0) || (parts[i].Hsml * 1.26 > 0.99 * tree->BoxSize))
+                parts[i].Hsml = cbrt(0.5 * (pow(Left[i], 3) + pow(Right[i], 3)));
             else
             {
                 if(!(Right[i] < tree->BoxSize) && Left[i] == 0)
-                    endrun(8188, "Cannot occur. Check for memory corruption: i=%d L = %g R = %g N=%g. Type %d, Pos %g %g %g hsml %g Box %g\n", i, Left[i], Right[i], NumNgb[i], Part[i].Type, Part[i].Pos[0], Part[i].Pos[1], Part[i].Pos[2], Part[i].Hsml, tree->BoxSize);
+                    endrun(8188, "Cannot occur. Check for memory corruption: i=%d L = %g R = %g N=%g. Type %d, Pos %g %g %g hsml %g Box %g\n", i, Left[i], Right[i], NumNgb[i], parts[i].Type, parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2], parts[i].Hsml, tree->BoxSize);
 
                 MyFloat DensFac = priv.DhsmlDensityFactor[i];
                 double fac = 1.26;
@@ -512,18 +514,18 @@ class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocal
                     if(DensFac <=0 || fac < 1./3)
                         fac = 1./3;
 
-                Part[i].Hsml *= fac;
+                parts[i].Hsml *= fac;
             }
 
-            if(priv.BlackHoleOn && Part[i].Type == 5)
+            if(priv.BlackHoleOn && parts[i].Type == 5)
                 if(Left[i] > DensityParams.BlackHoleMaxAccretionRadius)
                 {
-                    Part[i].Hsml = DensityParams.BlackHoleMaxAccretionRadius;
+                    parts[i].Hsml = DensityParams.BlackHoleMaxAccretionRadius;
                     return 1;
                 }
 
             if(Right[i] < priv.MinGasHsml) {
-                Part[i].Hsml = priv.MinGasHsml;
+                parts[i].Hsml = priv.MinGasHsml;
                 return 1;
             }
             /* More work needed: add this particle to the redo queue*/
@@ -535,68 +537,68 @@ class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocal
         }
         else {
             /* We might have got here by serendipity, without bounding.*/
-            if(priv.BlackHoleOn && Part[i].Type == 5)
-                if(Part[i].Hsml > DensityParams.BlackHoleMaxAccretionRadius)
-                    Part[i].Hsml = DensityParams.BlackHoleMaxAccretionRadius;
-            if(Part[i].Hsml < priv.MinGasHsml)
-                Part[i].Hsml = priv.MinGasHsml;
+            if(priv.BlackHoleOn && parts[i].Type == 5)
+                if(parts[i].Hsml > DensityParams.BlackHoleMaxAccretionRadius)
+                    parts[i].Hsml = DensityParams.BlackHoleMaxAccretionRadius;
+            if(parts[i].Hsml < priv.MinGasHsml)
+                parts[i].Hsml = priv.MinGasHsml;
             return 1;
         }
     }
 
     void
-    postprocess(int i)
+    postprocess(const int i, struct particle_data * const parts)
     {
         MyFloat * DhsmlDens = &(priv.DhsmlDensityFactor[i]);
         double density = -1;
-        if(Part[i].Type == 0)
-            density = SPHP(i).Density;
-        else if(Part[i].Type == 5)
-            density = BHP(i).Density;
+        if(parts[i].Type == 0)
+            density = SphP[parts[i].PI].Density;
+        else if(parts[i].Type == 5)
+            density = BhP[parts[i].PI].Density;
         if(density <= 0 && priv.NumNgb[i] > 0) {
-            endrun(12, "Particle %d type %d has bad density: %g\n", i, Part[i].Type, density);
+            endrun(12, "Particle %d type %d has bad density: %g\n", i, parts[i].Type, density);
         }
-        *DhsmlDens *= Part[i].Hsml / (NUMDIMS * density);
+        *DhsmlDens *= parts[i].Hsml / (NUMDIMS * density);
         *DhsmlDens = 1 / (1 + *DhsmlDens);
 
         /* Uses DhsmlDensityFactor and changes Hsml, hence the location.*/
         if(priv.update_hsml) {
-            int done = density_check_neighbours(i);
+            int done = density_check_neighbours(i, parts);
             /* If we are done repeating, update the hmax in the parent node,
             * if that type is in the tree.*/
-            if(done && (tree->mask & (1<<Part[i].Type)))
-                update_tree_hmax_father(tree, i, Part[i].Pos, Part[i].Hsml);
+            if(done && (tree->mask & (1<<parts[i].Type)))
+                update_tree_hmax_father(tree, i, parts[i].Pos, parts[i].Hsml);
         }
 
-        if(Part[i].Type == 0)
+        if(parts[i].Type == 0)
         {
-            int PI = Part[i].PI;
+            int PI = parts[i].PI;
             /*Compute the EgyWeight factors, which are only useful for density independent SPH */
             if(priv.DoEgyDensity) {
                 double EntPred;
                 if(priv.SPH_predicted.EntVarPred)
-                    EntPred = priv.SPH_predicted.EntVarPred[Part[i].PI];
+                    EntPred = priv.SPH_predicted.EntVarPred[parts[i].PI];
                 else
-                    EntPred = SPH_EntVarPred(i, priv.times);
-                if(EntPred <= 0 || SPHP(i).EgyWtDensity <=0)
-                    endrun(12, "Particle %d has bad predicted entropy: %g or EgyWtDensity: %g, Particle ID = %ld, pos %g %g %g, vel %g %g %g, mass = %g, density = %g, MaxSignalVel = %g, Entropy = %g, DtEntropy = %g \n", i, EntPred, SPHP(i).EgyWtDensity, Part[i].ID, Part[i].Pos[0], Part[i].Pos[1], Part[i].Pos[2], Part[i].Vel[0], Part[i].Vel[1], Part[i].Vel[2], Part[i].Mass, SPHP(i).Density, SPHP(i).MaxSignalVel, SPHP(i).Entropy, SPHP(i).DtEntropy);
-                SPHP(i).DhsmlEgyDensityFactor *= Part[i].Hsml/ (NUMDIMS * SPHP(i).EgyWtDensity);
-                SPHP(i).DhsmlEgyDensityFactor *= - (*DhsmlDens);
-                SPHP(i).EgyWtDensity /= EntPred;
+                    EntPred = SPH_EntVarPred(parts[i], priv.times);
+                if(EntPred <= 0 || SphP[parts[i].PI].EgyWtDensity <=0)
+                    endrun(12, "Particle %d has bad predicted entropy: %g or EgyWtDensity: %g, Particle ID = %ld, pos %g %g %g, vel %g %g %g, mass = %g, density = %g, MaxSignalVel = %g, Entropy = %g, DtEntropy = %g \n", i, EntPred, SphP[parts[i].PI].EgyWtDensity, parts[i].ID, parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2], parts[i].Vel[0], parts[i].Vel[1], parts[i].Vel[2], parts[i].Mass, SphP[parts[i].PI].Density, SphP[parts[i].PI].MaxSignalVel, SphP[parts[i].PI].Entropy, SphP[parts[i].PI].DtEntropy);
+                SphP[parts[i].PI].DhsmlEgyDensityFactor *= parts[i].Hsml/ (NUMDIMS * SphP[parts[i].PI].EgyWtDensity);
+                SphP[parts[i].PI].DhsmlEgyDensityFactor *= - (*DhsmlDens);
+                SphP[parts[i].PI].EgyWtDensity /= EntPred;
             }
             else
-                SPHP(i).DhsmlEgyDensityFactor = *DhsmlDens;
+                SphP[parts[i].PI].DhsmlEgyDensityFactor = *DhsmlDens;
 
             MyFloat * Rot = priv.Rot[PI];
-            SPHP(i).CurlVel = sqrt(Rot[0] * Rot[0] + Rot[1] * Rot[1] + Rot[2] * Rot[2]) / SPHP(i).Density;
+            SphP[parts[i].PI].CurlVel = sqrt(Rot[0] * Rot[0] + Rot[1] * Rot[1] + Rot[2] * Rot[2]) / SphP[parts[i].PI].Density;
 
-            SPHP(i).DivVel /= SPHP(i).Density;
-            Part[i].DtHsml = (1.0 / NUMDIMS) * SPHP(i).DivVel * Part[i].Hsml;
+            SphP[parts[i].PI].DivVel /= SphP[parts[i].PI].Density;
+            parts[i].DtHsml = (1.0 / NUMDIMS) * SphP[parts[i].PI].DivVel * parts[i].Hsml;
         }
-        else if(Part[i].Type == 5)
+        else if(parts[i].Type == 5)
         {
-            BHP(i).DivVel /= BHP(i).Density;
-            Part[i].DtHsml = (1.0 / NUMDIMS) * BHP(i).DivVel * Part[i].Hsml;
+            BhP[parts[i].PI].DivVel /= BhP[parts[i].PI].Density;
+            parts[i].DtHsml = (1.0 / NUMDIMS) * BhP[parts[i].PI].DivVel * parts[i].Hsml;
         }
     }
 };
@@ -632,7 +634,7 @@ density2(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Bla
     walltime_measure("/SPH/Density/Init");
 
     /* Do the treewalk with looping for hsml*/
-    tw.do_hsml_loop(act->ActiveParticle, act->NumActiveParticle, update_hsml);
+    tw.do_hsml_loop(act->ActiveParticle, act->NumActiveParticle, update_hsml, PartManager->Base);
 
     if(GradRho_mag) {
         int64_t i;
@@ -668,22 +670,23 @@ slots_free_sph_pred_data(struct sph_pred_data * sph_scratch)
 
 /* Set the initial smoothing length for gas and BH*/
 void
-set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSeparation)
+set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSeparation, struct part_manager_type * const PartManager)
 {
     /* Need moments because we use them to set Hsml*/
     force_tree_calc_moments(tree, ddecomp);
     if(!tree->Father)
         endrun(5, "tree Father array not allocated at initial hsml!\n");
     const double DesNumNgb = GetNumNgb(GetDensityKernelType());
+    particle_data * const parts = PartManager->Base;
     int i;
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i++)
     {
         /* These initial smoothing lengths are only used for SPH-like particles.*/
-        if(Part[i].Type != 0 && Part[i].Type != 5)
+        if(parts[i].Type != 0 && parts[i].Type != 5)
             continue;
 
-        if(Part[i].IsGarbage)
+        if(parts[i].IsGarbage)
             continue;
         int no = i;
 
@@ -696,24 +699,24 @@ set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSepa
             /* Check that we didn't somehow get a bad set of nodes*/
             if(p > tree->numnodes + tree->firstnode)
                 endrun(5, "Bad init father: i=%d, mass = %g type %d hsml %g no %d len %g father %d, numnodes %ld firstnode %ld\n",
-                    i, Part[i].Mass, Part[i].Type, Part[i].Hsml, no, tree->Nodes[no].len, p, tree->numnodes, tree->firstnode);
+                    i, parts[i].Mass, parts[i].Type, parts[i].Hsml, no, tree->Nodes[no].len, p, tree->numnodes, tree->firstnode);
             no = p;
-        } while(10 * DesNumNgb * Part[i].Mass > tree->Nodes[no].mom.mass);
+        } while(10 * DesNumNgb * parts[i].Mass > tree->Nodes[no].mom.mass);
 
         /* Validate the tree node contents*/
-        if(tree->Nodes[no].len > tree->BoxSize || tree->Nodes[no].mom.mass < Part[i].Mass)
+        if(tree->Nodes[no].len > tree->BoxSize || tree->Nodes[no].mom.mass < parts[i].Mass)
             endrun(5, "Bad tree moments: i=%d, mass = %g type %d hsml %g no %d len %g treemass %g\n",
-                    i, Part[i].Mass, Part[i].Type, Part[i].Hsml, no, tree->Nodes[no].len, tree->Nodes[no].mom.mass);
-        Part[i].Hsml = MeanGasSeparation;
+                    i, parts[i].Mass, parts[i].Type, parts[i].Hsml, no, tree->Nodes[no].len, tree->Nodes[no].mom.mass);
+        parts[i].Hsml = MeanGasSeparation;
         if(no >= tree->firstnode) {
-            double testhsml = tree->Nodes[no].len * pow(3.0 / (4 * M_PI) * DesNumNgb * Part[i].Mass / tree->Nodes[no].mom.mass, 1.0 / 3);
+            double testhsml = tree->Nodes[no].len * pow(3.0 / (4 * M_PI) * DesNumNgb * parts[i].Mass / tree->Nodes[no].mom.mass, 1.0 / 3);
             /* recover from a poor initial guess */
             if (testhsml < 500. * MeanGasSeparation)
-                Part[i].Hsml = testhsml;
+                parts[i].Hsml = testhsml;
         }
 
-        if(Part[i].Hsml <= 0)
+        if(parts[i].Hsml <= 0)
             endrun(5, "Bad hsml guess: i=%d, mass = %g type %d hsml %g no %d len %g treemass %g\n",
-                    i, Part[i].Mass, Part[i].Type, Part[i].Hsml, no, tree->Nodes[no].len, tree->Nodes[no].mom.mass);
+                    i, parts[i].Mass, parts[i].Type, parts[i].Hsml, no, tree->Nodes[no].len, tree->Nodes[no].mom.mass);
     }
 }
