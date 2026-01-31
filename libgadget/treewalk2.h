@@ -8,6 +8,7 @@
 #include "localtreewalk2.h"
 #include "utils/mymalloc.h"
 #include "utils/endrun.h"
+#include "utils/system.h"
 
 /**
  * TreeWalk - Base class for tree-based particle interactions.
@@ -21,7 +22,7 @@
  *   2. Set tree, ev_label, type, and element sizes in the constructor
  *   3. Call treewalk_run() to execute the tree walk
  */
-template <typename QueryType=TreeWalkQueryBase<ParamTypeBase>, typename ResultType=TreeWalkResultBase<ParamTypeBase>, typename LocalTreeWalkType = LocalTreeWalk<TreeWalkNgbIterBase, QueryType, ResultType>, typename ParamType=ParamTypeBase >
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
 class TreeWalk {
 public:
     /* A pointer to the force tree structure to walk.*/
@@ -32,15 +33,13 @@ public:
 
     const ParamType priv;
     int NTask; /*Number of MPI tasks*/
-    /* If this is true, the primary and secondary treewalks will be offloaded to an accelerator device (a GPU).
-     * This imposes certain limitations, most notably atomics will be slow.*/
-    int use_openmp_target;
-
     /* Set to true if haswork() is overridden to do actual filtering.
      * Used to optimize queue building when haswork always returns true. */
     bool should_rebuild_queue;
-
     const int64_t NThread; /*Number of OpenMP threads*/
+    /* If this is true, the primary and secondary treewalks will be offloaded to an accelerator device (a GPU).
+     * This imposes certain limitations, most notably atomics will be slow.*/
+    const int use_openmp_target;
 
     /* performance metrics */
     /* Wait for remotes to finish.*/
@@ -106,10 +105,11 @@ public:
     /**
      * Constructor - initializes all members to safe defaults.
      */
-    TreeWalk(const ForceTree * const i_tree, const char * const i_ev_label, const ParamType& i_priv) :
+    TreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const ParamType& i_priv) :
         tree(i_tree), ev_label(i_ev_label),
-        NThread(omp_get_max_threads()), priv(priv),
+        priv(i_priv),
         should_rebuild_queue(true),
+        NThread(omp_get_max_threads()),
         use_openmp_target(0),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
         Nlistprimary(0), Nexport_sum(0), Nexportfull(0), NExportTargets(0), Niteration(0),
