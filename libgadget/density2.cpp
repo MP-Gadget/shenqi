@@ -145,7 +145,7 @@ class KickFactorData
 };
 
 
-class DensityPriv : ParamTypeBase {
+class DensityPriv : public ParamTypeBase {
     public:
     const bool update_hsml;
     /* Are there potentially black holes?*/
@@ -178,7 +178,8 @@ class DensityPriv : ParamTypeBase {
     /* For computing the predicted quantities dynamically during the treewalk.*/
     KickFactorData kf;
 
-    DensityPriv(const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, const DriftKickTimes * const i_times, const bool GradRho_mag, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const struct part_manager_type * const PartManager):
+    DensityPriv(const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, const DriftKickTimes * const i_times, const bool GradRho_mag, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const struct part_manager_type * const i_PartManager):
+    ParamTypeBase(i_PartManager),
     update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), times(i_times), kf(i_times, CP)
     {
         Left = (MyFloat *) mymalloc("DENS_PRIV->Left", PartManager->NumPart * sizeof(MyFloat));
@@ -242,14 +243,6 @@ class DensityPriv : ParamTypeBase {
         myfree(Right);
         myfree(Left);
     }
-};
-
-/*! Structure for communication during the density computation. Holds data that is sent to other processors.
-*/
-class TreeWalkNgbIterDensity : public TreeWalkNgbIterBase{
-    public:
-        DensityKernel kernel;
-        double kernel_volume;
 };
 
 class DensityQuery : public TreeWalkQueryBase<DensityPriv>
@@ -326,9 +319,19 @@ class DensityResult : public TreeWalkResultBase<DensityPriv> {
 
 };
 
-class DensityLocalTreeWalk: LocalTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult>
-{
+/*! Structure for communication during the density computation. Holds data that is sent to other processors.
+*/
+class TreeWalkNgbIterDensity : TreeWalkNgbIterBase<DensityQuery, DensityResult, DensityPriv>{
     public:
+        DensityKernel kernel;
+        double kernel_volume;
+
+        TreeWalkNgbIterDensity(const DensityQuery& input): TreeWalkNgbIterBase(GASMASK, NGB_TREEFIND_ASYMMETRIC, input)
+        {
+            density_kernel_init(&kernel, Hsml, DensityParams.DensityKernelType);
+            kernel_volume = density_kernel_volume(&kernel);
+            return;
+        }
         /*
         *  This function represents the core of the SPH density computation.
         *
@@ -340,104 +343,94 @@ class DensityLocalTreeWalk: LocalTreeWalk<TreeWalkNgbIterDensity, DensityQuery, 
         *  initialize.
         *
         */
-        void ngbiter(
-                DensityQuery& input,
-                DensityResult * output,
-                TreeWalkNgbIterDensity * iter)
+        void ngbiter(DensityQuery& input, const int other, DensityResult * output, DensityPriv& priv)
         {
-            if(iter->other == -1) {
-                const double h = input.Hsml;
-                density_kernel_init(&iter->kernel, h, DensityParams.DensityKernelType);
-                iter->kernel_volume = density_kernel_volume(&iter->kernel);
-
-                iter->Hsml = h;
-                iter->mask = GASMASK; /* gas only */
-                iter->symmetric = NGB_TREEFIND_ASYMMETRIC;
-                return;
-            }
-            const int other = iter->other;
-            const double r = iter->r;
-            const double r2 = iter->r2;
-            const double * dist = iter->dist;
-
+            TreeWalkNgbIterBase::ngbiter(input, other, output, priv);
             if(Part[other].Mass == 0) {
                 endrun(12, "Density found zero mass particle %d type %d id %ld pos %g %g %g\n",
                     other, Part[other].Type, Part[other].ID, Part[other].Pos[0], Part[other].Pos[1], Part[other].Pos[2]);
             }
 
-            if(r2 < iter->kernel.HH)
-            {
-                /* For the BH we wish to exclude wind particles from the density,
-                * because they are excluded from the accretion treewalk.*/
-                if(input.Type == 5 && winds_is_particle_decoupled(other))
-                    return;
+            /* We are too far away from the kernel */
+            if(r2 >= kernel.HH)
+                return;
 
-                const double u = r * iter->kernel.Hinv;
-                const double wk = density_kernel_wk(&iter->kernel, u);
-                output->Ngb += wk * iter->kernel_volume;
+            /* For the BH we wish to exclude wind particles from the density,
+             * because they are excluded from the accretion treewalk.*/
+            if(input.Type == 5 && winds_is_particle_decoupled(other))
+                return;
 
-                const double dwk = density_kernel_dwk(&iter->kernel, u);
+            const double u = r * kernel.Hinv;
+            const double wk = density_kernel_wk(&kernel, u);
+            output->Ngb += wk * kernel_volume;
 
-                const double mass_j = Part[other].Mass;
+            const double dwk = density_kernel_dwk(&kernel, u);
 
-                output->Rho += (mass_j * wk);
+            const double mass_j = Part[other].Mass;
 
-                /* Hinv is here because O->DhsmlDensity is drho / dH.
-                * nothing to worry here */
-                double density_dW = density_kernel_dW(&iter->kernel, u, wk, dwk);
-                output->DhsmlDensity += mass_j * density_dW;
+            output->Rho += (mass_j * wk);
 
-                double EntVarPred;
-                MyFloat VelPred[3];
-                priv.kf.SPH_VelPred(other, VelPred);
+            /* Hinv is here because O->DhsmlDensity is drho / dH.
+            * nothing to worry here */
+            double density_dW = density_kernel_dW(&kernel, u, wk, dwk);
+            output->DhsmlDensity += mass_j * density_dW;
 
-                if(priv->SPH_predicted->EntVarPred) {
-                    #pragma omp atomic read
-                    EntVarPred = priv->SPH_predicted->EntVarPred[Part[other].PI];
-                    /* Lazily compute the predicted quantities. We can do this
-                    * with minimal locking since nothing happens should we compute them twice.
-                    * Zero can be the special value since there should never be zero entropy.*/
-                    if(EntVarPred == 0) {
-                        EntVarPred = SPH_EntVarPred(other, priv->times);
-                        #pragma omp atomic write
-                        priv->SPH_predicted->EntVarPred[Part[other].PI] = EntVarPred;
-                    }
-                }
-                else
-                    EntVarPred = SPH_EntVarPred(other, priv->times);
+            double EntVarPred;
+            MyFloat VelPred[3];
+            priv.kf.SPH_VelPred(Part[other], VelPred);
 
-                if(priv->DoEgyDensity) {
-                    output->EgyRho += mass_j * EntVarPred * wk;
-                    output->DhsmlEgyDensity += mass_j * EntVarPred * density_dW;
-                }
-
-                if(r > 0)
-                {
-                    double fac = mass_j * dwk / r;
-                    double dv[3];
-                    double rot[3];
-                    int d;
-                    for(d = 0; d < 3; d ++) {
-                        dv[d] = input.Vel[d] - VelPred[d];
-                    }
-                    output->Div += -fac * dotproduct(dist, dv);
-
-                    crossproduct(dv, dist, rot);
-                    for(d = 0; d < 3; d ++) {
-                        output->Rot[d] += fac * rot[d];
-                    }
-                    if(priv->GradRho) {
-                        for (d = 0; d < 3; d ++)
-                            output->GradRho[d] += fac * dist[d];
-                    }
+            if(priv.SPH_predicted.EntVarPred) {
+                #pragma omp atomic read
+                EntVarPred = priv.SPH_predicted.EntVarPred[Part[other].PI];
+                /* Lazily compute the predicted quantities. We can do this
+                * with minimal locking since nothing happens should we compute them twice.
+                * Zero can be the special value since there should never be zero entropy.*/
+                if(EntVarPred == 0) {
+                    EntVarPred = SPH_EntVarPred(other, priv.times);
+                    #pragma omp atomic write
+                    priv.SPH_predicted.EntVarPred[Part[other].PI] = EntVarPred;
                 }
             }
+            else
+                EntVarPred = SPH_EntVarPred(other, priv.times);
+
+            if(priv.DoEgyDensity) {
+                output->EgyRho += mass_j * EntVarPred * wk;
+                output->DhsmlEgyDensity += mass_j * EntVarPred * density_dW;
+            }
+
+            if(r <= 0)
+                return;
+
+            double fac = mass_j * dwk / r;
+            double dv[3];
+            double rot[3];
+            int d;
+            for(d = 0; d < 3; d ++) {
+                dv[d] = input.Vel[d] - VelPred[d];
+            }
+            output->Div += -fac * dotproduct(dist, dv);
+
+            crossproduct(dv, dist, rot);
+            for(d = 0; d < 3; d ++) {
+                output->Rot[d] += fac * rot[d];
+            }
+            if(priv.GradRho) {
+                for (d = 0; d < 3; d ++)
+                    output->GradRho[d] += fac * dist[d];
+            }
         }
+};
 
-
+class DensityLocalTreeWalk: LocalTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult>
+{
 };
 
 class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocalTreeWalk, DensityPriv> {
+
+    public:
+    DensityTreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const DensityPriv& i_priv) : TreeWalk<DensityQuery, DensityResult, DensityLocalTreeWalk, DensityPriv>(i_ev_label, i_tree, i_priv) {}
+
     bool haswork(int n)
     {
         /* Don't want a density for swallowed black hole particles*/
@@ -568,7 +561,7 @@ class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocal
 
         /* Uses DhsmlDensityFactor and changes Hsml, hence the location.*/
         if(priv.update_hsml) {
-            int done = density_check_neighbours(i, tw);
+            int done = density_check_neighbours(i);
             /* If we are done repeating, update the hmax in the parent node,
             * if that type is in the tree.*/
             if(done && (tree->mask & (1<<Part[i].Type)))
@@ -581,8 +574,8 @@ class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocal
             /*Compute the EgyWeight factors, which are only useful for density independent SPH */
             if(priv.DoEgyDensity) {
                 double EntPred;
-                if(priv.SPH_predicted->EntVarPred)
-                    EntPred = priv.SPH_predicted->EntVarPred[Part[i].PI];
+                if(priv.SPH_predicted.EntVarPred)
+                    EntPred = priv.SPH_predicted.EntVarPred[Part[i].PI];
                 else
                     EntPred = SPH_EntVarPred(i, priv.times);
                 if(EntPred <= 0 || SPHP(i).EgyWtDensity <=0)
@@ -606,7 +599,7 @@ class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocal
             Part[i].DtHsml = (1.0 / NUMDIMS) * BHP(i).DivVel * Part[i].Hsml;
         }
     }
-}
+};
 
 /*! \file density.c
  *  \brief SPH density computation and smoothing length determination
@@ -632,7 +625,7 @@ void
 density2(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, Cosmology * CP, struct sph_pred_data * SPH_predicted, MyFloat * GradRho_mag, const ForceTree * const tree)
 {
     DensityPriv priv(update_hsml, DoEgyDensity, BlackHoleOn, &times, GradRho_mag, tree->BoxSize, CP, act, PartManager);
-    TreeWalk tw(tree, "DENSITY", priv);
+    DensityTreeWalk tw("DENSITY", tree, priv);
 
     //tw->visit = (TreeWalkVisitFunction) treewalk_visit_nolist_ngbiter;
     //tw->NoNgblist = 1;

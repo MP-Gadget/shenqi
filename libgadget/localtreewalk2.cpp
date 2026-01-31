@@ -157,99 +157,6 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::toptree_visit(const Query
     return rt;
 }
 
-/**********
- *
- * This particular TreeWalkVisitFunction that uses the nbgiter memeber of
- * The TreeWalk object to iterate over the neighbours of a Query.
- *
- * All Pairwise interactions are implemented this way.
- *
- * Note: Short range gravity is not based on pair enumeration.
- * We may want to port it over and see if gravtree.c receives any speed up.
- *
- * Required fields in TreeWalk: ngbiter, ngbiter_type_elsize.
- *
- * Before the iteration starts, ngbiter is called with iter->base.other == -1.
- * The callback function shall initialize the interator with Hsml, mask, and symmetric.
- *
- *****/
-template <typename NgbIterType, typename QueryType, typename ResultType>
-int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(const QueryType& input, ResultType * output)
-{
-    NgbIterType iter;
-
-    /* Kick-start the iteration with other == -1 */
-    iter.other = -1;
-    ngbiter(input, output, &iter);
-    /* Check whether the tree contains the particles we are looking for*/
-    if((tree->mask & iter.mask) != iter.mask)
-        endrun(5, "Treewalk for particles with mask %d but tree mask is only %d overlap %d.\n", iter.mask, tree->mask, tree->mask & iter.mask);
-    /* If symmetric, make sure we did hmax first*/
-    if(iter.symmetric == NGB_TREEFIND_SYMMETRIC && !tree->hmax_computed_flag)
-        endrun(3, "%s tried to do a symmetric treewalk without computing hmax!\n", ev_label);
-    const double BoxSize = tree->BoxSize;
-
-    int64_t ninteractions = 0;
-    int inode = 0;
-
-    for(inode = 0; inode < NODELISTLENGTH && input->NodeList[inode] >= 0; inode++)
-    {
-        int numcand = ngb_treefind_threads(input, &iter, input->NodeList[inode]);
-        /* Export buffer is full end prematurally */
-        if(numcand < 0)
-            return numcand;
-
-        /* If we are here, export is successful. Work on this particle -- first
-         * filter out all of the candidates that are actually outside. */
-        int numngb;
-
-        for(numngb = 0; numngb < numcand; numngb ++) {
-            int other = ngblist[numngb];
-
-            /* Skip garbage*/
-            if(Part[other].IsGarbage)
-                continue;
-            /* In case the type of the particle has changed since the tree was built.
-             * Happens for wind treewalk for gas turned into stars on this timestep.*/
-            if(!((1<<Part[other].Type) & iter.mask)) {
-                continue;
-            }
-
-            double dist;
-
-            if(iter.symmetric == NGB_TREEFIND_SYMMETRIC) {
-                dist = DMAX(Part[other].Hsml, iter.Hsml);
-            } else {
-                dist = iter.Hsml;
-            }
-
-            double r2 = 0;
-            int d;
-            double h2 = dist * dist;
-            for(d = 0; d < 3; d ++) {
-                /* the distance vector points to 'other' */
-                iter.dist[d] = NEAREST(input->Pos[d] - Part[other].Pos[d], BoxSize);
-                r2 += iter.dist[d] * iter.dist[d];
-                if(r2 > h2) break;
-            }
-            if(r2 > h2) continue;
-
-            /* update the iter and call the iteration function*/
-            iter.r2 = r2;
-            iter.r = sqrt(r2);
-            iter.other = other;
-
-            ngbiter(input, output, &iter);
-        }
-
-        ninteractions += numngb;
-    }
-
-    treewalk_add_counters(ninteractions);
-
-    return 0;
-}
-
 /**
  * Cull a node.
  *
@@ -384,6 +291,94 @@ cull_node(const double * const Pos, const double BoxSize, const double Hsml, con
     return numcand;
 }
 
+/**********
+ *
+ * This particular TreeWalkVisitFunction that uses the nbgiter memeber of
+ * The TreeWalk object to iterate over the neighbours of a Query.
+ *
+ * All Pairwise interactions are implemented this way.
+ *
+ * Note: Short range gravity is not based on pair enumeration.
+ * We may want to port it over and see if gravtree.c receives any speed up.
+ *
+ * Required fields in TreeWalk: ngbiter, ngbiter_type_elsize.
+ *
+ * Before the iteration starts, ngbiter is called with iter->base.other == -1.
+ * The callback function shall initialize the interator with Hsml, mask, and symmetric.
+ *
+ *****/
+template <typename NgbIterType, typename QueryType, typename ResultType>
+int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(const QueryType& input, ResultType * output)
+{
+    NgbIterType iter(input);
+    /* Check whether the tree contains the particles we are looking for*/
+    if((tree->mask & iter.mask) != iter.mask)
+        endrun(5, "Treewalk for particles with mask %d but tree mask is only %d overlap %d.\n", iter.mask, tree->mask, tree->mask & iter.mask);
+    /* If symmetric, make sure we did hmax first*/
+    if(iter.symmetric == NGB_TREEFIND_SYMMETRIC && !tree->hmax_computed_flag)
+        endrun(3, "%s tried to do a symmetric treewalk without computing hmax!\n", ev_label);
+    const double BoxSize = tree->BoxSize;
+
+    int64_t ninteractions = 0;
+    int inode = 0;
+
+    for(inode = 0; inode < NODELISTLENGTH && input->NodeList[inode] >= 0; inode++)
+    {
+        int numcand = ngb_treefind_threads(input, &iter, input->NodeList[inode]);
+        /* Export buffer is full end prematurally */
+        if(numcand < 0)
+            return numcand;
+
+        /* If we are here, export is successful. Work on this particle -- first
+         * filter out all of the candidates that are actually outside. */
+        int numngb;
+
+        for(numngb = 0; numngb < numcand; numngb ++) {
+            int other = ngblist[numngb];
+
+            /* Skip garbage*/
+            if(Part[other].IsGarbage)
+                continue;
+            /* In case the type of the particle has changed since the tree was built.
+             * Happens for wind treewalk for gas turned into stars on this timestep.*/
+            if(!((1<<Part[other].Type) & iter.mask)) {
+                continue;
+            }
+
+            double dist;
+
+            if(iter.symmetric == NGB_TREEFIND_SYMMETRIC) {
+                dist = DMAX(Part[other].Hsml, iter.Hsml);
+            } else {
+                dist = iter.Hsml;
+            }
+
+            double r2 = 0;
+            int d;
+            double h2 = dist * dist;
+            for(d = 0; d < 3; d ++) {
+                /* the distance vector points to 'other' */
+                iter.dist[d] = NEAREST(input->Pos[d] - Part[other].Pos[d], BoxSize);
+                r2 += iter.dist[d] * iter.dist[d];
+                if(r2 > h2) break;
+            }
+            if(r2 > h2) continue;
+
+            /* update the iter and call the iteration function*/
+            iter.r2 = r2;
+            iter.r = sqrt(r2);
+            iter.other = other;
+            iter.ngbiter(input, output);
+        }
+
+        ninteractions += numngb;
+    }
+
+    treewalk_add_counters(ninteractions);
+
+    return 0;
+}
+
 /*****
  * Variant of ngbiter that doesn't use the Ngblist.
  * The ngblist is generally preferred for memory locality reasons.
@@ -392,18 +387,15 @@ cull_node(const double * const Pos, const double BoxSize, const double Hsml, con
  * or some density code. Don't use it if the treewalk modifies other particles.
  * */
  template <typename NgbIterType, typename QueryType, typename ResultType>
- int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit_nolist_ngbiter(const QueryType& I, ResultType * O)
+ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit_nolist_ngbiter(const QueryType& input, ResultType * output)
 {
-    NgbIterType iter;
-    /* Kick-start the iteration with other == -1 */
-    iter->other = -1;
-    ngbiter(I, O, &iter);
+    NgbIterType iter(input);
 
     int64_t ninteractions = 0;
     int inode;
-    for(inode = 0; inode < NODELISTLENGTH && I->NodeList[inode] >= 0; inode++)
+    for(inode = 0; inode < NODELISTLENGTH && input->NodeList[inode] >= 0; inode++)
     {
-        int no = I->NodeList[inode];
+        int no = input->NodeList[inode];
         const double BoxSize = tree->BoxSize;
 
         while(no >= 0)
@@ -415,15 +407,15 @@ cull_node(const double * const Pos, const double BoxSize, const double Hsml, con
             if(mode == TREEWALK_GHOSTS) {
                 /* The first node is always top-level*/
                 if(no > tree->lastnode)
-                    endrun(7, "Node is after lastnode. no %d lastnode %ld start %d first %ld\n", no, tree->lastnode, I->NodeList[inode], tree->firstnode);
-                if(current->f.TopLevel && no != I->NodeList[inode]) {
+                    endrun(7, "Node is after lastnode. no %d lastnode %ld start %d first %ld\n", no, tree->lastnode, input->NodeList[inode], tree->firstnode);
+                if(current->f.TopLevel && no != input->NodeList[inode]) {
                     /* we reached a top-level node again, which means that we are done with the branch */
                     break;
                 }
             }
 
             /* Cull the node */
-            if(0 == cull_node(I->Pos, BoxSize, iter->Hsml, iter->symmetric, current)) {
+            if(0 == cull_node(input->Pos, BoxSize, iter->Hsml, iter->symmetric, current)) {
                 /* in case the node can be discarded */
                 no = current->sibling;
                 continue;
@@ -459,23 +451,23 @@ cull_node(const double * const Pos, const double BoxSize, const double Hsml, con
                         if(!((1<<Part[other].Type) & iter->mask))
                             continue;
 
-                        double dist = iter->Hsml;
+                        double dist = iter.Hsml;
                         double r2 = 0;
                         int d;
                         double h2 = dist * dist;
                         for(d = 0; d < 3; d ++) {
                             /* the distance vector points to 'other' */
-                            iter->dist[d] = NEAREST(I->Pos[d] - Part[other].Pos[d], BoxSize);
-                            r2 += iter->dist[d] * iter->dist[d];
+                            iter.dist[d] = NEAREST(input->Pos[d] - Part[other].Pos[d], BoxSize);
+                            r2 += iter.dist[d] * iter.dist[d];
                             if(r2 > h2) break;
                         }
                         if(r2 > h2) continue;
 
                         /* update the iter and call the iteration function*/
-                        iter->r2 = r2;
-                        iter->other = other;
-                        iter->r = sqrt(r2);
-                        ngbiter(I, O, &iter);
+                        iter.r2 = r2;
+                        iter.other = other;
+                        iter.r = sqrt(r2);
+                        iter.ngbiter(input, output);
                         ninteractions++;
                     }
                     /* Move sideways*/
@@ -485,7 +477,7 @@ cull_node(const double * const Pos, const double BoxSize, const double Hsml, con
                 else if(current->f.ChildType == PSEUDO_NODE_TYPE) {
                     /* pseudo particle */
                     if(mode == TREEWALK_GHOSTS) {
-                        endrun(12312, "Secondary for particle %d from node %d found pseudo at %d.\n", target, I->NodeList[inode], no);
+                        endrun(12312, "Secondary for particle %d from node %d found pseudo at %d.\n", target, input->NodeList[inode], no);
                     } else {
                         /* This has already been evaluated with the toptree. Move sideways.*/
                         no = current->sibling;

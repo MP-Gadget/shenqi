@@ -2,6 +2,7 @@
 #define _LOCALEVALUATOR_H_
 
 #include <cstdint>
+#include <cmath>
 #include "forcetree.h"
 #include "libgadget/partmanager.h"
 
@@ -37,6 +38,9 @@ enum TreeWalkReduceMode {
  */
 class ParamTypeBase
 {
+    public:
+        const struct part_manager_type * const PartManager;
+        ParamTypeBase(const struct part_manager_type * const i_PartManager) : PartManager(i_PartManager) {};
 };
 
 /* Base class for the TreeWalk queries. You should subclass this and subclass the constructor. */
@@ -107,15 +111,49 @@ class TreeWalkResultBase
 
 };
 
+template <typename QueryType, typename ResultType, typename ParamType=ParamTypeBase>
 class TreeWalkNgbIterBase {
     public:
-        int mask;
-        int other;
-        double Hsml;
+        const int mask;
+        const NgbTreeFindSymmetric symmetric;
+        const double Hsml;
         double dist[3];
         double r2;
         double r;
-        NgbTreeFindSymmetric symmetric;
+        int other;
+
+        TreeWalkNgbIterBase(const int i_mask, const NgbTreeFindSymmetric i_symmetric, const QueryType& input) :
+        mask(i_mask), symmetric(i_symmetric), Hsml(input.Hsml) {};
+        /**
+         * Neighbour iteration function - called for each particle pair.
+         * Override when using ngbiter-based visits.
+         *
+         * @param input  Query data
+         * @param output Result accumulator
+         * @param iter   Neighbour iterator with distance info
+         * @param lv     Thread-local walk state
+         */
+        void ngbiter(const QueryType& input, const int i_other, ResultType * output, const ParamType& priv)
+        {
+            const particle_data& particle = priv.PartManager->Base[other];
+            double symHsml = Hsml;
+            if(symmetric == NGB_TREEFIND_SYMMETRIC) {
+                symHsml = DMAX(particle.Hsml, Hsml);
+            }
+
+            r2 = 0;
+            int d;
+            double h2 = symHsml * symHsml;
+            for(d = 0; d < 3; d ++) {
+                /* the distance vector points to 'other' */
+                dist[d] = NEAREST(input.Pos[d] - particle.Pos[d], priv.PartManager->BoxSize);
+                r2 += dist[d] * dist[d];
+                if(r2 > h2) break;
+            }
+            /* update the iter and call the iteration function*/
+            r = sqrt(r2);
+            other = i_other;
+        };
 };
 
 /*!< Thread-local list of the particles to be exported,
@@ -147,17 +185,6 @@ public:
     LocalTreeWalk(const int i_mode, const ForceTree * const i_tree, const char * const i_ev_label, int * Ngblist, data_index ** ExportTable_thread);
 
     /**
-     * Neighbour iteration function - called for each particle pair.
-     * Override when using ngbiter-based visits.
-     *
-     * @param input  Query data
-     * @param output Result accumulator
-     * @param iter   Neighbour iterator with distance info
-     * @param lv     Thread-local walk state
-     */
-    void ngbiter(const QueryType& input, ResultType * output, NgbIterType * iter) {};
-
-    /**
      * Visit function - called between a tree node and a particle.
      * Override this to implement custom tree traversal logic.
      * Default implementation calls treewalk_visit_ngbiter.
@@ -186,7 +213,7 @@ public:
     int visit_nolist_ngbiter(const QueryType& input, ResultType * output);
 
 protected:
-    int ngb_treefind_threads(const QueryType& I, NgbIterType * iter, int startnode);
+    int ngb_treefind_threads(const QueryType& input, NgbIterType * iter, int startnode);
 
     /* Adds a remote tree node to the export list for this particle.
     returns -1 if the buffer is full. */
