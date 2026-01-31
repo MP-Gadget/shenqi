@@ -422,7 +422,7 @@ class TreeWalkNgbIterDensity : TreeWalkNgbIterBase<DensityQuery, DensityResult, 
         }
 };
 
-class DensityLocalTreeWalk: LocalTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult>
+class DensityLocalTreeWalk: LocalTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult, DensityPriv>
 {
 };
 

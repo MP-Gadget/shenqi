@@ -167,7 +167,7 @@ struct data_index
     int NodeList[NODELISTLENGTH];
 };
 
-template <typename NgbIterType, typename QueryType, typename ResultType>
+template <typename NgbIterType, typename QueryType, typename ResultType, typename ParamType>
 class LocalTreeWalk
 {
 public:
@@ -193,7 +193,7 @@ public:
      * @param output Result accumulator
      * @return 0 on success, -1 if export buffer is full
      */
-    int visit(const QueryType& input, ResultType * output);
+     int visit(const QueryType& input, ResultType * output, const ParamType& priv);
 
     /* Wrapper of the regular particle visit with some extra cleanup of the particle export table for the toptree walk
      * @param input  Query data for the particle
@@ -203,14 +203,15 @@ public:
     int toptree_visit(const QueryType& input, ResultType * output);
 
     /*****
-     * Variant of ngbiter that doesn't use the Ngblist.
+     * Variant of ngbiter that uses an Ngblist: first it builds a list of
+     * particles to evaluate, then it evaluates them.
      * The ngblist is generally preferred for memory locality reasons and
      * to avoid particles being partially evaluated
-     * twice if the buffer fills up. Use this variant if the evaluation
-     * wants to change the search radius, such as for knn algorithms
-     * or some density code. Don't use it if the treewalk modifies other particles.
+     * twice if the buffer fills up. Do not use this variant if the evaluation
+     * wants to change the search radius, such as for density code.
+     * Use this one if the treewalk modifies other particles.
      * */
-    int visit_nolist_ngbiter(const QueryType& input, ResultType * output);
+    int visit_ngblist(const QueryType& input, ResultType * output, const ParamType& priv);
 
 protected:
     int ngb_treefind_threads(const QueryType& input, NgbIterType * iter, int startnode);

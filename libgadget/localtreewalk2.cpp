@@ -62,8 +62,8 @@ size_t compute_bunchsize(const size_t query_type_elsize, const size_t result_typ
     return BunchSize;
 }
 
-template <typename NgbIterType,typename QueryType,typename ResultType>
-LocalTreeWalk<NgbIterType, QueryType, ResultType>::LocalTreeWalk(const int i_mode, const ForceTree * const i_tree, const char * const i_ev_label, int * Ngblist, data_index ** ExportTable_thread):
+template <typename NgbIterType,typename QueryType,typename ResultType, typename ParamType>
+LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::LocalTreeWalk(const int i_mode, const ForceTree * const i_tree, const char * const i_ev_label, int * Ngblist, data_index ** ExportTable_thread):
  mode(i_mode), maxNinteractions(0), minNinteractions(1L<<45), Ninteractions(0), Nexport(0), tree(i_tree), ev_label(i_ev_label),
  BunchSize(compute_bunchsize(sizeof(QueryType), sizeof(ResultType), i_ev_label))
 {
@@ -83,8 +83,8 @@ LocalTreeWalk<NgbIterType, QueryType, ResultType>::LocalTreeWalk(const int i_mod
  * This can also be called from a nonthreaded code
  *
  * */
-template <typename NgbIterType, typename QueryType, typename ResultType>
-int LocalTreeWalk<NgbIterType, QueryType, ResultType>::export_particle(const int no)
+template <typename NgbIterType, typename QueryType, typename ResultType, typename ParamType>
+int LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::export_particle(const int no)
 {
     if(mode != TREEWALK_TOPTREE || no < tree->lastnode) {
         endrun(1, "Called export not from a toptree.\n");
@@ -131,8 +131,8 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::export_particle(const int
 }
 
 /* Do the regular particle visit with some extra cleanup of the particle export table for the toptree walk */
-template <typename NgbIterType, typename QueryType, typename ResultType>
-int LocalTreeWalk<NgbIterType, QueryType, ResultType>::toptree_visit(const QueryType& input, ResultType * output)
+template <typename NgbIterType, typename QueryType, typename ResultType, typename ParamType>
+int LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::toptree_visit(const QueryType& input, ResultType * output)
 {
     /* Reset the number of exported particles.*/
     NThisParticleExport = 0;
@@ -205,8 +205,8 @@ cull_node(const double * const Pos, const double BoxSize, const double Hsml, con
  * iter->base.other, iter->base.dist iter->base.r2, iter->base.r, are properly initialized.
  *
  * */
- template <typename NgbIterType, typename QueryType, typename ResultType>
- int LocalTreeWalk<NgbIterType, QueryType, ResultType>::ngb_treefind_threads(const QueryType& I,
+ template <typename NgbIterType, typename QueryType, typename ResultType, typename ParamType>
+ int LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::ngb_treefind_threads(const QueryType& I,
         NgbIterType * iter,
         int startnode)
 {
@@ -307,8 +307,8 @@ cull_node(const double * const Pos, const double BoxSize, const double Hsml, con
  * The callback function shall initialize the interator with Hsml, mask, and symmetric.
  *
  *****/
-template <typename NgbIterType, typename QueryType, typename ResultType>
-int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(const QueryType& input, ResultType * output)
+template <typename NgbIterType, typename QueryType, typename ResultType, typename ParamType>
+int LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::visit_ngblist(const QueryType& input, ResultType * output, const ParamType& priv)
 {
     NgbIterType iter(input);
     /* Check whether the tree contains the particles we are looking for*/
@@ -317,8 +317,6 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(const QueryType& in
     /* If symmetric, make sure we did hmax first*/
     if(iter.symmetric == NGB_TREEFIND_SYMMETRIC && !tree->hmax_computed_flag)
         endrun(3, "%s tried to do a symmetric treewalk without computing hmax!\n", ev_label);
-    const double BoxSize = tree->BoxSize;
-
     int64_t ninteractions = 0;
     int inode = 0;
 
@@ -344,31 +342,7 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(const QueryType& in
             if(!((1<<Part[other].Type) & iter.mask)) {
                 continue;
             }
-
-            double dist;
-
-            if(iter.symmetric == NGB_TREEFIND_SYMMETRIC) {
-                dist = DMAX(Part[other].Hsml, iter.Hsml);
-            } else {
-                dist = iter.Hsml;
-            }
-
-            double r2 = 0;
-            int d;
-            double h2 = dist * dist;
-            for(d = 0; d < 3; d ++) {
-                /* the distance vector points to 'other' */
-                iter.dist[d] = NEAREST(input->Pos[d] - Part[other].Pos[d], BoxSize);
-                r2 += iter.dist[d] * iter.dist[d];
-                if(r2 > h2) break;
-            }
-            if(r2 > h2) continue;
-
-            /* update the iter and call the iteration function*/
-            iter.r2 = r2;
-            iter.r = sqrt(r2);
-            iter.other = other;
-            iter.ngbiter(input, output);
+            iter.ngbiter(input, other, output, priv);
         }
 
         ninteractions += numngb;
@@ -386,8 +360,8 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(const QueryType& in
  * wants to change the search radius, such as for knn algorithms
  * or some density code. Don't use it if the treewalk modifies other particles.
  * */
- template <typename NgbIterType, typename QueryType, typename ResultType>
- int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit_nolist_ngbiter(const QueryType& input, ResultType * output)
+template <typename NgbIterType, typename QueryType, typename ResultType, typename ParamType>
+int LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::visit(const QueryType& input, ResultType * output, const ParamType& priv)
 {
     NgbIterType iter(input);
 
@@ -450,24 +424,7 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(const QueryType& in
                         * Happens for wind treewalk for gas turned into stars on this timestep.*/
                         if(!((1<<Part[other].Type) & iter->mask))
                             continue;
-
-                        double dist = iter.Hsml;
-                        double r2 = 0;
-                        int d;
-                        double h2 = dist * dist;
-                        for(d = 0; d < 3; d ++) {
-                            /* the distance vector points to 'other' */
-                            iter.dist[d] = NEAREST(input->Pos[d] - Part[other].Pos[d], BoxSize);
-                            r2 += iter.dist[d] * iter.dist[d];
-                            if(r2 > h2) break;
-                        }
-                        if(r2 > h2) continue;
-
-                        /* update the iter and call the iteration function*/
-                        iter.r2 = r2;
-                        iter.other = other;
-                        iter.r = sqrt(r2);
-                        iter.ngbiter(input, output);
+                        iter.ngbiter(input, other, output, priv);
                         ninteractions++;
                     }
                     /* Move sideways*/
@@ -489,8 +446,6 @@ int LocalTreeWalk<NgbIterType, QueryType, ResultType>::visit(const QueryType& in
             no = current->s.suns[0];
         }
     }
-
     treewalk_add_counters(ninteractions);
-
     return 0;
 }
