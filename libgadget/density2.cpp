@@ -284,6 +284,7 @@ class DensityResult : public TreeWalkResultBase<DensityPriv> {
 
         void reduce(int place, enum TreeWalkReduceMode mode, const DensityPriv& priv, struct particle_data * const parts)
         {
+            TreeWalkResultBase::reduce(place, mode, priv, parts);
             TREEWALK_REDUCE(priv.NumNgb[place], Ngb);
             TREEWALK_REDUCE(priv.DhsmlDensityFactor[place], DhsmlDensity);
 
