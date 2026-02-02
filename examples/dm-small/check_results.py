@@ -6,7 +6,7 @@ from numpy.testing import assert_allclose
 import scipy.interpolate
 import bigfile
 
-def check_hmf(pig):
+def check_hmf(pig, rtol=0.055):
     """Check we have the mass functions."""
     bff = bigfile.BigFile(pig)
     hh = bff["Header"].attrs["HubbleParam"]
@@ -22,7 +22,7 @@ def check_hmf(pig):
        3.99671980e+12, 3.88252781e+12, 3.76833583e+12, 3.76833583e+12,
        3.76833583e+12])
     #Smallest halos are unconverged and can change based on the RNG
-    assert_allclose(fofmasses[:30], savedfof[:30], rtol=0.05, atol=0)
+    assert_allclose(fofmasses[:30], savedfof[:30], rtol=rtol, atol=0)
 
 def modecount_rebin(kk, pk, modes, minmodes=2, ndesired=20):
     """Rebins a power spectrum so that there are sufficient modes in each bin"""
