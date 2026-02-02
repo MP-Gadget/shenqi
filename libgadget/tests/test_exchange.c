@@ -9,6 +9,7 @@
 #include <libgadget/slotsmanager.h>
 #include <libgadget/partmanager.h>
 #include <libgadget/walltime.h>
+#include <libgadget/utils/system.h>
 
 int NTask, ThisTask;
 int TotNumPart;
