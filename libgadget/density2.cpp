@@ -363,6 +363,7 @@ class TreeWalkNgbIterDensity : TreeWalkNgbIterBase<DensityQuery, DensityResult, 
             if(input.Type == 5 && winds_is_particle_decoupled(other))
                 return;
 
+            const double r = sqrt(r2);
             const double u = r * kernel.Hinv;
             const double wk = density_kernel_wk(&kernel, u);
             output->Ngb += wk * kernel_volume;

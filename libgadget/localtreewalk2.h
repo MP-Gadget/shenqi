@@ -119,8 +119,6 @@ class TreeWalkNgbIterBase {
         const double Hsml;
         double dist[3];
         double r2;
-        double r;
-        int other;
 
         TreeWalkNgbIterBase(const int i_mask, const NgbTreeFindSymmetric i_symmetric, const QueryType& input) :
         mask(i_mask), symmetric(i_symmetric), Hsml(input.Hsml) {};
@@ -133,7 +131,7 @@ class TreeWalkNgbIterBase {
          * @param iter   Neighbour iterator with distance info
          * @param lv     Thread-local walk state
          */
-        void ngbiter(const QueryType& input, const int i_other, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
+        void ngbiter(const QueryType& input, const int other, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
         {
             const particle_data& particle = parts[other];
             double symHsml = Hsml;
@@ -150,9 +148,6 @@ class TreeWalkNgbIterBase {
                 r2 += dist[d] * dist[d];
                 if(r2 > h2) break;
             }
-            /* update the iter and call the iteration function*/
-            r = sqrt(r2);
-            other = i_other;
         };
 };
 
