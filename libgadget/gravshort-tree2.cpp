@@ -58,9 +58,10 @@
          }
      }
 
-     ~GravTreePriv()
-     { if(accelstorealloc)
-         myfree(Accel);
+     ~GravTreePriv(void)
+     {
+         if(accelstorealloc)
+             myfree(Accel);
      }
  };
 
@@ -237,6 +238,7 @@ shall_we_open_node(const double len, const double mass, const double r2, const d
     return 0;
 }
 
+/* Note the NgbIter class is never used for the GravTree. */
 class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery, GravTreeResult, GravTreePriv>, GravTreeQuery, GravTreeResult, GravTreePriv> {
     /*! In the TreePM algorithm, the tree is walked only locally around the
      *  target coordinate.  Tree nodes that fall outside a box of half
@@ -424,14 +426,12 @@ class GravTreeWalk : public TreeWalk <GravTreeQuery, GravTreeResult, GravLocalTr
 void
 grav_short_tree2(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current)
 {
-
     GravTreePriv priv(TreeParams.Rcut, Ti_Current, rho0, pm, tree->BoxSize, AccelStore, tree->full_particle_tree_flag, PartManager->NumPart);
     GravTreeWalk tw("GRAVTREE", tree, priv);
+    /* Do the treewalk! */
     tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base);
 
-    /* Now the force computation is finished */
     /*  gather some diagnostic information */
-
     double timetree = tw.timecomp0 + tw.timecomp1 + tw.timecomp2 + tw.timecomp3;
     walltime_add("/Tree/WalkTop", tw.timecomp0);
     walltime_add("/Tree/WalkPrim", tw.timecomp1);
@@ -445,7 +445,6 @@ grav_short_tree2(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyF
     walltime_add("/Tree/Misc", timeall - (timetree + tw.timewait1 + tw.timecommsumm));
 
     tw.print_stats();
-
     /* TreeUseBH > 1 means use the BH criterion on the initial timestep only,
      * avoiding the fully open O(N^2) case.*/
     if(TreeParams.TreeUseBH > 1)
