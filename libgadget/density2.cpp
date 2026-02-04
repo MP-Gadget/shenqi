@@ -9,9 +9,8 @@
 #include "libgadget/partmanager.h"
 #include "physconst.h"
 #include "walltime.h"
-#include "density.h"
+#include "density2.h"
 #include "treewalk2.h"
-#include "timefac.h"
 #include "slotsmanager.h"
 #include "timestep.h"
 #include "utils/endrun.h"
@@ -86,65 +85,6 @@ SPH_EntVarPred(const particle_data& particle, const DriftKickTimes * times)
         return EntVarPred;
 }
 
-/* Structure storing the pre-computed kick factors which
- * used for making the predicted velocities.*/
-class KickFactorData
-{
-    public:
-    double FgravkickB;
-    double gravkicks[TIMEBINS+1];
-    double hydrokicks[TIMEBINS+1];
-
-    /* Initialise the grav and hydrokick arrays for the current kick times.*/
-    KickFactorData(const DriftKickTimes * const times, Cosmology * CP)
-    {
-        int i;
-        /* Factor this out since all particles have the same PM kick time*/
-        FgravkickB = get_exact_gravkick_factor(CP, times->PM_kick, times->Ti_Current);
-        memset(gravkicks, 0, sizeof(gravkicks[0])*(TIMEBINS+1));
-        memset(hydrokicks, 0, sizeof(hydrokicks[0])*(TIMEBINS+1));
-        /* Compute the factors to move a current kick times velocity to the drift time velocity.
-         * We need to do the computation for all timebins up to the maximum because even inactive
-         * particles may have interactions. */
-        #pragma omp parallel for
-        for(i = times->mintimebin; i <= TIMEBINS; i++)
-        {
-            gravkicks[i] = get_exact_gravkick_factor(CP, times->Ti_kick[i], times->Ti_Current);
-            hydrokicks[i] = get_exact_hydrokick_factor(CP, times->Ti_kick[i], times->Ti_Current);
-        }
-    }
-
-    /* Get the predicted velocity for a particle
-     * at the current Force computation time ti,
-     * which always coincides with the Drift inttime.
-     * For hydro forces.*/
-    void
-    SPH_VelPred(const particle_data& particle, MyFloat * VelPred)
-    {
-        int j;
-        const double * const HydroAccel = ((struct sph_particle_data *)SlotsManager->info[0].ptr)[particle.PI].HydroAccel;
-        /* Notice that the kick time for gravity and hydro may be different! So the prediction is also different*/
-        for(j = 0; j < 3; j++) {
-            VelPred[j] = particle.Vel[j] + gravkicks[particle.TimeBinGravity] * particle.FullTreeGravAccel[j]
-                + particle.GravPM[j] * FgravkickB + hydrokicks[particle.TimeBinHydro] * HydroAccel[j];
-        }
-    }
-
-    /* Get the predicted velocity for a particle
-     * at the current Force computation time ti,
-     * which always coincides with the Drift inttime.
-     * For hydro forces.*/
-    void
-    DM_VelPred(const particle_data& particle, MyFloat * VelPred)
-    {
-        int j;
-        for(j = 0; j < 3; j++)
-            VelPred[j] = particle.Vel[j] + gravkicks[particle.TimeBinGravity] * particle.FullTreeGravAccel[j]+ particle.GravPM[j] * FgravkickB;
-    }
-
-};
-
-
 class DensityPriv : public ParamTypeBase {
     public:
     const bool update_hsml;
@@ -172,9 +112,8 @@ class DensityPriv : public ParamTypeBase {
     double DesNumNgb;
     /*!< minimum allowed SPH smoothing length */
     double MinGasHsml;
-    /* Predicted quantities computed during for density and reused during hydro.*/
-    struct sph_pred_data SPH_predicted;
-
+    /*!< Predicted entropy at current particle drift time for SPH computation*/
+    MyFloat * EntVarPred;
     /* For computing the predicted quantities dynamically during the treewalk.*/
     KickFactorData kf;
 
@@ -212,24 +151,24 @@ class DensityPriv : public ParamTypeBase {
 
         /* If all particles are active, easiest to compute all the predicted velocities immediately*/
         if(!act->ActiveParticle || act->NumActiveHydro > 0.1 * (SlotsManager->info[0].size + SlotsManager->info[5].size)) {
-            SPH_predicted.EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
+            EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
             #pragma omp parallel for
             for(i = 0; i < PartManager->NumPart; i++)
                 if(parts[i].Type == 0 && !parts[i].IsGarbage)
-                    SPH_predicted.EntVarPred[parts[i].PI] = SPH_EntVarPred(parts[i], times);
+                    EntVarPred[parts[i].PI] = SPH_EntVarPred(parts[i], times);
         }
         /* But if only some particles are active, the pow function in EntVarPred is slow and we have a lot of overhead, because we are doing 5500^3 exps for 5 particles.
         * So instead we compute it for active particles and use an atomic to guard the changes inside the loop.
         * For sufficiently small particle numbers the memset dominates and it is fastest to just compute each predicted entropy as we need it.*/
         else if(act->NumActiveHydro > 0.0001 * (SlotsManager->info[0].size + SlotsManager->info[5].size)){
-            SPH_predicted.EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
-            memset(SPH_predicted.EntVarPred, 0, sizeof(SPH_predicted.EntVarPred[0]) * SlotsManager->info[0].size);
+            EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
+            memset(EntVarPred, 0, sizeof(EntVarPred[0]) * SlotsManager->info[0].size);
             #pragma omp parallel for
             for(i = 0; i < act->NumActiveParticle; i++)
             {
                 int p_i = act->ActiveParticle ? act->ActiveParticle[i] : i;
                 if(parts[p_i].Type == 0 && !parts[p_i].IsGarbage)
-                    SPH_predicted.EntVarPred[parts[p_i].PI] = SPH_EntVarPred(parts[p_i], times);
+                    EntVarPred[parts[p_i].PI] = SPH_EntVarPred(parts[p_i], times);
             }
         }
     }
@@ -383,16 +322,16 @@ class TreeWalkNgbIterDensity : TreeWalkNgbIterBase<DensityQuery, DensityResult, 
             MyFloat VelPred[3];
             priv.kf.SPH_VelPred(particle, VelPred);
 
-            if(priv.SPH_predicted.EntVarPred) {
+            if(priv.EntVarPred) {
                 #pragma omp atomic read
-                EntVarPred = priv.SPH_predicted.EntVarPred[particle.PI];
+                EntVarPred = priv.EntVarPred[particle.PI];
                 /* Lazily compute the predicted quantities. We can do this
                 * with minimal locking since nothing happens should we compute them twice.
                 * Zero can be the special value since there should never be zero entropy.*/
                 if(EntVarPred == 0) {
                     EntVarPred = SPH_EntVarPred(particle, priv.times);
                     #pragma omp atomic write
-                    priv.SPH_predicted.EntVarPred[particle.PI] = EntVarPred;
+                    priv.EntVarPred[particle.PI] = EntVarPred;
                 }
             }
             else
@@ -426,9 +365,7 @@ class TreeWalkNgbIterDensity : TreeWalkNgbIterBase<DensityQuery, DensityResult, 
         }
 };
 
-class DensityLocalTreeWalk: LocalTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult, DensityPriv>
-{
-};
+class DensityLocalTreeWalk: LocalTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult, DensityPriv> { };
 
 class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocalTreeWalk, DensityPriv> {
 
@@ -578,8 +515,8 @@ class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocal
             /*Compute the EgyWeight factors, which are only useful for density independent SPH */
             if(priv.DoEgyDensity) {
                 double EntPred;
-                if(priv.SPH_predicted.EntVarPred)
-                    EntPred = priv.SPH_predicted.EntVarPred[parts[i].PI];
+                if(priv.EntVarPred)
+                    EntPred = priv.EntVarPred[parts[i].PI];
                 else
                     EntPred = SPH_EntVarPred(parts[i], priv.times);
                 if(EntPred <= 0 || SphP[parts[i].PI].EgyWtDensity <=0)
@@ -626,7 +563,7 @@ class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocal
  * neighbours.)
  */
 void
-density2(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, Cosmology * CP, struct sph_pred_data * SPH_predicted, MyFloat * GradRho_mag, const ForceTree * const tree)
+density2(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, Cosmology * CP, MyFloat * EntVarPred, MyFloat * GradRho_mag, const ForceTree * const tree)
 {
     DensityPriv priv(update_hsml, DoEgyDensity, BlackHoleOn, &times, GradRho_mag, tree->BoxSize, CP, act, PartManager);
     DensityTreeWalk tw("DENSITY", tree, priv);
@@ -660,14 +597,6 @@ density2(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Bla
     walltime_add("/SPH/Density/Wait", tw.timewait1);
     walltime_add("/SPH/Density/Reduce", tw.timecommsumm);
     walltime_add("/SPH/Density/Misc", timeall - (timecomp + tw.timewait1 + tw.timecommsumm));
-}
-
-void
-slots_free_sph_pred_data(struct sph_pred_data * sph_scratch)
-{
-    if(sph_scratch->EntVarPred)
-        myfree(sph_scratch->EntVarPred);
-    sph_scratch->EntVarPred = NULL;
 }
 
 /* Set the initial smoothing length for gas and BH*/

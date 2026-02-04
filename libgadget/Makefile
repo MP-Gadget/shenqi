@@ -106,6 +106,12 @@ all: libgadget.a libgadget-utils.a
 	mkdir -p `dirname $@`; \
 	echo Compiling $<; $$cmd
 
+.objs/hydra2.o: hydra2.cpp Makefile $(CONFIG)
+	@cmd="$(MPICC) -MMD -c -o $@ $(CFLAGS) $<"; \
+	if test "x$(V)" = "x1" ; then echo $$cmd; fi; \
+	mkdir -p `dirname $@`; \
+	echo Compiling $<; $$cmd
+
 .objs/utils/test_%: tests/test_%.c .objs/utils/%.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
