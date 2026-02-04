@@ -192,7 +192,7 @@ class DensityQuery : public TreeWalkQueryBase<DensityPriv>
         MyFloat Hsml;
         int Type;
 
-        DensityQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, DensityPriv& priv):
+        DensityQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const DensityPriv& priv):
         TreeWalkQueryBase<DensityPriv>(particle, i_NodeList, firstnode, priv), Hsml(particle.Hsml), Type(particle.Type)
         {
             if(particle.Type != 0)
@@ -365,7 +365,7 @@ class TreeWalkNgbIterDensity : TreeWalkNgbIterBase<DensityQuery, DensityResult, 
         }
 };
 
-class DensityLocalTreeWalk: LocalTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult, DensityPriv> { };
+class DensityLocalTreeWalk: public LocalTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult, DensityPriv> { };
 
 class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocalTreeWalk, DensityPriv> {
 

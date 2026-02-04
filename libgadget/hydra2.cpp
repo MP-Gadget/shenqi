@@ -147,7 +147,7 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     MyFloat F1;
     const MyFloat SPH_DhsmlDensityFactor;
     const MyFloat dloga;
-    HydroQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, HydroPriv& priv):
+    HydroQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const HydroPriv& priv):
     TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), EgyRho(SphP[particle.PI].EgyWtDensity),
     Hsml(particle.Hsml), Mass(particle.Mass), Density(SphP[particle.PI].Density), SPH_DhsmlDensityFactor(SphP[particle.PI].DhsmlEgyDensityFactor),
     dloga(get_dloga_for_bin(particle.TimeBinHydro, priv.times->Ti_Current))
@@ -384,7 +384,7 @@ class HydroNgbIter: public TreeWalkNgbIterBase<HydroQuery, HydroResult, HydroPri
     }
 };
 
-class HydroLocalTreeWalk: LocalTreeWalk<HydroNgbIter, HydroQuery, HydroResult, HydroPriv> { };
+class HydroLocalTreeWalk: public LocalTreeWalk<HydroNgbIter, HydroQuery, HydroResult, HydroPriv> { };
 
 class HydroTreeWalk: public TreeWalk<HydroQuery, HydroResult, HydroLocalTreeWalk, HydroPriv> {
     public:

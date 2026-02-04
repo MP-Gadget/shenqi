@@ -562,7 +562,7 @@ public:
         }
 
         /* returns struct containing export counts */
-        void ev_primary(const particle_data * const parts)
+        void ev_primary(particle_data * const parts)
         {
             int64_t maxNinteractions = 0, minNinteractions = 1L << 45, Ninteractions=0;
         #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
@@ -587,7 +587,7 @@ public:
                     QueryType input(parts[i], NULL, tree->firstnode, priv);
                     ResultType output(input);
                     lv.target = i;
-                    lv.visit(input, output, priv, parts);
+                    lv.visit(input, &output, priv, parts);
                     output.reduce(i, TREEWALK_PRIMARY, priv, parts);
                 }
                 if(maxNinteractions < lv.maxNinteractions)
@@ -640,8 +640,6 @@ public:
                 int BufferFull_thread = 0;
                 const int tid = omp_get_thread_num();
 
-                ResultType output;
-
                 /* We schedule dynamically so that we have reduced imbalance.
                  * We do not use the openmp dynamic scheduling, but roll our own
                  * so that we can break from the loop if needed.*/
@@ -681,7 +679,8 @@ public:
                         QueryType input(parts[i], NULL, tree->firstnode, priv);
                         lv.target = i;
                         /* Reset the number of exported particles.*/
-                        const int rt = lv.visit(input, output, priv, parts);
+                        ResultType output(input);
+                        const int rt = lv.visit(input, &output, priv, parts);
                         /* If we filled up, we need to save the partially evaluated chunk, and leave this loop.*/
                         if(rt < 0) {
                             //message(5, "Export buffer full for particle %d chnk: %ld -> %ld on thread %d with %ld exports\n", i, chnk, end, tid, lv->NThisParticleExport);
@@ -755,10 +754,10 @@ public:
                             LocalTreeWalkType lv(TREEWALK_GHOSTS, tree, ev_label, Ngblist, ExportTable_thread);
                             #pragma omp for
                             for(j = 0; j < nimports_task; j++) {
-                                QueryType * input = ((QueryType *) databufstart)[j];
-                                ResultType * output = new (results[j]) ResultType(*input);
+                                QueryType * input = &((QueryType *) databufstart)[j];
+                                ResultType * output = new (&results[j]) ResultType(*input);
                                 lv.target = -1;
-                                lv.visit(input, output, priv, parts);
+                                lv.visit(*input, output, priv, parts);
                             }
                         }
                     /* Send the completed data back*/
@@ -852,7 +851,7 @@ public:
                     const int64_t bufpos = real_send_count[task] + counts->Export_offset[task];
                     real_send_count[task]++;
                     /* Initialize the query in this memory */
-                    QueryType * input = new(export_queries[bufpos]) QueryType(parts[place], ExportTable_thread[i][k].NodeList, -1, priv);
+                    new(&export_queries[bufpos]) QueryType(parts[place], ExportTable_thread[i][k].NodeList, -1, priv);
                 }
             }
         #ifdef DEBUG
@@ -882,7 +881,7 @@ public:
             return;
         }
 
-        void ev_reduce_export_result(CommBuffer * exportbuf, struct ImpExpCounts * counts, const struct particle_data * const parts)
+        void ev_reduce_export_result(CommBuffer * exportbuf, struct ImpExpCounts * counts, struct particle_data * const parts)
         {
             int64_t i;
             /* Notice that we build the dataindex table individually
@@ -897,7 +896,7 @@ public:
                     const int task = ExportTable_thread[i][k].Task;
                     const int64_t bufpos = real_recv_count[task] + counts->Export_offset[task];
                     real_recv_count[task]++;
-                    ResultType * output = ((ResultType *) exportbuf->databuf)[bufpos];
+                    ResultType * output = &((ResultType *) exportbuf->databuf)[bufpos];
                     output->reduce(place, TREEWALK_GHOSTS, priv, parts);
         #ifdef DEBUG
                     if(output->ID != parts[place].ID)
