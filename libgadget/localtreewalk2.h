@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cmath>
+#include <omp.h>
 #include "forcetree.h"
 #include "partmanager.h"
 
@@ -177,8 +178,20 @@ public:
     size_t Nexport;
 
     /* Constructor from treewalk */
-    LocalTreeWalk(const int i_mode, const ForceTree * const i_tree, const char * const i_ev_label, int * Ngblist, data_index ** ExportTable_thread);
-
+    LocalTreeWalk(const enum TreeWalkReduceMode i_mode, const ForceTree * const i_tree, const char * const i_ev_label, int * Ngblist, data_index ** ExportTable_thread):
+     mode(i_mode), maxNinteractions(0), minNinteractions(1L<<45), Ninteractions(0), Nexport(0), tree(i_tree), ev_label(i_ev_label),
+     BunchSize(compute_bunchsize(sizeof(QueryType), sizeof(ResultType), i_ev_label))
+    {
+        const size_t thread_id = omp_get_thread_num();
+        NThisParticleExport = 0;
+        nodelistindex = 0;
+        DataIndexTable = NULL;
+        if(ExportTable_thread)
+            DataIndexTable = ExportTable_thread[thread_id];
+        ngblist = NULL;
+        if(Ngblist)
+            ngblist = Ngblist + thread_id * tree->NumParticles;
+    }
     /**
      * Visit function - called between a tree node and a particle.
      * Override this to implement custom tree traversal logic.

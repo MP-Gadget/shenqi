@@ -384,7 +384,7 @@ class HydroNgbIter: public TreeWalkNgbIterBase<HydroQuery, HydroResult, HydroPri
     }
 };
 
-class HydroLocalTreeWalk: public LocalTreeWalk<HydroNgbIter, HydroQuery, HydroResult, HydroPriv> { };
+class HydroLocalTreeWalk: public LocalTreeWalk<HydroNgbIter, HydroQuery, HydroResult, HydroPriv> { using LocalTreeWalk::LocalTreeWalk; };
 
 class HydroTreeWalk: public TreeWalk<HydroQuery, HydroResult, HydroLocalTreeWalk, HydroPriv> {
     public:

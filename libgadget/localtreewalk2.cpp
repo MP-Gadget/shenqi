@@ -62,22 +62,6 @@ size_t compute_bunchsize(const size_t query_type_elsize, const size_t result_typ
     return BunchSize;
 }
 
-template <typename NgbIterType,typename QueryType,typename ResultType, typename ParamType>
-LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>::LocalTreeWalk(const int i_mode, const ForceTree * const i_tree, const char * const i_ev_label, int * Ngblist, data_index ** ExportTable_thread):
- mode(i_mode), maxNinteractions(0), minNinteractions(1L<<45), Ninteractions(0), Nexport(0), tree(i_tree), ev_label(i_ev_label),
- BunchSize(compute_bunchsize(sizeof(QueryType), sizeof(ResultType), i_ev_label))
-{
-    const size_t thread_id = omp_get_thread_num();
-    NThisParticleExport = 0;
-    nodelistindex = 0;
-    DataIndexTable = NULL;
-    if(ExportTable_thread)
-        DataIndexTable = ExportTable_thread[thread_id];
-    ngblist = NULL;
-    if(Ngblist)
-        ngblist = Ngblist + thread_id * tree->NumParticles;
-}
-
 /* export a particle at target and no, thread safely
  *
  * This can also be called from a nonthreaded code

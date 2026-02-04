@@ -238,6 +238,7 @@ shall_we_open_node(const double len, const double mass, const double r2, const d
 
 /* Note the NgbIter class is never used for the GravTree. */
 class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery, GravTreeResult, GravTreePriv>, GravTreeQuery, GravTreeResult, GravTreePriv> {
+    using LocalTreeWalk::LocalTreeWalk;
     public:
     /*! In the TreePM algorithm, the tree is walked only locally around the
      *  target coordinate.  Tree nodes that fall outside a box of half
