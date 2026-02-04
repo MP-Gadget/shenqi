@@ -53,7 +53,7 @@ GADGET_OBJS =  \
 	 sfr_eff.o cooling.o cooling_rates.o cooling_uvfluc.o cooling_qso_lightup.o \
 	 winds.o veldisp.o density.o metal_return.o \
 	 treewalk.o treewalk2.o localtreewalk2.o density2.o cosmology.o \
-	 gravshort-tree.o gravshort-pair.o hydra.o  timefac.o \
+	 gravshort-tree.o gravshort-tree2.o gravshort-pair.o hydra.o hydra2.o timefac.o \
 	 gravpm.o powerspectrum.o \
 	 forcetree.o \
 	 petapm.o gravity.o \
@@ -88,25 +88,7 @@ all: libgadget.a libgadget-utils.a
 
 .PHONY: all test run-tests
 
-.objs/treewalk2.o: treewalk2.cpp treewalk2.h Makefile $(CONFIG)
-	@cmd="$(MPICC) -MMD -c -o $@ $(CFLAGS) $<"; \
-	if test "x$(V)" = "x1" ; then echo $$cmd; fi; \
-	mkdir -p `dirname $@`; \
-	echo Compiling $<; $$cmd
-
-.objs/localtreewalk2.o: localtreewalk2.cpp localtreewalk2.h Makefile $(CONFIG)
-	@cmd="$(MPICC) -MMD -c -o $@ $(CFLAGS) $<"; \
-	if test "x$(V)" = "x1" ; then echo $$cmd; fi; \
-	mkdir -p `dirname $@`; \
-	echo Compiling $<; $$cmd
-
-.objs/density2.o: density2.cpp Makefile $(CONFIG)
-	@cmd="$(MPICC) -MMD -c -o $@ $(CFLAGS) $<"; \
-	if test "x$(V)" = "x1" ; then echo $$cmd; fi; \
-	mkdir -p `dirname $@`; \
-	echo Compiling $<; $$cmd
-
-.objs/hydra2.o: hydra2.cpp Makefile $(CONFIG)
+.objs/%2.o: %2.cpp Makefile $(CONFIG)
 	@cmd="$(MPICC) -MMD -c -o $@ $(CFLAGS) $<"; \
 	if test "x$(V)" = "x1" ; then echo $$cmd; fi; \
 	mkdir -p `dirname $@`; \
