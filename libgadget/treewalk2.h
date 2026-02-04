@@ -244,7 +244,7 @@ public:
     #endif
 
         tstart = second();
-        ev_begin(active_set, size);
+        ev_begin(active_set, size, parts);
 
         int64_t i;
         #pragma omp parallel for
@@ -266,16 +266,15 @@ public:
         {
             tstart = second();
             /* First do the toptree and export particles for sending.*/
-            ev_toptree();
+            ev_toptree(parts);
             /* All processes sync via alltoall.*/
             struct ImpExpCounts counts = ev_export_import_counts(MPI_COMM_WORLD);
             Ndone = ev_ndone(MPI_COMM_WORLD);
             /* Send the exported particle data */
             /* exports is allocated first, then imports*/
             CommBuffer exports(counts.NTask, 0);
-            auto imports = new CommBuffer(counts.NTask, 0);
-
-            ev_send_recv_export_import(&counts, &exports, &imports);
+            CommBuffer imports(counts.NTask, 0);
+            ev_send_recv_export_import(&counts, &exports, &imports, parts);
             tend = second();
             timecomp0 += timediff(tstart, tend);
             /* Only do this on the first iteration, as we only need to do it once.*/
@@ -291,10 +290,11 @@ public:
             CommBuffer res_exports(counts.NTask, 1);
             ev_recv_export_result(&res_exports, &counts);
             CommBuffer res_imports(counts.NTask, 1);
-            ev_secondary(&res_imports, &imports, &counts);
+            ev_secondary(&res_imports, &imports, &counts, parts);
             // report_memory_usage(ev_label);
-            // Want to explicitly run the destructor for this one so we free memory early.
-            delete imports;
+            // Want to explicitly free the databuf early for this one so we free memory early.
+            myfree(imports.databuf);
+            imports.databuf = NULL;
             tend = second();
             timecomp2 += timediff(tstart, tend);
             /* Now clear the sent data buffer, waiting for the send to complete.
@@ -304,7 +304,7 @@ public:
             tend = second();
             timewait1 += timediff(tstart, tend);
             tstart = second();
-            ev_reduce_export_result(&res_exports, &counts);
+            ev_reduce_export_result(&res_exports, &counts, parts);
             tend = second();
             timecommsumm += timediff(tstart, tend);
             /* Free export memory*/
