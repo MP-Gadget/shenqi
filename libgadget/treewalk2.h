@@ -9,6 +9,105 @@
 #include "utils/endrun.h"
 #include "utils/system.h"
 
+#define MAXITER 400
+
+struct ImpExpCounts
+{
+    int64_t * Export_count;
+    int64_t * Import_count;
+    int64_t * Export_offset;
+    int64_t * Import_offset;
+    MPI_Comm comm;
+    int NTask;
+    /* Number of particles exported to this processor*/
+    size_t Nimport;
+    /* Number of particles exported from this processor*/
+    size_t Nexport;
+};
+
+void free_impexpcount(struct ImpExpCounts * count)
+{
+    ta_free(count->Export_count);
+}
+
+#define COMM_RECV 1
+#define COMM_SEND 0
+
+/* This class wraps MPI_requests for the distributed part of the treewalk.
+ * It allocates an array of requests, one for each task, and an array with the task index.
+ * The requests are populated from the export lists in MPI_fill and MPI_wait waits for
+ * all requests to be completed.
+ *
+ * The destructor waits() and then frees the memory.
+ */
+class CommBuffer
+{
+    public:
+    char * databuf;
+    int * rqst_task;
+    MPI_Request * rdata_all;
+    int nrequest_all;
+    CommBuffer(const int NTask, const int alloc_high): databuf(NULL), nrequest_all(0)
+    {
+        if(alloc_high) {
+            rdata_all = ta_malloc2("requests", MPI_Request, NTask);
+            rqst_task = ta_malloc2("rqst", int, NTask);
+        }
+        else {
+            rdata_all = ta_malloc("requests", MPI_Request, NTask);
+            rqst_task = ta_malloc("rqst", int, NTask);
+        }
+    }
+    ~CommBuffer()
+    {
+        /* First wait until all comms are done */
+        wait();
+        if(databuf) {
+            myfree(databuf);
+            databuf = NULL;
+        }
+        ta_free(rqst_task);
+        ta_free(rdata_all);
+    }
+
+    /* Routine to send data to all tasks async. If receive is set, the routine receives data. The structure stores the requests.
+     Empty tasks are skipped. Must call alloc_commbuffer on the buffer first and buffer->databuf must be set.*/
+    void MPI_fill(int64_t *cnts, int64_t *displs, MPI_Datatype type, int receive, int tag, MPI_Comm comm)
+    {
+        int ThisTask;
+        int NTask;
+        MPI_Comm_rank(comm, &ThisTask);
+        MPI_Comm_size(comm, &NTask);
+        ptrdiff_t lb, elsize;
+        MPI_Type_get_extent(type, &lb, &elsize);
+        int nrequests = 0;
+
+        int i;
+        /* Loop over all tasks, starting with the one just past this one*/
+        for(i = 1; i < NTask; i++)
+        {
+            int target = (ThisTask + i) % NTask;
+            if(cnts[target] == 0) continue;
+            rqst_task[nrequests] = target;
+            if(receive == COMM_RECV) {
+                MPI_Irecv(((char*) databuf) + elsize * displs[target], cnts[target],
+                    type, target, tag, comm, &rdata_all[nrequests++]);
+            }
+            else {
+                MPI_Isend(((char*) databuf) + elsize * displs[target], cnts[target],
+                    type, target, tag, comm, &rdata_all[nrequests++]);
+            }
+        }
+        nrequest_all = nrequests;
+    }
+
+    /* Waits for all the requests in the commbuffer to be complete*/
+    void wait(void)
+    {
+        MPI_Waitall(nrequest_all, rdata_all, MPI_STATUSES_IGNORE);
+    }
+};
+
 /**
  * TreeWalk - Base class for tree-based particle interactions.
  *
@@ -123,13 +222,194 @@ public:
         MPI_Comm_size(MPI_COMM_WORLD, &NTask);
     }
 
-    /* This function does treewalk_run in a loop, allocating a queue to allow some particles to be redone.
-     * This loop is used primarily in density estimation.*/
-    void do_hsml_loop(int * queue, int64_t queuesize, const int update_hsml, particle_data * const parts);
     /* Do the distributed tree walking. Warning: as this is a threaded treewalk,
      * it may call tw->visit on particles more than once and in a noneterministic order.
-     * Your module should behave correctly in this case! */
-    void run(int * active_set, size_t size, particle_data * const parts);
+     * Your module should behave correctly in this case!
+     *
+     * active_set : a list of indices of particles that walk the tree. If active_set is NULL,
+     *              all (NumPart) particles are used. This is not the list of particles
+     * in the tree, but the particles that do the walking.
+     * size: length of the active set
+     * particle_data parts: list of particles to use
+     */
+    void run(int * active_set, size_t size, particle_data * const parts)
+    {
+        if(!force_tree_allocated(tree)) {
+            endrun(0, "Tree has been freed before this treewalk.\n");
+        }
+
+        double tstart, tend;
+    #ifdef DEBUG
+        GDB_current_ev = tw;
+    #endif
+
+        tstart = second();
+        ev_begin(active_set, size);
+
+        int64_t i;
+        #pragma omp parallel for
+        for(i = 0; i < WorkSetSize; i ++) {
+            const int p_i = WorkSet ? WorkSet[i] : i;
+            preprocess(p_i, parts);
+        }
+
+        tend = second();
+        timecomp3 += timediff(tstart, tend);
+
+        Nexportfull = 0;
+        Nexport_sum = 0;
+        Ninteractions = 0;
+        int Ndone = 0;
+        /* Needs to be outside loop because it allocates restart information*/
+        alloc_export_memory();
+        do
+        {
+            tstart = second();
+            /* First do the toptree and export particles for sending.*/
+            ev_toptree();
+            /* All processes sync via alltoall.*/
+            struct ImpExpCounts counts = ev_export_import_counts(MPI_COMM_WORLD);
+            Ndone = ev_ndone(MPI_COMM_WORLD);
+            /* Send the exported particle data */
+            /* exports is allocated first, then imports*/
+            CommBuffer exports(counts.NTask, 0);
+            auto imports = new CommBuffer(counts.NTask, 0);
+
+            ev_send_recv_export_import(&counts, &exports, &imports);
+            tend = second();
+            timecomp0 += timediff(tstart, tend);
+            /* Only do this on the first iteration, as we only need to do it once.*/
+            tstart = second();
+            if(Nexportfull == 0)
+                ev_primary(parts); /* do local particles and prepare export list */
+            tend = second();
+            timecomp1 += timediff(tstart, tend);
+            /* Do processing of received particles. We implement a queue that
+                * checks each incoming task in turn and processes them as they arrive.*/
+            tstart = second();
+            /* Posts recvs to get the export results (which are sent in ev_secondary).*/
+            CommBuffer res_exports(counts.NTask, 1);
+            ev_recv_export_result(&res_exports, &counts);
+            CommBuffer res_imports(counts.NTask, 1);
+            ev_secondary(&res_imports, &imports, &counts);
+            // report_memory_usage(ev_label);
+            // Want to explicitly run the destructor for this one so we free memory early.
+            delete imports;
+            tend = second();
+            timecomp2 += timediff(tstart, tend);
+            /* Now clear the sent data buffer, waiting for the send to complete.
+                * This needs to be after the other end has called recv.*/
+            tstart = second();
+            res_exports.wait();
+            tend = second();
+            timewait1 += timediff(tstart, tend);
+            tstart = second();
+            ev_reduce_export_result(&res_exports, &counts);
+            tend = second();
+            timecommsumm += timediff(tstart, tend);
+            /* Free export memory*/
+            Nexportfull++;
+            /* The destructors for the CommBuffers will fire at this point,
+             * which means there is an implicit wait() */
+        } while(Ndone < NTask);
+        free_export_memory();
+
+        tstart = second();
+        #pragma omp parallel for
+        for(i = 0; i < WorkSetSize; i ++) {
+            const int p_i = WorkSet ? WorkSet[i] : i;
+            postprocess(p_i, parts);
+        }
+        tend = second();
+        timecomp3 += timediff(tstart, tend);
+        ev_finish();
+        Niteration++;
+    }
+
+    /* This function does treewalk_run in a loop, allocating a queue to allow some particles to be redone.
+     * This loop is used primarily in density estimation.*/
+    void do_hsml_loop(int * queue, int64_t queuesize, const int update_hsml, particle_data * parts)
+    {
+        int NumThreads = omp_get_max_threads();
+        maxnumngb = ta_malloc("numngb", double, NumThreads);
+        minnumngb = ta_malloc("numngb2", double, NumThreads);
+
+        /* Build the first queue */
+        double tstart = second();
+        build_queue(queue, queuesize, 0, parts);
+        double tend = second();
+
+        /* Next call to treewalk_run will over-write these pointers*/
+        int64_t size = WorkSetSize;
+        int * ReDoQueue = WorkSet;
+        /* First queue is allocated low*/
+        int alloc_high = 0;
+        /* We don't need to redo the queue generation
+         * but need to keep track of allocated memory.*/
+        bool orig_build_queue = should_rebuild_queue;
+        should_rebuild_queue = false;
+        timecomp3 += timediff(tstart, tend);
+        /* we will repeat the whole thing for those particles where we didn't find enough neighbours */
+        do {
+            /* The RedoQueue needs enough memory to store every workset particle on every thread, because
+             * we cannot guarantee that the sph particles are evenly spread across threads!*/
+            int * CurQueue = ReDoQueue;
+            int i;
+            for(i = 0; i < NumThreads; i++) {
+                maxnumngb[i] = 0;
+                minnumngb[i] = 1e50;
+            }
+            /* The ReDoQueue swaps between high and low allocations so we can have two allocated alternately*/
+            if(!alloc_high)
+                alloc_high = 1;
+            else
+                alloc_high = 0;
+            gadget_thread_arrays loop = gadget_setup_thread_arrays("ReDoQueue", alloc_high, size);
+            NPRedo = loop.srcs;
+            NPLeft = loop.sizes;
+            Redo_thread_alloc = loop.total_size;
+            run(CurQueue, size, parts);
+
+            /* Now done with the current queue*/
+            if(orig_build_queue || Niteration > 1)
+                myfree(CurQueue);
+
+            size = gadget_compact_thread_arrays(&ReDoQueue, &loop);
+            /* We can stop if we are not updating hsml or if we are done.*/
+            if(!update_hsml || !MPIU_Any(size > 0, MPI_COMM_WORLD)) {
+                myfree(ReDoQueue);
+                break;
+            }
+            for(i = 1; i < NumThreads; i++) {
+                if(maxnumngb[0] < maxnumngb[i])
+                    maxnumngb[0] = maxnumngb[i];
+                if(minnumngb[0] > minnumngb[i])
+                    minnumngb[0] = minnumngb[i];
+            }
+            double minngb, maxngb;
+            MPI_Reduce(&maxnumngb[0], &maxngb, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+            MPI_Reduce(&minnumngb[0], &minngb, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
+            message(0, "Max ngb=%g, min ngb=%g\n", maxngb, minngb);
+    #ifdef DEBUG
+            print_stats();
+    #endif
+
+            /*Shrink memory*/
+            ReDoQueue = (int *) myrealloc(ReDoQueue, sizeof(int) * size);
+    #ifdef DEBUG
+            if(size < 10 && Niteration > 20 ) {
+                int pp = ReDoQueue[0];
+                message(1, "Remaining i=%d, t %d, pos %g %g %g, hsml: %g\n", pp, parts[pp].Type, parts[pp].Pos[0], parts[pp].Pos[1], parts[pp].Pos[2], parts[pp].Hsml);
+            }
+    #endif
+
+            if(size > 0 && Niteration > MAXITER) {
+                endrun(1155, "failed to converge density for %ld particles\n", size);
+            }
+        } while(1);
+        ta_free(minnumngb);
+        ta_free(maxnumngb);
+    }
 
     /* Build the queue from the haswork function, in case we want to reuse it.
      * Arguments:
@@ -193,11 +473,27 @@ public:
         }
 
         void ev_primary(const particle_data * const parts);
-        struct CommBuffer ev_secondary(struct CommBuffer * imports, struct ImpExpCounts* counts, const struct particle_data * const parts);
+        void ev_secondary(CommBuffer * res_imports, CommBuffer * imports, struct ImpExpCounts * counts, const struct particle_data * const parts);
         struct ImpExpCounts ev_export_import_counts(MPI_Comm comm);
-        void ev_send_recv_export_import(struct ImpExpCounts * counts, struct CommBuffer * exports, struct CommBuffer * imports, const particle_data * const parts);
-        void ev_recv_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts);
-        void ev_reduce_export_result(struct CommBuffer * exportbuf, struct ImpExpCounts * counts, const struct particle_data * const parts);
+
+        void ev_send_recv_export_import(struct ImpExpCounts * counts, CommBuffer * exports, CommBuffer * imports, const particle_data * const parts);
+
+        /* Receive the export results */
+        void ev_recv_export_result(CommBuffer * exportbuf, struct ImpExpCounts * counts)
+        {
+            MPI_Datatype type;
+            MPI_Type_contiguous(sizeof(ResultType), MPI_BYTE, &type);
+            MPI_Type_commit(&type);
+            exportbuf->databuf = (char*) mymalloc2("ExportResult", counts->Nexport * sizeof(ResultType));
+            /* Post the receives first so we can hit a zero-copy fastpath.*/
+            exportbuf->MPI_fill(counts->Export_count, counts->Export_offset, type, COMM_RECV, 101923, counts->comm);
+            // alloc_commbuffer(&res_imports, counts.NTask, 0);
+            // MPI_fill_commbuffer(import, counts->Import_count, counts->Import_offset, type, COMM_SEND, 101923, counts->comm);
+            MPI_Type_free(&type);
+            return;
+        }
+
+        void ev_reduce_export_result(CommBuffer * exportbuf, struct ImpExpCounts * counts, const struct particle_data * const parts);
 
         /* Checks whether all tasks have finished iterating */
         int ev_ndone(MPI_Comm comm)
@@ -211,8 +507,6 @@ public:
         void alloc_export_memory(void);
         void free_export_memory(void);
 };
-
-#define MAXITER 400
 
 /* This function find the closest index in the multi-evaluation list of hsml and numNgb, update left and right bound, and return the new hsml */
 double ngb_narrow_down(double *right, double *left, const double *radius, const double *numNgb, int maxcmpt, int desnumngb, int *closeidx, double BoxSize);
