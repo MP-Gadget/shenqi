@@ -34,17 +34,17 @@ jobs:
     - name: Install apt packages
       run: |
         sudo apt update
-        sudo apt install -y build-essential libopenmpi-dev openmpi-bin libgsl-dev python3-configobj python3-numpy python3-h5py python3-scipy cython3 libboost-all-dev
+        sudo apt install -y build-essential libopenmpi-dev openmpi-bin libgsl-dev python3-configobj python3-numpy python3-h5py python3-scipy cython3 libboost-all-dev clang
         #For nbodykit
         sudo apt install -y python3-matplotlib python3-sympy python3-pandas python3-mpi4py python3-numexpr
     - name: Build
       run: |
         cp platform-options/Options.mk.travis Options.mk
-        make
+        OMPI_CXX=clang++ OMPI_CC=clang++ make
 
     - name: Unit tests
       run: |
-        make test
+        OMPI_CXX=clang++ OMPI_CC=clang++ make test
     - name: Install python packages for make_class_power
       run: |
         sudo pip install classy==3.3.1 bigfile
