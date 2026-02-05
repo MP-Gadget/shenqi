@@ -11,24 +11,62 @@
 
 #define MAXITER 400
 
-struct ImpExpCounts
+class ImpExpCounts
 {
+    public:
     int64_t * Export_count;
     int64_t * Import_count;
     int64_t * Export_offset;
     int64_t * Import_offset;
-    MPI_Comm comm;
+    const MPI_Comm comm;
     int NTask;
     /* Number of particles exported to this processor*/
     size_t Nimport;
     /* Number of particles exported from this processor*/
     size_t Nexport;
+    /* Number of MPI ranks we export to from this rank.*/
+    int64_t NExportTargets;
+
+    ImpExpCounts(const MPI_Comm i_comm, const size_t NThread, const size_t * const Nexport_thread, data_index ** ExportTable_thread): comm(i_comm)
+    {
+        MPI_Comm_size(comm, &NTask);
+        Export_count = ta_malloc("Tree_counts", int64_t, 4*NTask);
+        Export_offset = Export_count + NTask;
+        Import_count = Export_offset + NTask;
+        Import_offset = Import_count + NTask;
+        memset(Export_count, 0, sizeof(int64_t)*4*NTask);
+
+        Nexport=0;
+        /* Calculate the amount of data to send. */
+        for(size_t i = 0; i < NThread; i++)
+        {
+            for(size_t k = 0; k < Nexport_thread[i]; k++)
+                Export_count[ExportTable_thread[i][k].Task]++;
+            /* This is the export count*/
+            Nexport += Nexport_thread[i];
+        }
+        /* Exchange the counts. Note this is synchronous so we need to ensure the toptree walk, which happens before this, is balanced.*/
+        MPI_Alltoall(Export_count, 1, MPI_INT64, Import_count, 1, MPI_INT64, comm);
+        // message(1, "Exporting %ld particles. Thread 0 is %ld\n", counts.Nexport, Nexport_thread[0]);
+
+        Nimport = Import_count[0];
+        NExportTargets = (Export_count[0] > 0);
+        for(int i = 1; i < NTask; i++)
+        {
+            Nimport += Import_count[i];
+            Export_offset[i] = Export_offset[i - 1] + Export_count[i - 1];
+            Import_offset[i] = Import_offset[i - 1] + Import_count[i - 1];
+            NExportTargets += (Export_count[i] > 0);
+        }
+        return;
+    };
+
+    ~ImpExpCounts()
+    {
+        ta_free(Export_count);
+    };
 };
 
-void free_impexpcount(struct ImpExpCounts * count)
-{
-    ta_free(count->Export_count);
-}
 
 #define COMM_RECV 1
 #define COMM_SEND 0
@@ -159,22 +197,21 @@ public:
     int64_t Nexport_sum;
     /* Number of times we filled up our export buffer*/
     int64_t Nexportfull;
-    /* Number of MPI ranks we export to from this rank.*/
-    int64_t NExportTargets;
     /* Number of times we needed to re-run the treewalk.
      * Convenience variable for density. */
     int64_t Niteration;
+    size_t NExportTargets;
     /* Counters for imbalance diagnostics*/
     int64_t maxNinteractions;
     int64_t minNinteractions;
     int64_t Ninteractions;
 
     /* internal flags*/
-    /* Export counters for each thread*/
-    size_t * Nexport_thread;
     /* Information allowing the toptree walk to restart successfully after the export buffer fills up*/
     int * QueueChunkRestart;
     int64_t * QueueChunkEnd;
+    /* Export counters for each thread*/
+    size_t * Nexport_thread;
     /* Pointer to a particle export table for each thread.*/
     data_index ** ExportTable_thread;
     /* Flags that our export buffer is full*/
@@ -210,7 +247,7 @@ public:
         NThread(omp_get_max_threads()),
         use_openmp_target(0),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
-        Nlistprimary(0), Nexport_sum(0), Nexportfull(0), NExportTargets(0), Niteration(0),
+        Nlistprimary(0), Nexport_sum(0), Nexportfull(0), Niteration(0), NExportTargets(0),
         maxNinteractions(0), minNinteractions(0), Ninteractions(0),
         Nexport_thread(nullptr), QueueChunkRestart(nullptr), QueueChunkEnd(nullptr),
         ExportTable_thread(nullptr), BufferFullFlag(0),
@@ -268,7 +305,9 @@ public:
             /* First do the toptree and export particles for sending.*/
             ev_toptree(parts);
             /* All processes sync via alltoall.*/
-            struct ImpExpCounts counts = ev_export_import_counts(MPI_COMM_WORLD);
+            ImpExpCounts counts(MPI_COMM_WORLD, NThread, Nexport_thread, ExportTable_thread);
+            NExportTargets = counts.NExportTargets;
+            Nexport_sum += counts.Nexport;
             Ndone = ev_ndone(MPI_COMM_WORLD);
             /* Send the exported particle data */
             /* exports is allocated first, then imports*/
@@ -715,7 +754,7 @@ public:
             return BufferFullFlag;
         }
 
-        void ev_secondary(CommBuffer * res_imports, CommBuffer * imports, struct ImpExpCounts* counts, const struct particle_data * const parts)
+        void ev_secondary(CommBuffer * res_imports, CommBuffer * imports, ImpExpCounts* counts, const struct particle_data * const parts)
         {
             res_imports->databuf = (char *) mymalloc2("ImportResult", counts->Nimport * sizeof(ResultType));
 
@@ -780,52 +819,8 @@ public:
                 myfree(WorkSet);
         }
 
-        struct ImpExpCounts ev_export_import_counts(MPI_Comm comm)
-        {
-            int NTask;
-            struct ImpExpCounts counts = {0};
-            MPI_Comm_size(comm, &NTask);
-            counts.NTask = NTask;
-            counts.comm = comm;
-            counts.Export_count = ta_malloc("Tree_counts", int64_t, 4*NTask);
-            counts.Export_offset = counts.Export_count + NTask;
-            counts.Import_count = counts.Export_offset + NTask;
-            counts.Import_offset = counts.Import_count + NTask;
-            memset(counts.Export_count, 0, sizeof(int64_t)*4*NTask);
-
-            int64_t i;
-            counts.Nexport=0;
-            /* Calculate the amount of data to send. */
-            for(i = 0; i < NThread; i++)
-            {
-                int64_t * exportcount = counts.Export_count;
-                size_t k;
-                #pragma omp parallel for reduction(+: exportcount[:NTask])
-                for(k = 0; k < Nexport_thread[i]; k++)
-                    exportcount[ExportTable_thread[i][k].Task]++;
-                /* This is over all full buffers.*/
-                Nexport_sum += Nexport_thread[i];
-                /* This is the export count*/
-                counts.Nexport += Nexport_thread[i];
-            }
-            /* Exchange the counts. Note this is synchronous so we need to ensure the toptree walk, which happens before this, is balanced.*/
-            MPI_Alltoall(counts.Export_count, 1, MPI_INT64, counts.Import_count, 1, MPI_INT64, counts.comm);
-            // message(1, "Exporting %ld particles. Thread 0 is %ld\n", counts.Nexport, Nexport_thread[0]);
-
-            counts.Nimport = counts.Import_count[0];
-            NExportTargets = (counts.Export_count[0] > 0);
-            for(i = 1; i < NTask; i++)
-            {
-                counts.Nimport += counts.Import_count[i];
-                counts.Export_offset[i] = counts.Export_offset[i - 1] + counts.Export_count[i - 1];
-                counts.Import_offset[i] = counts.Import_offset[i - 1] + counts.Import_count[i - 1];
-                NExportTargets += (counts.Export_count[i] > 0);
-            }
-            return counts;
-        }
-
         /* Builds the list of exported particles and async sends the export queries. */
-        void ev_send_recv_export_import(struct ImpExpCounts * counts, CommBuffer * exports, CommBuffer * imports, const particle_data * const parts)
+        void ev_send_recv_export_import(ImpExpCounts * counts, CommBuffer * exports, CommBuffer * imports, const particle_data * const parts)
         {
             exports->databuf = (char *) mymalloc("ExportQuery", counts->Nexport * sizeof(QueryType));
             imports->databuf = (char *) mymalloc("ImportQuery", counts->Nimport * sizeof(QueryType));
@@ -867,7 +862,7 @@ public:
         }
 
         /* Receive the export results */
-        void ev_recv_export_result(CommBuffer * exportbuf, struct ImpExpCounts * counts)
+        void ev_recv_export_result(CommBuffer * exportbuf, ImpExpCounts * counts)
         {
             MPI_Datatype type;
             MPI_Type_contiguous(sizeof(ResultType), MPI_BYTE, &type);
@@ -881,7 +876,7 @@ public:
             return;
         }
 
-        void ev_reduce_export_result(CommBuffer * exportbuf, struct ImpExpCounts * counts, struct particle_data * const parts)
+        void ev_reduce_export_result(CommBuffer * exportbuf, ImpExpCounts * counts, struct particle_data * const parts)
         {
             int64_t i;
             /* Notice that we build the dataindex table individually
