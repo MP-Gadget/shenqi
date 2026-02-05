@@ -30,19 +30,19 @@
 static struct gravshort_tree_params TreeParams;
 
 /*This is a helper for the tests*/
-void set_gravshort_treepar(struct gravshort_tree_params tree_params)
+void set_gravshort_treepar_old(struct gravshort_tree_params tree_params)
 {
     TreeParams = tree_params;
 }
 
-struct gravshort_tree_params get_gravshort_treepar(void)
+struct gravshort_tree_params get_gravshort_treepar_old(void)
 {
     return TreeParams;
 }
 
 /* Sets up the module*/
 void
-set_gravshort_tree_params(ParameterSet * ps)
+set_gravshort_tree_params_old(ParameterSet * ps)
 {
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
@@ -74,7 +74,7 @@ force_treeev_shortrange(TreeWalkQueryGravShort * input,
  * only true on PM steps where all particles are active.
  */
 void
-grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current)
+grav_short_tree_old(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current)
 {
     TreeWalk tw[1] = {{0}};
     struct GravShortPriv priv;
