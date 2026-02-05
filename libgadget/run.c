@@ -808,6 +808,7 @@ void
 runtests(const int RestartSnapNum, const inttime_t Ti_Current, const struct header_data * header)
 {
     run_gravity_test(RestartSnapNum, &All.CP, All.Asmth, All.Nmesh, Ti_Current, All.OutputDir, header);
+    run_consistency_test(RestartSnapNum, &All.CP, All.Asmth, All.Nmesh, Ti_Current, All.OutputDir, header);
 }
 
 void
