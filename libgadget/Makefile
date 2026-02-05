@@ -52,7 +52,7 @@ GADGET_OBJS =  \
 	 timestep.o init.o checkpoint.o \
 	 sfr_eff.o cooling.o cooling_rates.o cooling_uvfluc.o cooling_qso_lightup.o \
 	 winds.o veldisp.o density.o metal_return.o \
-	 treewalk.o treewalk2.o localtreewalk2.o density2.o cosmology.o \
+	 treewalk.o density2.o cosmology.o \
 	 gravshort-tree.o gravshort-tree2.o gravshort-pair.o hydra.o hydra2.o timefac.o \
 	 gravpm.o powerspectrum.o \
 	 forcetree.o \
