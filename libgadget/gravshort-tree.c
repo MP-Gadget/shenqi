@@ -28,26 +28,6 @@
  */
 
 static struct gravshort_tree_params TreeParams;
-/*Softening length*/
-static double GravitySoftening;
-
-/* gravitational softening length
- * (given in terms of an `equivalent' Plummer softening length)
- */
-double FORCE_SOFTENING(void)
-{
-    /* Force is Newtonian beyond this.*/
-    return 2.8 * GravitySoftening;
-}
-
-/*! Sets the (comoving) softening length, converting from units of the mean separation to comoving internal units. */
-void
-gravshort_set_softenings(double MeanSeparation)
-{
-    GravitySoftening = TreeParams.FractionalGravitySoftening * MeanSeparation;
-    /* 0: Gas is collisional */
-    message(0, "GravitySoftening = %g\n", GravitySoftening);
-}
 
 /*This is a helper for the tests*/
 void set_gravshort_treepar(struct gravshort_tree_params tree_params)
