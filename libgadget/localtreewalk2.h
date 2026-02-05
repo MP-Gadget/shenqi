@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cmath>
 #include <omp.h>
+#include "utils/endrun.h"
 #include "forcetree.h"
 #include "partmanager.h"
 
@@ -167,7 +168,6 @@ template <typename NgbIterType, typename QueryType, typename ResultType, typenam
 class LocalTreeWalk
 {
 public:
-
     const int mode; /* 0 for Primary, 1 for Secondary */
     int target; /* Current particle, defined only for primary and toptree walks (mode == TREEWALK_PRIMARY and TREEWALK_TOPTREE) */
     /* Interaction counters */
@@ -178,9 +178,9 @@ public:
     size_t Nexport;
 
     /* Constructor from treewalk */
-    LocalTreeWalk(const enum TreeWalkReduceMode i_mode, const ForceTree * const i_tree, const char * const i_ev_label, int * Ngblist, data_index ** ExportTable_thread):
-     mode(i_mode), maxNinteractions(0), minNinteractions(1L<<45), Ninteractions(0), Nexport(0), tree(i_tree), ev_label(i_ev_label),
-     BunchSize(compute_bunchsize(sizeof(QueryType), sizeof(ResultType), i_ev_label))
+    LocalTreeWalk(const enum TreeWalkReduceMode i_mode, const ForceTree * const i_tree, size_t BunchSize, int * Ngblist, data_index ** ExportTable_thread):
+     mode(i_mode), maxNinteractions(0), minNinteractions(1L<<45), Ninteractions(0), Nexport(0), tree(i_tree),
+     BunchSize()
     {
         const size_t thread_id = omp_get_thread_num();
         NThisParticleExport = 0;
@@ -195,22 +195,137 @@ public:
     /**
      * Visit function - called between a tree node and a particle.
      * Override this to implement custom tree traversal logic.
-     * Default implementation calls treewalk_visit_ngbiter.
+     *
+     * This default is a variant of ngbiter that doesn't use the Ngblist.
+     * The ngblist is generally preferred for memory locality reasons.
+     * Use this variant if the evaluation
+     * wants to change the search radius, such as for knn algorithms
+     * or some density code. Don't use it if the treewalk modifies other particles.
      *
      * @param input  Query data for the particle
      * @param output Result accumulator
      * @return 0 on success, -1 if export buffer is full
      */
-     int visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts);
+     int visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
+     {
+         NgbIterType iter(input);
+
+         int64_t ninteractions = 0;
+         int inode;
+         for(inode = 0; inode < NODELISTLENGTH && input->NodeList[inode] >= 0; inode++)
+         {
+             int no = input->NodeList[inode];
+             const double BoxSize = tree->BoxSize;
+
+             while(no >= 0)
+             {
+                 struct NODE *current = &tree->Nodes[no];
+
+                 /* When walking exported particles we start from the encompassing top-level node,
+                 * so if we get back to a top-level node again we are done.*/
+                 if(mode == TREEWALK_GHOSTS) {
+                     /* The first node is always top-level*/
+                     if(no > tree->lastnode)
+                         endrun(7, "Node is after lastnode. no %d lastnode %ld start %d first %ld\n", no, tree->lastnode, input->NodeList[inode], tree->firstnode);
+                     if(current->f.TopLevel && no != input->NodeList[inode]) {
+                         /* we reached a top-level node again, which means that we are done with the branch */
+                         break;
+                     }
+                 }
+
+                 /* Cull the node */
+                 if(0 == cull_node(input->Pos, BoxSize, iter->Hsml, iter->symmetric, current)) {
+                     /* in case the node can be discarded */
+                     no = current->sibling;
+                     continue;
+                 }
+                 if(mode == TREEWALK_TOPTREE) {
+                     if(current->f.ChildType == PSEUDO_NODE_TYPE) {
+                         /* Export the pseudo particle*/
+                         if(-1 == export_particle(current->s.suns[0]))
+                             return -1;
+                         /* Move sideways*/
+                         no = current->sibling;
+                         continue;
+                     }
+                     /* Only walk toptree nodes here*/
+                     if(current->f.TopLevel && !current->f.InternalTopLevel) {
+                         no = current->sibling;
+                         continue;
+                     }
+                 }
+                 /* Node contains relevant particles, add them.*/
+                 else {
+                     if(current->f.ChildType == PARTICLE_NODE_TYPE) {
+                         int i;
+                         int * suns = current->s.suns;
+                         for (i = 0; i < current->s.noccupied; i++) {
+                             /* Now evaluate a particle for the list*/
+                             int other = suns[i];
+                             /* Skip garbage*/
+                             if(parts[other].IsGarbage)
+                                 continue;
+                             /* In case the type of the particle has changed since the tree was built.
+                             * Happens for wind treewalk for gas turned into stars on this timestep.*/
+                             if(!((1<<parts[other].Type) & iter->mask))
+                                 continue;
+                             iter.ngbiter(input, other, output, priv, parts);
+                             ninteractions++;
+                         }
+                         /* Move sideways*/
+                         no = current->sibling;
+                         continue;
+                     }
+                     else if(current->f.ChildType == PSEUDO_NODE_TYPE) {
+                         /* pseudo particle */
+                         if(mode == TREEWALK_GHOSTS) {
+                             endrun(12312, "Secondary for particle %d from node %d found pseudo at %d.\n", target, input->NodeList[inode], no);
+                         } else {
+                             /* This has already been evaluated with the toptree. Move sideways.*/
+                             no = current->sibling;
+                             continue;
+                         }
+                     }
+                 }
+                 /* ok, we need to open the node */
+                 no = current->s.suns[0];
+             }
+         }
+         treewalk_add_counters(ninteractions);
+         return 0;
+     }
 
     /* Wrapper of the regular particle visit with some extra cleanup of the particle export table for the toptree walk
      * @param input  Query data for the particle
      * @param output Result accumulator
      * @return 0 on success, -1 if export buffer is full
      */
-    int toptree_visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts);
+    int toptree_visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
+    {
+        /* Reset the number of exported particles.*/
+        NThisParticleExport = 0;
+        const int rt = visit(input, output, priv, parts);
+        if(NThisParticleExport > 1000)
+            message(5, "%ld exports for particle %d! Odd.\n", NThisParticleExport, target);
+        /* If we filled up, we need to remove the partially evaluated last particle from the export list,
+        * save the partially evaluated chunk, and leave this loop.*/
+        if(rt < 0) {
+            //message(5, "Export buffer full for particle %d chnk: %ld -> %ld on thread %d with %ld exports\n", i, chnk, end, tid, lv->NThisParticleExport);
+            /* Drop partial exports on the current particle, whose toptree will be re-evaluated*/
+            Nexport -= NThisParticleExport;
+            /* Check that the final export in the list is indeed from a different particle*/
+            if(NThisParticleExport > 0 && DataIndexTable[Nexport-1].Index >= target)
+                endrun(5, "Something screwed up in export queue: nexp %ld (local %ld) last %d < index %d\n", Nexport,
+                    NThisParticleExport, target, DataIndexTable[Nexport-1].Index);
+            /* Check that the earliest dropped export in the list is from the same particle*/
+            if(NThisParticleExport > 0 && DataIndexTable[Nexport].Index != target)
+                endrun(5, "Something screwed up in export queue: nexp %ld (local %ld) last %d != index %d\n", Nexport,
+                    NThisParticleExport, target, DataIndexTable[Nexport].Index);
+        }
+        return rt;
+    }
 
-    /*****
+    /**
      * Variant of ngbiter that uses an Ngblist: first it builds a list of
      * particles to evaluate, then it evaluates them.
      * The ngblist is generally preferred for memory locality reasons and
@@ -218,15 +333,201 @@ public:
      * twice if the buffer fills up. Do not use this variant if the evaluation
      * wants to change the search radius, such as for density code.
      * Use this one if the treewalk modifies other particles.
-     * */
-    int visit_ngblist(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts);
+     **/
+     int visit_ngblist(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
+    {
+        NgbIterType iter(input);
+        /* Check whether the tree contains the particles we are looking for*/
+        if((tree->mask & iter.mask) != iter.mask)
+            endrun(5, "Treewalk for particles with mask %d but tree mask is only %d overlap %d.\n", iter.mask, tree->mask, tree->mask & iter.mask);
+        /* If symmetric, make sure we did hmax first*/
+        if(iter.symmetric == NGB_TREEFIND_SYMMETRIC && !tree->hmax_computed_flag)
+            endrun(3, "Tried to do a symmetric treewalk without computing hmax!\n");
+        int64_t ninteractions = 0;
+        int inode = 0;
+
+        for(inode = 0; inode < NODELISTLENGTH && input->NodeList[inode] >= 0; inode++)
+        {
+            int numcand = ngb_treefind_threads(input, &iter, input->NodeList[inode]);
+            /* Export buffer is full end prematurally */
+            if(numcand < 0)
+                return numcand;
+
+            /* If we are here, export is successful. Work on this particle -- first
+             * filter out all of the candidates that are actually outside. */
+            int numngb;
+
+            for(numngb = 0; numngb < numcand; numngb ++) {
+                int other = ngblist[numngb];
+
+                /* Skip garbage*/
+                if(parts[other].IsGarbage)
+                    continue;
+                /* In case the type of the particle has changed since the tree was built.
+                 * Happens for wind treewalk for gas turned into stars on this timestep.*/
+                if(!((1<<parts[other].Type) & iter.mask)) {
+                    continue;
+                }
+                iter.ngbiter(input, other, output, priv, parts);
+            }
+
+            ninteractions += numngb;
+        }
+
+        treewalk_add_counters(ninteractions);
+
+        return 0;
+    }
 
 protected:
-    int ngb_treefind_threads(const QueryType& input, NgbIterType * iter, int startnode);
+    /*****
+    * This is the internal code that looks for particles in the ngb tree from
+    * searchcenter upto hsml. if iter->symmetric is NGB_TREE_FIND_SYMMETRIC, then up to
+    * max(part.Hsml, iter->Hsml).
+    *
+    * Particle that intersects with other domains are marked for export.
+    * The hosting nodes (leaves of the global tree) are exported as well.
+    *
+    * For all 'other' particle within the neighbourhood and are local on this processor,
+    * this function calls the ngbiter member of the TreeWalk object.
+    * iter->base.other, iter->base.dist iter->base.r2, iter->base.r, are properly initialized.
+    *
+    * */
+    int ngb_treefind_threads(const QueryType& input, NgbIterType * iter, int startnode)
+    {
+        int no;
+        int numcand = 0;
+
+        const double BoxSize = tree->BoxSize;
+
+        no = startnode;
+
+        while(no >= 0)
+        {
+            if(node_is_particle(no, tree)) {
+                int fat = force_get_father(no, tree);
+                endrun(12312, "Particles should be added before getting here! no = %d, father = %d (ptype = %d) start=%d mode = %d\n", no, fat, tree->Nodes[fat].f.ChildType, startnode, mode);
+            }
+            if(node_is_pseudo_particle(no, tree)) {
+                int fat = force_get_father(no, tree);
+                endrun(12312, "Pseudo-Particles should be added before getting here! no = %d, father = %d (ptype = %d)\n", no, fat, tree->Nodes[fat].f.ChildType);
+            }
+
+            struct NODE *current = &tree->Nodes[no];
+
+            /* When walking exported particles we start from the encompassing top-level node,
+             * so if we get back to a top-level node again we are done.*/
+            if(mode == TREEWALK_GHOSTS) {
+                /* The first node is always top-level*/
+                if(current->f.TopLevel && no != startnode) {
+                    /* we reached a top-level node again, which means that we are done with the branch */
+                    break;
+                }
+            }
+
+            if(0 == cull_node(I.Pos, BoxSize, iter->Hsml, iter->symmetric, current)) {
+                /* in case the node can be discarded */
+                no = current->sibling;
+                continue;
+            }
+
+            if(mode == TREEWALK_TOPTREE) {
+                if(current->f.ChildType == PSEUDO_NODE_TYPE) {
+                    /* Export the pseudo particle*/
+                    if(-1 == export_particle(current->s.suns[0]))
+                        return -1;
+                    /* Move sideways*/
+                    no = current->sibling;
+                    continue;
+                }
+                /* Only walk toptree nodes here*/
+                if(current->f.TopLevel && !current->f.InternalTopLevel) {
+                    no = current->sibling;
+                    continue;
+                }
+            }
+            else {
+                /* Node contains relevant particles, add them.*/
+                if(current->f.ChildType == PARTICLE_NODE_TYPE) {
+                    int i;
+                    int * suns = current->s.suns;
+                    for (i = 0; i < current->s.noccupied; i++) {
+                        ngblist[numcand++] = suns[i];
+                    }
+                    /* Move sideways*/
+                    no = current->sibling;
+                    continue;
+                }
+                else if(current->f.ChildType == PSEUDO_NODE_TYPE) {
+                    /* pseudo particle */
+                    if(mode == TREEWALK_GHOSTS) {
+                        endrun(12312, "Secondary for particle %d from node %d found pseudo at %d.\n", target, startnode, no);
+                    } else {
+                        /* This has already been evaluated with the toptree. Move sideways.*/
+                        no = current->sibling;
+                        continue;
+                    }
+                }
+            }
+            /* ok, we need to open the node */
+            no = current->s.suns[0];
+        }
+
+        return numcand;
+    }
 
     /* Adds a remote tree node to the export list for this particle.
     returns -1 if the buffer is full. */
-    int export_particle(const int no);
+    /* export a particle at target and no, thread safely
+     *
+     * This can also be called from a nonthreaded code
+     *
+     * */
+    int export_particle(const int no)
+    {
+        if(mode != TREEWALK_TOPTREE || no < tree->lastnode) {
+            endrun(1, "Called export not from a toptree.\n");
+        }
+        if(!DataIndexTable)
+            endrun(1, "DataIndexTable not allocated, treewalk_export_particle called in the wrong way\n");
+        if(no - tree->lastnode > tree->NTopLeaves)
+            endrun(1, "Bad export leaf: no = %d lastnode %ld ntop %d target %d\n", no, tree->lastnode, tree->NTopLeaves, target);
+        const int task = tree->TopLeaves[no - tree->lastnode].Task;
+        /* This index is a unique entry in the global DataIndexTable.*/
+        size_t nexp = Nexport;
+        /* If the last export was to this task, we can perhaps just add this export to the existing NodeList. We can
+         * be sure that all exports of this particle are contiguous.*/
+        if(NThisParticleExport >= 1 && DataIndexTable[nexp-1].Task == task) {
+    #ifdef DEBUG
+            /* This is just to be safe: only happens if our indices are off.*/
+            if(DataIndexTable[nexp - 1].Index != target)
+                endrun(1, "Previous of %ld exports is target %d not current %d\n", NThisParticleExport, DataIndexTable[nexp-1].Index, target);
+    #endif
+            if(nodelistindex < NODELISTLENGTH) {
+    #ifdef DEBUG
+                if(DataIndexTable[nexp-1].NodeList[nodelistindex] != -1)
+                    endrun(1, "Current nodelist %ld entry (%d) not empty!\n", nodelistindex, DataIndexTable[nexp-1].NodeList[nodelistindex]);
+    #endif
+                DataIndexTable[nexp-1].NodeList[nodelistindex] = tree->TopLeaves[no - tree->lastnode].treenode;
+                nodelistindex++;
+                return 0;
+            }
+        }
+        /* out of buffer space. Need to interrupt. */
+        if(Nexport >= BunchSize) {
+            return -1;
+        }
+        DataIndexTable[nexp].Task = task;
+        DataIndexTable[nexp].Index = target;
+        DataIndexTable[nexp].NodeList[0] = tree->TopLeaves[no - tree->lastnode].treenode;
+        int i;
+        for(i = 1; i < NODELISTLENGTH; i++)
+            DataIndexTable[nexp].NodeList[i] = -1;
+        Nexport++;
+        nodelistindex = 1;
+        NThisParticleExport++;
+        return 0;
+    }
 
     void
     treewalk_add_counters(const int64_t ninteractions)
@@ -240,12 +541,8 @@ protected:
 
     /* A pointer to the force tree structure to walk.*/
     const ForceTree * const tree;
-
+    /* List of particles to evaluate */
     int * ngblist;
-
-    /* name of the evaluator (used in printing messages) */
-    const char * ev_label;
-
     /* Number of entries in the export table for this particle*/
     size_t NThisParticleExport;
     /* Index to use in the current node list*/
