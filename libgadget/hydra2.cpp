@@ -214,6 +214,7 @@ SPH_DensityPred(MyFloat Density, MyFloat DivVel, double dtdrift)
 }
 
 class HydroNgbIter: public TreeWalkNgbIterBase<HydroQuery, HydroResult, HydroPriv> {
+    public:
     double p_over_rho2_i;
     double soundspeed_i;
     DensityKernel kernel_i;

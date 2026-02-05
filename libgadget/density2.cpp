@@ -262,7 +262,8 @@ class DensityResult : public TreeWalkResultBase<DensityPriv> {
 
 /*! Structure for communication during the density computation. Holds data that is sent to other processors.
 */
-class TreeWalkNgbIterDensity : TreeWalkNgbIterBase<DensityQuery, DensityResult, DensityPriv>{
+class TreeWalkNgbIterDensity : public TreeWalkNgbIterBase<DensityQuery, DensityResult, DensityPriv>
+{
     public:
         DensityKernel kernel;
         double kernel_volume;
@@ -284,7 +285,7 @@ class TreeWalkNgbIterDensity : TreeWalkNgbIterBase<DensityQuery, DensityResult, 
         *  initialize.
         *
         */
-        void ngbiter(DensityQuery& input, const int other, DensityResult * output, DensityPriv& priv, const struct particle_data * const parts)
+        void ngbiter(const DensityQuery& input, const int other, DensityResult * output, const DensityPriv& priv, const struct particle_data * const parts)
         {
             TreeWalkNgbIterBase::ngbiter(input, other, output, priv, parts);
             const particle_data& particle = parts[other];
