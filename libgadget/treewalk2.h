@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <omp.h>
+#include <cmath>
 #include "localtreewalk2.h"
 #include "forcetree.h"
 #include "utils/mymalloc.h"
@@ -11,6 +12,43 @@
 
 #define MAXITER 400
 
+class ExportMemory {
+    public:
+    const int64_t NThread; /*Number of OpenMP threads*/
+    const size_t BunchSize;
+    /* Information allowing the toptree walk to restart successfully after the export buffer fills up*/
+    /* Export counters for each thread*/
+    size_t * const Nexport_thread;
+    /* Pointer to a particle export table for each thread.*/
+    data_index ** ExportTable_thread;
+    int64_t * const QueueChunkEnd;
+    int * const QueueChunkRestart;
+    ExportMemory(const size_t i_BunchSize) :
+    NThread(omp_get_max_threads()), BunchSize(i_BunchSize), Nexport_thread(ta_malloc2("localexports", size_t, NThread)),
+    ExportTable_thread(ta_malloc2("localexports", data_index *, NThread)), QueueChunkEnd(ta_malloc2("queueend", int64_t, NThread)),
+    QueueChunkRestart(ta_malloc2("queuerestart", int, NThread))
+    {
+        int i;
+        for(i = 0; i < NThread; i++)
+            ExportTable_thread[i] = (data_index*) mymalloc("DataIndexTable", sizeof(data_index) * BunchSize);
+        for(i = 0; i < NThread; i++)
+            QueueChunkEnd[i] = -1;
+    }
+
+    ~ExportMemory()
+    {
+        myfree(QueueChunkRestart);
+        myfree(QueueChunkEnd);
+        for(int i = NThread - 1; i >= 0; i--)
+            myfree(ExportTable_thread[i]);
+        myfree(ExportTable_thread);
+        myfree(Nexport_thread);
+    }
+};
+
+/* This stores counts of the particles to be transferred.
+ * It is book-keeping for the distributed part of the treewalk.
+ * The constructor does an MPI_Alltoall, and thus is a synchronisation point.*/
 class ImpExpCounts
 {
     public:
@@ -27,7 +65,7 @@ class ImpExpCounts
     /* Number of MPI ranks we export to from this rank.*/
     int64_t NExportTargets;
 
-    ImpExpCounts(const MPI_Comm i_comm, const size_t NThread, const size_t * const Nexport_thread, data_index ** ExportTable_thread): comm(i_comm)
+    ImpExpCounts(const MPI_Comm i_comm, const ExportMemory& exports): comm(i_comm)
     {
         MPI_Comm_size(comm, &NTask);
         Export_count = ta_malloc("Tree_counts", int64_t, 4*NTask);
@@ -38,12 +76,12 @@ class ImpExpCounts
 
         Nexport=0;
         /* Calculate the amount of data to send. */
-        for(size_t i = 0; i < NThread; i++)
+        for(size_t i = 0; i < exports.NThread; i++)
         {
-            for(size_t k = 0; k < Nexport_thread[i]; k++)
-                Export_count[ExportTable_thread[i][k].Task]++;
+            for(size_t k = 0; k < exports.Nexport_thread[i]; k++)
+                Export_count[exports.ExportTable_thread[i][k].Task]++;
             /* This is the export count*/
-            Nexport += Nexport_thread[i];
+            Nexport += exports.Nexport_thread[i];
         }
         /* Exchange the counts. Note this is synchronous so we need to ensure the toptree walk, which happens before this, is balanced.*/
         MPI_Alltoall(Export_count, 1, MPI_INT64, Import_count, 1, MPI_INT64, comm);
@@ -66,7 +104,6 @@ class ImpExpCounts
         ta_free(Export_count);
     };
 };
-
 
 #define COMM_RECV 1
 #define COMM_SEND 0
@@ -146,6 +183,33 @@ class CommBuffer
     }
 };
 
+/* 7/9/24: The code segfaults if the send/recv buffer is larger than 4GB in size.
+ * Likely a 32-bit variable is overflowing but it is hard to debug. Easier to enforce a maximum buffer size.*/
+size_t compute_bunchsize(const size_t query_type_elsize, const size_t result_type_elsize, const size_t MaxExportBufferBytes)
+{
+   /*The amount of memory eventually allocated per tree buffer*/
+   size_t bytesperbuffer = sizeof(struct data_index) + query_type_elsize + result_type_elsize;
+   /*This memory scales like the number of imports. In principle this could be much larger than Nexport
+    * if the tree is very imbalanced and many processors all need to export to this one. In practice I have
+    * not seen this happen, but provide a parameter to boost the memory for Nimport just in case.*/
+   const double ImportBufferBoost = 2;
+   bytesperbuffer += ceil(ImportBufferBoost * (query_type_elsize + result_type_elsize));
+   /*Use all free bytes for the tree buffer, as in exchange. Leave some free memory for array overhead.*/
+   size_t freebytes = (size_t) mymalloc_freebytes();
+   freebytes -= 4096 * 10 * bytesperbuffer;
+
+   size_t BunchSize = (size_t) floor(((double)freebytes)/ bytesperbuffer);
+   if(BunchSize * query_type_elsize > MaxExportBufferBytes)
+       BunchSize = MaxExportBufferBytes / query_type_elsize;
+   /* Per thread*/
+   BunchSize /= omp_get_max_threads();
+
+   if(freebytes <= 4096 * bytesperbuffer || BunchSize < 100) {
+       endrun(1231245, "Not enough free memory to export particles: needed %ld bytes have %ld. Can export %ld \n", bytesperbuffer, freebytes, BunchSize);
+   }
+   return BunchSize;
+}
+
 /**
  * TreeWalk - Base class for tree-based particle interactions.
  *
@@ -172,7 +236,6 @@ public:
     /* Set to true if haswork() is overridden to do actual filtering.
      * Used to optimize queue building when haswork always returns true. */
     bool should_rebuild_queue;
-    const int64_t NThread; /*Number of OpenMP threads*/
     /* If this is true, the primary and secondary treewalks will be offloaded to an accelerator device (a GPU).
      * This imposes certain limitations, most notably atomics will be slow.*/
     const int use_openmp_target;
@@ -207,13 +270,6 @@ public:
     int64_t Ninteractions;
 
     /* internal flags*/
-    /* Information allowing the toptree walk to restart successfully after the export buffer fills up*/
-    int * QueueChunkRestart;
-    int64_t * QueueChunkEnd;
-    /* Export counters for each thread*/
-    size_t * Nexport_thread;
-    /* Pointer to a particle export table for each thread.*/
-    data_index ** ExportTable_thread;
     /* Flags that our export buffer is full*/
     int BufferFullFlag;
     /* List of neighbour candidates.*/
@@ -236,7 +292,6 @@ public:
     /* Max and min arrays for each iteration of the count*/
     double * maxnumngb;
     double * minnumngb;
-
     /**
      * Constructor - initializes all members to safe defaults.
      */
@@ -244,13 +299,10 @@ public:
         tree(i_tree), ev_label(i_ev_label),
         priv(i_priv),
         should_rebuild_queue(i_should_rebuild_queue),
-        NThread(omp_get_max_threads()),
         use_openmp_target(0),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
         Nlistprimary(0), Nexport_sum(0), Nexportfull(0), Niteration(0), NExportTargets(0),
-        maxNinteractions(0), minNinteractions(0), Ninteractions(0),
-        Nexport_thread(nullptr), QueueChunkRestart(nullptr), QueueChunkEnd(nullptr),
-        ExportTable_thread(nullptr), BufferFullFlag(0),
+        maxNinteractions(0), minNinteractions(0), Ninteractions(0), BufferFullFlag(0),
         Ngblist(nullptr), NoNgblist(0), work_set_stolen_from_active(0),
         WorkSetStart(0), WorkSet(nullptr), WorkSetSize(0),
         NPLeft(nullptr), NPRedo(nullptr), Redo_thread_alloc(0),
@@ -269,7 +321,7 @@ public:
      * size: length of the active set
      * particle_data parts: list of particles to use
      */
-    void run(int * active_set, size_t size, particle_data * const parts)
+    void run(int * active_set, size_t size, particle_data * const parts, const size_t MaxExportBufferBytes = 3584*1024*1024L)
     {
         if(!force_tree_allocated(tree)) {
             endrun(0, "Tree has been freed before this treewalk.\n");
@@ -297,15 +349,25 @@ public:
         Nexport_sum = 0;
         Ninteractions = 0;
         int Ndone = 0;
-        /* Needs to be outside loop because it allocates restart information*/
-        alloc_export_memory();
+        /* Needs to be outside loop because it allocates restart information.
+         * Freed at the end of the treewalk. */
+        const size_t BunchSize = compute_bunchsize(sizeof(QueryType), sizeof(ResultType), MaxExportBufferBytes);
+        ExportMemory exportlist(BunchSize);
+        /* Print some balance numbers*/
+        int64_t nmin, nmax, total;
+        MPI_Reduce(&WorkSetSize, &nmin, 1, MPI_INT64, MPI_MIN, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&WorkSetSize, &nmax, 1, MPI_INT64, MPI_MAX, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&WorkSetSize, &total, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
+        message(0, "Treewalk %s iter %ld: total part %ld max/MPI: %ld min/MPI: %ld balance: %g query %ld result %ld BunchSize %ld.\n",
+            ev_label, Niteration, total, nmax, nmin, (double)nmax/((total+0.001)/NTask), sizeof(QueryType), sizeof(ResultType), BunchSize);
+        report_memory_usage(ev_label);
         do
         {
             tstart = second();
             /* First do the toptree and export particles for sending.*/
-            ev_toptree(parts);
+            ev_toptree(parts, &exportlist);
             /* All processes sync via alltoall.*/
-            ImpExpCounts counts(MPI_COMM_WORLD, NThread, Nexport_thread, ExportTable_thread);
+            ImpExpCounts counts(MPI_COMM_WORLD, exportlist);
             NExportTargets = counts.NExportTargets;
             Nexport_sum += counts.Nexport;
             Ndone = ev_ndone(MPI_COMM_WORLD);
@@ -313,7 +375,7 @@ public:
             /* exports is allocated first, then imports*/
             CommBuffer exports(counts.NTask, 0);
             CommBuffer imports(counts.NTask, 0);
-            ev_send_recv_export_import(&counts, &exports, &imports, parts);
+            ev_send_recv_export_import(&counts, &exportlist, &exports, &imports, parts);
             tend = second();
             timecomp0 += timediff(tstart, tend);
             /* Only do this on the first iteration, as we only need to do it once.*/
@@ -343,7 +405,7 @@ public:
             tend = second();
             timewait1 += timediff(tstart, tend);
             tstart = second();
-            ev_reduce_export_result(&res_exports, &counts, parts);
+            ev_reduce_export_result(&res_exports, &counts, &exportlist, parts);
             tend = second();
             timecommsumm += timediff(tstart, tend);
             /* Free export memory*/
@@ -351,7 +413,6 @@ public:
             /* The destructors for the CommBuffers will fire at this point,
              * which means there is an implicit wait() */
         } while(Ndone < NTask);
-        free_export_memory();
 
         tstart = second();
         #pragma omp parallel for
@@ -587,17 +648,6 @@ public:
                 Ngblist = (int*) mymalloc("Ngblist", tree->NumParticles * NumThreads * sizeof(int));
             else
                 Ngblist = NULL;
-
-            /* Print some balance numbers*/
-            int64_t nmin, nmax, total;
-            MPI_Reduce(&WorkSetSize, &nmin, 1, MPI_INT64, MPI_MIN, 0, MPI_COMM_WORLD);
-            MPI_Reduce(&WorkSetSize, &nmax, 1, MPI_INT64, MPI_MAX, 0, MPI_COMM_WORLD);
-            MPI_Reduce(&WorkSetSize, &total, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
-            message(0, "Treewalk %s iter %ld: total part %ld max/MPI: %ld min/MPI: %ld balance: %g query %ld result %ld BunchSize %ld.\n",
-                ev_label, Niteration, total, nmax, nmin, (double)nmax/((total+0.001)/NTask), sizeof(QueryType), sizeof(ResultType),
-                compute_bunchsize(sizeof(QueryType), sizeof(ResultType), ev_label));
-
-            report_memory_usage(ev_label);
         }
 
         /* returns struct containing export counts */
@@ -607,13 +657,13 @@ public:
         #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
             {
                 /* Note: exportflag is local to each thread */
-                LocalTreeWalkType lv(TREEWALK_PRIMARY, tree, ev_label, Ngblist, ExportTable_thread);
+                LocalTreeWalkType lv(TREEWALK_PRIMARY, tree, 0, Ngblist, NULL);
 
                 /* We must schedule dynamically so that we have reduced imbalance.
                 * We do not need to worry about the export buffer filling up.*/
                 /* chunk size: 1 and 1000 were slightly (3 percent) slower than 8.
                 * FoF treewalk needs a larger chnksz to avoid contention.*/
-                int64_t chnksz = WorkSetSize / (4*NThread);
+                int64_t chnksz = WorkSetSize / (4*omp_get_num_threads());
                 if(chnksz < 1)
                     chnksz = 1;
                 if(chnksz > 100)
@@ -639,31 +689,7 @@ public:
             Nlistprimary += WorkSetSize;
         }
 
-        void alloc_export_memory()
-        {
-            Nexport_thread = ta_malloc2("localexports", size_t, NThread);
-            ExportTable_thread = ta_malloc2("localexports", data_index *, NThread);
-            int i;
-            for(i = 0; i < NThread; i++)
-                ExportTable_thread[i] = (data_index*) mymalloc("DataIndexTable", sizeof(data_index) * compute_bunchsize(sizeof(QueryType), sizeof(ResultType), ev_label));
-            QueueChunkEnd = ta_malloc2("queueend", int64_t, NThread);
-            for(i = 0; i < NThread; i++)
-                QueueChunkEnd[i] = -1;
-            QueueChunkRestart = ta_malloc2("queuerestart", int, NThread);
-        }
-
-        void free_export_memory()
-        {
-            myfree(QueueChunkRestart);
-            myfree(QueueChunkEnd);
-            int i;
-            for(i = NThread - 1; i >= 0; i--)
-                myfree(ExportTable_thread[i]);
-            myfree(ExportTable_thread);
-            myfree(Nexport_thread);
-        }
-
-        int ev_toptree(const particle_data * const parts)
+        int ev_toptree(const particle_data * const parts, ExportMemory * const exportlist)
         {
             BufferFullFlag = 0;
             int64_t currentIndex = WorkSetStart;
@@ -674,7 +700,7 @@ public:
 
         #pragma omp parallel reduction(+: BufferFullFlag)
             {
-                LocalTreeWalkType lv(TREEWALK_TOPTREE, tree, ev_label, Ngblist, ExportTable_thread);
+                LocalTreeWalkType lv(TREEWALK_TOPTREE, tree, exportlist->BunchSize, Ngblist, exportlist->ExportTable_thread);
                 /* Signals a full export buffer on this thread*/
                 int BufferFull_thread = 0;
                 const int tid = omp_get_thread_num();
@@ -685,7 +711,7 @@ public:
                 int64_t chnk = 0;
                 /* chunk size: 1 and 1000 were slightly (3 percent) slower than 8.
                  * FoF treewalk needs a larger chnksz to avoid contention.*/
-                int64_t chnksz = WorkSetSize / (4*NThread);
+                int64_t chnksz = WorkSetSize / (4*exportlist->NThread);
                 if(chnksz < 1)
                     chnksz = 1;
                 if(chnksz > 1000)
@@ -693,10 +719,10 @@ public:
                 do {
                     int64_t end;
                     /* Restart a previously partially evaluated chunk if there is one*/
-                    if(Nexportfull > 0 && QueueChunkEnd[tid] > 0) {
-                        chnk = QueueChunkRestart[tid];
-                        end = QueueChunkEnd[tid];
-                        QueueChunkEnd[tid] = -1;
+                    if(Nexportfull > 0 && exportlist->QueueChunkEnd[tid] > 0) {
+                        chnk = exportlist->QueueChunkRestart[tid];
+                        end = exportlist->QueueChunkEnd[tid];
+                        exportlist->QueueChunkEnd[tid] = -1;
                         //message(1, "T%d Restarting chunk %ld -> %ld\n", tid, chnk, end);
                     }
                     else {
@@ -709,7 +735,7 @@ public:
                             end = WorkSetSize;
                     }
                     /* Reduce the chunk size towards the end of the walk*/
-                    if((WorkSetSize  < end + chnksz * NThread) && chnksz >= 2)
+                    if((WorkSetSize  < end + chnksz * exportlist->NThread) && chnksz >= 2)
                         chnksz /= 2;
                     int k;
                     for(k = chnk; k < end; k++) {
@@ -727,23 +753,23 @@ public:
                             BufferFull_thread = 1;
                             /* Store information for the current chunk, so we can resume successfully exactly where we left off.
                                 Each thread stores chunk information */
-                            QueueChunkRestart[tid] = k;
-                            QueueChunkEnd[tid] = end;
+                            exportlist->QueueChunkRestart[tid] = k;
+                            exportlist->QueueChunkEnd[tid] = end;
                             break;
                         }
                     }
                 } while(chnk < WorkSetSize && BufferFull_thread == 0);
-                Nexport_thread[tid] = lv.Nexport;
+                exportlist->Nexport_thread[tid] = lv.Nexport;
                 BufferFullFlag += BufferFull_thread;
             }
 
             if(BufferFullFlag > 0) {
                 size_t Nexport = 0;
                 int i;
-                for(i = 0; i < NThread; i++)
-                    Nexport += Nexport_thread[i];
+                for(i = 0; i < exportlist->NThread; i++)
+                    Nexport += exportlist->Nexport_thread[i];
                 message(1, "Tree export buffer full on %d of %ld threads with %lu exports (%lu Mbytes). First particle %ld new start: %ld size %ld.\n",
-                                BufferFullFlag, NThread, Nexport, Nexport*sizeof(QueryType)/1024/1024, WorkSetStart, currentIndex, WorkSetSize);
+                                BufferFullFlag, exportlist->NThread, Nexport, Nexport*sizeof(QueryType)/1024/1024, WorkSetStart, currentIndex, WorkSetSize);
                 if(currentIndex == WorkSetStart)
                     endrun(5, "Not enough export space to make progress! lastsuc %ld\n", currentIndex);
             }
@@ -790,7 +816,7 @@ public:
                         {
                             ResultType * results = (ResultType *) dataresultstart;
                             int64_t j;
-                            LocalTreeWalkType lv(TREEWALK_GHOSTS, tree, ev_label, Ngblist, ExportTable_thread);
+                            LocalTreeWalkType lv(TREEWALK_GHOSTS, tree, 0, Ngblist, NULL);
                             #pragma omp for
                             for(j = 0; j < nimports_task; j++) {
                                 QueryType * input = &((QueryType *) databufstart)[j];
@@ -820,7 +846,7 @@ public:
         }
 
         /* Builds the list of exported particles and async sends the export queries. */
-        void ev_send_recv_export_import(ImpExpCounts * counts, CommBuffer * exports, CommBuffer * imports, const particle_data * const parts)
+        void ev_send_recv_export_import(const ImpExpCounts * const counts, const ExportMemory * const exportlist, CommBuffer * exports, CommBuffer * imports, const particle_data * const parts)
         {
             exports->databuf = (char *) mymalloc("ExportQuery", counts->Nexport * sizeof(QueryType));
             imports->databuf = (char *) mymalloc("ImportQuery", counts->Nimport * sizeof(QueryType));
@@ -837,16 +863,16 @@ public:
             memset(real_send_count, 0, sizeof(int64_t)*NTask);
             int64_t i;
             QueryType * export_queries = reinterpret_cast<QueryType*>(exports->databuf);
-            for(i = 0; i < NThread; i++)
+            for(i = 0; i < exportlist->NThread; i++)
             {
                 size_t k;
-                for(k = 0; k < Nexport_thread[i]; k++) {
-                    const int place = ExportTable_thread[i][k].Index;
-                    const int task = ExportTable_thread[i][k].Task;
+                for(k = 0; k < exportlist->Nexport_thread[i]; k++) {
+                    const int place = exportlist->ExportTable_thread[i][k].Index;
+                    const int task = exportlist->ExportTable_thread[i][k].Task;
                     const int64_t bufpos = real_send_count[task] + counts->Export_offset[task];
                     real_send_count[task]++;
                     /* Initialize the query in this memory */
-                    new(&export_queries[bufpos]) QueryType(parts[place], ExportTable_thread[i][k].NodeList, -1, priv);
+                    new(&export_queries[bufpos]) QueryType(parts[place], exportlist->ExportTable_thread[i][k].NodeList, -1, priv);
                 }
             }
         #ifdef DEBUG
@@ -876,19 +902,19 @@ public:
             return;
         }
 
-        void ev_reduce_export_result(CommBuffer * exportbuf, ImpExpCounts * counts, struct particle_data * const parts)
+        void ev_reduce_export_result(CommBuffer * exportbuf, const ImpExpCounts * const counts, const ExportMemory * const exportlist, struct particle_data * const parts)
         {
             int64_t i;
             /* Notice that we build the dataindex table individually
              * on each thread, so we are ordered by particle and have memory locality.*/
             int * real_recv_count = ta_malloc("tmp_recv_count", int, NTask);
             memset(real_recv_count, 0, sizeof(int)*NTask);
-            for(i = 0; i < NThread; i++)
+            for(i = 0; i < exportlist->NThread; i++)
             {
                 size_t k;
-                for(k = 0; k < Nexport_thread[i]; k++) {
-                    const int place = ExportTable_thread[i][k].Index;
-                    const int task = ExportTable_thread[i][k].Task;
+                for(k = 0; k < exportlist->Nexport_thread[i]; k++) {
+                    const int place = exportlist->ExportTable_thread[i][k].Index;
+                    const int task = exportlist->ExportTable_thread[i][k].Task;
                     const int64_t bufpos = real_recv_count[task] + counts->Export_offset[task];
                     real_recv_count[task]++;
                     ResultType * output = &((ResultType *) exportbuf->databuf)[bufpos];

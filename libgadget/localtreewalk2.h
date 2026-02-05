@@ -8,14 +8,7 @@
 #include "forcetree.h"
 #include "partmanager.h"
 
-/*Initialise treewalk parameters on first run*/
-void set_treewalk_params(ParameterSet * ps);
-
-/* Change the size of the export buffer, for tests*/
-void treewalk_set_max_export_buffer(const size_t maxbuf);
-
-/* Compute the number of entries that can live in an export table */
-size_t compute_bunchsize(const size_t query_type_elsize, const size_t result_type_elsize, const char * const ev_label);
+#define FACT1 0.366025403785    /* FACT1 = 0.5 * (sqrt(3)-1) */
 
 #define TREEWALK_REDUCE(A, B) (A) = (mode==TREEWALK_PRIMARY)?(B):((A) + (B))
 
@@ -151,6 +144,41 @@ class TreeWalkNgbIterBase {
                 if(r2 > h2) break;
             }
         };
+
+        /**
+         * Cull a node.
+         *
+         * Returns 1 if the node shall be opened;
+         * Returns 0 if the node has no business with this query.
+         */
+        int
+        cull_node(const double * const Pos, const double BoxSize, const struct NODE * const current)
+        {
+            double dist;
+            if(symmetric == NGB_TREEFIND_SYMMETRIC) {
+                dist = DMAX(current->mom.hmax, Hsml) + 0.5 * current->len;
+            } else {
+                dist = Hsml + 0.5 * current->len;
+            }
+
+            double r2 = 0;
+            double dx = 0;
+            /* do each direction */
+            int d;
+            for(d = 0; d < 3; d ++) {
+                dx = NEAREST(current->center[d] - Pos[d], BoxSize);
+                if(dx > dist) return 0;
+                if(dx < -dist) return 0;
+                r2 += dx * dx;
+            }
+            /* now test against the minimal sphere enclosing everything */
+            dist += FACT1 * current->len;
+
+            if(r2 > dist * dist) {
+                return 0;
+            }
+            return 1;
+        };
 };
 
 /*!< Thread-local list of the particles to be exported,
@@ -212,9 +240,9 @@ public:
 
          int64_t ninteractions = 0;
          int inode;
-         for(inode = 0; inode < NODELISTLENGTH && input->NodeList[inode] >= 0; inode++)
+         for(inode = 0; inode < NODELISTLENGTH && input.NodeList[inode] >= 0; inode++)
          {
-             int no = input->NodeList[inode];
+             int no = input.NodeList[inode];
              const double BoxSize = tree->BoxSize;
 
              while(no >= 0)
@@ -226,15 +254,15 @@ public:
                  if(mode == TREEWALK_GHOSTS) {
                      /* The first node is always top-level*/
                      if(no > tree->lastnode)
-                         endrun(7, "Node is after lastnode. no %d lastnode %ld start %d first %ld\n", no, tree->lastnode, input->NodeList[inode], tree->firstnode);
-                     if(current->f.TopLevel && no != input->NodeList[inode]) {
+                         endrun(7, "Node is after lastnode. no %d lastnode %ld start %d first %ld\n", no, tree->lastnode, input.NodeList[inode], tree->firstnode);
+                     if(current->f.TopLevel && no != input.NodeList[inode]) {
                          /* we reached a top-level node again, which means that we are done with the branch */
                          break;
                      }
                  }
 
                  /* Cull the node */
-                 if(0 == cull_node(input->Pos, BoxSize, iter->Hsml, iter->symmetric, current)) {
+                 if(0 == iter.cull_node(input.Pos, BoxSize, current)) {
                      /* in case the node can be discarded */
                      no = current->sibling;
                      continue;
@@ -267,7 +295,7 @@ public:
                                  continue;
                              /* In case the type of the particle has changed since the tree was built.
                              * Happens for wind treewalk for gas turned into stars on this timestep.*/
-                             if(!((1<<parts[other].Type) & iter->mask))
+                             if(!((1<<parts[other].Type) & iter.mask))
                                  continue;
                              iter.ngbiter(input, other, output, priv, parts);
                              ninteractions++;
@@ -279,7 +307,7 @@ public:
                      else if(current->f.ChildType == PSEUDO_NODE_TYPE) {
                          /* pseudo particle */
                          if(mode == TREEWALK_GHOSTS) {
-                             endrun(12312, "Secondary for particle %d from node %d found pseudo at %d.\n", target, input->NodeList[inode], no);
+                             endrun(12312, "Secondary for particle %d from node %d found pseudo at %d.\n", target, input.NodeList[inode], no);
                          } else {
                              /* This has already been evaluated with the toptree. Move sideways.*/
                              no = current->sibling;
@@ -425,7 +453,7 @@ protected:
                 }
             }
 
-            if(0 == cull_node(I.Pos, BoxSize, iter->Hsml, iter->symmetric, current)) {
+            if(0 == iter->cull_node(input.Pos, BoxSize, current)) {
                 /* in case the node can be discarded */
                 no = current->sibling;
                 continue;
