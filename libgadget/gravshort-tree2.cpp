@@ -275,7 +275,6 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
         /* Primary treewalk only ever has one nodelist entry*/
         for(listindex = 0; listindex < NODELISTLENGTH; listindex++)
         {
-            int numcand = 0;
             /* Use the next node in the node list if we are doing a secondary walk.
              * For a primary walk the node list only ever contains one node. */
             int no = input.NodeList[listindex];
@@ -342,8 +341,13 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
                     {
                         /* Loop over child particles*/
                         for(i = 0; i < nop->s.noccupied; i++) {
-                            int pp = nop->s.suns[i];
-                            ngblist[numcand++] = pp;
+                            const int pp = nop->s.suns[i];
+                            for(int j = 0; j < 3; j++)
+                                dx[j] = NEAREST(Part[pp].Pos[j] - inpos[j], BoxSize);
+                            const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
+                            /* Compute the acceleration and apply it to the output structure*/
+                            output->apply_accn(dx, r2, Part[pp].Mass, cellsize);
+                            ninteractions++;
                         }
                         no = nop->sibling;
                     }
@@ -357,19 +361,6 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
                         no = nop->s.suns[0];
                 }
             }
-            int i;
-            for(i = 0; i < numcand; i++)
-            {
-                int pp = ngblist[i];
-                double dx[3];
-                int j;
-                for(j = 0; j < 3; j++)
-                    dx[j] = NEAREST(Part[pp].Pos[j] - inpos[j], BoxSize);
-                const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
-                /* Compute the acceleration and apply it to the output structure*/
-                output->apply_accn(dx, r2, Part[pp].Mass, cellsize);
-            }
-            ninteractions = numcand;
         }
         treewalk_add_counters(ninteractions);
         return 1;
