@@ -40,7 +40,7 @@ jobs:
     - name: Build
       run: |
         cp platform-options/Options.mk.travis Options.mk
-        OMPI_CXX=clang++ OMPI_CC=clang++ make
+        OMPI_CXX=clang++ OMPI_CC=clang make
 
     - name: Unit tests
       run: |
