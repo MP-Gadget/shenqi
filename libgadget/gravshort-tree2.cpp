@@ -311,59 +311,121 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
                 {
                     /* ok, node can be used */
                     no = nop->sibling;
-                    if(mode != TREEWALK_TOPTREE) {
-                        /* Compute the acceleration and apply it to the output structure*/
-                        output->apply_accn(dx, r2, nop->mom.mass, cellsize);
-                    }
+                    /* Compute the acceleration and apply it to the output structure*/
+                    output->apply_accn(dx, r2, nop->mom.mass, cellsize);
                     continue;
                 }
 
-                if(mode == TREEWALK_TOPTREE) {
-                    if(nop->f.ChildType == PSEUDO_NODE_TYPE) {
-                        /* Export the pseudo particle*/
-                        if(-1 == export_particle(nop->s.suns[0]))
-                            return -1;
-                        /* Move sideways*/
-                        no = nop->sibling;
-                        continue;
+                /* Now we have a cell that needs to be opened.
+                * If it contains particles we can add them directly here */
+                if(nop->f.ChildType == PARTICLE_NODE_TYPE)
+                {
+                    /* Loop over child particles*/
+                    for(i = 0; i < nop->s.noccupied; i++) {
+                        const int pp = nop->s.suns[i];
+                        for(int j = 0; j < 3; j++)
+                            dx[j] = NEAREST(Part[pp].Pos[j] - inpos[j], BoxSize);
+                        const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
+                        /* Compute the acceleration and apply it to the output structure*/
+                        output->apply_accn(dx, r2, Part[pp].Mass, cellsize);
+                        ninteractions++;
                     }
-                    /* Only walk toptree nodes here*/
-                    if(nop->f.TopLevel && !nop->f.InternalTopLevel) {
-                        no = nop->sibling;
-                        continue;
-                    }
+                    no = nop->sibling;
+                }
+                else if (nop->f.ChildType == PSEUDO_NODE_TYPE)
+                {
+                    /* Move to the sibling (likely also a pseudo node)*/
+                    no = nop->sibling;
+                }
+                else //NODE_NODE_TYPE
+                    /* This node contains other nodes and we need to open it.*/
                     no = nop->s.suns[0];
-                }
-                else {
-                    /* Now we have a cell that needs to be opened.
-                    * If it contains particles we can add them directly here */
-                    if(nop->f.ChildType == PARTICLE_NODE_TYPE)
-                    {
-                        /* Loop over child particles*/
-                        for(i = 0; i < nop->s.noccupied; i++) {
-                            const int pp = nop->s.suns[i];
-                            for(int j = 0; j < 3; j++)
-                                dx[j] = NEAREST(Part[pp].Pos[j] - inpos[j], BoxSize);
-                            const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
-                            /* Compute the acceleration and apply it to the output structure*/
-                            output->apply_accn(dx, r2, Part[pp].Mass, cellsize);
-                            ninteractions++;
-                        }
-                        no = nop->sibling;
-                    }
-                    else if (nop->f.ChildType == PSEUDO_NODE_TYPE)
-                    {
-                        /* Move to the sibling (likely also a pseudo node)*/
-                        no = nop->sibling;
-                    }
-                    else //NODE_NODE_TYPE
-                        /* This node contains other nodes and we need to open it.*/
-                        no = nop->s.suns[0];
-                }
             }
         }
         treewalk_add_counters(ninteractions);
-        return 1;
+        return 0;
+    }
+
+    int toptree_visit(const GravTreeQuery& input, GravTreeResult * output, const GravTreePriv& priv, const struct particle_data * const parts)
+    {
+        const double BoxSize = tree->BoxSize;
+
+        /*Tree-opening constants*/
+        const double rcut = priv.Rcut;
+        const double rcut2 = rcut * rcut;
+        const double aold = TreeParams.ErrTolForceAcc * input.OldAcc;
+        const int TreeUseBH = TreeParams.TreeUseBH;
+        double BHOpeningAngle2 = TreeParams.BHOpeningAngle * TreeParams.BHOpeningAngle;
+        /* Enforce a maximum opening angle even for relative acceleration criterion, to avoid
+         * pathological cases. Default value is 0.9, from Volker Springel.*/
+        if(TreeUseBH == 0)
+            BHOpeningAngle2 = TreeParams.MaxBHOpeningAngle * TreeParams.MaxBHOpeningAngle;
+
+        /*Input particle data*/
+        const double * inpos = input.Pos;
+
+        /* For a top tree walk we always start from the first element of the tree. */
+        int no = tree->firstnode;
+        int export_failed = 0;
+        while(no >= 0)
+        {
+            /* The tree always walks internal nodes*/
+            const struct NODE *nop = &tree->Nodes[no];
+
+            double dx[3];
+            for(int i = 0; i < 3; i++)
+                dx[i] = NEAREST(nop->mom.cofm[i] - inpos[i], BoxSize);
+            const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
+
+            /* Discard this node, move to sibling*/
+            if (shall_we_discard_node(nop->len, r2, nop->center, inpos, BoxSize, rcut, rcut2) ||
+            /* This node accelerates the particle directly, and is not opened, move to sibling.*/
+            !shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, BoxSize, aold, TreeUseBH, BHOpeningAngle2) )
+            {
+                no = nop->sibling;
+                /* Don't add this node*/
+                continue;
+            }
+
+            /* A pseudo particle that would normally be opened should now be exported. */
+            if(nop->f.ChildType == PSEUDO_NODE_TYPE) {
+                /* Export the pseudo particle*/
+                export_failed = export_particle(nop->s.suns[0]);
+                if(export_failed != 0)
+                    break;
+                /* Move sideways*/
+                no = nop->sibling;
+                continue;
+            }
+            /* Only walk toptree nodes here, move to sibling if we found a toptree leaf.
+             * This is a local toptree leaf, which would normally be opened.
+             */
+            if((nop->f.TopLevel && !nop->f.InternalTopLevel))
+            {
+                no = nop->sibling;
+                continue;
+            }
+            /* Open the toptree node. */
+            no = nop->s.suns[0];
+        }
+        if(NThisParticleExport > 1000)
+            message(5, "%ld exports for particle %d! Odd.\n", NThisParticleExport, target);
+        /* If we filled up, we need to remove the partially evaluated last particle from the export list,
+        * save the partially evaluated chunk, and leave this loop.*/
+        if(export_failed != 0) {
+            //message(5, "Export buffer full for particle %d chnk: %ld -> %ld on thread %d with %ld exports\n", i, chnk, end, tid, lv->NThisParticleExport);
+            /* Drop partial exports on the current particle, whose toptree will be re-evaluated*/
+            Nexport -= NThisParticleExport;
+            /* Check that the final export in the list is indeed from a different particle*/
+            if(NThisParticleExport > 0 && DataIndexTable[Nexport-1].Index >= target)
+                endrun(5, "Something screwed up in export queue: nexp %ld (local %ld) last %d < index %d\n", Nexport,
+                    NThisParticleExport, target, DataIndexTable[Nexport-1].Index);
+            /* Check that the earliest dropped export in the list is from the same particle*/
+            if(NThisParticleExport > 0 && DataIndexTable[Nexport].Index != target)
+                endrun(5, "Something screwed up in export queue: nexp %ld (local %ld) last %d != index %d\n", Nexport,
+                    NThisParticleExport, target, DataIndexTable[Nexport].Index);
+        }
+        return export_failed;
     }
 };
 

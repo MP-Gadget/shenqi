@@ -76,7 +76,7 @@ class ImpExpCounts
 
         Nexport=0;
         /* Calculate the amount of data to send. */
-        for(size_t i = 0; i < exports.NThread; i++)
+        for(int64_t i = 0; i < exports.NThread; i++)
         {
             for(size_t k = 0; k < exports.Nexport_thread[i]; k++)
                 Export_count[exports.ExportTable_thread[i][k].Task]++;
