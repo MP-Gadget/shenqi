@@ -733,7 +733,7 @@ public:
                         lv.target = i;
                         /* Reset the number of exported particles.*/
                         ResultType output(input);
-                        const int rt = lv.visit(input, &output, priv, parts);
+                        const int rt = lv.toptree_visit(input, &output, priv, parts);
                         /* If we filled up, we need to save the partially evaluated chunk, and leave this loop.*/
                         if(rt < 0) {
                             //message(5, "Export buffer full for particle %d chnk: %ld -> %ld on thread %d with %ld exports\n", i, chnk, end, tid, lv->NThisParticleExport);
