@@ -14,8 +14,8 @@
 /* Check the version of OPENMP. We now require OpenMP 5.1 for GPU offloading.
  * At time of writing no version of gcc supports this!
  */
-#if _OPENMP < 202011
-#error MP-Gadget requires OpenMP >= 5.1. Use a newer compiler (nvc > 21, clang > 13+). gcc currently does not report OpenMP 5.0 support.
+#if _OPENMP < 201511
+#error MP-Gadget requires OpenMP >= 4.5. Use a newer compiler (nvc > 21, clang > 13+). gcc currently reports OpenMP 4.5 support
 #endif
 
 typedef struct _Rnd_Table

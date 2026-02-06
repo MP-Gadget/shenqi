@@ -40,11 +40,10 @@ jobs:
     - name: Build
       run: |
         cp platform-options/Options.mk.travis Options.mk
-        OMPI_CXX=clang++ OMPI_CC=clang make
-
+        make
     - name: Unit tests
       run: |
-        OMPI_CXX=clang++ OMPI_CC=clang++ make test
+        make test
     - name: Install python packages for make_class_power
       run: |
         sudo pip install classy==3.3.1 bigfile
