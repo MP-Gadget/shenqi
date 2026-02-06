@@ -272,10 +272,6 @@ public:
     /* internal flags*/
     /* Flags that our export buffer is full*/
     int BufferFullFlag;
-    /* List of neighbour candidates.*/
-    int *Ngblist;
-    /* Flag not allocating neighbour list*/
-    int NoNgblist;
     /*Did we use the active_set array as the WorkSet?*/
     int work_set_stolen_from_active;
     /* Index into WorkSet to start iteration.
@@ -303,7 +299,7 @@ public:
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
         Nlistprimary(0), Nexport_sum(0), Nexportfull(0), Niteration(0), NExportTargets(0),
         maxNinteractions(0), minNinteractions(0), Ninteractions(0), BufferFullFlag(0),
-        Ngblist(nullptr), NoNgblist(0), work_set_stolen_from_active(0),
+        work_set_stolen_from_active(0),
         WorkSetStart(0), WorkSet(nullptr), WorkSetSize(0),
         NPLeft(nullptr), NPRedo(nullptr), Redo_thread_alloc(0),
         maxnumngb(nullptr), minnumngb(nullptr)
@@ -628,8 +624,6 @@ public:
 
         void ev_begin(int * active_set, const size_t size, particle_data * const parts)
         {
-            /* Needs to be 64-bit so that the multiplication in Ngblist malloc doesn't overflow*/
-            const size_t NumThreads = omp_get_max_threads();
             /* The last argument is may_have_garbage: in practice the only
              * trivial haswork is the gravtree. This has no (active) garbage because
              * the active list was just rebuilt, but on a PM step the active list is NULL
@@ -640,14 +634,8 @@ public:
             if(!active_set && SlotsManager->info[5].size > 0)
                 may_have_garbage = 1;
             build_queue(active_set, size, may_have_garbage, parts);
-
             /* Start first iteration at the beginning*/
             WorkSetStart = 0;
-
-            if(!NoNgblist)
-                Ngblist = (int*) mymalloc("Ngblist", tree->NumParticles * NumThreads * sizeof(int));
-            else
-                Ngblist = NULL;
         }
 
         /* returns struct containing export counts */
@@ -657,7 +645,7 @@ public:
         #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
             {
                 /* Note: exportflag is local to each thread */
-                LocalTreeWalkType lv(TREEWALK_PRIMARY, tree, 0, Ngblist, NULL);
+                LocalTreeWalkType lv(TREEWALK_PRIMARY, tree, 0, NULL);
 
                 /* We must schedule dynamically so that we have reduced imbalance.
                 * We do not need to worry about the export buffer filling up.*/
@@ -700,7 +688,7 @@ public:
 
         #pragma omp parallel reduction(+: BufferFullFlag)
             {
-                LocalTreeWalkType lv(TREEWALK_TOPTREE, tree, exportlist->BunchSize, Ngblist, exportlist->ExportTable_thread);
+                LocalTreeWalkType lv(TREEWALK_TOPTREE, tree, exportlist->BunchSize, exportlist->ExportTable_thread);
                 /* Signals a full export buffer on this thread*/
                 int BufferFull_thread = 0;
                 const int tid = omp_get_thread_num();
@@ -816,7 +804,7 @@ public:
                         {
                             ResultType * results = (ResultType *) dataresultstart;
                             int64_t j;
-                            LocalTreeWalkType lv(TREEWALK_GHOSTS, tree, 0, Ngblist, NULL);
+                            LocalTreeWalkType lv(TREEWALK_GHOSTS, tree, 0, NULL);
                             #pragma omp for
                             for(j = 0; j < nimports_task; j++) {
                                 QueryType * input = &((QueryType *) databufstart)[j];
@@ -839,8 +827,6 @@ public:
         /* Cleans up and frees memory */
         void ev_finish(void)
         {
-            if(Ngblist)
-                myfree(Ngblist);
             if(!work_set_stolen_from_active)
                 myfree(WorkSet);
         }

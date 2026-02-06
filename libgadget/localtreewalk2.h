@@ -206,7 +206,7 @@ public:
     size_t Nexport;
 
     /* Constructor from treewalk */
-    LocalTreeWalk(const enum TreeWalkReduceMode i_mode, const ForceTree * const i_tree, size_t BunchSize, int * Ngblist, data_index ** ExportTable_thread):
+    LocalTreeWalk(const enum TreeWalkReduceMode i_mode, const ForceTree * const i_tree, size_t BunchSize, data_index ** ExportTable_thread):
      mode(i_mode), maxNinteractions(0), minNinteractions(1L<<45), Ninteractions(0), Nexport(0), tree(i_tree),
      BunchSize()
     {
@@ -217,8 +217,6 @@ public:
         if(ExportTable_thread)
             DataIndexTable = ExportTable_thread[thread_id];
         ngblist = NULL;
-        if(Ngblist)
-            ngblist = Ngblist + thread_id * tree->NumParticles;
     }
     /**
      * Visit function - called between a tree node and a particle.
