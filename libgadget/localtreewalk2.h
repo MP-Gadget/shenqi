@@ -471,10 +471,10 @@ public:
     {
         NgbIterType iter(input);
         /* Check whether the tree contains the particles we are looking for*/
-        if((tree->mask & iter.mask) != iter.mask)
-            endrun(5, "Treewalk for particles with mask %d but tree mask is only %d overlap %d.\n", iter.mask, tree->mask, tree->mask & iter.mask);
+        if((this->tree->mask & iter.mask) != iter.mask)
+            endrun(5, "Treewalk for particles with mask %d but tree mask is only %d overlap %d.\n", iter.mask, this->tree->mask, this->tree->mask & iter.mask);
         /* If symmetric, make sure we did hmax first*/
-        if(iter.symmetric == NGB_TREEFIND_SYMMETRIC && !tree->hmax_computed_flag)
+        if(iter.symmetric == NGB_TREEFIND_SYMMETRIC && !this->tree->hmax_computed_flag)
             endrun(3, "Tried to do a symmetric treewalk without computing hmax!\n");
         int64_t ninteractions = 0;
         int inode = 0;
@@ -507,7 +507,7 @@ public:
             ninteractions += numngb;
         }
 
-        treewalk_add_counters(ninteractions);
+        this->treewalk_add_counters(ninteractions);
 
         return 0;
     }
@@ -533,26 +533,26 @@ protected:
         int no;
         int numcand = 0;
 
-        const double BoxSize = tree->BoxSize;
+        const double BoxSize = this->tree->BoxSize;
 
         no = startnode;
 
         while(no >= 0)
         {
-            if(node_is_particle(no, tree)) {
-                int fat = force_get_father(no, tree);
-                endrun(12312, "Particles should be added before getting here! no = %d, father = %d (ptype = %d) start=%d mode = %d\n", no, fat, tree->Nodes[fat].f.ChildType, startnode, mode);
+            if(node_is_particle(no, this->tree)) {
+                int fat = force_get_father(no, this->tree);
+                endrun(12312, "Particles should be added before getting here! no = %d, father = %d (ptype = %d) start=%d mode = %d\n", no, fat, this->tree->Nodes[fat].f.ChildType, startnode, this->mode);
             }
-            if(node_is_pseudo_particle(no, tree)) {
-                int fat = force_get_father(no, tree);
-                endrun(12312, "Pseudo-Particles should be added before getting here! no = %d, father = %d (ptype = %d)\n", no, fat, tree->Nodes[fat].f.ChildType);
+            if(node_is_pseudo_particle(no, this->tree)) {
+                int fat = force_get_father(no, this->tree);
+                endrun(12312, "Pseudo-Particles should be added before getting here! no = %d, father = %d (ptype = %d)\n", no, fat, this->tree->Nodes[fat].f.ChildType);
             }
 
-            struct NODE *current = &tree->Nodes[no];
+            struct NODE *current = &this->tree->Nodes[no];
 
             /* When walking exported particles we start from the encompassing top-level node,
              * so if we get back to a top-level node again we are done.*/
-            if(mode == TREEWALK_GHOSTS) {
+            if(this->mode == TREEWALK_GHOSTS) {
                 /* The first node is always top-level*/
                 if(current->f.TopLevel && no != startnode) {
                     /* we reached a top-level node again, which means that we are done with the branch */
@@ -579,7 +579,7 @@ protected:
             }
             else if(current->f.ChildType == PSEUDO_NODE_TYPE) {
                 /* pseudo particle */
-                if(mode == TREEWALK_GHOSTS) {
+                if(this->mode == TREEWALK_GHOSTS) {
                     endrun(12312, "Secondary for nodelist %d found pseudo at %d.\n", startnode, no);
                 } else {
                     /* This has already been evaluated with the toptree. Move sideways.*/
