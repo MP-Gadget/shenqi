@@ -222,7 +222,7 @@ size_t compute_bunchsize(const size_t query_type_elsize, const size_t result_typ
  *   2. Set tree, ev_label, type, and element sizes in the constructor
  *   3. Call treewalk_run() to execute the tree walk
  */
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType>
 class TreeWalk {
 public:
     /* A pointer to the force tree structure to walk.*/
@@ -645,7 +645,7 @@ public:
         #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
             {
                 /* Note: exportflag is local to each thread */
-                LocalTreeWalkType lv(TREEWALK_PRIMARY, tree, 0, NULL);
+                LocalTreeWalkType lv(TREEWALK_PRIMARY, tree);
 
                 /* We must schedule dynamically so that we have reduced imbalance.
                 * We do not need to worry about the export buffer filling up.*/
@@ -663,7 +663,6 @@ public:
                     /* Primary never uses node list */
                     QueryType input(parts[i], NULL, tree->firstnode, priv);
                     ResultType output(input);
-                    lv.target = i;
                     lv.visit(input, &output, priv, parts);
                     output.reduce(i, TREEWALK_PRIMARY, priv, parts);
                 }
@@ -688,7 +687,8 @@ public:
 
         #pragma omp parallel reduction(+: BufferFullFlag)
             {
-                LocalTreeWalkType lv(TREEWALK_TOPTREE, tree, exportlist->BunchSize, exportlist->ExportTable_thread);
+                size_t thread_id = omp_get_thread_num();
+                LocalTopTreeWalkType lv(tree, exportlist->BunchSize, exportlist->ExportTable_thread[thread_id]);
                 /* Signals a full export buffer on this thread*/
                 int BufferFull_thread = 0;
                 const int tid = omp_get_thread_num();
@@ -730,10 +730,7 @@ public:
                         const int i = WorkSet ? WorkSet[k] : k;
                         /* Toptree never uses node list */
                         QueryType input(parts[i], NULL, tree->firstnode, priv);
-                        lv.target = i;
-                        /* Reset the number of exported particles.*/
-                        ResultType output(input);
-                        const int rt = lv.toptree_visit(input, &output, priv, parts);
+                        const int rt = lv.toptree_visit(i, input, priv, parts);
                         /* If we filled up, we need to save the partially evaluated chunk, and leave this loop.*/
                         if(rt < 0) {
                             //message(5, "Export buffer full for particle %d chnk: %ld -> %ld on thread %d with %ld exports\n", i, chnk, end, tid, lv->NThisParticleExport);
@@ -804,12 +801,11 @@ public:
                         {
                             ResultType * results = (ResultType *) dataresultstart;
                             int64_t j;
-                            LocalTreeWalkType lv(TREEWALK_GHOSTS, tree, 0, NULL);
+                            LocalTreeWalkType lv(TREEWALK_GHOSTS, tree);
                             #pragma omp for
                             for(j = 0; j < nimports_task; j++) {
                                 QueryType * input = &((QueryType *) databufstart)[j];
                                 ResultType * output = new (&results[j]) ResultType(*input);
-                                lv.target = -1;
                                 lv.visit(*input, output, priv, parts);
                             }
                         }

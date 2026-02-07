@@ -366,12 +366,14 @@ class TreeWalkNgbIterDensity : public TreeWalkNgbIterBase<DensityQuery, DensityR
         }
 };
 
+/* Explicitly define the template specialisations and use the base constructors. */
 class DensityLocalTreeWalk: public LocalTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult, DensityPriv> { using LocalTreeWalk::LocalTreeWalk; };
+class DensityTopTreeWalk: public TopTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult, DensityPriv> { using TopTreeWalk::TopTreeWalk; };
 
-class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocalTreeWalk, DensityPriv> {
+class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocalTreeWalk, DensityTopTreeWalk, DensityPriv> {
 
     public:
-    DensityTreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const DensityPriv& i_priv) : TreeWalk<DensityQuery, DensityResult, DensityLocalTreeWalk, DensityPriv>(i_ev_label, i_tree, i_priv) {}
+    DensityTreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const DensityPriv& i_priv) : TreeWalk(i_ev_label, i_tree, i_priv) {}
 
     bool haswork(const particle_data& particle)
     {

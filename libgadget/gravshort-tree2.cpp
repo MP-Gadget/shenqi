@@ -345,8 +345,15 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
         treewalk_add_counters(ninteractions);
         return 0;
     }
+};
 
-    int toptree_visit(const GravTreeQuery& input, GravTreeResult * output, const GravTreePriv& priv, const struct particle_data * const parts)
+/* Note the NgbIter class is never used for the GravTree. */
+class GravTopTreeWalk : public TopTreeWalk<TreeWalkNgbIterBase<GravTreeQuery, GravTreeResult, GravTreePriv>, GravTreeQuery, GravTreeResult, GravTreePriv> {
+    using TopTreeWalk::TopTreeWalk;
+    public:
+    /*! Find exports. The tricky part of this routine is that tree nodes that would normally be discarded without opening must not be exported.
+     */
+    int toptree_visit(const int target, const GravTreeQuery& input, const GravTreePriv& priv, const struct particle_data * const parts)
     {
         const double BoxSize = tree->BoxSize;
 
@@ -390,7 +397,7 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
             /* A pseudo particle that would normally be opened should now be exported. */
             if(nop->f.ChildType == PSEUDO_NODE_TYPE) {
                 /* Export the pseudo particle*/
-                export_failed = export_particle(nop->s.suns[0]);
+                export_failed = export_particle(nop->s.suns[0], target);
                 if(export_failed != 0)
                     break;
                 /* Move sideways*/
@@ -429,7 +436,7 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
     }
 };
 
-class GravTreeWalk : public TreeWalk <GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTreePriv> {
+class GravTreeWalk : public TreeWalk <GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreePriv> {
     protected:
     /**
     * Postprocess - finalize quantities after tree walk completes.

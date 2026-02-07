@@ -386,10 +386,11 @@ class HydroNgbIter: public TreeWalkNgbIterBase<HydroQuery, HydroResult, HydroPri
 };
 
 class HydroLocalTreeWalk: public LocalTreeWalk<HydroNgbIter, HydroQuery, HydroResult, HydroPriv> { using LocalTreeWalk::LocalTreeWalk; };
+class HydroTopTreeWalk: public TopTreeWalk<HydroNgbIter, HydroQuery, HydroResult, HydroPriv> { using TopTreeWalk::TopTreeWalk; };
 
-class HydroTreeWalk: public TreeWalk<HydroQuery, HydroResult, HydroLocalTreeWalk, HydroPriv> {
+class HydroTreeWalk: public TreeWalk<HydroQuery, HydroResult, HydroLocalTreeWalk, HydroTopTreeWalk, HydroPriv> {
     public:
-    HydroTreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const HydroPriv& i_priv) : TreeWalk<HydroQuery, HydroResult, HydroLocalTreeWalk, HydroPriv>(i_ev_label, i_tree, i_priv) {}
+    HydroTreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const HydroPriv& i_priv) : TreeWalk(i_ev_label, i_tree, i_priv) {}
 
     bool haswork(const particle_data& particle)
     {
