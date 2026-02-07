@@ -249,8 +249,9 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
      *  is faster than recomputing the corresponding factor, despite the
      *  memory-access penalty (which reduces cache performance) incurred by the
      *  table.
+     * Returns the number of particle-particle and particle-node interactions.
      */
-    int visit(const GravTreeQuery& input, GravTreeResult * output, const GravTreePriv& priv, const struct particle_data * const parts)
+    int64_t visit(const GravTreeQuery& input, GravTreeResult * output, const GravTreePriv& priv, const struct particle_data * const parts)
     {
         const double BoxSize = tree->BoxSize;
 
@@ -266,11 +267,12 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
         if(TreeUseBH == 0)
             BHOpeningAngle2 = TreeParams.MaxBHOpeningAngle * TreeParams.MaxBHOpeningAngle;
 
+        //message(1, "BH: %d, opening angle %g aold %g\n", TreeUseBH, BHOpeningAngle2, aold);
         /*Input particle data*/
         const double * inpos = input.Pos;
 
         /*Start the tree walk*/
-        int listindex, ninteractions=0;
+        int64_t listindex, ninteractions=0;
 
         /* Primary treewalk only ever has one nodelist entry*/
         for(listindex = 0; listindex < NODELISTLENGTH; listindex++)
@@ -313,6 +315,7 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
                     no = nop->sibling;
                     /* Compute the acceleration and apply it to the output structure*/
                     output->apply_accn(dx, r2, nop->mom.mass, cellsize);
+                    ninteractions++;
                     continue;
                 }
 
@@ -342,8 +345,7 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
                     no = nop->s.suns[0];
             }
         }
-        treewalk_add_counters(ninteractions);
-        return 0;
+        return ninteractions;
     }
 };
 

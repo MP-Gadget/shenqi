@@ -56,7 +56,7 @@ template <typename ParamType=ParamTypeBase> class TreeWalkQueryBase
         TreeWalkQueryBase(const particle_data& particle, const int * const i_NodeList, const int firstnode, const ParamType& priv)
         {
         #ifdef DEBUG
-            query->ID = particle.ID;
+            ID = particle.ID;
         #endif
 
             int d;
@@ -343,16 +343,12 @@ template <typename NgbIterType, typename QueryType, typename ResultType, typenam
 class LocalTreeWalk
 {
 public:
-    const int mode; /* 0 for Primary, 1 for Secondary */
-    /* Interaction counters */
-    int64_t maxNinteractions;
-    int64_t minNinteractions;
-    int64_t Ninteractions;
+    const enum TreeWalkReduceMode mode; /* 0 for Primary, 1 for Secondary */
     /* A pointer to the force tree structure to walk.*/
     const ForceTree * const tree;
     /* Constructor from treewalk */
     LocalTreeWalk(const enum TreeWalkReduceMode i_mode, const ForceTree * const i_tree):
-     mode(i_mode), maxNinteractions(0), minNinteractions(1L<<45), Ninteractions(0), tree(i_tree)
+     mode(i_mode), tree(i_tree)
     { }
     /**
      * Visit function - called between a tree node and a particle.
@@ -366,9 +362,9 @@ public:
      *
      * @param input  Query data for the particle
      * @param output Result accumulator
-     * @return 0 on success, -1 if export buffer is full
+     * @return number of particle-particle interactions.
      */
-     int visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
+     int64_t visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
      {
          NgbIterType iter(input);
 
@@ -433,18 +429,7 @@ public:
                 no = current->s.suns[0];
              }
          }
-         treewalk_add_counters(ninteractions);
-         return 0;
-     }
-
-     void
-     treewalk_add_counters(const int64_t ninteractions)
-     {
-         if(maxNinteractions < ninteractions)
-             maxNinteractions = ninteractions;
-         if(minNinteractions > ninteractions)
-             minNinteractions = ninteractions;
-         Ninteractions += ninteractions;
+         return ninteractions;
      }
 };
 
@@ -467,7 +452,7 @@ public:
      * wants to change the search radius, such as for density code.
      * Use this one if the treewalk modifies other particles.
      **/
-    int visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
+    int64_t visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
     {
         NgbIterType iter(input);
         /* Check whether the tree contains the particles we are looking for*/
@@ -482,16 +467,11 @@ public:
         for(inode = 0; inode < NODELISTLENGTH && input->NodeList[inode] >= 0; inode++)
         {
             int numcand = ngb_treefind_threads(input, &iter, input->NodeList[inode]);
-            /* Export buffer is full end prematurally */
-            if(numcand < 0)
-                return numcand;
-
             /* If we are here, export is successful. Work on this particle -- first
              * filter out all of the candidates that are actually outside. */
             int numngb;
-
             for(numngb = 0; numngb < numcand; numngb ++) {
-                int other = ngblist[numngb];
+                const int other = ngblist[numngb];
 
                 /* Skip garbage*/
                 if(parts[other].IsGarbage)
@@ -503,13 +483,9 @@ public:
                 }
                 iter.ngbiter(input, other, output, priv, parts);
             }
-
             ninteractions += numngb;
         }
-
-        this->treewalk_add_counters(ninteractions);
-
-        return 0;
+        return ninteractions;
     }
 
 protected:

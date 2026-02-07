@@ -326,10 +326,6 @@ public:
         }
 
         double tstart, tend;
-    #ifdef DEBUG
-        GDB_current_ev = tw;
-    #endif
-
         tstart = second();
         ev_begin(active_set, size, parts);
 
@@ -559,7 +555,7 @@ public:
                     continue;
         #ifdef DEBUG
                 if(nqthrlocal >= gthread.total_size)
-                    endrun(5, "tid = %d nqthr = %ld, tsize = %ld size = %ld, Nthread = %ld i = %ld\n", tid, nqthrlocal, gthread.total_size, size, NThread, i);
+                    endrun(5, "tid = %d nqthr = %ld, tsize = %ld size = %ld, Nthread = %d i = %ld\n", tid, nqthrlocal, gthread.total_size, size, omp_get_num_threads(), i);
         #endif
                 thrqlocal[nqthrlocal] = p_i;
                 nqthrlocal++;
@@ -643,7 +639,6 @@ public:
         /* returns struct containing export counts */
         void ev_primary(particle_data * const parts)
         {
-            int64_t maxNinteractions = 0, minNinteractions = 1L << 45, Ninteractions=0;
         #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
             {
                 /* Note: exportflag is local to each thread */
@@ -665,16 +660,15 @@ public:
                     /* Primary never uses node list */
                     QueryType input(parts[i], NULL, tree->firstnode, priv);
                     ResultType output(input);
-                    lv.visit(input, &output, priv, parts);
+                    int64_t ninteractions = lv.visit(input, &output, priv, parts);
                     output.reduce(i, TREEWALK_PRIMARY, priv, parts);
+                    if(maxNinteractions < ninteractions)
+                        maxNinteractions = ninteractions;
+                    if(minNinteractions > ninteractions)
+                        minNinteractions = ninteractions;
+                    Ninteractions += ninteractions;
                 }
-                if(maxNinteractions < lv.maxNinteractions)
-                    maxNinteractions = lv.maxNinteractions;
-                if(minNinteractions > lv.maxNinteractions)
-                    minNinteractions = lv.minNinteractions;
-                Ninteractions = lv.Ninteractions;
             }
-            Ninteractions += Ninteractions;
             Nlistprimary += WorkSetSize;
         }
 
