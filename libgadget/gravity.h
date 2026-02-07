@@ -19,6 +19,8 @@ struct gravshort_tree_params
     double Rcut;
     /* Softening as a fraction of DM mean separation. */
     double FractionalGravitySoftening;
+    /* Maximum size of the export buffer. */
+    size_t MaxExportBufferBytes;
 };
 
 enum ShortRangeForceWindowType {
@@ -62,7 +64,7 @@ void gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Ti
 
 void grav_short_pair(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, double Rcut, double rho0);
 void grav_short_tree_old(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current);
-void grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, const size_t MaxExportBufferBytes = 3584*1024*1024L);
+void grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current);
 
 /*Read the power spectrum, without changing the input value.*/
 void measure_power_spectrum(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex *value);

@@ -184,6 +184,8 @@ set_gravshort_tree_params(ParameterSet * ps)
         TreeParams.Rcut = param_get_double(ps, "TreeRcut");
         TreeParams.FractionalGravitySoftening = param_get_double(ps, "GravitySoftening");
         TreeParams.MaxBHOpeningAngle = param_get_double(ps, "MaxBHOpeningAngle");
+        /* This size is the maximum allowed without the MPI library breaking.*/
+        TreeParams.MaxExportBufferBytes = 3584*1024*1024L;
     }
     MPI_Bcast(&TreeParams, sizeof(struct gravshort_tree_params), MPI_BYTE, 0, MPI_COMM_WORLD);
 }
@@ -486,12 +488,12 @@ class GravTreeWalk : public TreeWalk <GravTreeQuery, GravTreeResult, GravLocalTr
  * only true on PM steps where all particles are active.
  */
 void
-grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, const size_t MaxExportBufferBytes)
+grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current)
 {
     GravTreePriv priv(TreeParams.Rcut, Ti_Current, rho0, pm, tree->BoxSize, AccelStore, tree->full_particle_tree_flag, PartManager->NumPart);
     GravTreeWalk tw("GRAVTREE", tree, priv);
     /* Do the treewalk! */
-    tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base);
+    tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, TreeParams.MaxExportBufferBytes);
 
     /*  gather some diagnostic information */
     double timetree = tw.timecomp0 + tw.timecomp1 + tw.timecomp2 + tw.timecomp3;

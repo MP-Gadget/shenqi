@@ -207,6 +207,7 @@ static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int di
     treeacc.Rcut = 7;
     treeacc.ErrTolForceAcc = ErrTolForceAcc;
     treeacc.FractionalGravitySoftening = 1./30.;
+    treeacc.MaxExportBufferBytes = 1024 * 1024 * 1024;
 
     set_gravshort_treepar(treeacc);
     gravshort_set_softenings(PartManager->BoxSize / cbrt(PartManager->NumPart));
