@@ -1,5 +1,5 @@
 /*Simple test for gravitational force accuracy.*/
-#define BOOST_TEST_MODULE density
+#define BOOST_TEST_MODULE gravity
 #include "booststub.h"
 
 #include <time.h>
