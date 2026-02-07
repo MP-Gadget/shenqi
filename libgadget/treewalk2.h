@@ -231,7 +231,9 @@ public:
     /* name of the evaluator (used in printing messages) */
     const char * const ev_label;
 
-    const ParamType priv;
+    /* Note this is a reference so that the ParamType destructor does not run during TreeWalk destruction,
+     * which would free the underlying ParamType memory */
+    const ParamType& priv;
     int NTask; /*Number of MPI tasks*/
     /* Set to true if haswork() is overridden to do actual filtering.
      * Used to optimize queue building when haswork always returns true. */
