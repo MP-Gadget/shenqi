@@ -348,6 +348,8 @@ public:
     int64_t maxNinteractions;
     int64_t minNinteractions;
     int64_t Ninteractions;
+    /* A pointer to the force tree structure to walk.*/
+    const ForceTree * const tree;
     /* Constructor from treewalk */
     LocalTreeWalk(const enum TreeWalkReduceMode i_mode, const ForceTree * const i_tree):
      mode(i_mode), maxNinteractions(0), minNinteractions(1L<<45), Ninteractions(0), tree(i_tree)
@@ -434,6 +436,28 @@ public:
          treewalk_add_counters(ninteractions);
          return 0;
      }
+
+     void
+     treewalk_add_counters(const int64_t ninteractions)
+     {
+         if(maxNinteractions < ninteractions)
+             maxNinteractions = ninteractions;
+         if(minNinteractions > ninteractions)
+             minNinteractions = ninteractions;
+         Ninteractions += ninteractions;
+     }
+};
+
+/* Variant of the local tree walk that uses an Ngblist.
+ */
+template <typename NgbIterType, typename QueryType, typename ResultType, typename ParamType>
+class LocalNgbListTreeWalk : public LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>
+{
+public:
+    /* Constructor from treewalk */
+    LocalNgbListTreeWalk(const enum TreeWalkReduceMode i_mode, const ForceTree * const i_tree, int * i_ngblist):
+    LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>(i_mode, i_tree), ngblist(i_ngblist)
+    { }
     /**
      * Variant of ngbiter that uses an Ngblist: first it builds a list of
      * particles to evaluate, then it evaluates them.
@@ -443,7 +467,7 @@ public:
      * wants to change the search radius, such as for density code.
      * Use this one if the treewalk modifies other particles.
      **/
-     int visit_ngblist(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
+    int visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
     {
         NgbIterType iter(input);
         /* Check whether the tree contains the particles we are looking for*/
@@ -489,8 +513,6 @@ public:
     }
 
 protected:
-    /* A pointer to the force tree structure to walk.*/
-    const ForceTree * const tree;
     /* List of particles to evaluate */
     int * ngblist;
     /*****
@@ -571,16 +593,5 @@ protected:
 
         return numcand;
     }
-
-    void
-    treewalk_add_counters(const int64_t ninteractions)
-    {
-        if(maxNinteractions < ninteractions)
-            maxNinteractions = ninteractions;
-        if(minNinteractions > ninteractions)
-            minNinteractions = ninteractions;
-        Ninteractions += ninteractions;
-    }
 };
-
 #endif
