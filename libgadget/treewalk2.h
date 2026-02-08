@@ -602,7 +602,7 @@ public:
         * @param i  Particle index
         * @return true if the particle should be processed
         */
-        bool haswork(const particle_data& part) { return true; }
+        virtual bool haswork(const particle_data& part) { return true; }
 
         /**
         * Postprocess - finalize quantities after tree walk completes.
@@ -610,7 +610,7 @@ public:
         *
         * @param i Particle index
         */
-        void postprocess(const int i, particle_data * const part) {}
+        virtual void postprocess(const int i, particle_data * const part) {}
 
         /**
         * Preprocess - initialize quantities before tree walk starts.
@@ -618,7 +618,7 @@ public:
         *
         * @param i Particle index
         */
-        void preprocess(const int i, particle_data * const part) {}
+        virtual void preprocess(const int i, particle_data * const part) {}
 
         void ev_begin(int * active_set, const size_t size, particle_data * const parts)
         {
