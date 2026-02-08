@@ -203,7 +203,7 @@ static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int di
     /* Barnes-Hut on first iteration*/
     struct gravshort_tree_params treeacc = {0};
     treeacc.BHOpeningAngle = 0.175;
-    treeacc.TreeUseBH = 1;
+    treeacc.TreeUseBH = 2;
     treeacc.Rcut = 7;
     treeacc.ErrTolForceAcc = ErrTolForceAcc;
     treeacc.FractionalGravitySoftening = 1./30.;
