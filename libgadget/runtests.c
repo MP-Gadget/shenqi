@@ -259,6 +259,8 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     if(treeacc.TreeUseBH > 1)
         treeacc.TreeUseBH = 0;
     /* Compare the new and old gravity tree. */
+    set_gravshort_treepar_old(treeacc);
+    set_gravshort_treepar(treeacc);
     const double rho0 = CP->Omega0 * CP->RhoCrit;
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
     copy_and_mean_accn(PairAccn);
