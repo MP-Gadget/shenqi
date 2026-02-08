@@ -360,7 +360,8 @@ class GravTopTreeWalk : public TopTreeWalk<TreeWalkNgbIterBase<GravTreeQuery, Gr
     int toptree_visit(const int target, const GravTreeQuery& input, const GravTreePriv& priv, const struct particle_data * const parts)
     {
         const double BoxSize = tree->BoxSize;
-
+        /* Reset the exported particles for this target. */
+        NThisParticleExport = 0;
         /*Tree-opening constants*/
         const double rcut = priv.Rcut;
         const double rcut2 = rcut * rcut;
