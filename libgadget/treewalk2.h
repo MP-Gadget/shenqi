@@ -683,11 +683,10 @@ public:
 
         #pragma omp parallel reduction(+: BufferFullFlag)
             {
-                size_t thread_id = omp_get_thread_num();
-                LocalTopTreeWalkType lv(tree, exportlist->BunchSize, exportlist->ExportTable_thread[thread_id]);
                 /* Signals a full export buffer on this thread*/
                 int BufferFull_thread = 0;
                 const int tid = omp_get_thread_num();
+                LocalTopTreeWalkType lv(tree, exportlist->BunchSize, exportlist->ExportTable_thread[tid]);
 
                 /* We schedule dynamically so that we have reduced imbalance.
                  * We do not use the openmp dynamic scheduling, but roll our own
