@@ -359,6 +359,7 @@ class GravTopTreeWalk : public TopTreeWalk<TreeWalkNgbIterBase<GravTreeQuery, Gr
      */
     int toptree_visit(const int target, const GravTreeQuery& input, const GravTreePriv& priv, const struct particle_data * const parts)
     {
+        //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
         const double BoxSize = tree->BoxSize;
         /* Reset the exported particles for this target. */
         NThisParticleExport = 0;
@@ -425,7 +426,7 @@ class GravTopTreeWalk : public TopTreeWalk<TreeWalkNgbIterBase<GravTreeQuery, Gr
         /* If we filled up, we need to remove the partially evaluated last particle from the export list,
         * save the partially evaluated chunk, and leave this loop.*/
         if(export_failed != 0) {
-            //message(5, "Export buffer full for particle %d chnk: %ld -> %ld on thread %d with %ld exports\n", i, chnk, end, tid, lv->NThisParticleExport);
+            //message(5, "Export buffer full for particle %d with %ld (%lu) exports\n", target, NThisParticleExport, Nexport);
             /* Drop partial exports on the current particle, whose toptree will be re-evaluated*/
             Nexport -= NThisParticleExport;
             /* Check that the final export in the list is indeed from a different particle*/

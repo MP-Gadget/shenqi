@@ -212,6 +212,7 @@ public:
      */
     int toptree_visit(const int target, const QueryType& input, const ParamType& priv, const struct particle_data * const parts)
     {
+        //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
         /* Reset the number of exported particles.*/
         NThisParticleExport = 0;
 
@@ -255,7 +256,7 @@ public:
         /* If we filled up, we need to remove the partially evaluated last particle from the export list,
         * save the partially evaluated chunk, and leave this loop.*/
         if(export_failed != 0) {
-            //message(5, "Export buffer full for particle %d chnk: %ld -> %ld on thread %d with %ld exports\n", i, chnk, end, tid, lv->NThisParticleExport);
+            //message(5, "Export buffer full for particle %d with %ld (%lu) exports\n", target, NThisParticleExport, Nexport);
             /* Drop partial exports on the current particle, whose toptree will be re-evaluated*/
             Nexport -= NThisParticleExport;
             /* Check that the final export in the list is indeed from a different particle*/
@@ -280,6 +281,7 @@ protected:
      * */
     int export_particle(const int no, const int target)
     {
+        //message(1, "Export_particle: no %d target %d exports %ld %lu nodelist %ld\n", no, target, NThisParticleExport, Nexport, nodelistindex);
         if(no < tree->lastnode) {
             endrun(1, "Called export on a non-pseudo node %d < %ld.\n", no, tree->lastnode);
         }
@@ -296,7 +298,7 @@ protected:
     #ifdef DEBUG
             /* This is just to be safe: only happens if our indices are off.*/
             if(DataIndexTable[nexp - 1].Index != target)
-                endrun(1, "Previous of %ld exports is target %d not current %d\n", NThisParticleExport, DataIndexTable[nexp-1].Index, target);
+                endrun(1, "Previous of %ld (%lu) exports is target %d not current %d\n", NThisParticleExport, nexp, DataIndexTable[nexp-1].Index, target);
     #endif
             if(nodelistindex < NODELISTLENGTH) {
     #ifdef DEBUG
