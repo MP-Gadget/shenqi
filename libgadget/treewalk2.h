@@ -183,33 +183,6 @@ class CommBuffer
     }
 };
 
-/* 7/9/24: The code segfaults if the send/recv buffer is larger than 4GB in size.
- * Likely a 32-bit variable is overflowing but it is hard to debug. Easier to enforce a maximum buffer size.*/
-size_t compute_bunchsize(const size_t query_type_elsize, const size_t result_type_elsize, const size_t MaxExportBufferBytes)
-{
-   /*The amount of memory eventually allocated per tree buffer*/
-   size_t bytesperbuffer = sizeof(struct data_index) + query_type_elsize + result_type_elsize;
-   /*This memory scales like the number of imports. In principle this could be much larger than Nexport
-    * if the tree is very imbalanced and many processors all need to export to this one. In practice I have
-    * not seen this happen, but provide a parameter to boost the memory for Nimport just in case.*/
-   const double ImportBufferBoost = 2;
-   bytesperbuffer += ceil(ImportBufferBoost * (query_type_elsize + result_type_elsize));
-   /*Use all free bytes for the tree buffer, as in exchange. Leave some free memory for array overhead.*/
-   size_t freebytes = (size_t) mymalloc_freebytes();
-   freebytes -= 4096 * 10 * bytesperbuffer;
-
-   size_t BunchSize = (size_t) floor(((double)freebytes)/ bytesperbuffer);
-   if(BunchSize * query_type_elsize > MaxExportBufferBytes)
-       BunchSize = MaxExportBufferBytes / query_type_elsize;
-   /* Per thread*/
-   BunchSize /= omp_get_max_threads();
-
-   if(freebytes <= 4096 * bytesperbuffer || BunchSize < 100) {
-       endrun(1231245, "Not enough free memory to export particles: needed %ld bytes have %ld. Can export %ld \n", bytesperbuffer, freebytes, BunchSize);
-   }
-   return BunchSize;
-}
-
 /**
  * TreeWalk - Base class for tree-based particle interactions.
  *
@@ -345,7 +318,7 @@ public:
         int Ndone = 0;
         /* Needs to be outside loop because it allocates restart information.
          * Freed at the end of the treewalk. */
-        const size_t BunchSize = compute_bunchsize(sizeof(QueryType), sizeof(ResultType), MaxExportBufferBytes);
+        const size_t BunchSize = compute_bunchsize(MaxExportBufferBytes);
         ExportMemory exportlist(BunchSize);
         /* Print some balance numbers*/
         int64_t nmin, nmax, total;
@@ -912,6 +885,35 @@ public:
             int done = !(BufferFullFlag);
             MPI_Allreduce(&done, &ndone, 1, MPI_INT, MPI_SUM, comm);
             return ndone;
+        }
+
+        /* 7/9/24: The code segfaults if the send/recv buffer is larger than 4GB in size.
+         * Likely a 32-bit variable is overflowing but it is hard to debug. Easier to enforce a maximum buffer size.*/
+        size_t compute_bunchsize(const size_t MaxExportBufferBytes)
+        {
+           /*The amount of memory eventually allocated per tree buffer*/
+           const size_t query_type_elsize = sizeof(QueryType);
+           const size_t result_type_elsize = sizeof(ResultType);
+           size_t bytesperbuffer = sizeof(struct data_index) + query_type_elsize + result_type_elsize;
+           /*This memory scales like the number of imports. In principle this could be much larger than Nexport
+            * if the tree is very imbalanced and many processors all need to export to this one. In practice I have
+            * not seen this happen, but provide a parameter to boost the memory for Nimport just in case.*/
+           const double ImportBufferBoost = 2;
+           bytesperbuffer += ceil(ImportBufferBoost * (query_type_elsize + result_type_elsize));
+           /*Use all free bytes for the tree buffer, as in exchange. Leave some free memory for array overhead.*/
+           size_t freebytes = (size_t) mymalloc_freebytes();
+           freebytes -= 4096 * 10 * bytesperbuffer;
+
+           size_t BunchSize = (size_t) floor(((double)freebytes)/ bytesperbuffer);
+           if(BunchSize * query_type_elsize > MaxExportBufferBytes)
+               BunchSize = MaxExportBufferBytes / query_type_elsize;
+           /* Per thread*/
+           BunchSize /= omp_get_max_threads();
+
+           if(freebytes <= 4096 * bytesperbuffer || BunchSize < 100) {
+               endrun(1231245, "Not enough free memory to export particles: needed %ld bytes have %ld. Can export %ld \n", bytesperbuffer, freebytes, BunchSize);
+           }
+           return BunchSize;
         }
 };
 
