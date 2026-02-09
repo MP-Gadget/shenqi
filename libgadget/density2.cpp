@@ -20,11 +20,17 @@
 
 static struct density_params DensityParams;
 
-/*Set cooling module parameters from a cooling_params struct for the tests*/
+/*Set density module parameters from a density_params struct for the tests*/
 void
 set_densitypar(struct density_params dp)
 {
     DensityParams = dp;
+}
+
+/*Get parameters*/
+struct density_params get_densitypar(void)
+{
+    return DensityParams;
 }
 
 /*Set the parameters of the density module*/
@@ -150,6 +156,7 @@ class DensityPriv : public ParamTypeBase {
         }
 
         /* If all particles are active, easiest to compute all the predicted velocities immediately*/
+        EntVarPred = NULL;
         if(!act->ActiveParticle || act->NumActiveHydro > 0.1 * (SlotsManager->info[0].size + SlotsManager->info[5].size)) {
             EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
             #pragma omp parallel for

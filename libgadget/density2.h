@@ -23,8 +23,10 @@ struct density_params
     double MinGasHsmlFractional;
 };
 
-/*Set the parameters of the density module*/
+/*Set/Get the parameters of the density module*/
 void set_density_params(ParameterSet * ps);
+struct density_params get_densitypar(void);
+
 /*Set cooling module parameters from a density_params struct for the tests*/
 void set_densitypar(struct density_params dp);
 
