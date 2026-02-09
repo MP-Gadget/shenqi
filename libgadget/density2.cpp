@@ -175,6 +175,8 @@ class DensityPriv : public ParamTypeBase {
 
     ~DensityPriv()
     {
+        /* Note this does not free EntVarPred
+         * as we need to return it for re-use in hydro. */
         if(GradRho)
             myfree(GradRho);
         myfree(DhsmlDensityFactor);
@@ -566,7 +568,7 @@ class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocal
  * neighbours.)
  */
 void
-density2(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, Cosmology * CP, MyFloat * EntVarPred, MyFloat * GradRho_mag, const ForceTree * const tree)
+density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTree * const tree)
 {
     DensityPriv priv(update_hsml, DoEgyDensity, BlackHoleOn, &times, GradRho_mag, tree->BoxSize, CP, act, PartManager);
     DensityTreeWalk tw("DENSITY", tree, priv);
@@ -588,6 +590,7 @@ density2(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Bla
         }
     }
 
+    *EntVarPred = priv.EntVarPred;
     /* collect some timing information */
 
     double timeall = walltime_measure(WALLTIME_IGNORE);

@@ -13,7 +13,7 @@
 #include "uvbg.h"
 #include "walltime.h"
 #include "gravity.h"
-#include "density.h"
+#include "density2.h"
 #include "domain.h"
 #include "run.h"
 #include "init.h"
@@ -469,7 +469,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             /*Predicted SPH data.*/
             struct sph_pred_data sph_predicted = {0};
             if(All.DensityOn)
-                density(&Act, 1, DensityIndependentSphOn(), All.BlackHoleOn, times, &All.CP, &sph_predicted, GradRho_mag, &gasTree);  /* computes density, and pressure */
+                density(&Act, 1, DensityIndependentSphOn(), All.BlackHoleOn, times, &All.CP, &(sph_predicted.EntVarPred), GradRho_mag, &gasTree);  /* computes density, and pressure */
 
             /* adds hydrodynamical accelerations and computes du/dt  */
             if(All.HydroOn) {
@@ -833,7 +833,7 @@ runfof(const int RestartSnapNum, const inttime_t Ti_Current, const struct header
             struct sph_pred_data sph_predicted = {0};
             force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK, All.OutputDir);
             /* computes GradRho with a treewalk. No hsml update as we are reading from a snapshot.*/
-            density(&Act, 0, 0, All.BlackHoleOn, times, &All.CP, &sph_predicted, GradRho, &gasTree);
+            density(&Act, 0, 0, All.BlackHoleOn, times, &All.CP, &(sph_predicted.EntVarPred), GradRho, &gasTree);
             force_tree_free(&gasTree);
             slots_free_sph_pred_data(&sph_predicted);
         }

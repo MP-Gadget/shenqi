@@ -34,7 +34,7 @@ void set_densitypar(struct density_params dp);
  * it just computes densities.
  * If DoEgyDensity is true it also computes the entropy-weighted density for
  * pressure-entropy SPH. */
-void density2(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, Cosmology * CP, struct sph_pred_data * SPH_predicted, MyFloat * GradRho_mag, const ForceTree * const tree);
+void density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTree * const tree);
 
 /* Get the desired nuber of neighbours for the supplied kernel*/
 double GetNumNgb(enum DensityKernelType KernelType);
@@ -105,6 +105,6 @@ class KickFactorData
 MyFloat SPH_EntVarPred(const particle_data& particle, const DriftKickTimes * times);
 
 /* Set the initial smoothing length for gas and BH. Used on first timestep in init()*/
-void set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSeparation);
+void set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSeparation, struct part_manager_type * const PartManager);
 
 #endif
