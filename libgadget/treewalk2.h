@@ -245,8 +245,6 @@ public:
     int64_t Ninteractions;
 
     /* internal flags*/
-    /* Flags that our export buffer is full*/
-    int BufferFullFlag;
     /*Did we use the active_set array as the WorkSet?*/
     int work_set_stolen_from_active;
     /* Index into WorkSet to start iteration.
@@ -273,7 +271,7 @@ public:
         use_openmp_target(0),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
         Nlistprimary(0), Nexport_sum(0), Nexportfull(0), Niteration(0), NExportTargets(0),
-        maxNinteractions(0), minNinteractions(0), Ninteractions(0), BufferFullFlag(0),
+        maxNinteractions(0), minNinteractions(0), Ninteractions(0),
         work_set_stolen_from_active(0),
         WorkSetStart(0), WorkSet(nullptr), WorkSetSize(0),
         NPLeft(nullptr), NPRedo(nullptr), Redo_thread_alloc(0),
@@ -571,12 +569,12 @@ private:
             double tstart, tend;
             tstart = second();
             /* First do the toptree and export particles for sending.*/
-            ev_toptree(parts, &exportlist);
+            int BufferFullFlag = ev_toptree(parts, &exportlist);
             /* All processes sync via alltoall.*/
             ImpExpCounts counts(MPI_COMM_WORLD, exportlist);
             NExportTargets = counts.NExportTargets;
             Nexport_sum += counts.Nexport;
-            Ndone = ev_ndone(MPI_COMM_WORLD);
+            Ndone = ev_ndone(BufferFullFlag, MPI_COMM_WORLD);
             /* Send the exported particle data */
             /* exports is allocated first, then imports*/
             CommBuffer exports(counts.NTask, 0);
@@ -659,7 +657,6 @@ private:
 
     int ev_toptree(const particle_data * const parts, ExportMemory * const exportlist)
     {
-        BufferFullFlag = 0;
         int64_t currentIndex = WorkSetStart;
         int BufferFullFlag = 0;
 
@@ -891,7 +888,7 @@ private:
     }
 
     /* Checks whether all tasks have finished iterating */
-    int ev_ndone(MPI_Comm comm)
+    int ev_ndone(const int BufferFullFlag, MPI_Comm comm)
     {
         int ndone;
         int done = !(BufferFullFlag);
