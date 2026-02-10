@@ -232,8 +232,6 @@ public:
     /* Total number of exported particles
      * (Nexport is only the exported particles in the current export buffer). */
     int64_t Nexport_sum;
-    /* Number of times we filled up our export buffer*/
-    int64_t Nexportfull;
     /* Convenience variable for density. */
     size_t NExportTargets;
     /* Counters for imbalance diagnostics*/
@@ -260,7 +258,7 @@ public:
         should_rebuild_queue(i_should_rebuild_queue),
         use_openmp_target(0),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
-        Nlistprimary(0), Nexport_sum(0), Nexportfull(0), NExportTargets(0),
+        Nlistprimary(0), Nexport_sum(0), NExportTargets(0),
         maxNinteractions(0), minNinteractions(0), Ninteractions(0),
         work_set_stolen_from_active(0),
         WorkSetStart(0), WorkSet(nullptr), WorkSetSize(0)
@@ -297,7 +295,6 @@ public:
         tend = second();
         timecomp3 += timediff(tstart, tend);
 
-        Nexportfull = 0;
         Nexport_sum = 0;
         Ninteractions = 0;
 
@@ -465,6 +462,8 @@ private:
         */
     void ev_process(const size_t BunchSize, particle_data * const parts, MPI_Comm comm)
     {
+        /* Number of times we filled up our export buffer*/
+        int Nexportfull = 0;
         int Ndone = 0;
         int NTask;
         MPI_Comm_size(comm, &NTask);
@@ -475,8 +474,11 @@ private:
         do {
             double tstart, tend;
             tstart = second();
+
+            if(Nexportfull > 0)
+                message(0, "Toptree %s, iter %d. First particle %ld size %ld.\n", ev_label, Nexportfull, WorkSetStart, WorkSetSize);
             /* First do the toptree and export particles for sending.*/
-            int BufferFullFlag = ev_toptree(parts, &exportlist);
+            int BufferFullFlag = ev_toptree(parts, &exportlist, Nexportfull > 0);
             /* All processes sync via alltoall.*/
             ImpExpCounts counts(comm, exportlist);
             NExportTargets = counts.NExportTargets;
@@ -562,13 +564,10 @@ private:
         Nlistprimary += WorkSetSize;
     }
 
-    int ev_toptree(const particle_data * const parts, ExportMemory * const exportlist)
+    int ev_toptree(const particle_data * const parts, ExportMemory * const exportlist, const bool queue_restart)
     {
         int64_t currentIndex = WorkSetStart;
         int BufferFullFlag = 0;
-
-        if(Nexportfull > 0)
-            message(0, "Toptree %s, iter %ld. First particle %ld size %ld.\n", ev_label, Nexportfull, WorkSetStart, WorkSetSize);
 
     #pragma omp parallel reduction(+: BufferFullFlag)
         {
@@ -591,7 +590,7 @@ private:
             do {
                 int64_t end;
                 /* Restart a previously partially evaluated chunk if there is one*/
-                if(Nexportfull > 0 && exportlist->QueueChunkEnd[tid] > 0) {
+                if(queue_restart && exportlist->QueueChunkEnd[tid] > 0) {
                     chnk = exportlist->QueueChunkRestart[tid];
                     end = exportlist->QueueChunkEnd[tid];
                     exportlist->QueueChunkEnd[tid] = -1;
