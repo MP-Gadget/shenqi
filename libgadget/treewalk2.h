@@ -207,7 +207,6 @@ public:
     /* Note this is a reference so that the ParamType destructor does not run during TreeWalk destruction,
      * which would free the underlying ParamType memory */
     const ParamType& priv;
-    int NTask; /*Number of MPI tasks*/
     /* Set to true if haswork() is overridden to do actual filtering.
      * Used to optimize queue building when haswork always returns true. */
     bool should_rebuild_queue;
@@ -277,7 +276,6 @@ public:
         NPLeft(nullptr), NPRedo(nullptr), Redo_thread_alloc(0),
         maxnumngb(nullptr), minnumngb(nullptr)
     {
-        MPI_Comm_size(MPI_COMM_WORLD, &NTask);
     }
 
     /* Do the distributed tree walking. Warning: as this is a threaded treewalk,
@@ -316,16 +314,18 @@ public:
 
         const size_t BunchSize = compute_bunchsize(MaxExportBufferBytes);
         int64_t nmin, nmax, total;
+        int NTask;
+        MPI_Comm_size(MPI_COMM_WORLD, &NTask);
         MPI_Reduce(&WorkSetSize, &nmin, 1, MPI_INT64, MPI_MIN, 0, MPI_COMM_WORLD);
         MPI_Reduce(&WorkSetSize, &nmax, 1, MPI_INT64, MPI_MAX, 0, MPI_COMM_WORLD);
         MPI_Reduce(&WorkSetSize, &total, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
-        message(0, "Treewalk %s iter %ld: total part %ld max/MPI: %ld min/MPI: %ld balance: %g query %ld result %ld BunchSize %ld.\n",
-            ev_label, Niteration, total, nmax, nmin, (double)nmax/((total+0.001)/NTask), sizeof(QueryType), sizeof(ResultType), BunchSize);
+        message(0, "Treewalk %s: total part %ld max/MPI: %ld min/MPI: %ld balance: %g query %ld result %ld BunchSize %ld.\n",
+            ev_label, total, nmax, nmin, (double)nmax/((total+0.001)/NTask), sizeof(QueryType), sizeof(ResultType), BunchSize);
         /* Print some balance numbers*/
         report_memory_usage(ev_label);
 
         /* Main loop that tries to walk toptree, then do primary and secondary evals. */
-        ev_process(BunchSize, parts);
+        ev_process(BunchSize, parts, MPI_COMM_WORLD);
 
         tstart = second();
         #pragma omp parallel for
@@ -404,7 +404,7 @@ public:
             MPI_Reduce(&minnumngb[0], &minngb, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
             message(0, "Max ngb=%g, min ngb=%g\n", maxngb, minngb);
     #ifdef DEBUG
-            print_stats();
+            print_stats(MPI_COMM_WORLD);
     #endif
 
             /*Shrink memory*/
@@ -499,16 +499,18 @@ public:
     }
 
     /* Print some counters for a completed treewalk*/
-    void print_stats(void)
+    void print_stats(MPI_Comm comm)
     {
+        int NTask;
+        MPI_Comm_size(comm, &NTask);
         int64_t o_NExportTargets;
         int64_t o_minNinteractions, o_maxNinteractions, o_Ninteractions, o_Nlistprimary, Nexport;
-        MPI_Reduce(&minNinteractions, &o_minNinteractions, 1, MPI_INT64, MPI_MIN, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&maxNinteractions, &o_maxNinteractions, 1, MPI_INT64, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&Ninteractions, &o_Ninteractions, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&Nlistprimary, &o_Nlistprimary, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&Nexport_sum, &Nexport, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&NExportTargets, &o_NExportTargets, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&minNinteractions, &o_minNinteractions, 1, MPI_INT64, MPI_MIN, 0, comm);
+        MPI_Reduce(&maxNinteractions, &o_maxNinteractions, 1, MPI_INT64, MPI_MAX, 0, comm);
+        MPI_Reduce(&Ninteractions, &o_Ninteractions, 1, MPI_INT64, MPI_SUM, 0, comm);
+        MPI_Reduce(&Nlistprimary, &o_Nlistprimary, 1, MPI_INT64, MPI_SUM, 0, comm);
+        MPI_Reduce(&Nexport_sum, &Nexport, 1, MPI_INT64, MPI_SUM, 0, comm);
+        MPI_Reduce(&NExportTargets, &o_NExportTargets, 1, MPI_INT64, MPI_SUM, 0, comm);
         message(0, "%s Ngblist: min %ld max %ld avg %g average exports: %g avg target ranks: %g\n", ev_label, o_minNinteractions, o_maxNinteractions,
                 (double) o_Ninteractions / o_Nlistprimary, ((double) Nexport)/ NTask, ((double) o_NExportTargets)/ NTask);
     }
@@ -558,9 +560,11 @@ private:
     /* Main processing loop. Walks the toptree, exports and imports, then does primary and secondary eval.
         * The loop is there in case the export buffer fills up.
         */
-    void ev_process(const size_t BunchSize, particle_data * const parts)
+    void ev_process(const size_t BunchSize, particle_data * const parts, MPI_Comm comm)
     {
         int Ndone = 0;
+        int NTask;
+        MPI_Comm_size(comm, &NTask);
         /* Needs to be outside loop because it allocates restart information.
             * Note the memory is freed at the end of the function.
             */
@@ -571,10 +575,10 @@ private:
             /* First do the toptree and export particles for sending.*/
             int BufferFullFlag = ev_toptree(parts, &exportlist);
             /* All processes sync via alltoall.*/
-            ImpExpCounts counts(MPI_COMM_WORLD, exportlist);
+            ImpExpCounts counts(comm, exportlist);
             NExportTargets = counts.NExportTargets;
             Nexport_sum += counts.Nexport;
-            Ndone = ev_ndone(BufferFullFlag, MPI_COMM_WORLD);
+            Ndone = ev_ndone(BufferFullFlag, comm);
             /* Send the exported particle data */
             /* exports is allocated first, then imports*/
             CommBuffer exports(counts.NTask, 0);
@@ -818,8 +822,8 @@ private:
         imports->MPI_fill(counts->Import_count, counts->Import_offset, type, COMM_RECV, 101922, counts->comm);
 
         /* prepare particle data for export */
-        int64_t * real_send_count = ta_malloc("tmp_send_count", int64_t, NTask);
-        memset(real_send_count, 0, sizeof(int64_t)*NTask);
+        int64_t * real_send_count = ta_malloc("tmp_send_count", int64_t, counts->NTask);
+        memset(real_send_count, 0, sizeof(int64_t)*counts->NTask);
         int64_t i;
         QueryType * export_queries = reinterpret_cast<QueryType*>(exports->databuf);
         for(i = 0; i < exportlist->NThread; i++)
@@ -836,9 +840,9 @@ private:
         }
     #ifdef DEBUG
     /* Checks!*/
-        for(i = 0; i < NTask; i++)
+        for(i = 0; i < counts->NTask; i++)
             if(real_send_count[i] != counts->Export_count[i])
-                endrun(6, "Inconsistent export to task %ld of %d: %ld expected %ld\n", i, NTask, real_send_count[i], counts->Export_count[i]);
+                endrun(6, "Inconsistent export to task %ld of %d: %ld expected %ld\n", i, counts->NTask, real_send_count[i], counts->Export_count[i]);
     #endif
         myfree(real_send_count);
         exports->MPI_fill(counts->Export_count, counts->Export_offset, type, COMM_SEND, 101922, counts->comm);
@@ -866,8 +870,8 @@ private:
         int64_t i;
         /* Notice that we build the dataindex table individually
             * on each thread, so we are ordered by particle and have memory locality.*/
-        int * real_recv_count = ta_malloc("tmp_recv_count", int, NTask);
-        memset(real_recv_count, 0, sizeof(int)*NTask);
+        int * real_recv_count = ta_malloc("tmp_recv_count", int, counts->NTask);
+        memset(real_recv_count, 0, sizeof(int)*counts->NTask);
         for(i = 0; i < exportlist->NThread; i++)
         {
             size_t k;

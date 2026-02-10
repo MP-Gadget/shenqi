@@ -439,5 +439,5 @@ hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPre
     walltime_add("/SPH/Hydro/Reduce", tw.timecommsumm);
     walltime_add("/SPH/Hydro/Misc", timeall - (timecomp + tw.timewait1 + tw.timecommsumm));
 
-    tw.print_stats();
+    tw.print_stats(MPI_COMM_WORLD);
 }

@@ -510,7 +510,7 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
 
     walltime_add("/Tree/Misc", timeall - (timetree + tw.timewait1 + tw.timecommsumm));
 
-    tw.print_stats();
+    tw.print_stats(MPI_COMM_WORLD);
     /* TreeUseBH > 1 means use the BH criterion on the initial timestep only,
      * avoiding the fully open O(N^2) case.*/
     if(TreeParams.TreeUseBH > 1)
