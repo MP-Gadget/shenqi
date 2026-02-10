@@ -379,11 +379,11 @@ class TreeWalkNgbIterDensity : public TreeWalkNgbIterBase<DensityQuery, DensityR
 class DensityLocalTreeWalk: public LocalTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult, DensityPriv> { using LocalTreeWalk::LocalTreeWalk; };
 class DensityTopTreeWalk: public TopTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult, DensityPriv> { using TopTreeWalk::TopTreeWalk; };
 
-class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocalTreeWalk, DensityTopTreeWalk, DensityPriv> {
-
+class DensityTreeWalk: public LoopedTreeWalk<DensityQuery, DensityResult, DensityLocalTreeWalk, DensityTopTreeWalk, DensityPriv> {
     public:
-    DensityTreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const DensityPriv& i_priv) : TreeWalk(i_ev_label, i_tree, i_priv) {}
+    using LoopedTreeWalk::LoopedTreeWalk;
 
+    private:
     bool haswork(const particle_data& particle)
     {
         /* Don't want a density for swallowed black hole particles*/
@@ -396,7 +396,7 @@ class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocal
 
     /* Returns 1 if we are done and do not need to loop. 0 if we need to repeat.*/
     int
-    density_check_neighbours (const int i, struct particle_data * const parts)
+    density_check_neighbours (const int i, const int verbose, struct particle_data * const parts)
     {
         /* now check whether we had enough neighbours */
         int tid = omp_get_thread_num();
@@ -414,7 +414,7 @@ class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocal
         if(minnumngb[tid] > NumNgb[i])
             minnumngb[tid] = NumNgb[i];
 
-        if(Niteration >= MAXITER - 5)
+        if(verbose)
         {
              message(1, "i=%d ID=%lu Hsml=%g Left=%g Right=%g Ngbs=%g Right-Left=%g\n   pos=(%g|%g|%g)\n",
                  i, parts[i].ID, parts[i].Hsml, Left[i], Right[i],
@@ -514,7 +514,7 @@ class DensityTreeWalk: public TreeWalk<DensityQuery, DensityResult, DensityLocal
 
         /* Uses DhsmlDensityFactor and changes Hsml, hence the location.*/
         if(priv.update_hsml) {
-            int done = density_check_neighbours(i, parts);
+            int done = density_check_neighbours(i, Niteration >= MAXITER - 5, parts);
             /* If we are done repeating, update the hmax in the parent node,
             * if that type is in the tree.*/
             if(done && (tree->mask & (1<<parts[i].Type)))
