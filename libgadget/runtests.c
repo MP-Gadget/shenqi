@@ -8,6 +8,8 @@
 #include "domain.h"
 #include "run.h"
 #include "treewalk.h"
+#include "density2.h"
+#include "density.h"
 #include "utils/endrun.h"
 #include "utils/system.h"
 #include "utils/mymalloc.h"
@@ -275,6 +277,19 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
         endrun(2, "New and old tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
 
     /* Check density code is the same */
+    ForceTree gasTree = {0};
+    MyFloat * GradRho = (MyFloat *) mymalloc2("SPH_GradRho", sizeof(MyFloat) * 3 * SlotsManager->info[0].size);
+    /*Allocate the memory for predicted SPH data.*/
+    struct sph_pred_data sph_predicted = {0};
+    force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK, OutputDir);
+    /* computes GradRho with a treewalk. No hsml update as we are reading from a snapshot.*/
+    density(&Act, 0, 0, 1, times, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree);
+    struct density_params dp = get_densitypar();
+    set_densitypar_old(dp);
+    density_old(&Act, 0, 0, 1, times, CP, &sph_predicted, GradRho, &gasTree);
+
+    force_tree_free(&gasTree);
+    slots_free_sph_pred_data(&sph_predicted);
 
     /* Check hydro code is the same */
 
