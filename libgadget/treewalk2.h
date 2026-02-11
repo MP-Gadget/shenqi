@@ -493,8 +493,12 @@ private:
             timecomp0 += timediff(tstart, tend);
             /* Only do this on the first iteration, as we only need to do it once.*/
             tstart = second();
-            if(Nexportfull == 0)
-                ev_primary(parts); /* do local particles and prepare export list */
+            if(Nexportfull == 0) {
+                if(use_openmp_target)
+                    ev_primary_gpu(parts);
+                else
+                    ev_primary(parts); /* do local particles and prepare export list */
+            }
             tend = second();
             timecomp1 += timediff(tstart, tend);
             /* Do processing of received particles. We implement a queue that
@@ -560,6 +564,23 @@ private:
                     minNinteractions = ninteractions;
                 Ninteractions += ninteractions;
             }
+        }
+        Nlistprimary += WorkSetSize;
+    }
+
+    /* returns struct containing export counts */
+    void ev_primary_gpu(particle_data * const parts)
+    {//  reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
+
+        #pragma omp target teams distribute
+        for(int k = 0; k < WorkSetSize; k++) {
+            LocalTreeWalkType lv(TREEWALK_PRIMARY, tree);
+            const int i = WorkSet ? WorkSet[k] : k;
+            /* Primary never uses node list */
+            QueryType input(parts[i], NULL, tree->firstnode, priv);
+            ResultType output(input);
+            lv.visit(input, &output, priv, parts);
+            output.reduce(i, TREEWALK_PRIMARY, priv, parts);
         }
         Nlistprimary += WorkSetSize;
     }
