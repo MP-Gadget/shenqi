@@ -471,8 +471,8 @@ class GravTreeWalk : public TreeWalk <GravTreeQuery, GravTreeResult, GravLocalTr
         }
     }
     public:
-        GravTreeWalk(const char * const name, const ForceTree * const tree, const GravTreePriv& priv)
-            : TreeWalk(name, tree, priv, false) {
+        GravTreeWalk(const char * const name, const ForceTree * const tree, const GravTreePriv& priv, const bool use_gpu=false)
+            : TreeWalk(name, tree, priv, false, use_gpu) {
                 if(!tree->moments_computed_flag)
                     endrun(2, "Gravtree called before tree moments computed!\n");
             };
@@ -490,10 +490,10 @@ class GravTreeWalk : public TreeWalk <GravTreeQuery, GravTreeResult, GravLocalTr
  * only true on PM steps where all particles are active.
  */
 void
-grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current)
+grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool use_gpu=false)
 {
     GravTreePriv priv(TreeParams.Rcut, Ti_Current, rho0, pm, tree->BoxSize, AccelStore, tree->full_particle_tree_flag, PartManager->NumPart);
-    GravTreeWalk tw("GRAVTREE", tree, priv);
+    GravTreeWalk tw("GRAVTREE", tree, priv, use_gpu);
     /* Do the treewalk! */
     tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, TreeParams.MaxExportBufferBytes);
 

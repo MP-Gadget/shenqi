@@ -252,11 +252,11 @@ public:
     /**
      * Constructor - initializes all members to safe defaults.
      */
-    TreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const ParamType& i_priv, bool i_should_rebuild_queue=true) :
+    TreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const ParamType& i_priv, bool i_should_rebuild_queue=true, bool i_use_gpu=false) :
         tree(i_tree), ev_label(i_ev_label),
         priv(i_priv),
         should_rebuild_queue(i_should_rebuild_queue),
-        use_openmp_target(0),
+        use_openmp_target(i_use_gpu),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
         Nlistprimary(0), Nexport_sum(0), NExportTargets(0),
         maxNinteractions(0), minNinteractions(0), Ninteractions(0),
