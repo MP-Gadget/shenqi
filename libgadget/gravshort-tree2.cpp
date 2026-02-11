@@ -490,7 +490,7 @@ class GravTreeWalk : public TreeWalk <GravTreeQuery, GravTreeResult, GravLocalTr
  * only true on PM steps where all particles are active.
  */
 void
-grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool use_gpu=false)
+grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool use_gpu)
 {
     GravTreePriv priv(TreeParams.Rcut, Ti_Current, rho0, pm, tree->BoxSize, AccelStore, tree->full_particle_tree_flag, PartManager->NumPart);
     GravTreeWalk tw("GRAVTREE", tree, priv, use_gpu);
