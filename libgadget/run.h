@@ -13,8 +13,10 @@ void runtests(const int RestartSnapNum, const inttime_t Ti_init, const struct he
 void runfof(const int RestartSnapNum, const inttime_t Ti_init, const struct header_data * header);
 /* Compute a power spectrum and exit*/
 void runpower(const struct header_data * header);
-
+/* Checks the gravity solver behaves well on some particles  */
 void run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const int Nmesh, const inttime_t Ti_Current, const char * OutputDir, const struct header_data * header);
+/* Checks for consistent results on old and new treewalks and when executing on GPU. */
+void run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const int Nmesh, const inttime_t Ti_Current, const char * OutputDir, const struct header_data * header);
 
 /* Finds the last snapshot written to*/
 int find_last_snapshot(void);

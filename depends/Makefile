@@ -22,7 +22,7 @@ pfft: install_pfft.sh
 	mkdir -p lib; \
 	mkdir -p include; \
 	#Using -ipo causes icc to crash.
-	MPICC="$(MPICCDEP)" CC="$(MPICCDEP)" CFLAGS="$(filter-out -ipo,$(COPTIMIZE)) -I $(PWD)/include -L$(PWD)/lib" AR="$(AR)" RANLIB=$(RANLIB) \
+	MPICC="$(MPICCDEP)" CC="$(MPICCDEP)" CFLAGS="$(filter-out -ipo,$(COPTIMIZE)) -I $(PWD)/include" LFLAGS="-L$(PWD)/lib" AR="$(AR)" RANLIB=$(RANLIB) \
         sh $(PWD)/install_pfft.sh $(PWD)/
 
 clean: clean-fast clean-fft

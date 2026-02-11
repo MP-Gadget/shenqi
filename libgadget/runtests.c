@@ -157,16 +157,13 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
     copy_and_mean_accn(PairAccn);
 
     /* Check that we get the same answer if we fill up the exchange buffer*/
-    const size_t maxbuf = 2*1024*1024L;
-    treewalk_set_max_export_buffer(maxbuf);
+    treeacc.MaxExportBufferBytes = 2*1024*1024L;
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
     /* This checks fully opened tree force against pair force*/
     check_accns(&meanerr,&maxerr, &meanangle, &maxangle, PairAccn);
     message(0, "Force error, filling buffer vs not, open tree. max : %g mean: %g angle %g max angle %g forcetol: %g\n", maxerr, meanerr, meanangle, maxangle, treeacc.ErrTolForceAcc);
     if(maxerr > 1e-7)
-        endrun(2, "Found force error when filling buffer!  %g  (mean %g). Buffer %ld\n", maxerr, meanerr, maxbuf);
-
-    treewalk_set_max_export_buffer(3584*1024*1024L);
+        endrun(2, "Found force error when filling buffer!  %g  (mean %g). Buffer %ld\n", maxerr, meanerr, treeacc.MaxExportBufferBytes);
 
     treeacc = origtreeacc;
     set_gravshort_treepar(treeacc);
@@ -217,6 +214,72 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
 
     if(maxerr < defaultmaxerr || meanerr < defaultmeanerr)
         endrun(2, "Nmesh decreased but force accuracy better %g < %g or %g < %g\n", maxerr, defaultmaxerr, meanerr, defaultmeanerr);
+
+    force_tree_free(&Tree);
+    petapm_destroy(pm);
+
+    myfree(PairAccn);
+
+    destroy_io_blocks(&IOTable);
+    domain_free(ddecomp);
+}
+
+/* Compute accelerations using two different routines, check they give the same answer. */
+void
+run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const int Nmesh, const inttime_t Ti_Current, const char * OutputDir, const struct header_data * header)
+{
+    DomainDecomp ddecomp[1] = {0};
+    domain_decompose_full(ddecomp, MPI_COMM_WORLD);
+
+    struct IOTable IOTable = {0};
+    /* NO metals written*/
+    register_io_blocks(&IOTable, 0, 0);
+    register_extra_blocks(&IOTable);
+
+    double (* PairAccn)[3] = (double (*) [3]) mymalloc2("PairAccns", 3*sizeof(double) * PartManager->NumPart);
+
+    PetaPM pm[1] = {0};
+    gravpm_init_periodic(pm, PartManager->BoxSize, Asmth, Nmesh, CP->GravInternal);
+
+    int NTask;
+    MPI_Comm_size(MPI_COMM_WORLD, &NTask);
+
+    DriftKickTimes times = init_driftkicktime(Ti_Current);
+    /* All particles are active*/
+    ActiveParticles Act = init_empty_active_particles(PartManager);
+    build_active_particles(&Act, &times, 0, header->TimeSnapshot, PartManager);
+
+    gravpm_force(pm, ddecomp, CP, header->TimeSnapshot, header->UnitLength_in_cm, OutputDir, header->TimeIC);
+
+    ForceTree Tree = {0};
+    force_tree_full(&Tree, ddecomp, 0, OutputDir);
+
+    struct gravshort_tree_params treeacc = get_gravshort_treepar();
+    /* Reset to normal tree */
+    if(treeacc.TreeUseBH > 1)
+        treeacc.TreeUseBH = 0;
+    /* Compare the new and old gravity tree. */
+    set_gravshort_treepar_old(treeacc);
+    set_gravshort_treepar(treeacc);
+    const double rho0 = CP->Omega0 * CP->RhoCrit;
+    grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    copy_and_mean_accn(PairAccn);
+    grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+
+    /* This checks fully opened tree force against pair force*/
+    double meanerr, maxerr, meanangle, maxangle;
+    check_accns(&meanerr,&maxerr, &meanangle, &maxangle, PairAccn);
+    message(0, "Force error, new grav tree vs old gravtree. max : %g mean: %g angle %g max angle %g forcetol: %g\n", maxerr, meanerr, meanangle, maxangle, treeacc.ErrTolForceAcc);
+
+    if(maxerr > 0.1)
+        endrun(2, "New and old tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
+
+    /* Check density code is the same */
+
+    /* Check hydro code is the same */
+
+    char * fname = fastpm_strdup_printf("%s/PART-consistent-%03d", OutputDir, RestartSnapNum);
+    petaio_save_snapshot(fname, &IOTable, 0, header->TimeSnapshot, CP);
 
     force_tree_free(&Tree);
     petapm_destroy(pm);

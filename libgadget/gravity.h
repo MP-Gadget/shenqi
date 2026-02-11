@@ -19,6 +19,8 @@ struct gravshort_tree_params
     double Rcut;
     /* Softening as a fraction of DM mean separation. */
     double FractionalGravitySoftening;
+    /* Maximum size of the export buffer. */
+    size_t MaxExportBufferBytes;
 };
 
 enum ShortRangeForceWindowType {
@@ -48,6 +50,12 @@ void set_gravshort_tree_params(ParameterSet * ps);
 void set_gravshort_treepar(struct gravshort_tree_params tree_params);
 struct gravshort_tree_params get_gravshort_treepar(void);
 
+/* Set up the module*/
+void set_gravshort_tree_params_old(ParameterSet * ps);
+/* Helpers for the tests*/
+void set_gravshort_treepar_old(struct gravshort_tree_params tree_params);
+struct gravshort_tree_params get_gravshort_treepar_old(void);
+
 /* Computes the gravitational force on the PM grid
  * and saves the total matter power spectrum.
  * Parameters: Cosmology, Time, UnitLength_in_cm and PowerOutputDir are used by the power spectrum output code.
@@ -55,6 +63,7 @@ struct gravshort_tree_params get_gravshort_treepar(void);
 void gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, double UnitLength_in_cm, const char * PowerOutputDir, double TimeIC);
 
 void grav_short_pair(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, double Rcut, double rho0);
+void grav_short_tree_old(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current);
 void grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current);
 
 /*Read the power spectrum, without changing the input value.*/

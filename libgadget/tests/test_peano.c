@@ -107,7 +107,10 @@ BOOST_AUTO_TEST_CASE(test_peano)
     /* Check against some known good results*/
     int Box = 4;
     for(i = 0; i < Box * Box * Box; i++) {
-        double Pos[3] = {i % Box, (i / Box) % Box, (i / Box / Box) % Box};
+        double xpos = i % Box;
+        double ypos = (i / Box) % Box;
+        double zpos = (i / Box / Box) % Box;
+        double Pos[3] = {xpos, ypos, zpos};
         peano_t Key = PEANO(Pos, Box);
         BOOST_TEST(result_keys[i] == Key);
         // printf("K = %ld\n", Key);
@@ -128,7 +131,10 @@ BOOST_AUTO_TEST_CASE(test_peano)
     Box = 100;
     peano_t Key = 0;
     for(i = 0; i < Box * Box * Box; i++) {
-        double Pos[3] = {i % Box, (i / Box) % Box, (i / Box / Box) % Box};
+        double xpos = i % Box;
+        double ypos = (i / Box) % Box;
+        double zpos = (i / Box / Box) % Box;
+        double Pos[3] = {xpos, ypos, zpos};
         Key += PEANO(Pos, Box);
     }
     double end = MPI_Wtime();

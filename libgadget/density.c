@@ -21,47 +21,9 @@ static struct density_params DensityParams;
 
 /*Set cooling module parameters from a cooling_params struct for the tests*/
 void
-set_densitypar(struct density_params dp)
+set_densitypar_old(struct density_params dp)
 {
     DensityParams = dp;
-}
-
-/*Set the parameters of the density module*/
-void
-set_density_params(ParameterSet * ps)
-{
-    int ThisTask;
-    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-    if(ThisTask == 0) {
-        DensityParams.DensityKernelType = (enum DensityKernelType) param_get_enum(ps, "DensityKernelType");
-        DensityParams.MaxNumNgbDeviation = param_get_double(ps, "MaxNumNgbDeviation");
-        DensityParams.DensityResolutionEta = param_get_double(ps, "DensityResolutionEta");
-        DensityParams.MinGasHsmlFractional = param_get_double(ps, "MinGasHsmlFractional");
-
-        DensityKernel kernel;
-        density_kernel_init(&kernel, 1.0, DensityParams.DensityKernelType);
-        message(1, "The Density Kernel type is %s\n", kernel.name);
-        message(1, "The Density resolution is %g * mean separation, or %g neighbours\n",
-                    DensityParams.DensityResolutionEta, GetNumNgb(GetDensityKernelType()));
-        /*These two look like black hole parameters but they are really neighbour finding parameters*/
-        DensityParams.BlackHoleNgbFactor = param_get_double(ps, "BlackHoleNgbFactor");
-        DensityParams.BlackHoleMaxAccretionRadius = param_get_double(ps, "BlackHoleMaxAccretionRadius");
-    }
-    MPI_Bcast(&DensityParams, sizeof(struct density_params), MPI_BYTE, 0, MPI_COMM_WORLD);
-}
-
-double
-GetNumNgb(enum DensityKernelType KernelType)
-{
-    DensityKernel kernel;
-    density_kernel_init(&kernel, 1.0, KernelType);
-    return density_kernel_desnumngb(&kernel, DensityParams.DensityResolutionEta);
-}
-
-enum DensityKernelType
-GetDensityKernelType(void)
-{
-    return DensityParams.DensityKernelType;
 }
 
 /* The evolved entropy at drift time: evolved dlog a.
@@ -232,7 +194,7 @@ static void density_copy(int place, TreeWalkQueryDensity * I, TreeWalk * tw);
  * neighbours.)
  */
 void
-density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, Cosmology * CP, struct sph_pred_data * SPH_predicted, MyFloat * GradRho_mag, const ForceTree * const tree)
+density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, Cosmology * CP, struct sph_pred_data * SPH_predicted, MyFloat * GradRho_mag, const ForceTree * const tree)
 {
     TreeWalk tw[1] = {{0}};
     struct DensityPriv priv[1];
@@ -689,56 +651,4 @@ slots_free_sph_pred_data(struct sph_pred_data * sph_scratch)
     if(sph_scratch->EntVarPred)
         myfree(sph_scratch->EntVarPred);
     sph_scratch->EntVarPred = NULL;
-}
-
-/* Set the initial smoothing length for gas and BH*/
-void
-set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSeparation)
-{
-    /* Need moments because we use them to set Hsml*/
-    force_tree_calc_moments(tree, ddecomp);
-    if(!tree->Father)
-        endrun(5, "tree Father array not allocated at initial hsml!\n");
-    const double DesNumNgb = GetNumNgb(GetDensityKernelType());
-    int i;
-    #pragma omp parallel for
-    for(i = 0; i < PartManager->NumPart; i++)
-    {
-        /* These initial smoothing lengths are only used for SPH-like particles.*/
-        if(Part[i].Type != 0 && Part[i].Type != 5)
-            continue;
-
-        if(Part[i].IsGarbage)
-            continue;
-        int no = i;
-
-        do {
-            int p = force_get_father(no, tree);
-
-            if(p < tree->firstnode)
-                break;
-
-            /* Check that we didn't somehow get a bad set of nodes*/
-            if(p > tree->numnodes + tree->firstnode)
-                endrun(5, "Bad init father: i=%d, mass = %g type %d hsml %g no %d len %g father %d, numnodes %ld firstnode %ld\n",
-                    i, Part[i].Mass, Part[i].Type, Part[i].Hsml, no, tree->Nodes[no].len, p, tree->numnodes, tree->firstnode);
-            no = p;
-        } while(10 * DesNumNgb * Part[i].Mass > tree->Nodes[no].mom.mass);
-
-        /* Validate the tree node contents*/
-        if(tree->Nodes[no].len > tree->BoxSize || tree->Nodes[no].mom.mass < Part[i].Mass)
-            endrun(5, "Bad tree moments: i=%d, mass = %g type %d hsml %g no %d len %g treemass %g\n",
-                    i, Part[i].Mass, Part[i].Type, Part[i].Hsml, no, tree->Nodes[no].len, tree->Nodes[no].mom.mass);
-        Part[i].Hsml = MeanGasSeparation;
-        if(no >= tree->firstnode) {
-            double testhsml = tree->Nodes[no].len * pow(3.0 / (4 * M_PI) * DesNumNgb * Part[i].Mass / tree->Nodes[no].mom.mass, 1.0 / 3);
-            /* recover from a poor initial guess */
-            if (testhsml < 500. * MeanGasSeparation)
-                Part[i].Hsml = testhsml;
-        }
-
-        if(Part[i].Hsml <= 0)
-            endrun(5, "Bad hsml guess: i=%d, mass = %g type %d hsml %g no %d len %g treemass %g\n",
-                    i, Part[i].Mass, Part[i].Type, Part[i].Hsml, no, tree->Nodes[no].len, tree->Nodes[no].mom.mass);
-    }
 }

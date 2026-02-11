@@ -28,41 +28,21 @@
  */
 
 static struct gravshort_tree_params TreeParams;
-/*Softening length*/
-static double GravitySoftening;
-
-/* gravitational softening length
- * (given in terms of an `equivalent' Plummer softening length)
- */
-double FORCE_SOFTENING(void)
-{
-    /* Force is Newtonian beyond this.*/
-    return 2.8 * GravitySoftening;
-}
-
-/*! Sets the (comoving) softening length, converting from units of the mean separation to comoving internal units. */
-void
-gravshort_set_softenings(double MeanSeparation)
-{
-    GravitySoftening = TreeParams.FractionalGravitySoftening * MeanSeparation;
-    /* 0: Gas is collisional */
-    message(0, "GravitySoftening = %g\n", GravitySoftening);
-}
 
 /*This is a helper for the tests*/
-void set_gravshort_treepar(struct gravshort_tree_params tree_params)
+void set_gravshort_treepar_old(struct gravshort_tree_params tree_params)
 {
     TreeParams = tree_params;
 }
 
-struct gravshort_tree_params get_gravshort_treepar(void)
+struct gravshort_tree_params get_gravshort_treepar_old(void)
 {
     return TreeParams;
 }
 
 /* Sets up the module*/
 void
-set_gravshort_tree_params(ParameterSet * ps)
+set_gravshort_tree_params_old(ParameterSet * ps)
 {
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
@@ -94,7 +74,7 @@ force_treeev_shortrange(TreeWalkQueryGravShort * input,
  * only true on PM steps where all particles are active.
  */
 void
-grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current)
+grav_short_tree_old(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current)
 {
     TreeWalk tw[1] = {{0}};
     struct GravShortPriv priv;

@@ -51,13 +51,14 @@ generate(int64_t * data, size_t localsize, int bits, int seed)
 }
 
 static void
-check_sorted(void * data, int elsize, size_t localsize, int compar(void * d1, void * d2), MPI_Comm comm)
+check_sorted(void * vdata, int elsize, size_t localsize, int compar(void * d1, void * d2), MPI_Comm comm)
 {
     size_t i;
     int ThisTask, NTask;
     MPI_Comm_rank(comm, &ThisTask);
     MPI_Comm_size(comm, &NTask);
 
+    char * data = (char *) vdata;
     const int TAG = 0xbeef;
 
     for(i = 1; i < localsize; i ++) {

@@ -146,7 +146,7 @@ static void do_density_test(struct density_testdata * data, const int numpart, d
     ForceTree tree = {0};
     /* Finds fathers for each gas and BH particle, so need BH*/
     force_tree_rebuild_mask(&tree, &ddecomp, GASMASK+BHMASK, NULL);
-    set_init_hsml(&tree, &ddecomp, PartManager->BoxSize);
+    set_init_hsml(&tree, &ddecomp, PartManager->BoxSize, PartManager);
     /*Time doing the density finding*/
     double start, end;
     start = MPI_Wtime();
@@ -166,7 +166,7 @@ static void do_density_test(struct density_testdata * data, const int numpart, d
 
     /* Rebuild without moments to check it works*/
     force_tree_rebuild_mask(&tree, &ddecomp, GASMASK, NULL);
-    density(&act, 1, 0, 0, kick, &CP, &data->sph_pred, NULL, &tree);
+    density(&act, 1, 0, 0, kick, &CP, &(data->sph_pred.EntVarPred), NULL, &tree);
     end = MPI_Wtime();
     double ms = (end - start)*1000;
     message(0, "Found densities in %.3g ms\n", ms);
@@ -191,7 +191,7 @@ static void do_density_test(struct density_testdata * data, const int numpart, d
 
     start = MPI_Wtime();
     /*Find the density*/
-    density(&act, 1, 0, 0, kick, &CP, &data->sph_pred, NULL, &tree);
+    density(&act, 1, 0, 0, kick, &CP, &(data->sph_pred.EntVarPred), NULL, &tree);
     end = MPI_Wtime();
     slots_free_sph_pred_data(&data->sph_pred);
 

@@ -52,8 +52,8 @@ GADGET_OBJS =  \
 	 timestep.o init.o checkpoint.o \
 	 sfr_eff.o cooling.o cooling_rates.o cooling_uvfluc.o cooling_qso_lightup.o \
 	 winds.o veldisp.o density.o metal_return.o \
-	 treewalk.o cosmology.o \
-	 gravshort-tree.o gravshort-pair.o hydra.o  timefac.o \
+	 treewalk.o density2.o cosmology.o \
+	 gravshort-tree.o gravshort-tree2.o gravshort-pair.o hydra.o hydra2.o timefac.o \
 	 gravpm.o powerspectrum.o \
 	 forcetree.o \
 	 petapm.o gravity.o \
@@ -87,6 +87,12 @@ GADGET_UTILS_OBJS := $(GADGET_UTILS_OBJS:%=.objs/%)
 all: libgadget.a libgadget-utils.a
 
 .PHONY: all test run-tests
+
+.objs/%2.o: %2.cpp Makefile $(CONFIG)
+	@cmd="$(MPICC) -MMD -c -o $@ $(CFLAGS) $<"; \
+	if test "x$(V)" = "x1" ; then echo $$cmd; fi; \
+	mkdir -p `dirname $@`; \
+	echo Compiling $<; $$cmd
 
 .objs/utils/test_%: tests/test_%.c .objs/utils/%.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
