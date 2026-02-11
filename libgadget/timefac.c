@@ -1,7 +1,7 @@
 #include "physconst.h"
 #include "timefac.h"
 #include "timebinmgr.h"
-
+#include <functional>
 #include <boost/math/quadrature/gauss_kronrod.hpp>
 
 // Function to compute a factor using Gauss-Kronrod adaptive integration
