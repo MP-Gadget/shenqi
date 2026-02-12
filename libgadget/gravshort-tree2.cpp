@@ -444,8 +444,8 @@ class GravTopTreeWalk : public TopTreeWalk<TreeWalkNgbIterBase<GravTreeQuery, Gr
     }
 };
 
-class GravTreeWalk : public TreeWalk <GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreePriv> {
-    protected:
+class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreePriv> {
+    public:
     /**
     * Postprocess - finalize quantities after tree walk completes.
     * Override to normalize results, compute derived quantities, etc.

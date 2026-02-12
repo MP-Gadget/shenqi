@@ -382,11 +382,10 @@ class TreeWalkNgbIterDensity : public TreeWalkNgbIterBase<DensityQuery, DensityR
 class DensityLocalTreeWalk: public LocalTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult, DensityPriv> { using LocalTreeWalk::LocalTreeWalk; };
 class DensityTopTreeWalk: public TopTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult, DensityPriv> { using TopTreeWalk::TopTreeWalk; };
 
-class DensityTreeWalk: public LoopedTreeWalk<DensityQuery, DensityResult, DensityLocalTreeWalk, DensityTopTreeWalk, DensityPriv> {
+class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, DensityResult, DensityLocalTreeWalk, DensityTopTreeWalk, DensityPriv> {
     public:
     using LoopedTreeWalk::LoopedTreeWalk;
 
-    private:
     bool haswork(const particle_data& particle)
     {
         /* Don't want a density for swallowed black hole particles*/
@@ -397,6 +396,63 @@ class DensityTreeWalk: public LoopedTreeWalk<DensityQuery, DensityResult, Densit
         return 0;
     }
 
+    void
+    postprocess(const int i, struct particle_data * const parts)
+    {
+        MyFloat * DhsmlDens = &(priv.DhsmlDensityFactor[i]);
+        double density = -1;
+        if(parts[i].Type == 0)
+            density = SphP[parts[i].PI].Density;
+        else if(parts[i].Type == 5)
+            density = BhP[parts[i].PI].Density;
+        if(density <= 0 && priv.NumNgb[i] > 0) {
+            endrun(12, "Particle %d type %d has bad density: %g\n", i, parts[i].Type, density);
+        }
+        *DhsmlDens *= parts[i].Hsml / (NUMDIMS * density);
+        *DhsmlDens = 1 / (1 + *DhsmlDens);
+
+        /* Uses DhsmlDensityFactor and changes Hsml, hence the location.*/
+        if(priv.update_hsml) {
+            int done = density_check_neighbours(i, Niteration >= MAXITER - 5, parts);
+            /* If we are done repeating, update the hmax in the parent node,
+            * if that type is in the tree.*/
+            if(done && (tree->mask & (1<<parts[i].Type)))
+                update_tree_hmax_father(tree, i, parts[i].Pos, parts[i].Hsml);
+        }
+
+        if(parts[i].Type == 0)
+        {
+            int PI = parts[i].PI;
+            /*Compute the EgyWeight factors, which are only useful for density independent SPH */
+            if(priv.DoEgyDensity) {
+                double EntPred;
+                if(priv.EntVarPred)
+                    EntPred = priv.EntVarPred[parts[i].PI];
+                else
+                    EntPred = SPH_EntVarPred(parts[i], priv.times);
+                if(EntPred <= 0 || SphP[parts[i].PI].EgyWtDensity <=0)
+                    endrun(12, "Particle %d has bad predicted entropy: %g or EgyWtDensity: %g, Particle ID = %ld, pos %g %g %g, vel %g %g %g, mass = %g, density = %g, MaxSignalVel = %g, Entropy = %g, DtEntropy = %g \n", i, EntPred, SphP[parts[i].PI].EgyWtDensity, parts[i].ID, parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2], parts[i].Vel[0], parts[i].Vel[1], parts[i].Vel[2], parts[i].Mass, SphP[parts[i].PI].Density, SphP[parts[i].PI].MaxSignalVel, SphP[parts[i].PI].Entropy, SphP[parts[i].PI].DtEntropy);
+                SphP[parts[i].PI].DhsmlEgyDensityFactor *= parts[i].Hsml/ (NUMDIMS * SphP[parts[i].PI].EgyWtDensity);
+                SphP[parts[i].PI].DhsmlEgyDensityFactor *= - (*DhsmlDens);
+                SphP[parts[i].PI].EgyWtDensity /= EntPred;
+            }
+            else
+                SphP[parts[i].PI].DhsmlEgyDensityFactor = *DhsmlDens;
+
+            MyFloat * Rot = priv.Rot[PI];
+            SphP[parts[i].PI].CurlVel = sqrt(Rot[0] * Rot[0] + Rot[1] * Rot[1] + Rot[2] * Rot[2]) / SphP[parts[i].PI].Density;
+
+            SphP[parts[i].PI].DivVel /= SphP[parts[i].PI].Density;
+            parts[i].DtHsml = (1.0 / NUMDIMS) * SphP[parts[i].PI].DivVel * parts[i].Hsml;
+        }
+        else if(parts[i].Type == 5)
+        {
+            BhP[parts[i].PI].DivVel /= BhP[parts[i].PI].Density;
+            parts[i].DtHsml = (1.0 / NUMDIMS) * BhP[parts[i].PI].DivVel * parts[i].Hsml;
+        }
+    }
+
+    private:
     /* Returns 1 if we are done and do not need to loop. 0 if we need to repeat.*/
     int
     density_check_neighbours (const int i, const int verbose, struct particle_data * const parts)
@@ -497,62 +553,6 @@ class DensityTreeWalk: public LoopedTreeWalk<DensityQuery, DensityResult, Densit
             if(parts[i].Hsml < priv.MinGasHsml)
                 parts[i].Hsml = priv.MinGasHsml;
             return 1;
-        }
-    }
-
-    void
-    postprocess(const int i, struct particle_data * const parts)
-    {
-        MyFloat * DhsmlDens = &(priv.DhsmlDensityFactor[i]);
-        double density = -1;
-        if(parts[i].Type == 0)
-            density = SphP[parts[i].PI].Density;
-        else if(parts[i].Type == 5)
-            density = BhP[parts[i].PI].Density;
-        if(density <= 0 && priv.NumNgb[i] > 0) {
-            endrun(12, "Particle %d type %d has bad density: %g\n", i, parts[i].Type, density);
-        }
-        *DhsmlDens *= parts[i].Hsml / (NUMDIMS * density);
-        *DhsmlDens = 1 / (1 + *DhsmlDens);
-
-        /* Uses DhsmlDensityFactor and changes Hsml, hence the location.*/
-        if(priv.update_hsml) {
-            int done = density_check_neighbours(i, Niteration >= MAXITER - 5, parts);
-            /* If we are done repeating, update the hmax in the parent node,
-            * if that type is in the tree.*/
-            if(done && (tree->mask & (1<<parts[i].Type)))
-                update_tree_hmax_father(tree, i, parts[i].Pos, parts[i].Hsml);
-        }
-
-        if(parts[i].Type == 0)
-        {
-            int PI = parts[i].PI;
-            /*Compute the EgyWeight factors, which are only useful for density independent SPH */
-            if(priv.DoEgyDensity) {
-                double EntPred;
-                if(priv.EntVarPred)
-                    EntPred = priv.EntVarPred[parts[i].PI];
-                else
-                    EntPred = SPH_EntVarPred(parts[i], priv.times);
-                if(EntPred <= 0 || SphP[parts[i].PI].EgyWtDensity <=0)
-                    endrun(12, "Particle %d has bad predicted entropy: %g or EgyWtDensity: %g, Particle ID = %ld, pos %g %g %g, vel %g %g %g, mass = %g, density = %g, MaxSignalVel = %g, Entropy = %g, DtEntropy = %g \n", i, EntPred, SphP[parts[i].PI].EgyWtDensity, parts[i].ID, parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2], parts[i].Vel[0], parts[i].Vel[1], parts[i].Vel[2], parts[i].Mass, SphP[parts[i].PI].Density, SphP[parts[i].PI].MaxSignalVel, SphP[parts[i].PI].Entropy, SphP[parts[i].PI].DtEntropy);
-                SphP[parts[i].PI].DhsmlEgyDensityFactor *= parts[i].Hsml/ (NUMDIMS * SphP[parts[i].PI].EgyWtDensity);
-                SphP[parts[i].PI].DhsmlEgyDensityFactor *= - (*DhsmlDens);
-                SphP[parts[i].PI].EgyWtDensity /= EntPred;
-            }
-            else
-                SphP[parts[i].PI].DhsmlEgyDensityFactor = *DhsmlDens;
-
-            MyFloat * Rot = priv.Rot[PI];
-            SphP[parts[i].PI].CurlVel = sqrt(Rot[0] * Rot[0] + Rot[1] * Rot[1] + Rot[2] * Rot[2]) / SphP[parts[i].PI].Density;
-
-            SphP[parts[i].PI].DivVel /= SphP[parts[i].PI].Density;
-            parts[i].DtHsml = (1.0 / NUMDIMS) * SphP[parts[i].PI].DivVel * parts[i].Hsml;
-        }
-        else if(parts[i].Type == 5)
-        {
-            BhP[parts[i].PI].DivVel /= BhP[parts[i].PI].Density;
-            parts[i].DtHsml = (1.0 / NUMDIMS) * BhP[parts[i].PI].DivVel * parts[i].Hsml;
         }
     }
 };

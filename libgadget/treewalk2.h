@@ -188,14 +188,14 @@ class CommBuffer
  *
  * This class provides the framework for walking a tree structure and
  * computing interactions between particles. Derived classes should override
- * the virtual methods to implement specific physics (e.g., gravity, SPH).
+ * the methods haswork and postprocess to implement specific physics (e.g., gravity, SPH).
  *
  * Usage:
  *   1. Derive from TreeWalk and override the required virtual methods
  *   2. Set tree, ev_label, type, and element sizes in the constructor
  *   3. Call treewalk_run() to execute the tree walk
  */
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType>
+template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType>
 class TreeWalk {
 public:
     /* A pointer to the force tree structure to walk.*/
@@ -307,9 +307,9 @@ public:
 
         tstart = second();
         #pragma omp parallel for
-        for(i = 0; i < WorkSetSize; i ++) {
+        for(int i = 0; i < WorkSetSize; i ++) {
             const int p_i = WorkSet ? WorkSet[i] : i;
-            postprocess(p_i, parts);
+            static_cast<DerivedType*>(this)->postprocess(p_i, parts);
         }
         tend = second();
         timecomp3 += timediff(tstart, tend);
@@ -362,7 +362,7 @@ public:
                 if(pp.IsGarbage || pp.Swallowed)
                     continue;
 
-                if(!haswork(pp))
+                if(!static_cast<DerivedType*>(this)->haswork(pp))
                     continue;
         #ifdef DEBUG
                 if(nqthrlocal >= gthread.total_size)
@@ -415,7 +415,7 @@ private:
     * @param i  Particle index
     * @return true if the particle should be processed
     */
-    virtual bool haswork(const particle_data& part) { return true; }
+    bool haswork(const particle_data& part) { return true; }
 
     /**
     * Postprocess - finalize quantities after tree walk completes.
@@ -817,10 +817,10 @@ private:
 };
 
 /* This calls the run() method repeatedly in a loop, redoing particles for density/hsml estimation.*/
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType>
-class LoopedTreeWalk: public TreeWalk<QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType> {
+template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType>
+class LoopedTreeWalk: public TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType> {
     protected:
-    using Base = TreeWalk<QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType>;
+    using Base = TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType>;
     using Base::build_queue;
     using Base::WorkSetSize;
     using Base::WorkSet;
