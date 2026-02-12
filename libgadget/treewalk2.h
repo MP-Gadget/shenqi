@@ -284,14 +284,6 @@ public:
         double tstart, tend;
         tstart = second();
         ev_begin(active_set, size, parts);
-
-        int64_t i;
-        #pragma omp parallel for
-        for(i = 0; i < WorkSetSize; i ++) {
-            const int p_i = WorkSet ? WorkSet[i] : i;
-            preprocess(p_i, parts);
-        }
-
         tend = second();
         timecomp3 += timediff(tstart, tend);
 
@@ -432,14 +424,6 @@ private:
     * @param i Particle index
     */
     virtual void postprocess(const int i, particle_data * const part) {}
-
-    /**
-    * Preprocess - initialize quantities before tree walk starts.
-    * Override to set up accumulators, clear buffers, etc.
-    *
-    * @param i Particle index
-    */
-    virtual void preprocess(const int i, particle_data * const part) {}
 
     void ev_begin(int * active_set, const size_t size, particle_data * const parts)
     {
