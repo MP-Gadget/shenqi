@@ -219,7 +219,6 @@ class DensityQuery : public TreeWalkQueryBase<DensityPriv>
 class DensityResult : public TreeWalkResultBase<DensityPriv> {
     /*These are only used for density independent SPH*/
     public:
-	using TreeWalkResultBase::TreeWalkResultBase;
         MyFloat EgyRho;
         MyFloat DhsmlEgyDensity;
 
