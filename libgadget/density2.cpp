@@ -419,9 +419,9 @@ class DensityTreeWalk: public LoopedTreeWalk<DensityQuery, DensityResult, Densit
 
         if(verbose)
         {
-             message(1, "i=%d ID=%lu Hsml=%g Left=%g Right=%g Ngbs=%g Right-Left=%g\n   pos=(%g|%g|%g)\n",
+             message(1, "i=%d ID=%lu Hsml=%g Left=%g Right=%g Ngbs=%g (des %g) Right-Left=%g pos=(%g|%g|%g)\n",
                  i, parts[i].ID, parts[i].Hsml, Left[i], Right[i],
-                 NumNgb[i], Right[i] - Left[i], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
+                 NumNgb[i], desnumngb, Right[i] - Left[i], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
         }
 
         if(NumNgb[i] < (desnumngb - DensityParams.MaxNumNgbDeviation) ||
@@ -430,11 +430,11 @@ class DensityTreeWalk: public LoopedTreeWalk<DensityQuery, DensityResult, Densit
             /* This condition is here to prevent the density code looping forever if it encounters
              * multiple particles at the same position. If this happens you likely have worse
              * problems anyway, so warn also. */
-            if((Right[i] - Left[i]) < 1.0e-5 * Left[i])
+            if((Right[i] - Left[i]) < 1.0e-5 * Right[i])
             {
                 /* If this happens probably the exchange is screwed up and all your particles have moved to (0,0,0)*/
-                message(1, "Very tight Hsml bounds for i=%d ID=%lu Hsml=%g Left=%g Right=%g Ngbs=%g Right-Left=%g pos=(%g|%g|%g)\n",
-                 i, parts[i].ID, parts[i].Hsml, Left[i], Right[i], NumNgb[i], Right[i] - Left[i], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
+                message(1, "Very tight Hsml bounds for i=%d ID=%lu Hsml=%g Left=%g Right=%g Ngbs=%g (des %g) Right-Left=%g pos=(%g|%g|%g) \n",
+                 i, parts[i].ID, parts[i].Hsml, Left[i], Right[i], NumNgb[i], desnumngb, Right[i] - Left[i], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
                 parts[i].Hsml = Right[i];
                 return 1;
             }
