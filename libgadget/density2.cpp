@@ -458,7 +458,7 @@ class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, Dens
     density_check_neighbours (const int i, const int verbose, struct particle_data * const parts)
     {
         /* now check whether we had enough neighbours */
-        int tid = omp_get_thread_num();
+        const int tid = omp_get_thread_num();
         double desnumngb = priv.DesNumNgb;
 
         if(priv.BlackHoleOn && parts[i].Type == 5)
