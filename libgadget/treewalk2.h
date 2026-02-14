@@ -878,7 +878,7 @@ class LoopedTreeWalk: public TreeWalk<QueryType, ResultType, LocalTreeWalkType, 
         bool orig_build_queue = should_rebuild_queue;
         should_rebuild_queue = false;
         this->timecomp3 += timediff(tstart, tend);
-        int Niteration = 0;
+        Niteration = 0;
         /* we will repeat the whole thing for those particles where we didn't find enough neighbours */
         do {
             /* The RedoQueue needs enough memory to store every workset particle on every thread, because
