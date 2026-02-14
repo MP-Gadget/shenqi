@@ -87,8 +87,10 @@
 
 class GravTreeResult : public TreeWalkResultBase<GravTreePriv> {
     public:
-    MyFloat Acc[3];
-    MyFloat Potential;
+    MyFloat Acc[3] = {0};
+    MyFloat Potential = 0;
+    GravTreeResult(GravTreeQuery& query): TreeWalkResultBase(query), Acc(0,0,0), Potential(0) {}
+
     void reduce(const int place, const TreeWalkReduceMode mode, const GravTreePriv& priv, struct particle_data * const parts)
     {
         TreeWalkResultBase::reduce(place, mode, priv, parts);

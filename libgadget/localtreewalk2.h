@@ -78,16 +78,14 @@ class TreeWalkResultBase
 {
     public:
         #ifdef DEBUG
-            MyIDType ID;
+            const MyIDType ID;
         #endif
 
         TreeWalkResultBase(const TreeWalkQueryBase<ParamType>& query)
-        {
-            memset(this, 0, sizeof(*this));
         #ifdef DEBUG
-            ID = query.ID;
+        : ID(query.ID)
         #endif
-        }
+        { }
 
         /**
         * Reduce partial results back to the local particle.

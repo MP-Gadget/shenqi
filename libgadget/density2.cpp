@@ -219,16 +219,19 @@ class DensityQuery : public TreeWalkQueryBase<DensityPriv>
 class DensityResult : public TreeWalkResultBase<DensityPriv> {
     /*These are only used for density independent SPH*/
     public:
-        MyFloat EgyRho;
-        MyFloat DhsmlEgyDensity;
+        MyFloat EgyRho = 0;
+        MyFloat DhsmlEgyDensity = 0;
 
-        MyFloat Rho;
-        MyFloat DhsmlDensity;
-        MyFloat Ngb;
-        MyFloat Div;
-        MyFloat Rot[3];
+        MyFloat Rho = 0;
+        MyFloat DhsmlDensity = 0;
+        MyFloat Ngb = 0;
+        MyFloat Div = 0;
+        MyFloat Rot[3] = {0};
         /*Only used if sfr_need_to_compute_sph_grad_rho is true*/
-        MyFloat GradRho[3];
+        MyFloat GradRho[3] = {0};
+        DensityResult(DensityQuery& query): TreeWalkResultBase(query),
+        EgyRho(0), DhsmlEgyDensity(0), Rho(0), DhsmlDensity(0), Ngb(0), Div(0), Rot(0,0,0), GradRho(0,0,0)
+        {}
 
         void reduce(int place, enum TreeWalkReduceMode mode, const DensityPriv& priv, struct particle_data * const parts)
         {

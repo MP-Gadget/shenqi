@@ -173,10 +173,10 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
 
 class HydroResult: public TreeWalkResultBase<HydroPriv> {
     public:
-    MyFloat Acc[3];
-    MyFloat DtEntropy;
-    MyFloat MaxSignalVel;
-    HydroResult(const HydroQuery query): TreeWalkResultBase(query)
+    MyFloat Acc[3] = {0};
+    MyFloat DtEntropy = 0;
+    MyFloat MaxSignalVel = 0;
+    HydroResult(const HydroQuery query): TreeWalkResultBase(query), Acc(0,0,0), DtEntropy(0), MaxSignalVel(0)
     {
         MaxSignalVel = sqrt(GAMMA * query.Pressure / query.EgyRho);
     }
