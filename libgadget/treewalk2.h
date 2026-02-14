@@ -242,6 +242,9 @@ public:
     /* internal flags*/
     /*Did we use the active_set array as the WorkSet?*/
     int work_set_stolen_from_active;
+    /* Index into WorkSet to start iteration.
+     * Will be !=0 if the export buffer fills up*/
+    int64_t WorkSetStart;
     /* The list of particles to work on. May be NULL, in which case all particles are used.*/
     int * WorkSet;
     /* Size of the workset list*/
@@ -258,7 +261,7 @@ public:
         Nlistprimary(0), Nexport_sum(0), NExportTargets(0),
         maxNinteractions(0), minNinteractions(0), Ninteractions(0),
         work_set_stolen_from_active(0),
-        WorkSet(nullptr), WorkSetSize(0)
+        WorkSetStart(0), WorkSet(nullptr), WorkSetSize(0)
     {
     }
 
@@ -280,16 +283,7 @@ public:
 
         double tstart, tend;
         tstart = second();
-        /* The last argument is may_have_garbage: in practice the only
-            * trivial haswork is the gravtree. This has no (active) garbage because
-            * the active list was just rebuilt, but on a PM step the active list is NULL
-            * and we may still have swallowed BHs around. So in practice this avoids
-            * computing gravtree for swallowed BHs on a PM step.*/
-        int may_have_garbage = 0;
-        /* Note this is not collective, but that should not matter.*/
-        if(!active_set && SlotsManager->info[5].size > 0)
-            may_have_garbage = 1;
-        build_queue(active_set, size, may_have_garbage, parts);
+        ev_begin(active_set, size, parts);
         tend = second();
         timecomp3 += timediff(tstart, tend);
 
@@ -429,7 +423,23 @@ private:
     *
     * @param i Particle index
     */
-    void postprocess(const int i, particle_data * const part) {}
+    virtual void postprocess(const int i, particle_data * const part) {}
+
+    void ev_begin(int * active_set, const size_t size, particle_data * const parts)
+    {
+        /* The last argument is may_have_garbage: in practice the only
+            * trivial haswork is the gravtree. This has no (active) garbage because
+            * the active list was just rebuilt, but on a PM step the active list is NULL
+            * and we may still have swallowed BHs around. So in practice this avoids
+            * computing gravtree for swallowed BHs on a PM step.*/
+        int may_have_garbage = 0;
+        /* Note this is not collective, but that should not matter.*/
+        if(!active_set && SlotsManager->info[5].size > 0)
+            may_have_garbage = 1;
+        build_queue(active_set, size, may_have_garbage, parts);
+        /* Start first iteration at the beginning*/
+        WorkSetStart = 0;
+    }
 
     /* Main processing loop. Walks the toptree, exports and imports, then does primary and secondary eval.
         * The loop is there in case the export buffer fills up.
@@ -439,8 +449,6 @@ private:
         /* Number of times we filled up our export buffer*/
         int Nexportfull = 0;
         int Ndone = 0;
-        /* Start first iteration at the beginning*/
-        int64_t WorkSetStart = 0;
         int NTask;
         MPI_Comm_size(comm, &NTask);
         /* Needs to be outside loop because it allocates restart information.
@@ -454,12 +462,12 @@ private:
             if(Nexportfull > 0)
                 message(0, "Toptree %s, iter %d. First particle %ld size %ld.\n", ev_label, Nexportfull, WorkSetStart, WorkSetSize);
             /* First do the toptree and export particles for sending.*/
-            WorkSetStart = ev_toptree(parts, &exportlist, WorkSetStart);
+            int BufferFullFlag = ev_toptree(parts, &exportlist, Nexportfull > 0);
             /* All processes sync via alltoall.*/
             ImpExpCounts counts(comm, exportlist);
             NExportTargets = counts.NExportTargets;
             Nexport_sum += counts.Nexport;
-            Ndone = ev_ndone(WorkSetStart < WorkSetSize, comm);
+            Ndone = ev_ndone(BufferFullFlag, comm);
             /* Send the exported particle data */
             /* exports is allocated first, then imports*/
             CommBuffer exports(counts.NTask, 0);
@@ -540,7 +548,7 @@ private:
         Nlistprimary += WorkSetSize;
     }
 
-    int64_t ev_toptree(const particle_data * const parts, ExportMemory * const exportlist, const int64_t WorkSetStart)
+    int ev_toptree(const particle_data * const parts, ExportMemory * const exportlist, const bool queue_restart)
     {
         int64_t currentIndex = WorkSetStart;
         int BufferFullFlag = 0;
@@ -566,7 +574,7 @@ private:
             do {
                 int64_t end;
                 /* Restart a previously partially evaluated chunk if there is one*/
-                if(WorkSetStart > 0 && exportlist->QueueChunkEnd[tid] > 0) {
+                if(queue_restart && exportlist->QueueChunkEnd[tid] > 0) {
                     chnk = exportlist->QueueChunkRestart[tid];
                     end = exportlist->QueueChunkEnd[tid];
                     exportlist->QueueChunkEnd[tid] = -1;
@@ -620,7 +628,8 @@ private:
         // else
             // message(1, "Finished toptree on %d threads. First particle %ld next start: %ld size %ld.\n", BufferFullFlag, WorkSetStart, currentIndex, WorkSetSize);
         /* Start again with the next chunk not yet evaluated*/
-        return WorkSetStart;
+        WorkSetStart = currentIndex;
+        return BufferFullFlag;
     }
 
     void ev_secondary(CommBuffer * res_imports, CommBuffer * imports, ImpExpCounts* counts, const struct particle_data * const parts)
