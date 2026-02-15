@@ -317,6 +317,8 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     set_gravshort_treepar(treeacc);
     const double rho0 = CP->Omega0 * CP->RhoCrit;
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    /* Twice for force consistency*/
+    grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
     copy_and_mean_accn(PairAccn);
     grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
 
@@ -328,6 +330,11 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     if(maxerr > 0.1)
         endrun(2, "New and old tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
 
+    force_tree_free(&Tree);
+    petapm_destroy(pm);
+
+    myfree(PairAccn);
+
     /* Check density code is the same */
     ForceTree gasTree = {0};
     MyFloat * GradRho = (MyFloat *) mymalloc2("SPH_GradRho", sizeof(MyFloat) * 3 * SlotsManager->info[0].size);
@@ -336,6 +343,8 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK, OutputDir);
     /* computes GradRho with a treewalk. No hsml update as we are reading from a snapshot.*/
     density(&Act, 0, 0, 1, times, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree);
+    slots_free_sph_pred_data(&sph_predicted);
+    sph_predicted.EntVarPred = NULL;
     double * Density = (double *) mymalloc2("Density", sizeof(double) * PartManager->NumPart);
     double * Hsml = (double *) mymalloc2("Hsml", sizeof(double) * PartManager->NumPart);
     copy_density(Density, Hsml);
@@ -343,24 +352,20 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     struct density_params dp = get_densitypar();
     set_densitypar_old(dp);
     density_old(&Act, 0, 0, 1, times, CP, &sph_predicted, GradRho, &gasTree);
+    slots_free_sph_pred_data(&sph_predicted);
 
     double meanhserr, maxhserr, meandserr, maxdserr;
     check_density(&meanhserr, &maxhserr, &meandserr, &maxdserr, Density, Hsml);
     message(0, "Density %% err, new vs old tree. max : %g mean: %g hs %% err: max: %g mean: %g\n", maxdserr, meandserr, maxhserr, meanhserr);
-    myfree(Density);
     myfree(Hsml);
+    myfree(Density);
     force_tree_free(&gasTree);
-    slots_free_sph_pred_data(&sph_predicted);
+    myfree(GradRho);
 
     /* Check hydro code is the same */
 
     char * fname = fastpm_strdup_printf("%s/PART-consistent-%03d", OutputDir, RestartSnapNum);
     petaio_save_snapshot(fname, &IOTable, 0, header->TimeSnapshot, CP);
-
-    force_tree_free(&Tree);
-    petapm_destroy(pm);
-
-    myfree(PairAccn);
 
     destroy_io_blocks(&IOTable);
     domain_free(ddecomp);
