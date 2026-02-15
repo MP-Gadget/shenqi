@@ -173,10 +173,10 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
 
 class HydroResult: public TreeWalkResultBase<HydroPriv> {
     public:
-    MyFloat Acc[3];
-    MyFloat DtEntropy;
-    MyFloat MaxSignalVel;
-    HydroResult(const HydroQuery query): TreeWalkResultBase(query)
+    MyFloat Acc[3] = {0};
+    MyFloat DtEntropy = 0;
+    MyFloat MaxSignalVel = 0;
+    HydroResult(const HydroQuery query): TreeWalkResultBase(query), Acc(0,0,0), DtEntropy(0), MaxSignalVel(0)
     {
         MaxSignalVel = sqrt(GAMMA * query.Pressure / query.EgyRho);
     }
@@ -388,7 +388,7 @@ class HydroNgbIter: public TreeWalkNgbIterBase<HydroQuery, HydroResult, HydroPri
 class HydroLocalTreeWalk: public LocalTreeWalk<HydroNgbIter, HydroQuery, HydroResult, HydroPriv> { using LocalTreeWalk::LocalTreeWalk; };
 class HydroTopTreeWalk: public TopTreeWalk<HydroNgbIter, HydroQuery, HydroResult, HydroPriv> { using TopTreeWalk::TopTreeWalk; };
 
-class HydroTreeWalk: public TreeWalk<HydroQuery, HydroResult, HydroLocalTreeWalk, HydroTopTreeWalk, HydroPriv> {
+class HydroTreeWalk: public TreeWalk<HydroTreeWalk, HydroQuery, HydroResult, HydroLocalTreeWalk, HydroTopTreeWalk, HydroPriv> {
     public:
     HydroTreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const HydroPriv& i_priv) : TreeWalk(i_ev_label, i_tree, i_priv) {}
 

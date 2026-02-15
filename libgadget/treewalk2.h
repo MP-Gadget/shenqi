@@ -188,14 +188,14 @@ class CommBuffer
  *
  * This class provides the framework for walking a tree structure and
  * computing interactions between particles. Derived classes should override
- * the virtual methods to implement specific physics (e.g., gravity, SPH).
+ * the methods haswork and postprocess to implement specific physics (e.g., gravity, SPH).
  *
  * Usage:
  *   1. Derive from TreeWalk and override the required virtual methods
  *   2. Set tree, ev_label, type, and element sizes in the constructor
  *   3. Call treewalk_run() to execute the tree walk
  */
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType>
+template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType>
 class TreeWalk {
 public:
     /* A pointer to the force tree structure to walk.*/
@@ -242,9 +242,6 @@ public:
     /* internal flags*/
     /*Did we use the active_set array as the WorkSet?*/
     int work_set_stolen_from_active;
-    /* Index into WorkSet to start iteration.
-     * Will be !=0 if the export buffer fills up*/
-    int64_t WorkSetStart;
     /* The list of particles to work on. May be NULL, in which case all particles are used.*/
     int * WorkSet;
     /* Size of the workset list*/
@@ -261,7 +258,7 @@ public:
         Nlistprimary(0), Nexport_sum(0), NExportTargets(0),
         maxNinteractions(0), minNinteractions(0), Ninteractions(0),
         work_set_stolen_from_active(0),
-        WorkSetStart(0), WorkSet(nullptr), WorkSetSize(0)
+        WorkSet(nullptr), WorkSetSize(0)
     {
     }
 
@@ -283,15 +280,16 @@ public:
 
         double tstart, tend;
         tstart = second();
-        ev_begin(active_set, size, parts);
-
-        int64_t i;
-        #pragma omp parallel for
-        for(i = 0; i < WorkSetSize; i ++) {
-            const int p_i = WorkSet ? WorkSet[i] : i;
-            preprocess(p_i, parts);
-        }
-
+        /* The last argument is may_have_garbage: in practice the only
+            * trivial haswork is the gravtree. This has no (active) garbage because
+            * the active list was just rebuilt, but on a PM step the active list is NULL
+            * and we may still have swallowed BHs around. So in practice this avoids
+            * computing gravtree for swallowed BHs on a PM step.*/
+        int may_have_garbage = 0;
+        /* Note this is not collective, but that should not matter.*/
+        if(!active_set && SlotsManager->info[5].size > 0)
+            may_have_garbage = 1;
+        build_queue(active_set, size, may_have_garbage, parts);
         tend = second();
         timecomp3 += timediff(tstart, tend);
 
@@ -315,9 +313,9 @@ public:
 
         tstart = second();
         #pragma omp parallel for
-        for(i = 0; i < WorkSetSize; i ++) {
+        for(int i = 0; i < WorkSetSize; i ++) {
             const int p_i = WorkSet ? WorkSet[i] : i;
-            postprocess(p_i, parts);
+            static_cast<DerivedType*>(this)->postprocess(p_i, parts);
         }
         tend = second();
         timecomp3 += timediff(tstart, tend);
@@ -370,7 +368,7 @@ public:
                 if(pp.IsGarbage || pp.Swallowed)
                     continue;
 
-                if(!haswork(pp))
+                if(!static_cast<DerivedType*>(this)->haswork(pp))
                     continue;
         #ifdef DEBUG
                 if(nqthrlocal >= gthread.total_size)
@@ -423,7 +421,7 @@ private:
     * @param i  Particle index
     * @return true if the particle should be processed
     */
-    virtual bool haswork(const particle_data& part) { return true; }
+    bool haswork(const particle_data& part) { return true; }
 
     /**
     * Postprocess - finalize quantities after tree walk completes.
@@ -431,31 +429,7 @@ private:
     *
     * @param i Particle index
     */
-    virtual void postprocess(const int i, particle_data * const part) {}
-
-    /**
-    * Preprocess - initialize quantities before tree walk starts.
-    * Override to set up accumulators, clear buffers, etc.
-    *
-    * @param i Particle index
-    */
-    virtual void preprocess(const int i, particle_data * const part) {}
-
-    void ev_begin(int * active_set, const size_t size, particle_data * const parts)
-    {
-        /* The last argument is may_have_garbage: in practice the only
-            * trivial haswork is the gravtree. This has no (active) garbage because
-            * the active list was just rebuilt, but on a PM step the active list is NULL
-            * and we may still have swallowed BHs around. So in practice this avoids
-            * computing gravtree for swallowed BHs on a PM step.*/
-        int may_have_garbage = 0;
-        /* Note this is not collective, but that should not matter.*/
-        if(!active_set && SlotsManager->info[5].size > 0)
-            may_have_garbage = 1;
-        build_queue(active_set, size, may_have_garbage, parts);
-        /* Start first iteration at the beginning*/
-        WorkSetStart = 0;
-    }
+    void postprocess(const int i, particle_data * const part) {}
 
     /* Main processing loop. Walks the toptree, exports and imports, then does primary and secondary eval.
         * The loop is there in case the export buffer fills up.
@@ -465,6 +439,8 @@ private:
         /* Number of times we filled up our export buffer*/
         int Nexportfull = 0;
         int Ndone = 0;
+        /* Start first iteration at the beginning*/
+        int64_t WorkSetStart = 0;
         int NTask;
         MPI_Comm_size(comm, &NTask);
         /* Needs to be outside loop because it allocates restart information.
@@ -478,12 +454,12 @@ private:
             if(Nexportfull > 0)
                 message(0, "Toptree %s, iter %d. First particle %ld size %ld.\n", ev_label, Nexportfull, WorkSetStart, WorkSetSize);
             /* First do the toptree and export particles for sending.*/
-            int BufferFullFlag = ev_toptree(parts, &exportlist, Nexportfull > 0);
+            WorkSetStart = ev_toptree(parts, &exportlist, WorkSetStart);
             /* All processes sync via alltoall.*/
             ImpExpCounts counts(comm, exportlist);
             NExportTargets = counts.NExportTargets;
             Nexport_sum += counts.Nexport;
-            Ndone = ev_ndone(BufferFullFlag, comm);
+            Ndone = ev_ndone(WorkSetStart < WorkSetSize, comm);
             /* Send the exported particle data */
             /* exports is allocated first, then imports*/
             CommBuffer exports(counts.NTask, 0);
@@ -564,7 +540,7 @@ private:
         Nlistprimary += WorkSetSize;
     }
 
-    int ev_toptree(const particle_data * const parts, ExportMemory * const exportlist, const bool queue_restart)
+    int64_t ev_toptree(const particle_data * const parts, ExportMemory * const exportlist, const int64_t WorkSetStart)
     {
         int64_t currentIndex = WorkSetStart;
         int BufferFullFlag = 0;
@@ -590,7 +566,7 @@ private:
             do {
                 int64_t end;
                 /* Restart a previously partially evaluated chunk if there is one*/
-                if(queue_restart && exportlist->QueueChunkEnd[tid] > 0) {
+                if(WorkSetStart > 0 && exportlist->QueueChunkEnd[tid] > 0) {
                     chnk = exportlist->QueueChunkRestart[tid];
                     end = exportlist->QueueChunkEnd[tid];
                     exportlist->QueueChunkEnd[tid] = -1;
@@ -644,8 +620,7 @@ private:
         // else
             // message(1, "Finished toptree on %d threads. First particle %ld next start: %ld size %ld.\n", BufferFullFlag, WorkSetStart, currentIndex, WorkSetSize);
         /* Start again with the next chunk not yet evaluated*/
-        WorkSetStart = currentIndex;
-        return BufferFullFlag;
+        return currentIndex;
     }
 
     void ev_secondary(CommBuffer * res_imports, CommBuffer * imports, ImpExpCounts* counts, const struct particle_data * const parts)
@@ -833,10 +808,10 @@ private:
 };
 
 /* This calls the run() method repeatedly in a loop, redoing particles for density/hsml estimation.*/
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType>
-class LoopedTreeWalk: public TreeWalk<QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType> {
+template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType>
+class LoopedTreeWalk: public TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType> {
     protected:
-    using Base = TreeWalk<QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType>;
+    using Base = TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType>;
     using Base::build_queue;
     using Base::WorkSetSize;
     using Base::WorkSet;
@@ -878,7 +853,7 @@ class LoopedTreeWalk: public TreeWalk<QueryType, ResultType, LocalTreeWalkType, 
         bool orig_build_queue = should_rebuild_queue;
         should_rebuild_queue = false;
         this->timecomp3 += timediff(tstart, tend);
-        int Niteration = 0;
+        Niteration = 0;
         /* we will repeat the whole thing for those particles where we didn't find enough neighbours */
         do {
             /* The RedoQueue needs enough memory to store every workset particle on every thread, because

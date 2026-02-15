@@ -95,6 +95,58 @@ void check_accns(double * meanerr_tot, double * maxerr_tot, double * meanangle_t
     *meanangle_tot /= (tot_npart);
 }
 
+double copy_density(double * Density, double * Hsml)
+{
+    double meanacc = 0;
+    #pragma omp parallel for reduction(+: meanacc)
+    for(int i = 0; i < PartManager->NumPart; i++)
+    {
+        if(Part[i].IsGarbage || Part[i].Swallowed || (Part[i].Type != 0 && Part[i].Type != 5))
+            continue;
+        Density[i] = SphP[Part[i].PI].Density;
+        Hsml[i] = Part[i].Hsml;
+        meanacc += Density[i];
+    }
+    int64_t tot_npart;
+    MPI_Allreduce(&PartManager->NumPart, &tot_npart, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(MPI_IN_PLACE, &meanacc, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    meanacc/= (tot_npart*3.);
+    return meanacc;
+}
+
+void check_density(double * meanhserr_tot, double * maxhserr_tot, double * meandserr_tot, double * maxdserr_tot, double * Density, double * Hsml)
+{
+    double meanhserr=0, maxhserr=-1, meandserr = 0, maxdserr = -1;
+    int i;
+    /* This checks that the short-range force accuracy is being correctly estimated.*/
+    #pragma omp parallel for reduction(+: meanhserr) reduction(max:maxhserr)  reduction(+: meandserr) reduction(max:maxdserr)
+    for(i = 0; i < PartManager->NumPart; i++)
+    {
+        if(Part[i].IsGarbage || Part[i].Swallowed || (Part[i].Type != 0 && Part[i].Type != 5))
+            continue;
+        double densityerr = Density[i] / SphP[Part[i].PI].Density - 1;
+        double hsmlerr = Hsml[i] / Part[i].Hsml - 1;
+        meandserr += densityerr;
+        meanhserr += hsmlerr;
+        if(maxdserr < densityerr) {
+            // message(0, "i %d type %d err %g acc %g %g %g pair %g %g %g\n", i, Part[i].Type, err, Part[i].GravPM[0] + Part[i].FullTreeGravAccel[0], Part[i].GravPM[1] + Part[i].FullTreeGravAccel[1], Part[i].GravPM[2] + Part[i].FullTreeGravAccel[2], PairAccn[i][0], PairAccn[i][1], PairAccn[i][2]);
+            maxdserr = densityerr;
+        }
+        if(maxhserr < hsmlerr) {
+            // message(0, "i %d type %d err %g acc %g %g %g pair %g %g %g\n", i, Part[i].Type, err, Part[i].GravPM[0] + Part[i].FullTreeGravAccel[0], Part[i].GravPM[1] + Part[i].FullTreeGravAccel[1], Part[i].GravPM[2] + Part[i].FullTreeGravAccel[2], PairAccn[i][0], PairAccn[i][1], PairAccn[i][2]);
+            maxhserr = hsmlerr;
+        }
+    }
+    MPI_Allreduce(&meanhserr, meanhserr_tot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&maxhserr, maxhserr_tot, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+    MPI_Allreduce(&meandserr, meandserr_tot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&maxdserr, maxdserr_tot, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+    int64_t tot_npart;
+    MPI_Allreduce(&PartManager->NumPart, &tot_npart, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
+    *meandserr_tot /= (tot_npart);
+    *meanhserr_tot /= (tot_npart);
+}
+
 void
 run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const int Nmesh, const inttime_t Ti_Current, const char * OutputDir, const struct header_data * header)
 {
@@ -265,6 +317,8 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     set_gravshort_treepar(treeacc);
     const double rho0 = CP->Omega0 * CP->RhoCrit;
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    /* Twice for force consistency*/
+    grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
     copy_and_mean_accn(PairAccn);
     grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
 
@@ -276,6 +330,11 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     if(maxerr > 0.1)
         endrun(2, "New and old tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
 
+    force_tree_free(&Tree);
+    petapm_destroy(pm);
+
+    myfree(PairAccn);
+
     /* Check density code is the same */
     ForceTree gasTree = {0};
     MyFloat * GradRho = (MyFloat *) mymalloc2("SPH_GradRho", sizeof(MyFloat) * 3 * SlotsManager->info[0].size);
@@ -284,22 +343,29 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK, OutputDir);
     /* computes GradRho with a treewalk. No hsml update as we are reading from a snapshot.*/
     density(&Act, 0, 0, 1, times, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree);
+    slots_free_sph_pred_data(&sph_predicted);
+    sph_predicted.EntVarPred = NULL;
+    double * Density = (double *) mymalloc2("Density", sizeof(double) * PartManager->NumPart);
+    double * Hsml = (double *) mymalloc2("Hsml", sizeof(double) * PartManager->NumPart);
+    copy_density(Density, Hsml);
+
     struct density_params dp = get_densitypar();
     set_densitypar_old(dp);
     density_old(&Act, 0, 0, 1, times, CP, &sph_predicted, GradRho, &gasTree);
-
-    force_tree_free(&gasTree);
     slots_free_sph_pred_data(&sph_predicted);
+
+    double meanhserr, maxhserr, meandserr, maxdserr;
+    check_density(&meanhserr, &maxhserr, &meandserr, &maxdserr, Density, Hsml);
+    message(0, "Density %% err, new vs old tree. max : %g mean: %g hs %% err: max: %g mean: %g\n", maxdserr, meandserr, maxhserr, meanhserr);
+    myfree(Hsml);
+    myfree(Density);
+    force_tree_free(&gasTree);
+    myfree(GradRho);
 
     /* Check hydro code is the same */
 
     char * fname = fastpm_strdup_printf("%s/PART-consistent-%03d", OutputDir, RestartSnapNum);
     petaio_save_snapshot(fname, &IOTable, 0, header->TimeSnapshot, CP);
-
-    force_tree_free(&Tree);
-    petapm_destroy(pm);
-
-    myfree(PairAccn);
 
     destroy_io_blocks(&IOTable);
     domain_free(ddecomp);

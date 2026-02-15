@@ -87,9 +87,10 @@
 
 class GravTreeResult : public TreeWalkResultBase<GravTreePriv> {
     public:
-    using TreeWalkResultBase::TreeWalkResultBase;
-    MyFloat Acc[3];
-    MyFloat Potential;
+    MyFloat Acc[3] = {0};
+    MyFloat Potential = 0;
+    GravTreeResult(GravTreeQuery& query): TreeWalkResultBase(query), Acc(0,0,0), Potential(0) {}
+
     void reduce(const int place, const TreeWalkReduceMode mode, const GravTreePriv& priv, struct particle_data * const parts)
     {
         TreeWalkResultBase::reduce(place, mode, priv, parts);
@@ -443,8 +444,8 @@ class GravTopTreeWalk : public TopTreeWalk<TreeWalkNgbIterBase<GravTreeQuery, Gr
     }
 };
 
-class GravTreeWalk : public TreeWalk <GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreePriv> {
-    protected:
+class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreePriv> {
+    public:
     /**
     * Postprocess - finalize quantities after tree walk completes.
     * Override to normalize results, compute derived quantities, etc.
