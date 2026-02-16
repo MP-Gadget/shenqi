@@ -343,12 +343,11 @@ template <typename NgbIterType, typename QueryType, typename ResultType, typenam
 class LocalTreeWalk
 {
 public:
-    const enum TreeWalkReduceMode mode; /* 0 for Primary, 1 for Secondary */
     /* A pointer to the force tree structure to walk.*/
     const ForceTree * const tree;
     /* Constructor from treewalk */
-    LocalTreeWalk(const enum TreeWalkReduceMode i_mode, const ForceTree * const i_tree):
-     mode(i_mode), tree(i_tree)
+    LocalTreeWalk(const ForceTree * const i_tree):
+     tree(i_tree)
     { }
     /**
      * Visit function - called between a tree node and a particle.
@@ -364,12 +363,12 @@ public:
      * @param output Result accumulator
      * @return number of particle-particle interactions.
      */
+     template<TreeWalkReduceMode mode>
      int64_t visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
      {
          NgbIterType iter(input);
 
-         if(mode == TREEWALK_TOPTREE)
-             endrun(5, "Toptree walked called visit, should call toptree_visit.\n");
+         static_assert(mode != TREEWALK_TOPTREE, "Toptree should call toptree_visit, not visit.");
          int64_t ninteractions = 0;
          for(int inode = 0; inode < NODELISTLENGTH && input.NodeList[inode] >= 0; inode++)
          {
@@ -382,7 +381,7 @@ public:
 
                  /* When walking exported particles we start from the encompassing top-level node,
                  * so if we get back to a top-level node again we are done.*/
-                 if(mode == TREEWALK_GHOSTS) {
+                 if constexpr(mode == TREEWALK_GHOSTS) {
                      /* The first node is always top-level*/
                      if(no > tree->lastnode)
                          endrun(7, "Node is after lastnode. no %d lastnode %ld start %d first %ld\n", no, tree->lastnode, input.NodeList[inode], tree->firstnode);
@@ -419,7 +418,7 @@ public:
                 }
                 else if(current->f.ChildType == PSEUDO_NODE_TYPE) {
                     /* pseudo particle */
-                    if(mode == TREEWALK_GHOSTS)
+                    if constexpr(mode == TREEWALK_GHOSTS)
                         endrun(12312, "Secondary for particle from node %d found pseudo at %d.\n", input.NodeList[inode], no);
                     /* This has already been evaluated with the toptree. Move sideways.*/
                     no = current->sibling;
@@ -440,8 +439,8 @@ class LocalNgbListTreeWalk : public LocalTreeWalk<NgbIterType, QueryType, Result
 {
 public:
     /* Constructor from treewalk */
-    LocalNgbListTreeWalk(const enum TreeWalkReduceMode i_mode, const ForceTree * const i_tree, int * i_ngblist):
-    LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>(i_mode, i_tree), ngblist(i_ngblist)
+    LocalNgbListTreeWalk(const ForceTree * const i_tree, int * i_ngblist):
+    LocalTreeWalk<NgbIterType, QueryType, ResultType, ParamType>(i_tree), ngblist(i_ngblist)
     { }
     /**
      * Variant of ngbiter that uses an Ngblist: first it builds a list of
@@ -452,6 +451,7 @@ public:
      * wants to change the search radius, such as for density code.
      * Use this one if the treewalk modifies other particles.
      **/
+    template<TreeWalkReduceMode mode>
     int64_t visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
     {
         NgbIterType iter(input);
@@ -466,7 +466,7 @@ public:
 
         for(inode = 0; inode < NODELISTLENGTH && input->NodeList[inode] >= 0; inode++)
         {
-            int numcand = ngb_treefind_threads(input, &iter, input->NodeList[inode]);
+            int numcand = ngb_treefind_threads<mode>(input, &iter, input->NodeList[inode]);
             /* If we are here, export is successful. Work on this particle -- first
              * filter out all of the candidates that are actually outside. */
             int numngb;
@@ -504,6 +504,7 @@ protected:
     * iter->base.other, iter->base.dist iter->base.r2, iter->base.r, are properly initialized.
     *
     * */
+    template<TreeWalkReduceMode mode>
     int ngb_treefind_threads(const QueryType& input, NgbIterType * iter, int startnode)
     {
         int no;
@@ -517,7 +518,7 @@ protected:
         {
             if(node_is_particle(no, this->tree)) {
                 int fat = force_get_father(no, this->tree);
-                endrun(12312, "Particles should be added before getting here! no = %d, father = %d (ptype = %d) start=%d mode = %d\n", no, fat, this->tree->Nodes[fat].f.ChildType, startnode, this->mode);
+                endrun(12312, "Particles should be added before getting here! no = %d, father = %d (ptype = %d) start=%d mode = %d\n", no, fat, this->tree->Nodes[fat].f.ChildType, startnode, mode);
             }
             if(node_is_pseudo_particle(no, this->tree)) {
                 int fat = force_get_father(no, this->tree);
@@ -528,7 +529,7 @@ protected:
 
             /* When walking exported particles we start from the encompassing top-level node,
              * so if we get back to a top-level node again we are done.*/
-            if(this->mode == TREEWALK_GHOSTS) {
+            if constexpr(mode == TREEWALK_GHOSTS) {
                 /* The first node is always top-level*/
                 if(current->f.TopLevel && no != startnode) {
                     /* we reached a top-level node again, which means that we are done with the branch */
@@ -555,7 +556,7 @@ protected:
             }
             else if(current->f.ChildType == PSEUDO_NODE_TYPE) {
                 /* pseudo particle */
-                if(this->mode == TREEWALK_GHOSTS) {
+                if constexpr(mode == TREEWALK_GHOSTS) {
                     endrun(12312, "Secondary for nodelist %d found pseudo at %d.\n", startnode, no);
                 } else {
                     /* This has already been evaluated with the toptree. Move sideways.*/

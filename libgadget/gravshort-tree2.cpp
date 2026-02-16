@@ -255,8 +255,10 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
      *  table.
      * Returns the number of particle-particle and particle-node interactions.
      */
+    template<TreeWalkReduceMode mode>
     int64_t visit(const GravTreeQuery& input, GravTreeResult * output, const GravTreePriv& priv, const struct particle_data * const parts)
     {
+        static_assert(mode != TREEWALK_TOPTREE, "Toptree should call toptree_visit, not visit.");
         const double BoxSize = tree->BoxSize;
 
         /*Tree-opening constants*/
@@ -284,21 +286,22 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
             /* Use the next node in the node list if we are doing a secondary walk.
              * For a primary walk the node list only ever contains one node. */
             int no = input.NodeList[listindex];
-            int startno = no;
+            const int startno = no;
             if(no < 0)
                 break;
 
             while(no >= 0)
             {
                 /* The tree always walks internal nodes*/
-                struct NODE *nop = &tree->Nodes[no];
+                const struct NODE * const nop = &tree->Nodes[no];
 
-                if(mode == TREEWALK_GHOSTS && nop->f.TopLevel && no != startno)  /* we reached a top-level node again, which means that we are done with the branch */
-                    break;
+                if constexpr(mode == TREEWALK_GHOSTS) {
+                    if(nop->f.TopLevel && no != startno)  /* we reached a top-level node again, which means that we are done with the branch */
+                        break;
+                }
 
-                int i;
                 double dx[3];
-                for(i = 0; i < 3; i++)
+                for(int i = 0; i < 3; i++)
                     dx[i] = NEAREST(nop->mom.cofm[i] - inpos[i], BoxSize);
                 const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
 
@@ -311,7 +314,7 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
                 }
 
                 /* This node accelerates the particle directly, and is not opened.*/
-                int open_node = shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, BoxSize, aold, TreeUseBH, BHOpeningAngle2);
+                const int open_node = shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, BoxSize, aold, TreeUseBH, BHOpeningAngle2);
 
                 if(!open_node)
                 {
@@ -328,7 +331,7 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
                 if(nop->f.ChildType == PARTICLE_NODE_TYPE)
                 {
                     /* Loop over child particles*/
-                    for(i = 0; i < nop->s.noccupied; i++) {
+                    for(int i = 0; i < nop->s.noccupied; i++) {
                         const int pp = nop->s.suns[i];
                         for(int j = 0; j < 3; j++)
                             dx[j] = NEAREST(Part[pp].Pos[j] - inpos[j], BoxSize);
@@ -342,13 +345,15 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
                 }
                 else if (nop->f.ChildType == PSEUDO_NODE_TYPE)
                 {
+                    if constexpr(mode == TREEWALK_GHOSTS)
+                        endrun(12312, "Secondary for particle from node %d found pseudo at %d.\n", input.NodeList[listindex], no);
                     /* Move to the sibling (likely also a pseudo node)*/
                     no = nop->sibling;
                     continue;
                 }
-                else //NODE_NODE_TYPE
-                    /* This node contains other nodes and we need to open it.*/
-                    no = nop->s.suns[0];
+                //NODE_NODE_TYPE
+                /* This node contains other nodes and we need to open it.*/
+                no = nop->s.suns[0];
             }
         }
         return ninteractions;
