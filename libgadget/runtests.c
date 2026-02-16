@@ -9,6 +9,8 @@
 #include "run.h"
 #include "treewalk.h"
 #include "density2.h"
+#include "hydra2.h"
+#include "hydra.h"
 #include "density.h"
 #include "utils/endrun.h"
 #include "utils/system.h"
@@ -27,6 +29,75 @@ void register_extra_blocks(struct IOTable * IOTable)
         IO_REG_WRONLY(GravAccel,       "f4", 3, ptype, IOTable);
         IO_REG_WRONLY(GravPM,       "f4", 3, ptype, IOTable);
     }
+}
+
+double copy_and_mean_hydroaccn(double (* PairAccn)[3])
+{
+    int i;
+    double meanacc = 0;
+    #pragma omp parallel for reduction(+: meanacc)
+    for(i = 0; i < PartManager->NumPart; i++)
+    {
+        if(Part[i].IsGarbage || Part[i].Swallowed || Part[i].Type != 0)
+            continue;
+        int k;
+        for(k=0; k<3; k++) {
+            PairAccn[i][k] = SphP[Part[i].PI].HydroAccel[k];
+            meanacc += fabs(PairAccn[i][k]);
+        }
+    }
+    int64_t tot_npart;
+    MPI_Allreduce(&PartManager->NumPart, &tot_npart, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(MPI_IN_PLACE, &meanacc, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    meanacc/= (tot_npart*3.);
+    return meanacc;
+}
+
+void check_hydroaccns(double * meanerr_tot, double * maxerr_tot, double * meanangle_tot, double * maxangle_tot, double (*PairAccn)[3])
+{
+    double meanerr=0, maxerr=-1, meanangle = 0, maxangle = 0;
+    int i;
+    /* This checks that the short-range force accuracy is being correctly estimated.*/
+    #pragma omp parallel for reduction(+: meanerr) reduction(max:maxerr)
+    for(i = 0; i < PartManager->NumPart; i++)
+    {
+        if(Part[i].IsGarbage || Part[i].Swallowed || Part[i].Type != 0)
+            continue;
+        int k;
+        double pairmag = 0, checkmag = 0, dotprod = 0;
+        for(k=0; k<3; k++) {
+            pairmag += PairAccn[i][k]*PairAccn[i][k];
+            double newaccel = SphP[Part[i].PI].HydroAccel[k];
+            checkmag += newaccel * newaccel;
+            dotprod += PairAccn[i][k] * newaccel;
+        }
+        checkmag = sqrt(checkmag);
+        pairmag = sqrt(pairmag);
+        double err = fabs(checkmag/pairmag - 1);
+        dotprod = dotprod / checkmag / pairmag;
+        double angle = 0;
+        if(dotprod <= 1 && dotprod >= -1) {
+            angle = fabs(acos(dotprod));
+            meanangle += angle;
+        }
+        if(maxangle < angle) {
+            maxangle = angle;
+            // message(0, "i %d type %d angle %g acc %g %g %g pair %g %g %g\n", i, Part[i].Type, angle, Part[i].GravPM[0] + Part[i].FullTreeGravAccel[0], Part[i].GravPM[1] + Part[i].FullTreeGravAccel[1], Part[i].GravPM[2] + Part[i].FullTreeGravAccel[2], PairAccn[i][0], PairAccn[i][1], PairAccn[i][2]);
+        }
+        meanerr += err;
+        if(maxerr < err) {
+            // message(0, "i %d type %d err %g acc %g %g %g pair %g %g %g\n", i, Part[i].Type, err, Part[i].GravPM[0] + Part[i].FullTreeGravAccel[0], Part[i].GravPM[1] + Part[i].FullTreeGravAccel[1], Part[i].GravPM[2] + Part[i].FullTreeGravAccel[2], PairAccn[i][0], PairAccn[i][1], PairAccn[i][2]);
+            maxerr = err;
+        }
+    }
+    MPI_Allreduce(&meanerr, meanerr_tot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&maxerr, maxerr_tot, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+    MPI_Allreduce(&meanangle, meanangle_tot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&maxangle, maxangle_tot, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+    int64_t tot_npart;
+    MPI_Allreduce(&PartManager->NumPart, &tot_npart, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
+    *meanerr_tot /= (tot_npart);
+    *meanangle_tot /= (tot_npart);
 }
 
 double copy_and_mean_accn(double (* PairAccn)[3])
@@ -359,10 +430,23 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     message(0, "Density %% err, new vs old tree. max : %g mean: %g hs %% err: max: %g mean: %g\n", maxdserr, meandserr, maxhserr, meanhserr);
     myfree(Hsml);
     myfree(Density);
-    force_tree_free(&gasTree);
-    myfree(GradRho);
 
     /* Check hydro code is the same */
+    double (* HydroAccn)[3] = (double (*) [3]) mymalloc2("HydroAccns", 3*sizeof(double) * PartManager->NumPart);
+    /* Compare the new and old hydro force. */
+    hydro_force(&Act, header->TimeSnapshot, sph_predicted.EntVarPred, times,  CP, &gasTree);
+    copy_and_mean_hydroaccn(HydroAccn);
+    hydro_force_old(&Act, header->TimeSnapshot, &sph_predicted, times,  CP, &gasTree);
+    /* This checks fully opened tree force against pair force*/
+    check_hydroaccns(&meanerr,&maxerr, &meanangle, &maxangle, HydroAccn);
+    message(0, "Force error, new hydro force vs old. max : %g mean: %g angle %g max angle %g\n", maxerr, meanerr, meanangle, maxangle);
+
+    if(maxerr > 0.1)
+        endrun(2, "New and old hydro tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
+
+    myfree(HydroAccn);
+    force_tree_free(&gasTree);
+    myfree(GradRho);
 
     char * fname = fastpm_strdup_printf("%s/PART-consistent-%03d", OutputDir, RestartSnapNum);
     petaio_save_snapshot(fname, &IOTable, 0, header->TimeSnapshot, CP);
