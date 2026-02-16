@@ -91,14 +91,16 @@ class GravTreeResult : public TreeWalkResultBase<GravTreePriv> {
     MyFloat Potential = 0;
     GravTreeResult(GravTreeQuery& query): TreeWalkResultBase(query), Acc(0,0,0), Potential(0) {}
 
-    void reduce(const int place, const TreeWalkReduceMode mode, const GravTreePriv& priv, struct particle_data * const parts)
+    template<TreeWalkReduceMode mode>
+    void reduce(const int place, const GravTreePriv& priv, struct particle_data * const parts)
     {
-        TreeWalkResultBase::reduce(place, mode, priv, parts);
+        TreeWalkResultBase::reduce<mode>(place, priv, parts);
         TREEWALK_REDUCE(priv.Accel[place][0], Acc[0]);
         TREEWALK_REDUCE(priv.Accel[place][1], Acc[1]);
         TREEWALK_REDUCE(priv.Accel[place][2], Acc[2]);
-        if(priv.update_potential)
+        if(priv.update_potential) {
             TREEWALK_REDUCE(Part[place].Potential, Potential);
+        }
     }
 
     /* Add the acceleration from a node or particle to the output structure,

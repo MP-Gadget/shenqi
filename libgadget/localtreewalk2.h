@@ -8,7 +8,7 @@
 #include "forcetree.h"
 #include "partmanager.h"
 
-#define TREEWALK_REDUCE(A, B) (A) = (mode==TREEWALK_PRIMARY)?(B):((A) + (B))
+#define TREEWALK_REDUCE(A, B) if constexpr(mode==TREEWALK_PRIMARY){ (A) = (B);} else {(A) = ((A) + (B));}
 
 /* Use a low number here. Larger numbers decrease the size of the export table, up to a point.
  * The need for a large Nodelist in older versions
@@ -92,7 +92,8 @@ class TreeWalkResultBase
         * @param j      Particle index
         * @param mode   Whether this is primary, ghost, or toptree reduction
         */
-        void reduce(const int j, const TreeWalkReduceMode mode, const ParamType& priv, struct particle_data * const parts)
+        template<TreeWalkReduceMode mode>
+        void reduce(const int j, const ParamType& priv, struct particle_data * const parts)
         {
             #ifdef DEBUG
                 if(parts[j].ID != ID)

@@ -233,9 +233,10 @@ class DensityResult : public TreeWalkResultBase<DensityPriv> {
         EgyRho(0), DhsmlEgyDensity(0), Rho(0), DhsmlDensity(0), Ngb(0), Div(0), Rot(0,0,0), GradRho(0,0,0)
         {}
 
-        void reduce(int place, enum TreeWalkReduceMode mode, const DensityPriv& priv, struct particle_data * const parts)
+        template<TreeWalkReduceMode mode>
+        void reduce(int place, const DensityPriv& priv, struct particle_data * const parts)
         {
-            TreeWalkResultBase::reduce(place, mode, priv, parts);
+            TreeWalkResultBase::reduce<mode>(place, priv, parts);
             TREEWALK_REDUCE(priv.NumNgb[place], Ngb);
             TREEWALK_REDUCE(priv.DhsmlDensityFactor[place], DhsmlDensity);
 

@@ -529,7 +529,7 @@ private:
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
                 ResultType output(input);
                 int64_t ninteractions = lv.template visit<TREEWALK_PRIMARY>(input, &output, priv, parts);
-                output.reduce(i, TREEWALK_PRIMARY, priv, parts);
+                output.template reduce<TREEWALK_PRIMARY>(i, priv, parts);
                 if(maxNinteractions < ninteractions)
                     maxNinteractions = ninteractions;
                 if(minNinteractions > ninteractions)
@@ -758,7 +758,7 @@ private:
                 const int64_t bufpos = real_recv_count[task] + counts->Export_offset[task];
                 real_recv_count[task]++;
                 ResultType * output = &((ResultType *) exportbuf->databuf)[bufpos];
-                output->reduce(place, TREEWALK_GHOSTS, priv, parts);
+                output->template reduce<TREEWALK_GHOSTS>(place, priv, parts);
     #ifdef DEBUG
                 if(output->ID != parts[place].ID)
                     endrun(8, "Error in communication: IDs mismatch %ld %ld\n", output->ID, parts[place].ID);

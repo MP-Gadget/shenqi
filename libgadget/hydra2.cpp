@@ -181,17 +181,19 @@ class HydroResult: public TreeWalkResultBase<HydroPriv> {
         MaxSignalVel = sqrt(GAMMA * query.Pressure / query.EgyRho);
     }
 
-    void reduce(int place, enum TreeWalkReduceMode mode, const HydroPriv& priv, struct particle_data * const parts)
+    template<TreeWalkReduceMode mode>
+    void reduce(int place, const HydroPriv& priv, struct particle_data * const parts)
     {
-        TreeWalkResultBase::reduce(place, mode, priv, parts);
+        TreeWalkResultBase::reduce<mode>(place, priv, parts);
         struct sph_particle_data * sphpart = &SphP[parts[place].PI];
         for(int k = 0; k < 3; k++)
             TREEWALK_REDUCE(sphpart->HydroAccel[k], Acc[k]);
 
         TREEWALK_REDUCE(sphpart->DtEntropy, DtEntropy);
 
-        if(mode == TREEWALK_PRIMARY || sphpart->MaxSignalVel < MaxSignalVel)
-            sphpart->MaxSignalVel = MaxSignalVel;
+        if constexpr(mode == TREEWALK_PRIMARY)
+           if(sphpart->MaxSignalVel < MaxSignalVel)
+               sphpart->MaxSignalVel = MaxSignalVel;
     }
 };
 
