@@ -17,6 +17,7 @@
 #include "winds.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
+#include "hydra2.h"
 
 /*! \file hydra.c
  *  \brief Computation of SPH forces and rate of entropy generation

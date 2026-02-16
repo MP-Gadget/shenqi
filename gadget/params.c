@@ -8,8 +8,8 @@
 #include <libgadget/winds.h>
 #include <libgadget/sfr_eff.h>
 #include <libgadget/blackhole.h>
-#include <libgadget/density.h>
-#include <libgadget/hydra.h>
+#include <libgadget/density2.h>
+#include <libgadget/hydra2.h>
 #include <libgadget/fof.h>
 #include <libgadget/init.h>
 #include <libgadget/run.h>

@@ -35,7 +35,7 @@ static struct hydro_params
 
 /*Set the parameters of the hydro module*/
 void
-set_hydro_params(ParameterSet * ps)
+set_hydro_params_old(ParameterSet * ps)
 {
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
@@ -45,11 +45,6 @@ set_hydro_params(ParameterSet * ps)
         HydroParams.DensityIndependentSphOn= param_get_int(ps, "DensityIndependentSphOn");
     }
     MPI_Bcast(&HydroParams, sizeof(struct hydro_params), MPI_BYTE, 0, MPI_COMM_WORLD);
-}
-
-int DensityIndependentSphOn(void)
-{
-    return HydroParams.DensityIndependentSphOn;
 }
 
 /* Function to get the center of mass density and HSML correction factor for an SPH particle with index i.
@@ -148,7 +143,7 @@ hydro_reduce(int place, TreeWalkResultHydro * result, enum TreeWalkReduceMode mo
  *  particles .
  */
 void
-hydro_force(const ActiveParticles * act, const double atime, struct sph_pred_data * SPH_predicted, const DriftKickTimes times,  Cosmology * CP, const ForceTree * const tree)
+hydro_force_old(const ActiveParticles * act, const double atime, struct sph_pred_data * SPH_predicted, const DriftKickTimes times,  Cosmology * CP, const ForceTree * const tree)
 {
     int i;
     TreeWalk tw[1] = {{0}};
@@ -283,7 +278,7 @@ hydro_reduce(int place, TreeWalkResultHydro * result, enum TreeWalkReduceMode mo
  * The Density in the SPHP struct is evaluated at the last time
  * the particle was active. Good for both EgyWtDensity and Density,
  * cube of the change in Hsml in drift.c. */
-double
+static double
 SPH_DensityPred(MyFloat Density, MyFloat DivVel, double dtdrift)
 {
     /* Note minus sign!*/

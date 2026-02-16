@@ -13,8 +13,8 @@
 
 #include "petaio.h"
 #include "slotsmanager.h"
-#include "hydra.h"
-#include "density.h"
+#include "hydra2.h"
+#include "density2.h"
 #include "partmanager.h"
 #include "config.h"
 #include "neutrinos_lra.h"
