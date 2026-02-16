@@ -8,8 +8,6 @@
 #include "forcetree.h"
 #include "partmanager.h"
 
-#define FACT1 0.366025403785    /* FACT1 = 0.5 * (sqrt(3)-1) */
-
 #define TREEWALK_REDUCE(A, B) (A) = (mode==TREEWALK_PRIMARY)?(B):((A) + (B))
 
 /* Use a low number here. Larger numbers decrease the size of the export table, up to a point.
@@ -170,6 +168,7 @@ class TreeWalkNgbIterBase {
                 r2 += dx * dx;
             }
             /* now test against the minimal sphere enclosing everything */
+            constexpr double FACT1  = 0.5 *  (std::sqrt(3.0) - 1.0); /* FACT1 = 0.5 * (sqrt(3)-1) ~ 0.366 */
             dist += FACT1 * current->len;
 
             if(r2 > dist * dist) {
