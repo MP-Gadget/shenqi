@@ -338,11 +338,13 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
                         ninteractions++;
                     }
                     no = nop->sibling;
+                    continue;
                 }
                 else if (nop->f.ChildType == PSEUDO_NODE_TYPE)
                 {
                     /* Move to the sibling (likely also a pseudo node)*/
                     no = nop->sibling;
+                    continue;
                 }
                 else //NODE_NODE_TYPE
                     /* This node contains other nodes and we need to open it.*/
