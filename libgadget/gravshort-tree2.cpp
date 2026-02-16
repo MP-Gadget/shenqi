@@ -202,17 +202,15 @@ shall_we_discard_node(const double len, const double r2, const double center[3],
 {
     /* This checks the distance from the node center of mass
      * is greater than the cutoff. */
-    if(r2 > rcut2)
-    {
-        /* check whether we can stop walking along this branch */
-        const double eff_dist = rcut + 0.5 * len;
-        int i;
-        /*This checks whether we are also outside this region of the oct-tree*/
-        /* As long as one dimension is outside, we are fine*/
-        for(i=0; i < 3; i++)
-            if(fabs(NEAREST(center[i] - inpos[i], BoxSize)) > eff_dist)
-                return 1;
-    }
+    if(r2 <= rcut2)
+        return 0;
+    /* check whether we can stop walking along this branch */
+    const double eff_dist = rcut + 0.5 * len;
+    /*This checks whether we are also outside this region of the oct-tree*/
+    /* As long as one dimension is outside, we are fine*/
+    for(int i=0; i < 3; i++)
+        if(fabs(NEAREST(center[i] - inpos[i], BoxSize)) > eff_dist)
+            return 1;
     return 0;
 }
 
@@ -266,7 +264,6 @@ class GravLocalTreeWalk {
     int64_t visit(const GravTreeQuery& input, GravTreeResult * output, const GravTreePriv& priv, const struct particle_data * const parts)
     {
         static_assert(mode != TREEWALK_TOPTREE, "Toptree should call toptree_visit, not visit.");
-        const double BoxSize = tree->BoxSize;
 
         /*Tree-opening constants*/
         const double cellsize = priv.cellsize;
@@ -281,9 +278,6 @@ class GravLocalTreeWalk {
             BHOpeningAngle2 = TreeParams.MaxBHOpeningAngle * TreeParams.MaxBHOpeningAngle;
 
         //message(1, "BH: %d, opening angle %g aold %g\n", TreeUseBH, BHOpeningAngle2, aold);
-        /*Input particle data*/
-        const double * inpos = input.Pos;
-
         /*Start the tree walk*/
         int64_t listindex, ninteractions=0;
 
@@ -297,7 +291,7 @@ class GravLocalTreeWalk {
             if(no < 0)
                 break;
 
-            while(no >= 0)
+            while(no >= tree->firstnode)
             {
                 /* The tree always walks internal nodes*/
                 const struct NODE * const nop = &tree->Nodes[no];
@@ -309,11 +303,11 @@ class GravLocalTreeWalk {
 
                 double dx[3];
                 for(int i = 0; i < 3; i++)
-                    dx[i] = NEAREST(nop->mom.cofm[i] - inpos[i], BoxSize);
+                    dx[i] = NEAREST(nop->mom.cofm[i] - input.Pos[i], tree->BoxSize);
                 const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
 
                 /* Discard this node, move to sibling*/
-                if(shall_we_discard_node(nop->len, r2, nop->center, inpos, BoxSize, rcut, rcut2))
+                if(shall_we_discard_node(nop->len, r2, nop->center, input.Pos, tree->BoxSize, rcut, rcut2))
                 {
                     no = nop->sibling;
                     /* Don't add this node*/
@@ -321,7 +315,7 @@ class GravLocalTreeWalk {
                 }
 
                 /* This node accelerates the particle directly, and is not opened.*/
-                const int open_node = shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, BoxSize, aold, TreeUseBH, BHOpeningAngle2);
+                const int open_node = shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, input.Pos, tree->BoxSize, aold, TreeUseBH, BHOpeningAngle2);
 
                 if(!open_node)
                 {
@@ -341,7 +335,7 @@ class GravLocalTreeWalk {
                     for(int i = 0; i < nop->s.noccupied; i++) {
                         const int pp = nop->s.suns[i];
                         for(int j = 0; j < 3; j++)
-                            dx[j] = NEAREST(Part[pp].Pos[j] - inpos[j], BoxSize);
+                            dx[j] = NEAREST(Part[pp].Pos[j] - input.Pos[j], tree->BoxSize);
                         const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
                         /* Compute the acceleration and apply it to the output structure*/
                         output->apply_accn(dx, r2, Part[pp].Mass, cellsize);
@@ -376,7 +370,6 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreePriv, NGB_TREE
     int toptree_visit(const int target, const GravTreeQuery& input, const GravTreePriv& priv, const struct particle_data * const parts)
     {
         //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
-        const double BoxSize = tree->BoxSize;
         /* Reset the exported particles for this target. */
         NThisParticleExport = 0;
         /*Tree-opening constants*/
@@ -403,13 +396,13 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreePriv, NGB_TREE
 
             double dx[3];
             for(int i = 0; i < 3; i++)
-                dx[i] = NEAREST(nop->mom.cofm[i] - inpos[i], BoxSize);
+                dx[i] = NEAREST(nop->mom.cofm[i] - inpos[i], tree->BoxSize);
             const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
 
             /* Discard this node, move to sibling*/
-            if (shall_we_discard_node(nop->len, r2, nop->center, inpos, BoxSize, rcut, rcut2) ||
+            if (shall_we_discard_node(nop->len, r2, nop->center, inpos, tree->BoxSize, rcut, rcut2) ||
             /* This node accelerates the particle directly, and is not opened, move to sibling.*/
-            !shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, BoxSize, aold, TreeUseBH, BHOpeningAngle2) )
+            !shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, tree->BoxSize, aold, TreeUseBH, BHOpeningAngle2) )
             {
                 no = nop->sibling;
                 /* Don't add this node*/
