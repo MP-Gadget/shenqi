@@ -202,7 +202,7 @@ shall_we_open_node(const double len, const double mass, const double r2, const d
     return 0;
 }
 
-/* Note the NgbIter class is never used for the GravTree. */
+/* Note that this uses the global static table in gravity.c via apply_accn */
 class GravLocalTreeWalk {
     public:
     /* A pointer to the force tree structure to walk.*/
