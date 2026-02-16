@@ -296,18 +296,17 @@ cull_node(const double * const Pos, const double BoxSize, const MyFloat Hsml, co
 /* Class that stores thread-local information and walks the local tree for a particle.
  * No exports are made and this should not rely on any external memory, as it may occur on a GPU.
  */
-template <typename DerivedType, typename QueryType, typename ResultType, typename ParamType, NgbTreeFindSymmetric symmetric>
+template <typename DerivedType, typename QueryType, typename ResultType, typename ParamType, NgbTreeFindSymmetric symmetric, int mask>
 class LocalNgbTreeWalk
 {
 public:
     /* A pointer to the force tree structure to walk.*/
     const ForceTree * const tree;
-    const int mask;
     double dist[3];
     double r2;
     /* Constructor from treewalk */
-    LocalNgbTreeWalk(const ForceTree * const i_tree, const int i_mask, const QueryType& input):
-     tree(i_tree), mask(i_mask)
+    LocalNgbTreeWalk(const ForceTree * const i_tree, const QueryType& input):
+     tree(i_tree)
     { }
     /**
      * Visit function - called between a tree node and a particle.
@@ -421,14 +420,13 @@ public:
 
 /* Variant of the local tree walk that uses an Ngblist.
  */
-template <typename DerivedType, typename QueryType, typename ResultType, typename ParamType, NgbTreeFindSymmetric symmetric>
-class LocalNgbListTreeWalk : public LocalNgbTreeWalk<DerivedType, QueryType, ResultType, ParamType, symmetric>
+template <typename DerivedType, typename QueryType, typename ResultType, typename ParamType, NgbTreeFindSymmetric symmetric, int mask>
+class LocalNgbListTreeWalk : public LocalNgbTreeWalk<DerivedType, QueryType, ResultType, ParamType, symmetric, mask>
 {
 public:
-    using LocalNgbTreeWalk<DerivedType, QueryType, ResultType, ParamType, symmetric>::mask;
     /* Constructor from treewalk */
-    LocalNgbListTreeWalk(const ForceTree * const i_tree, int * i_ngblist, const int i_mask, const QueryType& input):
-    LocalNgbTreeWalk<DerivedType, QueryType, ResultType, ParamType, symmetric>(i_tree, i_mask, input), ngblist(i_ngblist)
+    LocalNgbListTreeWalk(const ForceTree * const i_tree, int * i_ngblist, const QueryType& input):
+    LocalNgbTreeWalk<DerivedType, QueryType, ResultType, ParamType, symmetric, mask>(i_tree, input), ngblist(i_ngblist)
     { }
     /**
      * Variant of ngbiter that uses an Ngblist: first it builds a list of

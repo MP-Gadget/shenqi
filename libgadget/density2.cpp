@@ -276,13 +276,13 @@ class DensityResult : public TreeWalkResultBase<DensityPriv> {
 /* Explicitly define the template specialisations and use the base constructors.
  * This is an asymmetric treewalk and defines the ngb iter function for the density.
  */
-class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, DensityQuery, DensityResult, DensityPriv, NGB_TREEFIND_ASYMMETRIC>
+class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, DensityQuery, DensityResult, DensityPriv, NGB_TREEFIND_ASYMMETRIC, GASMASK>
 {
     public:
         DensityKernel kernel;
         double kernel_volume;
 
-        DensityLocalTreeWalk(const ForceTree * const tree, const DensityQuery& input): LocalNgbTreeWalk(tree, GASMASK, input)
+        DensityLocalTreeWalk(const ForceTree * const tree, const DensityQuery& input): LocalNgbTreeWalk(tree, input)
         {
             density_kernel_init(&kernel, input.Hsml, DensityParams.DensityKernelType);
             kernel_volume = density_kernel_volume(&kernel);

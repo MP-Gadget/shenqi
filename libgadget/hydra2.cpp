@@ -216,14 +216,14 @@ SPH_DensityPred(MyFloat Density, MyFloat DivVel, double dtdrift)
 }
 
 /* This is a symmetric NGB treewalk for hydro forces. */
-class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery, HydroResult, HydroPriv, NGB_TREEFIND_SYMMETRIC>
+class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery, HydroResult, HydroPriv, NGB_TREEFIND_SYMMETRIC, GASMASK>
 {
     public:
     double p_over_rho2_i;
     double soundspeed_i;
     DensityKernel kernel_i;
 
-    HydroLocalTreeWalk(const ForceTree * const tree, const HydroQuery& input): LocalNgbTreeWalk(tree, GASMASK, input)
+    HydroLocalTreeWalk(const ForceTree * const tree, const HydroQuery& input): LocalNgbTreeWalk(tree, input)
     {
         MyFloat densityest = input.EgyRho;
         if(!HydroParams.DensityIndependentSphOn)
