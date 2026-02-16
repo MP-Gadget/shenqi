@@ -102,44 +102,6 @@ class GravTreeResult : public TreeWalkResultBase<GravTreePriv> {
             TREEWALK_REDUCE(Part[place].Potential, Potential);
         }
     }
-
-    /* Add the acceleration from a node or particle to the output structure,
-     * computing the short-range kernel and softening.*/
-    void apply_accn(const double dx[3], const double r2, const double mass, const double cellsize)
-    {
-        const double r = sqrt(r2);
-
-        const double h = FORCE_SOFTENING();
-        double fac = mass / (r2 * r);
-        double facpot = -mass / r;
-
-        if(r2 < h*h)
-        {
-            double wp;
-            const double h3_inv = 1.0 / h / h / h;
-            const double u = r / h;
-            if(u < 0.5) {
-                fac = mass * h3_inv * (10.666666666667 + u * u * (32.0 * u - 38.4));
-                wp = -2.8 + u * u * (5.333333333333 + u * u * (6.4 * u - 9.6));
-            }
-            else {
-                fac =
-                    mass * h3_inv * (21.333333333333 - 48.0 * u +
-                            38.4 * u * u - 10.666666666667 * u * u * u - 0.066666666667 / (u * u * u));
-                wp =
-                    -3.2 + 0.066666666667 / u + u * u * (10.666666666667 +
-                            u * (-16.0 + u * (9.6 - 2.133333333333 * u)));
-            }
-            facpot = mass / h * wp;
-        }
-
-        if(0 == grav_apply_short_range_window(r, &fac, &facpot, cellsize)) {
-            int i;
-            for(i = 0; i < 3; i++)
-                Acc[i] += dx[i] * fac;
-            Potential += facpot;
-        }
-    }
 };
 
 static struct gravshort_tree_params TreeParams;
@@ -322,7 +284,7 @@ class GravLocalTreeWalk {
                     /* ok, node can be used */
                     no = nop->sibling;
                     /* Compute the acceleration and apply it to the output structure*/
-                    output->apply_accn(dx, r2, nop->mom.mass, cellsize);
+                    apply_accn(output, dx, r2, nop->mom.mass, cellsize);
                     ninteractions++;
                     continue;
                 }
@@ -338,7 +300,7 @@ class GravLocalTreeWalk {
                             dx[j] = NEAREST(Part[pp].Pos[j] - input.Pos[j], tree->BoxSize);
                         const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
                         /* Compute the acceleration and apply it to the output structure*/
-                        output->apply_accn(dx, r2, Part[pp].Mass, cellsize);
+                        apply_accn(output, dx, r2, Part[pp].Mass, cellsize);
                         ninteractions++;
                     }
                     no = nop->sibling;
@@ -358,6 +320,44 @@ class GravLocalTreeWalk {
             }
         }
         return ninteractions;
+    }
+
+    /* Add the acceleration from a node or particle to the output structure,
+     * computing the short-range kernel and softening.*/
+    void apply_accn(GravTreeResult * output, const double dx[3], const double r2, const double mass, const double cellsize)
+    {
+        const double r = sqrt(r2);
+
+        const double h = FORCE_SOFTENING();
+        double fac = mass / (r2 * r);
+        double facpot = -mass / r;
+
+        if(r2 < h*h)
+        {
+            double wp;
+            const double h3_inv = 1.0 / h / h / h;
+            const double u = r / h;
+            if(u < 0.5) {
+                fac = mass * h3_inv * (10.666666666667 + u * u * (32.0 * u - 38.4));
+                wp = -2.8 + u * u * (5.333333333333 + u * u * (6.4 * u - 9.6));
+            }
+            else {
+                fac =
+                    mass * h3_inv * (21.333333333333 - 48.0 * u +
+                            38.4 * u * u - 10.666666666667 * u * u * u - 0.066666666667 / (u * u * u));
+                wp =
+                    -3.2 + 0.066666666667 / u + u * u * (10.666666666667 +
+                            u * (-16.0 + u * (9.6 - 2.133333333333 * u)));
+            }
+            facpot = mass / h * wp;
+        }
+
+        if(0 == grav_apply_short_range_window(r, &fac, &facpot, cellsize)) {
+            int i;
+            for(i = 0; i < 3; i++)
+                output->Acc[i] += dx[i] * fac;
+            output->Potential += facpot;
+        }
     }
 };
 
