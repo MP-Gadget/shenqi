@@ -22,16 +22,12 @@
  *  computed, and where the rate of change of entropy due to the shock heating
  *  (via artificial viscosity) is computed.
  */
+static struct hydro_params HydroParams;
 
-static struct hydro_params
+void set_hydropar_old(struct hydro_params dp)
 {
-    /* Enables density independent (Pressure-entropy) SPH */
-    int DensityIndependentSphOn;
-    /* limit of density contrast ratio for hydro force calculation (only effective with Density Indep. Sph) */
-    double DensityContrastLimit;
-    /*!< Sets the parameter \f$\alpha\f$ of the artificial viscosity */
-    double ArtBulkViscConst;
-} HydroParams;
+    HydroParams = dp;
+}
 
 /*Set the parameters of the hydro module*/
 void

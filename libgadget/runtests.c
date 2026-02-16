@@ -436,6 +436,7 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     /* Compare the new and old hydro force. */
     hydro_force(&Act, header->TimeSnapshot, sph_predicted.EntVarPred, times,  CP, &gasTree);
     copy_and_mean_hydroaccn(HydroAccn);
+    set_hydropar_old(get_hydropar());
     hydro_force_old(&Act, header->TimeSnapshot, &sph_predicted, times,  CP, &gasTree);
     /* This checks fully opened tree force against pair force*/
     check_hydroaccns(&meanerr,&maxerr, &meanangle, &maxangle, HydroAccn);

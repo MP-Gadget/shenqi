@@ -27,15 +27,18 @@
  *  (via artificial viscosity) is computed.
  */
 
-static struct hydro_params
+static struct hydro_params HydroParams;
+
+void set_hydropar(struct hydro_params dp)
 {
-    /* Enables density independent (Pressure-entropy) SPH */
-    int DensityIndependentSphOn;
-    /* limit of density contrast ratio for hydro force calculation (only effective with Density Indep. Sph) */
-    double DensityContrastLimit;
-    /*!< Sets the parameter \f$\alpha\f$ of the artificial viscosity */
-    double ArtBulkViscConst;
-} HydroParams;
+    HydroParams = dp;
+}
+
+/*Get parameters*/
+struct hydro_params get_hydropar(void)
+{
+    return HydroParams;
+}
 
 /*Set the parameters of the hydro module*/
 void
