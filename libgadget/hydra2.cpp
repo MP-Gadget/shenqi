@@ -215,24 +215,21 @@ SPH_DensityPred(MyFloat Density, MyFloat DivVel, double dtdrift)
         return 1e-6 * Density;
 }
 
-class HydroNgbIter: public TreeWalkNgbIterBase<HydroQuery, HydroResult, HydroPriv> {
+/* This is a symmetric NGB treewalk for hydro forces. */
+class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery, HydroResult, HydroPriv, NGB_TREEFIND_SYMMETRIC>
+{
     public:
     double p_over_rho2_i;
     double soundspeed_i;
     DensityKernel kernel_i;
 
-    HydroNgbIter(const HydroQuery& input):
-    TreeWalkNgbIterBase(GASMASK, NGB_TREEFIND_SYMMETRIC, input)
-   // mask(i_mask), symmetric(i_symmetric), Hsml(input.Hsml)
+    HydroLocalTreeWalk(const ForceTree * const tree, const HydroQuery& input): LocalNgbTreeWalk(tree, GASMASK, input)
     {
         MyFloat densityest = input.EgyRho;
         if(!HydroParams.DensityIndependentSphOn)
             densityest = input.Density;
-
         /* initialize variables before SPH loop is started */
-
         density_kernel_init(&kernel_i, input.Hsml, GetDensityKernelType());
-
         soundspeed_i = sqrt(GAMMA * input.Pressure / densityest);
         p_over_rho2_i = input.Pressure / (densityest * densityest);
     }
@@ -387,8 +384,7 @@ class HydroNgbIter: public TreeWalkNgbIterBase<HydroQuery, HydroResult, HydroPri
     }
 };
 
-class HydroLocalTreeWalk: public LocalTreeWalk<HydroNgbIter, HydroQuery, HydroResult, HydroPriv> { using LocalTreeWalk::LocalTreeWalk; };
-class HydroTopTreeWalk: public TopTreeWalk<HydroNgbIter, HydroQuery, HydroResult, HydroPriv> { using TopTreeWalk::TopTreeWalk; };
+class HydroTopTreeWalk: public TopTreeWalk<HydroQuery, HydroPriv, NGB_TREEFIND_SYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
 class HydroTreeWalk: public TreeWalk<HydroTreeWalk, HydroQuery, HydroResult, HydroLocalTreeWalk, HydroTopTreeWalk, HydroPriv> {
     public:

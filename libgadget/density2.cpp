@@ -273,17 +273,18 @@ class DensityResult : public TreeWalkResultBase<DensityPriv> {
 
 };
 
-/*! Structure for communication during the density computation. Holds data that is sent to other processors.
-*/
-class TreeWalkNgbIterDensity : public TreeWalkNgbIterBase<DensityQuery, DensityResult, DensityPriv>
+/* Explicitly define the template specialisations and use the base constructors.
+ * This is an asymmetric treewalk and defines the ngb iter function for the density.
+ */
+class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, DensityQuery, DensityResult, DensityPriv, NGB_TREEFIND_ASYMMETRIC>
 {
     public:
         DensityKernel kernel;
         double kernel_volume;
 
-        TreeWalkNgbIterDensity(const DensityQuery& input): TreeWalkNgbIterBase(GASMASK, NGB_TREEFIND_ASYMMETRIC, input)
+        DensityLocalTreeWalk(const ForceTree * const tree, const DensityQuery& input): LocalNgbTreeWalk(tree, GASMASK, input)
         {
-            density_kernel_init(&kernel, Hsml, DensityParams.DensityKernelType);
+            density_kernel_init(&kernel, input.Hsml, DensityParams.DensityKernelType);
             kernel_volume = density_kernel_volume(&kernel);
             return;
         }
@@ -300,7 +301,6 @@ class TreeWalkNgbIterDensity : public TreeWalkNgbIterBase<DensityQuery, DensityR
         */
         void ngbiter(const DensityQuery& input, const int other, DensityResult * output, const DensityPriv& priv, const struct particle_data * const parts)
         {
-            TreeWalkNgbIterBase::ngbiter(input, other, output, priv, parts);
             const particle_data& particle = parts[other];
             if(particle.Mass == 0) {
                 endrun(12, "Density found zero mass particle %d type %d id %ld pos %g %g %g\n",
@@ -379,9 +379,7 @@ class TreeWalkNgbIterDensity : public TreeWalkNgbIterBase<DensityQuery, DensityR
         }
 };
 
-/* Explicitly define the template specialisations and use the base constructors. */
-class DensityLocalTreeWalk: public LocalTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult, DensityPriv> { using LocalTreeWalk::LocalTreeWalk; };
-class DensityTopTreeWalk: public TopTreeWalk<TreeWalkNgbIterDensity, DensityQuery, DensityResult, DensityPriv> { using TopTreeWalk::TopTreeWalk; };
+class DensityTopTreeWalk: public TopTreeWalk<DensityQuery, DensityPriv, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
 class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, DensityResult, DensityLocalTreeWalk, DensityTopTreeWalk, DensityPriv> {
     public:

@@ -509,9 +509,6 @@ private:
     {
     #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
         {
-            /* Note: exportflag is local to each thread */
-            LocalTreeWalkType lv(tree);
-
             /* We must schedule dynamically so that we have reduced imbalance.
             * We do not need to worry about the export buffer filling up.*/
             /* chunk size: 1 and 1000 were slightly (3 percent) slower than 8.
@@ -528,6 +525,7 @@ private:
                 /* Primary never uses node list */
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
                 ResultType output(input);
+                LocalTreeWalkType lv(tree, input);
                 int64_t ninteractions = lv.template visit<TREEWALK_PRIMARY>(input, &output, priv, parts);
                 output.template reduce<TREEWALK_PRIMARY>(i, priv, parts);
                 if(maxNinteractions < ninteractions)
@@ -659,11 +657,11 @@ private:
                     {
                         ResultType * results = (ResultType *) dataresultstart;
                         int64_t j;
-                        LocalTreeWalkType lv(tree);
                         #pragma omp for
                         for(j = 0; j < nimports_task; j++) {
                             QueryType * input = &((QueryType *) databufstart)[j];
                             ResultType * output = new (&results[j]) ResultType(*input);
+                            LocalTreeWalkType lv(tree, *input);
                             lv.template visit<TREEWALK_GHOSTS>(*input, output, priv, parts);
                         }
                     }

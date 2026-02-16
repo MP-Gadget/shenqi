@@ -243,9 +243,14 @@ shall_we_open_node(const double len, const double mass, const double r2, const d
 }
 
 /* Note the NgbIter class is never used for the GravTree. */
-class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery, GravTreeResult, GravTreePriv>, GravTreeQuery, GravTreeResult, GravTreePriv> {
-    using LocalTreeWalk::LocalTreeWalk;
+class GravLocalTreeWalk {
     public:
+    /* A pointer to the force tree structure to walk.*/
+    const ForceTree * const tree;
+
+    /* Default trivial constructor from treewalk */
+    GravLocalTreeWalk(const ForceTree * const i_tree, const GravTreeQuery& input): tree(i_tree) {}
+
     /*! In the TreePM algorithm, the tree is walked only locally around the
      *  target coordinate.  Tree nodes that fall outside a box of half
      *  side-length Rcut= RCUT*ASMTH*MeshSize can be discarded. The short-range
@@ -362,8 +367,8 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
     }
 };
 
-/* Note the NgbIter class is never used for the GravTree. */
-class GravTopTreeWalk : public TopTreeWalk<TreeWalkNgbIterBase<GravTreeQuery, GravTreeResult, GravTreePriv>, GravTreeQuery, GravTreeResult, GravTreePriv> {
+/* Note the NgbIter class is never used for the GravTree, so the final template argument has no effect. */
+class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreePriv, NGB_TREEFIND_ASYMMETRIC> {
     using TopTreeWalk::TopTreeWalk;
     public:
     /*! Find exports. The tricky part of this routine is that tree nodes that would normally be discarded without opening must not be exported.
