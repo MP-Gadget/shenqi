@@ -389,14 +389,18 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     const double rho0 = CP->Omega0 * CP->RhoCrit;
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
     /* Twice for force consistency*/
+    double start = second();
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    double newgrav = second() - start;
     copy_and_mean_accn(PairAccn);
+    start = second();
     grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    double oldgrav = second() - start;
 
     /* This checks fully opened tree force against pair force*/
     double meanerr, maxerr, meanangle, maxangle;
     check_accns(&meanerr,&maxerr, &meanangle, &maxangle, PairAccn);
-    message(0, "Force error, new grav tree vs old gravtree. max : %g mean: %g angle %g max angle %g forcetol: %g\n", maxerr, meanerr, meanangle, maxangle, treeacc.ErrTolForceAcc);
+    message(0, "Grav tree new vs old. max : %g mean: %g angle %g max angle %g forcetol: %g time: %g->%g\n", maxerr, meanerr, meanangle, maxangle, treeacc.ErrTolForceAcc, oldgrav, newgrav);
 
     if(maxerr > 0.1)
         endrun(2, "New and old tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
@@ -413,7 +417,9 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     struct sph_pred_data sph_predicted = {0};
     force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK, OutputDir);
     /* computes GradRho with a treewalk. No hsml update as we are reading from a snapshot.*/
+    start = second();
     density(&Act, 0, 0, 1, times, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree);
+    double newdens = second() - start;
     slots_free_sph_pred_data(&sph_predicted);
     sph_predicted.EntVarPred = NULL;
     double * Density = (double *) mymalloc2("Density", sizeof(double) * PartManager->NumPart);
@@ -422,12 +428,15 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
 
     struct density_params dp = get_densitypar();
     set_densitypar_old(dp);
+    start = second();
     density_old(&Act, 0, 0, 1, times, CP, &sph_predicted, GradRho, &gasTree);
+    double olddens = second() - start;
+
     slots_free_sph_pred_data(&sph_predicted);
 
     double meanhserr, maxhserr, meandserr, maxdserr;
     check_density(&meanhserr, &maxhserr, &meandserr, &maxdserr, Density, Hsml);
-    message(0, "Density %% err, new vs old tree. max : %g mean: %g hs %% err: max: %g mean: %g\n", maxdserr, meandserr, maxhserr, meanhserr);
+    message(0, "Density %% err, new vs old tree. max : %g mean: %g hs %% err: max: %g mean: %g time %g -> %g\n", maxdserr, meandserr, maxhserr, meanhserr, newdens, olddens);
     myfree(Hsml);
     myfree(Density);
 
