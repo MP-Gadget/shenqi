@@ -256,7 +256,7 @@ public:
         use_openmp_target(i_use_gpu),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
         Nlistprimary(0), Nexport_sum(0), NExportTargets(0),
-        maxNinteractions(0), minNinteractions(0), Ninteractions(0),
+        maxNinteractions(0), minNinteractions(1<<30), Ninteractions(0),
         work_set_stolen_from_active(0),
         WorkSet(nullptr), WorkSetSize(0)
     {
@@ -409,7 +409,7 @@ public:
         MPI_Reduce(&Nlistprimary, &o_Nlistprimary, 1, MPI_INT64, MPI_SUM, 0, comm);
         MPI_Reduce(&Nexport_sum, &Nexport, 1, MPI_INT64, MPI_SUM, 0, comm);
         MPI_Reduce(&NExportTargets, &o_NExportTargets, 1, MPI_INT64, MPI_SUM, 0, comm);
-        message(0, "%s Ngblist: min %ld max %ld avg %g average exports: %g avg target ranks: %g\n", ev_label, o_minNinteractions, o_maxNinteractions,
+        message(0, "%s: min %ld max %ld avg %g average exports: %g avg target ranks: %g\n", ev_label, o_minNinteractions, o_maxNinteractions,
                 (double) o_Ninteractions / o_Nlistprimary, ((double) Nexport)/ NTask, ((double) o_NExportTargets)/ NTask);
     }
 
