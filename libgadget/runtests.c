@@ -381,10 +381,10 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
 
     struct gravshort_tree_params treeacc = get_gravshort_treepar();
     /* Reset to normal tree */
-    if(treeacc.TreeUseBH > 1)
+    int origUseBH = treeacc.TreeUseBH;
+    if(origUseBH > 1)
         treeacc.TreeUseBH = 0;
     /* Compare the new and old gravity tree. */
-    set_gravshort_treepar_old(treeacc);
     set_gravshort_treepar(treeacc);
     const double rho0 = CP->Omega0 * CP->RhoCrit;
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
@@ -393,6 +393,12 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
     double newgrav = second() - start;
     copy_and_mean_accn(PairAccn);
+    treeacc.TreeUseBH = origUseBH;
+    set_gravshort_treepar_old(treeacc);
+    grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    if(origUseBH > 1)
+        treeacc.TreeUseBH = 0;
+    set_gravshort_treepar_old(treeacc);
     start = second();
     grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
     double oldgrav = second() - start;
@@ -444,13 +450,17 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     double (* HydroAccn)[3] = (double (*) [3]) mymalloc2("HydroAccns", 3*sizeof(double) * PartManager->NumPart);
     /* Compare the new and old hydro force. */
     force_tree_calc_moments(&gasTree, ddecomp);
+    start = second();
     hydro_force(&Act, header->TimeSnapshot, sph_predicted.EntVarPred, times,  CP, &gasTree);
+    double newhydro = second() - start;
     copy_and_mean_hydroaccn(HydroAccn);
     set_hydropar_old(get_hydropar());
+    start = second();
     hydro_force_old(&Act, header->TimeSnapshot, &sph_predicted, times,  CP, &gasTree);
+    double oldhydro = second() - start;
     /* This checks fully opened tree force against pair force*/
     check_hydroaccns(&meanerr,&maxerr, &meanangle, &maxangle, HydroAccn);
-    message(0, "Force error, new hydro force vs old. max : %g mean: %g angle %g max angle %g\n", maxerr, meanerr, meanangle, maxangle);
+    message(0, "Hydro err, new vs old. max : %g mean: %g angle %g max angle %g time %g -> %g\n", maxerr, meanerr, meanangle, maxangle, oldhydro, newhydro);
 
     if(maxerr > 0.1)
         endrun(2, "New and old hydro tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
