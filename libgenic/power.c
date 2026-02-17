@@ -211,7 +211,8 @@ void PowerSpectrum::parse_transfer(int i, double k, char * line, struct table *o
         out_tab->logD[DELTA_NU][i] = -1*transfers[4+j+defld] * omega_nu_single(Onu, InitTime, j);
     const double onu = get_omega_nu(Onu, InitTime);
     /*Should be weighted by omega_nu*/
-    out_tab->logD[DELTA_NU][i] /= onu;
+    if(onu > 0)
+        out_tab->logD[DELTA_NU][i] /= onu;
     /*h_prime is entry 8 + nnu. t_b is 12 + nnu, t_ncdm[2] is 13 + nnu * 2.*/
     out_tab->logD[VEL_BAR][i] = transfers[12+nnu + defld];
     out_tab->logD[VEL_CDM][i] = transfers[8+nnu + defld] * 0.5;
@@ -219,7 +220,8 @@ void PowerSpectrum::parse_transfer(int i, double k, char * line, struct table *o
     for(j=0; j < nnu; j++)
         out_tab->logD[VEL_NU][i] = transfers[13 + nnu + defld * 2 + j] * omega_nu_single(Onu, InitTime, j);
     /*Should be weighted by omega_nu*/
-    out_tab->logD[VEL_NU][i] /= onu;
+    if(onu > 0)
+        out_tab->logD[VEL_NU][i] /= onu;
     myfree(transfers);
 }
 
