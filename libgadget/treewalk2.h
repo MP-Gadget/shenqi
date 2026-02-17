@@ -519,7 +519,7 @@ private:
             if(chnksz > 100)
                 chnksz = 100;
             int k;
-            #pragma omp for schedule(dynamic, chnksz)
+            #pragma omp for schedule(dynamic, chnksz) nowait
             for(k = 0; k < WorkSetSize; k++) {
                 const int i = WorkSet ? WorkSet[k] : k;
                 /* Primary never uses node list */
