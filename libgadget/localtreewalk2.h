@@ -40,10 +40,10 @@ class ParamTypeBase
 template <typename ParamType=ParamTypeBase> class TreeWalkQueryBase
 {
     public:
-        double Pos[3];
+        const double Pos[3];
         int NodeList[NODELISTLENGTH];
     #ifdef DEBUG
-        MyIDType ID;
+        const MyIDType ID;
     #endif
 
     /* Constructor:
@@ -51,22 +51,14 @@ template <typename ParamType=ParamTypeBase> class TreeWalkQueryBase
     * i_NodeList: list of topnodes to start the treewalk from.
     * firstnode is used only if i_NodeList is NULL, in practice this is for primary treewalks.
     * This should be subclassed: the new constructor was called 'fill' in treewalk v1. */
-    TreeWalkQueryBase(const particle_data& particle, const int * const i_NodeList, const int firstnode, const ParamType& priv)
-    {
+    TreeWalkQueryBase(const particle_data& particle, const int * const i_NodeList, const int firstnode, const ParamType& priv) :
+    Pos(particle.Pos[0], particle.Pos[1], particle.Pos[2]), NodeList(firstnode, -1) /* Nodelist is rootnode and terminate immediately */
     #ifdef DEBUG
-        ID = particle.ID;
+        ID(particle.ID)
     #endif
-
-        int d;
-        for(d = 0; d < 3; d ++) {
-            Pos[d] = particle.Pos[d];
-        }
-
+    {
         if(i_NodeList) {
             memcpy(NodeList, i_NodeList, sizeof(i_NodeList[0]) * NODELISTLENGTH);
-        } else {
-            NodeList[0] = firstnode; /* root node */
-            NodeList[1] = -1; /* terminate immediately */
         }
     }
 };
