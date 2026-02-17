@@ -5,6 +5,7 @@
 #include "power.h"
 #include "allvars.h"
 #include "libgadget/petapm.h"
+#include "power.h"
 
 typedef struct IDGenerator {
     int64_t size[3];
@@ -25,7 +26,7 @@ idgen_create_pos_from_index(IDGenerator * idgen, int index, double pos[3]);
 
 /* Compute the displacement and velocity from the initial homogeneous particle distribution,
  * using the cosmological transfer functions. */
-void displacement_fields(PetaPM * pm, enum TransferType Type, struct ic_part_data * dispICP, const int NumPart, Cosmology * CP, const struct genic_config GenicConfig);
+void displacement_fields(PetaPM * pm, enum TransferType Type, struct ic_part_data * dispICP, const int NumPart, Cosmology * CP, const struct genic_config GenicConfig, PowerSpectrum * powerspec);
 
 /* Fill ICP with NumPart particles spaced on a regular 3D grid, whose structure is stored in the IDGenerator. */
 int setup_grid(IDGenerator * idgen, double shift, double mass, struct ic_part_data * ICP);

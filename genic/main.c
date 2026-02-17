@@ -17,7 +17,7 @@
 
 #define GLASS_SEED_HASH(seed) ((seed) * 9999721L)
 
-static void print_spec(int ThisTask, const int Ngrid, struct genic_config All2, Cosmology * CP);
+static void print_spec(int ThisTask, const int NumPart, struct genic_config All2, Cosmology * CP, PowerSpectrum * powerspec);
 
 int main(int argc, char **argv)
 {
@@ -54,7 +54,7 @@ int main(int argc, char **argv)
   init_cosmology(&CP, All2.TimeIC, All2.units);
 
   MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-  init_powerspectrum(ThisTask, All2.TimeIC, All2.units.UnitLength_in_cm, &CP, &All2.PowerP);
+  PowerSpectrum powerspec(ThisTask, All2.TimeIC, All2.units.UnitLength_in_cm, &CP, &All2.PowerP);
 
   petapm_module_init(omp_get_max_threads());
 
@@ -99,7 +99,7 @@ int main(int argc, char **argv)
   saveheader(&bf, TotNumPart, TotNumPartGas, TotNu, total_nufrac, All2.BoxSize, &CP, All2);
 
   /*Save the transfer functions*/
-  save_all_transfer_tables(&bf, ThisTask);
+  powerspec.save_all_transfer_tables(&bf, ThisTask);
 
   /*Use 'total' (CDM + baryon) transfer function
    * unless DifferentTransferFunctions are on.
@@ -161,7 +161,7 @@ int main(int argc, char **argv)
           ICP[j].PrePos[k] = ICP[j].Pos[k];
 
   if(NumPartCDM > 0) {
-    displacement_fields(pm, DMType, ICP, NumPartCDM, &CP, All2);
+    displacement_fields(pm, DMType, ICP, NumPartCDM, &CP, All2, &powerspec);
 
     /*Add a thermal velocity to WDM particles*/
     if(All2.WDM_therm_mass > 0){
@@ -194,7 +194,7 @@ int main(int argc, char **argv)
 
   /*Now make the gas if required*/
   if(All2.ProduceGas) {
-    displacement_fields(pm, GasType, ICP+NumPartCDM, NumPartGas, &CP, All2);
+    displacement_fields(pm, GasType, ICP+NumPartCDM, NumPartGas, &CP, All2, &powerspec);
     write_particle_data(idgen_gas, 0, &bf, TotNumPart, All2.SavePrePos, All2.NumFiles, All2.NumWriters, ICP+NumPartCDM);
   }
   myfree(ICP);
@@ -215,7 +215,7 @@ int main(int argc, char **argv)
 		  for(k=0; k<3; k++)
 		      ICP[j].PrePos[k] = ICP[j].Pos[k];
 
-      displacement_fields(pm, NuType, ICP, NumPartNu, &CP, All2);
+      displacement_fields(pm, NuType, ICP, NumPartNu, &CP, All2, &powerspec);
       unsigned int * seedtable = init_rng(All2.Seed+2,All2.NGridNu);
       gsl_rng * g_rng = gsl_rng_alloc(gsl_rng_ranlxd1);
       /*Just in case*/
@@ -245,13 +245,13 @@ int main(int argc, char **argv)
   message(0, "IC's generated.\n");
   message(0, "Initial scale factor = %g\n", All2.TimeIC);
 
-  print_spec(ThisTask, All2.Ngrid, All2, &CP);
+  print_spec(ThisTask, All2.Ngrid, All2, &CP, &powerspec);
 
   MPI_Finalize();		/* clean up & finalize MPI */
   return 0;
 }
 
-void print_spec(int ThisTask, const int NumPart, struct genic_config All2, Cosmology * CP)
+void print_spec(int ThisTask, const int NumPart, struct genic_config All2, Cosmology * CP, PowerSpectrum * powerspec)
 {
   if(ThisTask == 0)
     {
@@ -279,7 +279,7 @@ void print_spec(int ThisTask, const int NumPart, struct genic_config All2, Cosmo
       for(k = kstart; k < kend; k *= 1.025)
 	  {
 		/* DeltaSpec takes k in internal units */
-	    double po = pow(DeltaSpec(k, DELTA_TOT),2);
+	    double po = pow(powerspec->DeltaSpec(k, DELTA_TOT),2);
 	    fprintf(fd, "%12g %12g\n", k * scale, po);
 	  }
       fclose(fd);

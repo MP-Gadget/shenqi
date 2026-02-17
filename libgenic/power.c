@@ -15,49 +15,25 @@
 #include "power.h"
 #include "proto.h"
 
-static double Delta_EH(double k);
-static double Delta_Tabulated(double k, enum TransferType Type);
-static double TopHatSigma2(double R);
-static double tk_eh(double k);
-
-static double Norm;
-static int WhichSpectrum;
-/*Only used for tk_eh, WhichSpectrum == 0*/
-static double PrimordialIndex;
-static double UnitLength_in_cm;
-static Cosmology * CP;
-
 /* Small factor so a zero in the power spectrum is not
  * a log(0) = -INF*/
 #define NUGGET 1e-30
-#define MAXCOLS 9
-
-struct table
-{
-    int Nentry;
-    double * logk;
-    double * logD[MAXCOLS];
-    boost::math::interpolators::makima<std::vector<double>>* mat_intp[MAXCOLS];
-};
 
 /*Typedef for a function that parses the table from text*/
 typedef void (*_parse_fn)(int i, double k, char * line, struct table *, int *InputInLog10, const double InitTime, int NumCol);
 
-
-static struct table power_table;
-/*Columns: 0 == baryon, 1 == CDM, 2 == neutrino, 3 == baryon velocity, 4 == CDM velocity, 5 = neutrino velocity*/
-static struct table transfer_table;
-
 static const char * tnames[MAXCOLS] = {"DELTA_BAR", "DELTA_CDM", "DELTA_NU", "DELTA_CB", "VEL_BAR", "VEL_CDM", "VEL_NU", "VEL_CB", "VEL_TOT"};
 
-double DeltaSpec(double k, enum TransferType Type)
+double PowerSpectrum::DeltaSpec(double k, enum TransferType Type)
 {
   double power;
 
-  if(WhichSpectrum == 2)
-      power = Delta_Tabulated(k, Type);
-  else
-      power = Delta_EH(k);
+  if(WhichSpectrum == 2) {
+        if(Type >= VEL_BAR && Type <= VEL_TOT)
+            endrun(1, "Velocity Type %d passed to Delta_Tabulated\n", Type);
+        power = get_Tabulated(k, Type);
+  } else
+        power = Delta_EH(k);
 
   /*Normalise the power spectrum*/
   power *= Norm;
@@ -67,7 +43,7 @@ double DeltaSpec(double k, enum TransferType Type)
 
 /* Internal helper function that performs interpolation for a row of the
  * tabulated transfer/mater power table*/
-static double get_Tabulated(double k, enum TransferType Type)
+double PowerSpectrum::get_Tabulated(double k, enum TransferType Type)
 {
     /*Convert k to Mpc/h*/
     const double scale = (CM_PER_MPC / UnitLength_in_cm);
@@ -102,15 +78,7 @@ static double get_Tabulated(double k, enum TransferType Type)
     return delta;
 }
 
-double Delta_Tabulated(double k, enum TransferType Type)
-{
-    if(Type >= VEL_BAR && Type <= VEL_TOT)
-        endrun(1, "Velocity Type %d passed to Delta_Tabulated\n", Type);
-
-    return get_Tabulated(k, Type);
-}
-
-double dlogGrowth(double kmag, enum TransferType Type)
+double PowerSpectrum::dlogGrowth(double kmag, enum TransferType Type)
 {
     /*Default to total growth: type 3 is cdm + baryons.*/
     if(Type < DELTA_BAR || Type > DELTA_CB)
@@ -159,7 +127,7 @@ static void save_transfer(BigFile * bf, int ncol, struct table * ttable, const c
 }
 
 /*Save both transfer function tables to the IC file*/
-void save_all_transfer_tables(BigFile * bf, int ThisTask)
+void PowerSpectrum::save_all_transfer_tables(BigFile * bf, int ThisTask)
 {
     const char * pname = "DELTA_MAT";
     save_transfer(bf, 1, &power_table, "ICPower", ThisTask, &pname);
@@ -189,7 +157,7 @@ void parse_power(int i, double k, char * line, struct table *out_tab, int * Inpu
     out_tab->logD[0][i] = p/2;
 }
 
-void parse_transfer(int i, double k, char * line, struct table *out_tab, int * InputInLog10, const double InitTime, int NumCol)
+void PowerSpectrum::parse_transfer(int i, double k, char * line, struct table *out_tab, int * InputInLog10, const double InitTime, int NumCol)
 {
     int j;
     int ncols = NumCol - 1; /* The first column k is already read in read_power_table. */
@@ -241,7 +209,7 @@ void parse_transfer(int i, double k, char * line, struct table *out_tab, int * I
     /* The DE fluid moves the neutrinos up one*/
     for(j=0; j < nnu; j++)
         out_tab->logD[DELTA_NU][i] = -1*transfers[4+j+defld] * omega_nu_single(Onu, InitTime, j);
-    const double onu = get_omega_nu(&CP->ONu, InitTime);
+    const double onu = get_omega_nu(Onu, InitTime);
     /*Should be weighted by omega_nu*/
     out_tab->logD[DELTA_NU][i] /= onu;
     /*h_prime is entry 8 + nnu. t_b is 12 + nnu, t_ncdm[2] is 13 + nnu * 2.*/
@@ -255,7 +223,8 @@ void parse_transfer(int i, double k, char * line, struct table *out_tab, int * I
     myfree(transfers);
 }
 
-void read_power_table(int ThisTask, const char * inputfile, const int ncols, struct table * out_tab, const double InitTime, _parse_fn parse_line)
+template <typename F>
+void PowerSpectrum::read_power_table(int ThisTask, const char * inputfile, const int ncols, struct table * out_tab, const double InitTime, F parse_line)
 {
     FILE *fd = NULL;
     int j;
@@ -335,13 +304,15 @@ void read_power_table(int ThisTask, const char * inputfile, const int ncols, str
     MPI_Bcast(out_tab->logk, (ncols+1)*out_tab->Nentry, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 }
 
-int
-init_transfer_table(int ThisTask, double InitTime, const struct power_params * const ppar)
+int PowerSpectrum::init_transfer_table(int ThisTask, double InitTime, const struct power_params * const ppar)
 {
     int i, t;
     const int nnu = (CP->MNu[0] > 0) + (CP->MNu[1] > 0) + (CP->MNu[2] > 0);
     if(strlen(ppar->FileWithTransferFunction) > 0) {
-        read_power_table(ThisTask, ppar->FileWithTransferFunction, MAXCOLS, &transfer_table, InitTime, parse_transfer);
+        read_power_table(ThisTask, ppar->FileWithTransferFunction, MAXCOLS, &transfer_table, InitTime,
+            [this](int i, double k, char * line, struct table *out_tab, int * InputInLog10, const double InitTime, int NumCol) {
+                parse_transfer(i, k, line, out_tab, InputInLog10, InitTime, NumCol);
+            });
     }
     if(transfer_table.Nentry == 0) {
         endrun(1, "Could not read transfer table at: '%s'\n",ppar->FileWithTransferFunction);
@@ -415,7 +386,7 @@ init_transfer_table(int ThisTask, double InitTime, const struct power_params * c
     return transfer_table.Nentry;
 }
 
-int init_powerspectrum(int ThisTask, double InitTime, double UnitLength_in_cm_in, Cosmology * CPin, struct power_params * ppar)
+PowerSpectrum::PowerSpectrum(int ThisTask, double InitTime, double UnitLength_in_cm_in, Cosmology * CPin, struct power_params * ppar)
 {
     WhichSpectrum = ppar->WhichSpectrum;
     /*Used only for tk_eh*/
@@ -451,16 +422,16 @@ int init_powerspectrum(int ThisTask, double InitTime, double UnitLength_in_cm_in
         }
         message(0, "Normalization adjusted to  Sigma8=%g (at z=0)  (Normfac=%g). \n", sqrt(TopHatSigma2(R8))/Dplus, Norm);
     }
-    return power_table.Nentry;
+    return;
 }
 
-double Delta_EH(double k)	/* Eisenstein & Hu */
+double PowerSpectrum::Delta_EH(double k)	/* Eisenstein & Hu */
 {
   return sqrt(k * pow(tk_eh(k), 2)* pow(k, PrimordialIndex - 1.0));
 }
 
 
-double tk_eh(double k)		/* from Martin White */
+double PowerSpectrum::tk_eh(double k)		/* from Martin White */
 {
   double q, theta, ommh2, a, s, gamma, L0, C0;
   double tmp;
@@ -492,7 +463,7 @@ double tk_eh(double k)		/* from Martin White */
 }
 
 
-double TopHatSigma2(double R)
+double PowerSpectrum::TopHatSigma2(double R)
 {
     /* Integral is oscillatory but almost zero kr = (n +1/2) pi for odd n. With P(k) ~ n^-3 the integrand is close to zero kr = 20.5 pi */
     double maxk = M_PI * (20 + 0.5) / R;
@@ -500,7 +471,7 @@ double TopHatSigma2(double R)
     if(maxk > maxtabk)
         endrun(3, "Trying to do sigma8 integral for rescaling, but need k = %g and largest k in power table is %g\n", maxk, pow(10, power_table.logk[power_table.Nentry - 1]));
 
-    auto sigma2_int = [R](const double k) {
+    auto sigma2_int = [R, this](const double k) {
         const double kr = R * k;
         const double kr2 = kr * kr;
         double w;
@@ -509,7 +480,7 @@ double TopHatSigma2(double R)
             w = 1./3. - kr2/30. +kr2*kr2/840.;
         else
             w = 3 * (sin(kr) / kr - cos(kr)) / kr2;
-        const double x = 4 * M_PI / (2 * M_PI * 2 * M_PI * 2 * M_PI) * k * k * w * w * pow(DeltaSpec(k, DELTA_TOT),2);
+        const double x = 4 * M_PI / (2 * M_PI * 2 * M_PI * 2 * M_PI) * k * k * w * w * pow(this->DeltaSpec(k, DELTA_TOT),2);
 
         return x;
     };
