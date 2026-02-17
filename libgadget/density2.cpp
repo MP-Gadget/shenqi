@@ -589,6 +589,8 @@ density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Blac
     /* Do the treewalk with looping for hsml*/
     tw.do_hsml_loop(act->ActiveParticle, act->NumActiveParticle, update_hsml, PartManager->Base);
 
+    tw.print_stats(MPI_COMM_WORLD);
+
     if(GradRho_mag) {
         int64_t i;
         #pragma omp parallel for
