@@ -67,9 +67,8 @@ double PowerSpectrum::get_Tabulated(double k, enum TransferType Type)
     double trans = 1;
     /*Transfer table stores (T_type(k) / T_tot(k))*/
     if(transfer_table.Nentry > 0)
-       if(Type >= DELTA_BAR && Type < DELTA_TOT)
-          trans = (*transfer_table.mat_intp[Type])(intlogk);
-
+       if(Type >= DELTA_BAR && Type < DELTA_TOT && transfer_table.mat_intp[Type])
+            trans = (*transfer_table.mat_intp[Type])(intlogk);
     /*Convert delta from (Mpc/h)^3/2 to kpc/h^3/2*/
     logD += 1.5 * log10(scale);
     double delta = (pow(10.0, logD)-NUGGET) * trans;
@@ -380,22 +379,32 @@ int PowerSpectrum::init_transfer_table(int ThisTask, double InitTime, const stru
         /* Initialise in here so we can std::move*/
         std::vector<double> logk(transfer_table.logk, transfer_table.logk+ transfer_table.Nentry);
         std::vector<double> logD(transfer_table.logD[t], transfer_table.logD[t]+ transfer_table.Nentry);
+        /* The Makima splines can produce NaN when the interpolant (logD) is constant.
+         * This is handled by an isnan() check but with -ffast-math the compiler can optimise that away.
+         * So instead we remove rows of constant entries.*/
+        size_t write = 0;
+        for (size_t read = 0; read < logD.size(); read++) {
+            if (read == 0 || std::abs(logD[read] - logD[write]) >= 1e-20*logD[write]) {
+                logD[write] = logD[read];
+                logk[write] = logk[read];
+                write++;
+            }
+        }
+        logD.resize(write);
+        logk.resize(write);
         // message(0, "t=%d size = %ld nentry %d\n", t, logD.size(), transfer_table.Nentry);
-        transfer_table.mat_intp[t] = new boost::math::interpolators::makima(std::move(logk), std::move(logD));
+        if(logk.size() < 2)
+            transfer_table.mat_intp[t] = NULL;
+        else
+            transfer_table.mat_intp[t] = new boost::math::interpolators::makima(std::move(logk), std::move(logD));
     }
     message(0,"Scale-dependent growth calculated. Mean = %g %g %g %g %g\n",meangrowth[0], meangrowth[1], meangrowth[2], meangrowth[3], meangrowth[4]);
     message(0, "Power spectrum rows: %d, Transfer: %d (%g -> %g)\n", power_table.Nentry, transfer_table.Nentry, transfer_table.logD[DELTA_BAR][0],transfer_table.logD[DELTA_BAR][transfer_table.Nentry-1]);
     return transfer_table.Nentry;
 }
 
-PowerSpectrum::PowerSpectrum(int ThisTask, double InitTime, double UnitLength_in_cm_in, Cosmology * CPin, struct power_params * ppar)
+PowerSpectrum::PowerSpectrum(int ThisTask, double InitTime, double UnitLength_in_cm_in, Cosmology * CPin, struct power_params * ppar): WhichSpectrum(ppar->WhichSpectrum), PrimordialIndex(ppar->PrimordialIndex), UnitLength_in_cm(UnitLength_in_cm_in), CP(CPin)
 {
-    WhichSpectrum = ppar->WhichSpectrum;
-    /*Used only for tk_eh*/
-    PrimordialIndex = ppar->PrimordialIndex;
-    UnitLength_in_cm = UnitLength_in_cm_in;
-    CP = CPin;
-
     if(ppar->WhichSpectrum == 2) {
         read_power_table(ThisTask, ppar->FileWithInputSpectrum, 1, &power_table, InitTime, parse_power);
         std::vector<double> logk(power_table.logk, power_table.logk + power_table.Nentry);
