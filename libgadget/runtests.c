@@ -443,6 +443,7 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     /* Check hydro code is the same */
     double (* HydroAccn)[3] = (double (*) [3]) mymalloc2("HydroAccns", 3*sizeof(double) * PartManager->NumPart);
     /* Compare the new and old hydro force. */
+    force_tree_calc_moments(&gasTree, ddecomp);
     hydro_force(&Act, header->TimeSnapshot, sph_predicted.EntVarPred, times,  CP, &gasTree);
     copy_and_mean_hydroaccn(HydroAccn);
     set_hydropar_old(get_hydropar());
