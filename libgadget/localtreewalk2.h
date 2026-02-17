@@ -54,7 +54,7 @@ template <typename ParamType=ParamTypeBase> class TreeWalkQueryBase
     TreeWalkQueryBase(const particle_data& particle, const int * const i_NodeList, const int firstnode, const ParamType& priv) :
     Pos(particle.Pos[0], particle.Pos[1], particle.Pos[2]), NodeList(firstnode, -1) /* Nodelist is rootnode and terminate immediately */
     #ifdef DEBUG
-        ID(particle.ID)
+       , ID(particle.ID)
     #endif
     {
         if(i_NodeList) {
