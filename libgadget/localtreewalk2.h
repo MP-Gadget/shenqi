@@ -52,7 +52,7 @@ template <typename ParamType=ParamTypeBase> class TreeWalkQueryBase
     * firstnode is used only if i_NodeList is NULL, in practice this is for primary treewalks.
     * This should be subclassed: the new constructor was called 'fill' in treewalk v1. */
     TreeWalkQueryBase(const particle_data& particle, const int * const i_NodeList, const int firstnode, const ParamType& priv) :
-    Pos(particle.Pos[0], particle.Pos[1], particle.Pos[2]), NodeList(firstnode, -1) /* Nodelist is rootnode and terminate immediately */
+    Pos{particle.Pos[0], particle.Pos[1], particle.Pos[2]}, NodeList{firstnode, -1, -1, -1} /* Nodelist is rootnode and terminate immediately */
     #ifdef DEBUG
        , ID(particle.ID)
     #endif
