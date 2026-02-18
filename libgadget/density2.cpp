@@ -93,12 +93,12 @@ SPH_EntVarPred(const particle_data& particle, const DriftKickTimes * times)
 
 class DensityPriv : public ParamTypeBase {
     public:
-    const bool update_hsml;
+    bool update_hsml;
     /* Are there potentially black holes?*/
-    const bool BlackHoleOn;
-    const bool DoEgyDensity;
+    bool BlackHoleOn;
+    bool DoEgyDensity;
 
-    const DriftKickTimes * const times;
+    DriftKickTimes * times;
     /* The gradient of the density, used sometimes during star formation.
      * May be NULL.*/
     MyFloat * GradRho;
@@ -123,7 +123,7 @@ class DensityPriv : public ParamTypeBase {
     /* For computing the predicted quantities dynamically during the treewalk.*/
     KickFactorData kf;
 
-    DensityPriv(const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, const DriftKickTimes * const i_times, const bool GradRho_mag, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const struct part_manager_type * const i_PartManager):
+    DensityPriv(const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, DriftKickTimes * i_times, const bool GradRho_mag, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const struct part_manager_type * const i_PartManager):
     ParamTypeBase(i_PartManager->BoxSize),
     update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), times(i_times), kf(i_times, CP)
     {
@@ -577,7 +577,7 @@ class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, Dens
  * neighbours.)
  */
 void
-density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTree * const tree)
+density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTree * const tree)
 {
     DensityPriv priv(update_hsml, DoEgyDensity, BlackHoleOn, &times, GradRho_mag, tree->BoxSize, CP, act, PartManager);
     DensityTreeWalk tw("DENSITY", tree, priv);

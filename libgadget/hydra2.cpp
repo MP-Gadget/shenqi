@@ -85,20 +85,20 @@ PressurePredict(MyFloat EOMDensityPred, double EntVarPred)
 
 class HydroPriv : public ParamTypeBase {
     public:
-    const double atime;
-    const double hubble;
+    double atime;
+    double hubble;
     MyFloat * EntVarPred;
     /* Time-dependent constant factors, brought out here because
      * they need an expensive pow().*/
-    const double fac_mu;
-    const double fac_vsic_fix;
-    const double hubble_a2;
-    const DriftKickTimes * const times;
+    double fac_mu;
+    double fac_vsic_fix;
+    double hubble_a2;
+    DriftKickTimes * times;
     double * PressurePred;
-    const KickFactorData kf;
+    KickFactorData kf;
     double drifts[TIMEBINS+1];
 
-    HydroPriv(const double BoxSize, MyFloat * i_EntVarPred, const double i_atime, const DriftKickTimes * const i_times, Cosmology * CP) :
+    HydroPriv(const double BoxSize, MyFloat * i_EntVarPred, const double i_atime, DriftKickTimes * const i_times, Cosmology * CP) :
     ParamTypeBase(BoxSize), atime(i_atime), hubble(hubble_function(CP, atime)),
     EntVarPred(i_EntVarPred), fac_mu(pow(atime, 3 * (GAMMA - 1) / 2) / atime), fac_vsic_fix(hubble * pow(atime, 3 * GAMMA_MINUS1)),
     hubble_a2(hubble * atime * atime), times(i_times), kf(i_times, CP)
@@ -416,7 +416,7 @@ class HydroTreeWalk: public TreeWalk<HydroTreeWalk, HydroQuery, HydroResult, Hyd
  *  particles .
  */
 void
-hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPred, const DriftKickTimes& times,  Cosmology * CP, const ForceTree * const tree)
+hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPred, DriftKickTimes& times,  Cosmology * CP, const ForceTree * const tree)
 {
     if(!tree->hmax_computed_flag)
         endrun(5, "Hydro called before hmax computed\n");

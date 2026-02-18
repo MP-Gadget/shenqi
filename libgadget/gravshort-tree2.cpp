@@ -27,24 +27,24 @@
  class GravTreePriv : public ParamTypeBase {
      public:
      /* Size of a PM cell, in internal units. Box / Nmesh */
-     const double cellsize;
+     double cellsize;
      /* How many PM cells do we go
       * before we stop calculating the tree?*/
-     const double Rcut;
+     double Rcut;
      /* Newton's constant in internal units*/
-     const double G;
-     const inttime_t Ti_Current;
+     double G;
+     inttime_t Ti_Current;
      /* Matter density in internal units.
       * rho_0 = Omega0 * rho_crit
       * rho_crit = 3 H^2 /(8 pi G).
       * This is (rho_0)^(1/3) ,
       * Note: should account for
       * massive neutrinos, but doesn't. */
-     const double cbrtrho0;
+     double cbrtrho0;
      /* Pointer to the place to store accelerations*/
      MyFloat (*Accel)[3];
      /* If this is true, we have all particles and need to update the gravitational potential */
-     const bool update_potential;
+     bool update_potential;
      int accelstorealloc;
 
      GravTreePriv(const double Rcut, const inttime_t i_Ti_Current, const double rho0, const PetaPM * const pm, const double BoxSize, MyFloat (* AccelStore)[3], const bool i_update_potential, const int64_t NumPart):
