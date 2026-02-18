@@ -40,10 +40,10 @@ class ParamTypeBase
 template <typename ParamType=ParamTypeBase> class TreeWalkQueryBase
 {
     public:
-        const double Pos[3];
+        double Pos[3];
         int NodeList[NODELISTLENGTH];
     #ifdef DEBUG
-        const MyIDType ID;
+        MyIDType ID;
     #endif
 
     /* Constructor:
@@ -67,11 +67,11 @@ template <typename ParamType=ParamTypeBase>
 class TreeWalkResultBase
 {
     public:
-        #ifdef DEBUG
-            const MyIDType ID;
-        #endif
+    #ifdef DEBUG
+        MyIDType ID;
+    #endif
 
-        TreeWalkResultBase(const TreeWalkQueryBase<ParamType>& query)
+    TreeWalkResultBase(const TreeWalkQueryBase<ParamType>& query)
         #ifdef DEBUG
         : ID(query.ID)
         #endif

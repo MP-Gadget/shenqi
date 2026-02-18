@@ -141,16 +141,16 @@ class HydroPriv : public ParamTypeBase {
 class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     public:
     /* These are only used for DensityIndependentSphOn*/
-    const MyFloat EgyRho;
+    MyFloat EgyRho;
     MyFloat EntVarPred;
     double Vel[3];
-    const MyFloat Hsml;
-    const MyFloat Mass;
-    const MyFloat Density;
+    MyFloat Hsml;
+    MyFloat Mass;
+    MyFloat Density;
     MyFloat Pressure;
     MyFloat F1;
-    const MyFloat SPH_DhsmlDensityFactor;
-    const MyFloat dloga;
+    MyFloat SPH_DhsmlDensityFactor;
+    MyFloat dloga;
     HydroQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const HydroPriv& priv):
     TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), EgyRho(SphP[particle.PI].EgyWtDensity),
     Hsml(particle.Hsml), Mass(particle.Mass), Density(SphP[particle.PI].Density), SPH_DhsmlDensityFactor(SphP[particle.PI].DhsmlEgyDensityFactor),

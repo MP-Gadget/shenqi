@@ -79,8 +79,8 @@
  }
 
  class GravTreeQuery : public TreeWalkQueryBase<GravTreePriv> {
-     public:
-    const MyFloat OldAcc;
+    public:
+    MyFloat OldAcc;
     GravTreeQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const GravTreePriv& priv) :
     TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), OldAcc(grav_get_abs_accel(particle, priv.G)) {}
  };
