@@ -287,7 +287,7 @@ ev_primary(TreeWalk * tw)
         if(chnksz > 100)
             chnksz = 100;
         int k;
-        #pragma omp for schedule(dynamic, chnksz)
+        #pragma omp for schedule(dynamic, chnksz) nowait
         for(k = 0; k < tw->WorkSetSize; k++) {
             const int i = tw->WorkSet ? tw->WorkSet[k] : k;
             /* Primary never uses node list */

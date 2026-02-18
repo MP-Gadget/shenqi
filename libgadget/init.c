@@ -9,13 +9,13 @@
 #include "utils/mymalloc.h"
 
 #include "forcetree.h"
-#include "density.h"
+#include "density2.h"
 
 #include "petaio.h"
 #include "domain.h"
 #include "walltime.h"
 #include "slotsmanager.h"
-#include "hydra.h"
+#include "hydra2.h"
 #include "sfr_eff.h"
 #include "exchange.h"
 #include "fof.h"

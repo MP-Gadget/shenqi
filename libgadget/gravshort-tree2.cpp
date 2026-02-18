@@ -91,51 +91,15 @@ class GravTreeResult : public TreeWalkResultBase<GravTreePriv> {
     MyFloat Potential = 0;
     GravTreeResult(GravTreeQuery& query): TreeWalkResultBase(query), Acc(0,0,0), Potential(0) {}
 
-    void reduce(const int place, const TreeWalkReduceMode mode, const GravTreePriv& priv, struct particle_data * const parts)
+    template<TreeWalkReduceMode mode>
+    void reduce(const int place, const GravTreePriv& priv, struct particle_data * const parts)
     {
-        TreeWalkResultBase::reduce(place, mode, priv, parts);
+        TreeWalkResultBase::reduce<mode>(place, priv, parts);
         TREEWALK_REDUCE(priv.Accel[place][0], Acc[0]);
         TREEWALK_REDUCE(priv.Accel[place][1], Acc[1]);
         TREEWALK_REDUCE(priv.Accel[place][2], Acc[2]);
-        if(priv.update_potential)
+        if(priv.update_potential) {
             TREEWALK_REDUCE(Part[place].Potential, Potential);
-    }
-
-    /* Add the acceleration from a node or particle to the output structure,
-     * computing the short-range kernel and softening.*/
-    void apply_accn(const double dx[3], const double r2, const double mass, const double cellsize)
-    {
-        const double r = sqrt(r2);
-
-        const double h = FORCE_SOFTENING();
-        double fac = mass / (r2 * r);
-        double facpot = -mass / r;
-
-        if(r2 < h*h)
-        {
-            double wp;
-            const double h3_inv = 1.0 / h / h / h;
-            const double u = r / h;
-            if(u < 0.5) {
-                fac = mass * h3_inv * (10.666666666667 + u * u * (32.0 * u - 38.4));
-                wp = -2.8 + u * u * (5.333333333333 + u * u * (6.4 * u - 9.6));
-            }
-            else {
-                fac =
-                    mass * h3_inv * (21.333333333333 - 48.0 * u +
-                            38.4 * u * u - 10.666666666667 * u * u * u - 0.066666666667 / (u * u * u));
-                wp =
-                    -3.2 + 0.066666666667 / u + u * u * (10.666666666667 +
-                            u * (-16.0 + u * (9.6 - 2.133333333333 * u)));
-            }
-            facpot = mass / h * wp;
-        }
-
-        if(0 == grav_apply_short_range_window(r, &fac, &facpot, cellsize)) {
-            int i;
-            for(i = 0; i < 3; i++)
-                Acc[i] += dx[i] * fac;
-            Potential += facpot;
         }
     }
 };
@@ -200,17 +164,15 @@ shall_we_discard_node(const double len, const double r2, const double center[3],
 {
     /* This checks the distance from the node center of mass
      * is greater than the cutoff. */
-    if(r2 > rcut2)
-    {
-        /* check whether we can stop walking along this branch */
-        const double eff_dist = rcut + 0.5 * len;
-        int i;
-        /*This checks whether we are also outside this region of the oct-tree*/
-        /* As long as one dimension is outside, we are fine*/
-        for(i=0; i < 3; i++)
-            if(fabs(NEAREST(center[i] - inpos[i], BoxSize)) > eff_dist)
-                return 1;
-    }
+    if(r2 <= rcut2)
+        return 0;
+    /* check whether we can stop walking along this branch */
+    const double eff_dist = rcut + 0.5 * len;
+    /*This checks whether we are also outside this region of the oct-tree*/
+    /* As long as one dimension is outside, we are fine*/
+    for(int i=0; i < 3; i++)
+        if(fabs(NEAREST(center[i] - inpos[i], BoxSize)) > eff_dist)
+            return 1;
     return 0;
 }
 
@@ -240,10 +202,15 @@ shall_we_open_node(const double len, const double mass, const double r2, const d
     return 0;
 }
 
-/* Note the NgbIter class is never used for the GravTree. */
-class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery, GravTreeResult, GravTreePriv>, GravTreeQuery, GravTreeResult, GravTreePriv> {
-    using LocalTreeWalk::LocalTreeWalk;
+/* Note that this uses the global static table in gravity.c via apply_accn */
+class GravLocalTreeWalk {
     public:
+    /* A pointer to the force tree structure to walk.*/
+    const ForceTree * const tree;
+
+    /* Default trivial constructor from treewalk */
+    GravLocalTreeWalk(const ForceTree * const i_tree, const GravTreeQuery& input): tree(i_tree) {}
+
     /*! In the TreePM algorithm, the tree is walked only locally around the
      *  target coordinate.  Tree nodes that fall outside a box of half
      *  side-length Rcut= RCUT*ASMTH*MeshSize can be discarded. The short-range
@@ -255,9 +222,10 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
      *  table.
      * Returns the number of particle-particle and particle-node interactions.
      */
+    template<TreeWalkReduceMode mode>
     int64_t visit(const GravTreeQuery& input, GravTreeResult * output, const GravTreePriv& priv, const struct particle_data * const parts)
     {
-        const double BoxSize = tree->BoxSize;
+        static_assert(mode != TREEWALK_TOPTREE, "Toptree should call toptree_visit, not visit.");
 
         /*Tree-opening constants*/
         const double cellsize = priv.cellsize;
@@ -272,9 +240,6 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
             BHOpeningAngle2 = TreeParams.MaxBHOpeningAngle * TreeParams.MaxBHOpeningAngle;
 
         //message(1, "BH: %d, opening angle %g aold %g\n", TreeUseBH, BHOpeningAngle2, aold);
-        /*Input particle data*/
-        const double * inpos = input.Pos;
-
         /*Start the tree walk*/
         int64_t listindex, ninteractions=0;
 
@@ -284,26 +249,27 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
             /* Use the next node in the node list if we are doing a secondary walk.
              * For a primary walk the node list only ever contains one node. */
             int no = input.NodeList[listindex];
-            int startno = no;
+            const int startno = no;
             if(no < 0)
                 break;
 
-            while(no >= 0)
+            while(no >= tree->firstnode)
             {
                 /* The tree always walks internal nodes*/
-                struct NODE *nop = &tree->Nodes[no];
+                const struct NODE * const nop = &tree->Nodes[no];
 
-                if(mode == TREEWALK_GHOSTS && nop->f.TopLevel && no != startno)  /* we reached a top-level node again, which means that we are done with the branch */
-                    break;
+                if constexpr(mode == TREEWALK_GHOSTS) {
+                    if(nop->f.TopLevel && no != startno)  /* we reached a top-level node again, which means that we are done with the branch */
+                        break;
+                }
 
-                int i;
                 double dx[3];
-                for(i = 0; i < 3; i++)
-                    dx[i] = NEAREST(nop->mom.cofm[i] - inpos[i], BoxSize);
+                for(int i = 0; i < 3; i++)
+                    dx[i] = NEAREST(nop->mom.cofm[i] - input.Pos[i], tree->BoxSize);
                 const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
 
                 /* Discard this node, move to sibling*/
-                if(shall_we_discard_node(nop->len, r2, nop->center, inpos, BoxSize, rcut, rcut2))
+                if(shall_we_discard_node(nop->len, r2, nop->center, input.Pos, tree->BoxSize, rcut, rcut2))
                 {
                     no = nop->sibling;
                     /* Don't add this node*/
@@ -311,14 +277,14 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
                 }
 
                 /* This node accelerates the particle directly, and is not opened.*/
-                int open_node = shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, BoxSize, aold, TreeUseBH, BHOpeningAngle2);
+                const int open_node = shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, input.Pos, tree->BoxSize, aold, TreeUseBH, BHOpeningAngle2);
 
                 if(!open_node)
                 {
                     /* ok, node can be used */
                     no = nop->sibling;
                     /* Compute the acceleration and apply it to the output structure*/
-                    output->apply_accn(dx, r2, nop->mom.mass, cellsize);
+                    apply_accn(output, dx, r2, nop->mom.mass, cellsize);
                     ninteractions++;
                     continue;
                 }
@@ -328,33 +294,75 @@ class GravLocalTreeWalk : public LocalTreeWalk<TreeWalkNgbIterBase<GravTreeQuery
                 if(nop->f.ChildType == PARTICLE_NODE_TYPE)
                 {
                     /* Loop over child particles*/
-                    for(i = 0; i < nop->s.noccupied; i++) {
+                    for(int i = 0; i < nop->s.noccupied; i++) {
                         const int pp = nop->s.suns[i];
                         for(int j = 0; j < 3; j++)
-                            dx[j] = NEAREST(Part[pp].Pos[j] - inpos[j], BoxSize);
+                            dx[j] = NEAREST(Part[pp].Pos[j] - input.Pos[j], tree->BoxSize);
                         const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
                         /* Compute the acceleration and apply it to the output structure*/
-                        output->apply_accn(dx, r2, Part[pp].Mass, cellsize);
+                        apply_accn(output, dx, r2, Part[pp].Mass, cellsize);
                         ninteractions++;
                     }
                     no = nop->sibling;
+                    continue;
                 }
                 else if (nop->f.ChildType == PSEUDO_NODE_TYPE)
                 {
+                    if constexpr(mode == TREEWALK_GHOSTS)
+                        endrun(12312, "Secondary for particle from node %d found pseudo at %d.\n", input.NodeList[listindex], no);
                     /* Move to the sibling (likely also a pseudo node)*/
                     no = nop->sibling;
+                    continue;
                 }
-                else //NODE_NODE_TYPE
-                    /* This node contains other nodes and we need to open it.*/
-                    no = nop->s.suns[0];
+                //NODE_NODE_TYPE
+                /* This node contains other nodes and we need to open it.*/
+                no = nop->s.suns[0];
             }
         }
         return ninteractions;
     }
+
+    /* Add the acceleration from a node or particle to the output structure,
+     * computing the short-range kernel and softening.*/
+    void apply_accn(GravTreeResult * output, const double dx[3], const double r2, const double mass, const double cellsize)
+    {
+        const double r = sqrt(r2);
+
+        const double h = FORCE_SOFTENING();
+        double fac = mass / (r2 * r);
+        double facpot = -mass / r;
+
+        if(r2 < h*h)
+        {
+            double wp;
+            const double h3_inv = 1.0 / h / h / h;
+            const double u = r / h;
+            if(u < 0.5) {
+                fac = mass * h3_inv * (10.666666666667 + u * u * (32.0 * u - 38.4));
+                wp = -2.8 + u * u * (5.333333333333 + u * u * (6.4 * u - 9.6));
+            }
+            else {
+                fac =
+                    mass * h3_inv * (21.333333333333 - 48.0 * u +
+                            38.4 * u * u - 10.666666666667 * u * u * u - 0.066666666667 / (u * u * u));
+                wp =
+                    -3.2 + 0.066666666667 / u + u * u * (10.666666666667 +
+                            u * (-16.0 + u * (9.6 - 2.133333333333 * u)));
+            }
+            facpot = mass / h * wp;
+        }
+
+        if(0 == grav_apply_short_range_window(r, &fac, &facpot, cellsize)) {
+            int i;
+            for(i = 0; i < 3; i++)
+                output->Acc[i] += dx[i] * fac;
+            output->Potential += facpot;
+        }
+    }
 };
 
-/* Note the NgbIter class is never used for the GravTree. */
-class GravTopTreeWalk : public TopTreeWalk<TreeWalkNgbIterBase<GravTreeQuery, GravTreeResult, GravTreePriv>, GravTreeQuery, GravTreeResult, GravTreePriv> {
+/* Note the NgbIter class is never used for the GravTree, so the final template argument has no effect. */
+class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreePriv, NGB_TREEFIND_ASYMMETRIC> {
     using TopTreeWalk::TopTreeWalk;
     public:
     /*! Find exports. The tricky part of this routine is that tree nodes that would normally be discarded without opening must not be exported.
@@ -362,7 +370,6 @@ class GravTopTreeWalk : public TopTreeWalk<TreeWalkNgbIterBase<GravTreeQuery, Gr
     int toptree_visit(const int target, const GravTreeQuery& input, const GravTreePriv& priv, const struct particle_data * const parts)
     {
         //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
-        const double BoxSize = tree->BoxSize;
         /* Reset the exported particles for this target. */
         NThisParticleExport = 0;
         /*Tree-opening constants*/
@@ -389,13 +396,13 @@ class GravTopTreeWalk : public TopTreeWalk<TreeWalkNgbIterBase<GravTreeQuery, Gr
 
             double dx[3];
             for(int i = 0; i < 3; i++)
-                dx[i] = NEAREST(nop->mom.cofm[i] - inpos[i], BoxSize);
+                dx[i] = NEAREST(nop->mom.cofm[i] - inpos[i], tree->BoxSize);
             const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
 
             /* Discard this node, move to sibling*/
-            if (shall_we_discard_node(nop->len, r2, nop->center, inpos, BoxSize, rcut, rcut2) ||
+            if (shall_we_discard_node(nop->len, r2, nop->center, inpos, tree->BoxSize, rcut, rcut2) ||
             /* This node accelerates the particle directly, and is not opened, move to sibling.*/
-            !shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, BoxSize, aold, TreeUseBH, BHOpeningAngle2) )
+            !shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, tree->BoxSize, aold, TreeUseBH, BHOpeningAngle2) )
             {
                 no = nop->sibling;
                 /* Don't add this node*/

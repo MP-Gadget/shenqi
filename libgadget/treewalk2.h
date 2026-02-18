@@ -256,7 +256,7 @@ public:
         use_openmp_target(i_use_gpu),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
         Nlistprimary(0), Nexport_sum(0), NExportTargets(0),
-        maxNinteractions(0), minNinteractions(0), Ninteractions(0),
+        maxNinteractions(0), minNinteractions(1<<30), Ninteractions(0),
         work_set_stolen_from_active(0),
         WorkSet(nullptr), WorkSetSize(0)
     {
@@ -409,7 +409,7 @@ public:
         MPI_Reduce(&Nlistprimary, &o_Nlistprimary, 1, MPI_INT64, MPI_SUM, 0, comm);
         MPI_Reduce(&Nexport_sum, &Nexport, 1, MPI_INT64, MPI_SUM, 0, comm);
         MPI_Reduce(&NExportTargets, &o_NExportTargets, 1, MPI_INT64, MPI_SUM, 0, comm);
-        message(0, "%s Ngblist: min %ld max %ld avg %g average exports: %g avg target ranks: %g\n", ev_label, o_minNinteractions, o_maxNinteractions,
+        message(0, "%s: min %ld max %ld avg %g average exports: %g avg target ranks: %g\n", ev_label, o_minNinteractions, o_maxNinteractions,
                 (double) o_Ninteractions / o_Nlistprimary, ((double) Nexport)/ NTask, ((double) o_NExportTargets)/ NTask);
     }
 
@@ -509,9 +509,6 @@ private:
     {
     #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
         {
-            /* Note: exportflag is local to each thread */
-            LocalTreeWalkType lv(TREEWALK_PRIMARY, tree);
-
             /* We must schedule dynamically so that we have reduced imbalance.
             * We do not need to worry about the export buffer filling up.*/
             /* chunk size: 1 and 1000 were slightly (3 percent) slower than 8.
@@ -522,14 +519,15 @@ private:
             if(chnksz > 100)
                 chnksz = 100;
             int k;
-            #pragma omp for schedule(dynamic, chnksz)
+            #pragma omp for schedule(dynamic, chnksz) nowait
             for(k = 0; k < WorkSetSize; k++) {
                 const int i = WorkSet ? WorkSet[k] : k;
                 /* Primary never uses node list */
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
                 ResultType output(input);
-                int64_t ninteractions = lv.visit(input, &output, priv, parts);
-                output.reduce(i, TREEWALK_PRIMARY, priv, parts);
+                LocalTreeWalkType lv(tree, input);
+                int64_t ninteractions = lv.template visit<TREEWALK_PRIMARY>(input, &output, priv, parts);
+                output.template reduce<TREEWALK_PRIMARY>(i, priv, parts);
                 if(maxNinteractions < ninteractions)
                     maxNinteractions = ninteractions;
                 if(minNinteractions > ninteractions)
@@ -659,12 +657,12 @@ private:
                     {
                         ResultType * results = (ResultType *) dataresultstart;
                         int64_t j;
-                        LocalTreeWalkType lv(TREEWALK_GHOSTS, tree);
                         #pragma omp for
                         for(j = 0; j < nimports_task; j++) {
                             QueryType * input = &((QueryType *) databufstart)[j];
                             ResultType * output = new (&results[j]) ResultType(*input);
-                            lv.visit(*input, output, priv, parts);
+                            LocalTreeWalkType lv(tree, *input);
+                            lv.template visit<TREEWALK_GHOSTS>(*input, output, priv, parts);
                         }
                     }
                 /* Send the completed data back*/
@@ -758,7 +756,7 @@ private:
                 const int64_t bufpos = real_recv_count[task] + counts->Export_offset[task];
                 real_recv_count[task]++;
                 ResultType * output = &((ResultType *) exportbuf->databuf)[bufpos];
-                output->reduce(place, TREEWALK_GHOSTS, priv, parts);
+                output->template reduce<TREEWALK_GHOSTS>(place, priv, parts);
     #ifdef DEBUG
                 if(output->ID != parts[place].ID)
                     endrun(8, "Error in communication: IDs mismatch %ld %ld\n", output->ID, parts[place].ID);

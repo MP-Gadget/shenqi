@@ -22,20 +22,16 @@
  *  computed, and where the rate of change of entropy due to the shock heating
  *  (via artificial viscosity) is computed.
  */
+static struct hydro_params HydroParams;
 
-static struct hydro_params
+void set_hydropar_old(struct hydro_params dp)
 {
-    /* Enables density independent (Pressure-entropy) SPH */
-    int DensityIndependentSphOn;
-    /* limit of density contrast ratio for hydro force calculation (only effective with Density Indep. Sph) */
-    double DensityContrastLimit;
-    /*!< Sets the parameter \f$\alpha\f$ of the artificial viscosity */
-    double ArtBulkViscConst;
-} HydroParams;
+    HydroParams = dp;
+}
 
 /*Set the parameters of the hydro module*/
 void
-set_hydro_params(ParameterSet * ps)
+set_hydro_params_old(ParameterSet * ps)
 {
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
@@ -45,11 +41,6 @@ set_hydro_params(ParameterSet * ps)
         HydroParams.DensityIndependentSphOn= param_get_int(ps, "DensityIndependentSphOn");
     }
     MPI_Bcast(&HydroParams, sizeof(struct hydro_params), MPI_BYTE, 0, MPI_COMM_WORLD);
-}
-
-int DensityIndependentSphOn(void)
-{
-    return HydroParams.DensityIndependentSphOn;
 }
 
 /* Function to get the center of mass density and HSML correction factor for an SPH particle with index i.
@@ -148,7 +139,7 @@ hydro_reduce(int place, TreeWalkResultHydro * result, enum TreeWalkReduceMode mo
  *  particles .
  */
 void
-hydro_force(const ActiveParticles * act, const double atime, struct sph_pred_data * SPH_predicted, const DriftKickTimes times,  Cosmology * CP, const ForceTree * const tree)
+hydro_force_old(const ActiveParticles * act, const double atime, struct sph_pred_data * SPH_predicted, const DriftKickTimes times,  Cosmology * CP, const ForceTree * const tree)
 {
     int i;
     TreeWalk tw[1] = {{0}};
@@ -283,7 +274,7 @@ hydro_reduce(int place, TreeWalkResultHydro * result, enum TreeWalkReduceMode mo
  * The Density in the SPHP struct is evaluated at the last time
  * the particle was active. Good for both EgyWtDensity and Density,
  * cube of the change in Hsml in drift.c. */
-double
+static double
 SPH_DensityPred(MyFloat Density, MyFloat DivVel, double dtdrift)
 {
     /* Note minus sign!*/

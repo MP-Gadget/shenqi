@@ -146,12 +146,14 @@ static PetaPMRegion * makeregion(PetaPM * pm, PetaPMParticleStruct * pstruct, vo
 static enum TransferType ptype;
 /*Global to pass the particle data to the readout functions*/
 static struct ic_part_data * curICP;
+static PowerSpectrum * curpower;
 
-void displacement_fields(PetaPM * pm, enum TransferType Type, struct ic_part_data * dispICP, const int NumPart, Cosmology * CP, const struct genic_config GenicConfig) {
+void displacement_fields(PetaPM * pm, enum TransferType Type, struct ic_part_data * dispICP, const int NumPart, Cosmology * CP, const struct genic_config GenicConfig, PowerSpectrum * powerspec) {
 
     /*MUST set this before doing force.*/
     ptype = Type;
     curICP = dispICP;
+    curpower = powerspec;
     PetaPMParticleStruct pstruct = {
         curICP,
         sizeof(curICP[0]),
@@ -282,7 +284,7 @@ static void density_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex 
         double fac = exp(- k2 * r2);
 
         double kmag = sqrt(k2) * 2 * M_PI / pm->BoxSize;
-        fac *= DeltaSpec(kmag, ptype) / sqrt(pm->BoxSize * pm->BoxSize * pm->BoxSize);
+        fac *= curpower->DeltaSpec(kmag, ptype) / sqrt(pm->BoxSize * pm->BoxSize * pm->BoxSize);
 
         value[0][0] *= fac;
         value[0][1] *= fac;
@@ -304,9 +306,9 @@ static void disp_transfer(PetaPM * pm, int64_t k2, int kaxis, pfft_complex * val
         double kmag = sqrt(k2) * 2 * M_PI / pm->BoxSize;
         /*Multiply by derivative of scale-dependent growth function*/
         if(include_growth)
-            fac *= dlogGrowth(kmag, ptype);
+            fac *= curpower->dlogGrowth(kmag, ptype);
         else
-            fac *= DeltaSpec(kmag, ptype);
+            fac *= curpower->DeltaSpec(kmag, ptype);
         double tmp = value[0][0];
         value[0][0] = - value[0][1] * fac;
         value[0][1] = tmp * fac;

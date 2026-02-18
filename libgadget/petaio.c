@@ -13,8 +13,8 @@
 
 #include "petaio.h"
 #include "slotsmanager.h"
-#include "hydra.h"
-#include "density.h"
+#include "hydra2.h"
+#include "density2.h"
 #include "partmanager.h"
 #include "config.h"
 #include "neutrinos_lra.h"
@@ -636,7 +636,7 @@ void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, i
         if(NumWriters > NumFiles * IO.WritersPerFile) {
             NumWriters = NumFiles * IO.WritersPerFile;
         }
-        if(NumWriters < IO.MinNumWriters) {
+        if(NumWriters < IO.MinNumWriters && IO.MinNumWriters > 1) {
             message(0, "Throttling to %d NumWriters but could throttle to %d.\n", IO.MinNumWriters, NumWriters);
             NumWriters = IO.MinNumWriters;
             NumFiles = (NumWriters + IO.WritersPerFile - 1) / IO.WritersPerFile ;

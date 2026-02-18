@@ -3,6 +3,7 @@
 
 #include <libgadget/cosmology.h>
 #include <bigfile-mpi.h>
+#include <boost/math/interpolators/makima.hpp>
 
 struct power_params
 {
@@ -36,6 +37,8 @@ struct power_params
  * at k = 0.002 h/Mpc at 2% for z_ic = 100. It is larger at higher redshift.
  */
 
+#define MAXCOLS 9
+
 /*Symbolic constants for the possible types transfer function types*/
 enum TransferType
 {
@@ -52,15 +55,51 @@ enum TransferType
     DELTA_TOT = 9,
 };
 
-/* delta (square root of power spectrum) at current redshift.
- * Type == 0 is Gas, Type == 1 is DM, Type == 2 is neutrinos, Type == 3 is CDM + baryons (as in the enum)
- * Other types are total power. */
-double DeltaSpec(double kmag, enum TransferType Type);
-/* Scale-dependent derivative of the growth function,
- * computed by differentiating the provided transfer functions. */
-double dlogGrowth(double kmag, enum TransferType Type);
-/* Read power spectrum and transfer function tables from disk, set up growth factors, init cosmology. */
-int init_powerspectrum(int ThisTask, double InitTime, double UnitLength_in_cm_in, Cosmology * CPin, struct power_params * ppar);
+struct table
+{
+    int Nentry;
+    double * logk;
+    double * logD[MAXCOLS];
+    boost::math::interpolators::makima<std::vector<double>>* mat_intp[MAXCOLS];
+};
+
+/*Typedef for a function that parses the table from text*/
+typedef void (*_parse_fn)(int i, double k, char * line, struct table *, int *InputInLog10, const double InitTime, int NumCol);
+
+class PowerSpectrum
+{
+private:
+    struct table power_table;
+    /*Columns: 0 == baryon, 1 == CDM, 2 == neutrino, 3 == baryon velocity, 4 == CDM velocity, 5 = neutrino velocity*/
+    struct table transfer_table;
+    double Norm = 1;
+    int WhichSpectrum;
+    /*Only used for tk_eh, WhichSpectrum == 0*/
+    double PrimordialIndex;
+    double UnitLength_in_cm;
+    Cosmology * CP;
+    /* Eisenstein and Hu*/
+    double Delta_EH(double k);
+    double tk_eh(double k);
+    double get_Tabulated(double k, enum TransferType Type);
+    int init_transfer_table(int ThisTask, double InitTime, const struct power_params * const ppar);
+    void parse_transfer(int i, double k, char * line, struct table *out_tab, int * InputInLog10, const double InitTime, int NumCol);
+    template <typename F>
+    void read_power_table(int ThisTask, const char * inputfile, const int ncols, struct table * out_tab, const double InitTime, F parse_line);
+public:
+    /* Read power spectrum and transfer function tables from disk, set up growth factors, init cosmology. */
+    PowerSpectrum(int ThisTask, double InitTime, double UnitLength_in_cm_in, Cosmology * CPin, struct power_params * ppar);
+    /* delta (square root of power spectrum) at current redshift.
+    * Type == 0 is Gas, Type == 1 is DM, Type == 2 is neutrinos, Type == 3 is CDM + baryons (as in the enum)
+    * Other types are total power. */
+    double DeltaSpec(double kmag, enum TransferType Type);
+    /* Scale-dependent derivative of the growth function,
+    * computed by differentiating the provided transfer functions. */
+    double dlogGrowth(double kmag, enum TransferType Type);
+    void save_all_transfer_tables(BigFile * bf, int ThisTask);
+    double TopHatSigma2(double R);
+
+};
 
 /*Save the transfer function tables and matter power spectrum to the IC bigfile*/
 void save_all_transfer_tables(BigFile * bf, int ThisTask);

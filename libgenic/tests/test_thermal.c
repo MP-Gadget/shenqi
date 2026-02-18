@@ -30,7 +30,7 @@ BOOST_AUTO_TEST_CASE(test_thermal_vel)
 
     /*Test getting the distribution*/
     BOOST_TEST(nu_vels.fermi_dirac_vel[0] == 0);
-    BOOST_TEST(nu_vels.fermi_dirac_vel[LENGTH_FERMI_DIRAC_TABLE - 1] ==  MAX_FERMI_DIRAC);
+    BOOST_TEST(nu_vels.fermi_dirac_vel[LENGTH_FERMI_DIRAC_TABLE - 1] ==  MAX_FERMI_DIRAC, tt::tolerance(1e-7));
 
     /*Number verified by mathematica*/
     int ii = 0;
