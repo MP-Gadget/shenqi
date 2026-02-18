@@ -546,8 +546,16 @@ private:
     /* returns struct containing export counts */
     void ev_primary_gpu(particle_data * const parts)
     {//  reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
-
-        #pragma omp target teams distribute reduction(+: Ninteractions) nowait
+        /* Need to do some memory management here. Currently we need to map parts, tree and priv onto the GPU. We need to explicitly map the deep pointers for each type.
+         * priv mapping including deep pointers should be done in the priv constructor and should always be map(to:) on GPU.
+         * tree should be built on the GPU eventually. For now make it map to GPU when we are done with force_tree_build. Add a special function that handles all pointers.
+         * Make sure to use depend(inout: tree) for all pointer attachments.
+         * parts should eventually remain on CPU. We should build an array of QueryTypes in build_queue/toptree, on the GPU, instead of using WorkSet.
+         * This also needs the tree to use a query-like structure for the leafs.
+         * The output results should be reduced into arrays on output (these stay on the GPU) and some of the arrays copied back to the parts table on the CPU in postprocess.
+         * For now map parts to GPU before each treewalk, this would normally be slow, but is ok because we are unified memory.
+         */
+        #pragma omp target teams distribute reduction(+: Ninteractions) nowait depend(in: tree) depend(inout: parts) depend(inout: priv)
         for(int k = 0; k < WorkSetSize; k++) {
             const int i = WorkSet ? WorkSet[k] : k;
             /* Primary never uses node list */
