@@ -276,7 +276,7 @@ cull_node(const double * const Pos, const double BoxSize, const MyFloat Hsml, co
         r2 += dx * dx;
     }
     /* now test against the minimal sphere enclosing everything */
-    constexpr double FACT1  = 0.5 *  (std::sqrt(3.0) - 1.0); /* FACT1 = 0.5 * (sqrt(3)-1) ~ 0.366 */
+    constexpr double FACT1  = 0.5 *  (1.7320508075688772 - 1.0); /* FACT1 = 0.5 * (sqrt(3)-1) ~ 0.366 */
     dist += FACT1 * current->len;
 
     if(r2 > dist * dist) {
