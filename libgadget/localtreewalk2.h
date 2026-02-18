@@ -32,7 +32,7 @@ enum TreeWalkReduceMode {
 class ParamTypeBase
 {
     public:
-        const double BoxSize;
+        double BoxSize;
         ParamTypeBase(const double i_BoxSize) : BoxSize(i_BoxSize) {};
 };
 
