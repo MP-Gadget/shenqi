@@ -6,6 +6,11 @@
 #include "powerspectrum.h"
 #include "timestep.h"
 
+enum ShortRangeForceWindowType {
+    SHORTRANGE_FORCE_WINDOW_TYPE_EXACT = 0,
+    SHORTRANGE_FORCE_WINDOW_TYPE_ERFC = 1,
+};
+
 struct gravshort_tree_params
 {
     double ErrTolForceAcc;      /*!< parameter for relative opening criterion in tree walk.
@@ -21,11 +26,26 @@ struct gravshort_tree_params
     double FractionalGravitySoftening;
     /* Maximum size of the export buffer. */
     size_t MaxExportBufferBytes;
+    /* Type of the short range window function: exact from table or erfc */
+    enum ShortRangeForceWindowType ShortRangeForceWindowType;
 };
 
-enum ShortRangeForceWindowType {
-    SHORTRANGE_FORCE_WINDOW_TYPE_EXACT = 0,
-    SHORTRANGE_FORCE_WINDOW_TYPE_ERFC = 1,
+class GravShortTable
+{
+    private:
+    #define NGRAVTAB 512
+    /*! variables for short-range lookup table */
+    float shortrange_table[NGRAVTAB];
+    float shortrange_table_potential[NGRAVTAB];
+    // shortrange_table_tidal[NTAB];
+    double dx;
+
+    public:
+    /* Initialise the tables from pre-computed data */
+    GravShortTable(const enum ShortRangeForceWindowType ShortRangeForceWindowType, const double Asmth);
+
+    /* Compute force factor (*fac) and multiply potential (*pot) by the shortrange force window function.*/
+    double apply_short_range_window(const double r, const double cellsize, double * pot) const;
 };
 
 /* Fill the short-range gravity table*/
