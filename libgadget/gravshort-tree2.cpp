@@ -128,11 +128,19 @@ class GravTreeOutput
              Accel = (MyFloat (*) [3]) mymalloc2("GravAccel", NumPart * sizeof(Accel[0]));
              accelstorealloc = 1;
          }
+         /* Move the data to the GPU. The ev_primary treewalk depends on the priv structure for parameters and writes to Accel.
+          * Pointers are not mapped. However, we do not need to map Accel because it is not read during the treewalk, only written to.
+          */
+         #pragma omp target enter data map(to: *this) nowait
+         #pragma omp target enter data map(from: Accel) nowait
      }
      ~GravTreeOutput(void)
      {
-         if(accelstorealloc)
+         if(accelstorealloc) {
+             #pragma omp target exit data map(delete:Accel)
              myfree(Accel);
+         }
+         #pragma omp target exit data map(delete:*this)
      }
 };
 
