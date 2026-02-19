@@ -24,7 +24,7 @@
  *  TreePM algorithm is enabled, the force computed will only be the
  *  short-range part.
  */
- class GravTreePriv : public ParamTypeBase {
+ class GravTreeParams : public ParamTypeBase {
      public:
      /* Size of a PM cell, in internal units. Box / Nmesh */
      double cellsize;
@@ -47,7 +47,7 @@
      bool update_potential;
      int accelstorealloc;
 
-     GravTreePriv(const double Rcut, const inttime_t i_Ti_Current, const double rho0, const PetaPM * const pm, const double BoxSize, MyFloat (* AccelStore)[3], const bool i_update_potential, const int64_t NumPart):
+     GravTreeParams(const double Rcut, const inttime_t i_Ti_Current, const double rho0, const PetaPM * const pm, const double BoxSize, MyFloat (* AccelStore)[3], const bool i_update_potential, const int64_t NumPart):
      ParamTypeBase(BoxSize), cellsize(BoxSize / pm->Nmesh), Rcut(Rcut * pm->Asmth * cellsize), G(pm->G), Ti_Current(i_Ti_Current),
      cbrtrho0(pow(rho0, 1.0 / 3)), Accel(AccelStore), update_potential(i_update_potential)
      {
@@ -58,7 +58,7 @@
          }
      }
 
-     ~GravTreePriv(void)
+     ~GravTreeParams(void)
      {
          if(accelstorealloc)
              myfree(Accel);
@@ -78,21 +78,21 @@
      return sqrt(aold) / G;
  }
 
- class GravTreeQuery : public TreeWalkQueryBase<GravTreePriv> {
+ class GravTreeQuery : public TreeWalkQueryBase<GravTreeParams> {
     public:
     MyFloat OldAcc;
-    GravTreeQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const GravTreePriv& priv) :
+    GravTreeQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const GravTreeParams& priv) :
     TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), OldAcc(grav_get_abs_accel(particle, priv.G)) {}
  };
 
-class GravTreeResult : public TreeWalkResultBase<GravTreePriv> {
+class GravTreeResult : public TreeWalkResultBase<GravTreeParams> {
     public:
     MyFloat Acc[3] = {0};
     MyFloat Potential = 0;
     GravTreeResult(GravTreeQuery& query): TreeWalkResultBase(query), Acc(0,0,0), Potential(0) {}
 
     template<TreeWalkReduceMode mode>
-    void reduce(const int place, const GravTreePriv& priv, struct particle_data * const parts)
+    void reduce(const int place, const GravTreeParams& priv, struct particle_data * const parts)
     {
         TreeWalkResultBase::reduce<mode>(place, priv, parts);
         TREEWALK_REDUCE(priv.Accel[place][0], Acc[0]);
@@ -223,7 +223,7 @@ class GravLocalTreeWalk {
      * Returns the number of particle-particle and particle-node interactions.
      */
     template<TreeWalkReduceMode mode>
-    int64_t visit(const GravTreeQuery& input, GravTreeResult * output, const GravTreePriv& priv, const struct particle_data * const parts)
+    int64_t visit(const GravTreeQuery& input, GravTreeResult * output, const GravTreeParams& priv, const struct particle_data * const parts)
     {
         static_assert(mode != TREEWALK_TOPTREE, "Toptree should call toptree_visit, not visit.");
 
@@ -362,12 +362,12 @@ class GravLocalTreeWalk {
 };
 
 /* Note the NgbIter class is never used for the GravTree, so the final template argument has no effect. */
-class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreePriv, NGB_TREEFIND_ASYMMETRIC> {
+class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TREEFIND_ASYMMETRIC> {
     using TopTreeWalk::TopTreeWalk;
     public:
     /*! Find exports. The tricky part of this routine is that tree nodes that would normally be discarded without opening must not be exported.
      */
-    int toptree_visit(const int target, const GravTreeQuery& input, const GravTreePriv& priv, const struct particle_data * const parts)
+    int toptree_visit(const int target, const GravTreeQuery& input, const GravTreeParams& priv, const struct particle_data * const parts)
     {
         //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
         /* Reset the exported particles for this target. */
@@ -451,7 +451,7 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreePriv, NGB_TREE
     }
 };
 
-class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreePriv> {
+class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreeParams> {
     public:
     /**
     * Postprocess - finalize quantities after tree walk completes.
@@ -480,7 +480,7 @@ class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResul
         }
     }
     public:
-        GravTreeWalk(const char * const name, const ForceTree * const tree, const GravTreePriv& priv, const bool use_gpu=false)
+        GravTreeWalk(const char * const name, const ForceTree * const tree, const GravTreeParams& priv, const bool use_gpu=false)
             : TreeWalk(name, tree, priv, false, use_gpu) {
                 if(!tree->moments_computed_flag)
                     endrun(2, "Gravtree called before tree moments computed!\n");
@@ -501,7 +501,7 @@ class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResul
 void
 grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool use_gpu)
 {
-    GravTreePriv priv(TreeParams.Rcut, Ti_Current, rho0, pm, tree->BoxSize, AccelStore, tree->full_particle_tree_flag, PartManager->NumPart);
+    GravTreeParams priv(TreeParams.Rcut, Ti_Current, rho0, pm, tree->BoxSize, AccelStore, tree->full_particle_tree_flag, PartManager->NumPart);
     GravTreeWalk tw("GRAVTREE", tree, priv, use_gpu);
     /* Do the treewalk! */
     tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, TreeParams.MaxExportBufferBytes);
