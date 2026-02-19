@@ -1,3 +1,14 @@
+/*! \file gravtree.c
+ *  \brief main driver routines for gravitational (short-range) force computation
+ *
+ *  This file contains the code for the gravitational force computation by
+ *  means of the tree algorithm. To this end, a tree force is computed for all
+ *  active local particles, and particles are exported to other processors if
+ *  needed, where they can receive additional force contributions. If the
+ *  TreePM algorithm is enabled, the force computed will only be the
+ *  short-range part.
+ */
+
 #include <mpi.h>
 #include <stdlib.h>
 #include <math.h>
@@ -69,16 +80,7 @@ GravShortTable::apply_short_range_window(const double r, const double cellsize, 
     return (tabindex + 1 - i) * shortrange_table[tabindex] + (i - tabindex) * shortrange_table[tabindex + 1];
 }
 
-/*! \file gravtree.c
- *  \brief main driver routines for gravitational (short-range) force computation
- *
- *  This file contains the code for the gravitational force computation by
- *  means of the tree algorithm. To this end, a tree force is computed for all
- *  active local particles, and particles are exported to other processors if
- *  needed, where they can receive additional force contributions. If the
- *  TreePM algorithm is enabled, the force computed will only be the
- *  short-range part.
- */
+/* Class containing the fixed parameters of the gravity treewalk. */
  class GravTreeParams : public ParamTypeBase {
      public:
      /* Size of a PM cell, in internal units. Box / Nmesh */
@@ -97,15 +99,28 @@ GravShortTable::apply_short_range_window(const double r, const double cellsize, 
       * massive neutrinos, but doesn't. */
      double cbrtrho0;
      GravShortTable gravtab;
+
+     GravTreeParams(const double Rcut, const inttime_t i_Ti_Current, const double rho0, const PetaPM * const pm, const double BoxSize, GravShortTable& gravtab):
+     ParamTypeBase(BoxSize), cellsize(BoxSize / pm->Nmesh), Rcut(Rcut * pm->Asmth * cellsize), G(pm->G), Ti_Current(i_Ti_Current),
+     cbrtrho0(pow(rho0, 1.0 / 3)), gravtab(gravtab)
+     {
+     }
+
+     ~GravTreeParams(void)
+     {
+     }
+ };
+
+/* Class to store pointers to the outputs of the gravity code. */
+class GravTreeOutput
+{
+    public:
      /* Pointer to the place to store accelerations*/
      MyFloat (*Accel)[3];
+     int accelstorealloc;
      /* If this is true, we have all particles and need to update the gravitational potential */
      bool update_potential;
-     int accelstorealloc;
-
-     GravTreeParams(const double Rcut, const inttime_t i_Ti_Current, const double rho0, const PetaPM * const pm, const double BoxSize, MyFloat (* AccelStore)[3], const bool i_update_potential, const int64_t NumPart, GravShortTable& gravtab):
-     ParamTypeBase(BoxSize), cellsize(BoxSize / pm->Nmesh), Rcut(Rcut * pm->Asmth * cellsize), G(pm->G), Ti_Current(i_Ti_Current),
-     cbrtrho0(pow(rho0, 1.0 / 3)), gravtab(gravtab), Accel(AccelStore), update_potential(i_update_potential)
+     GravTreeOutput(MyFloat (* AccelStore)[3], const size_t NumPart, const bool i_update_potential): Accel(AccelStore), update_potential(i_update_potential)
      {
          accelstorealloc = 0;
          if(!AccelStore) {
@@ -113,13 +128,12 @@ GravShortTable::apply_short_range_window(const double r, const double cellsize, 
              accelstorealloc = 1;
          }
      }
-
-     ~GravTreeParams(void)
+     ~GravTreeOutput(void)
      {
          if(accelstorealloc)
              myfree(Accel);
      }
- };
+};
 
  /*Compute the absolute magnitude of the acceleration for a particle.*/
  MyFloat
@@ -141,16 +155,16 @@ GravShortTable::apply_short_range_window(const double r, const double cellsize, 
     TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), OldAcc(grav_get_abs_accel(particle, priv.G)) {}
  };
 
-class GravTreeResult : public TreeWalkResultBase<GravTreeParams> {
+class GravTreeResult : public TreeWalkResultBase<GravTreeQuery, GravTreeOutput> {
     public:
     MyFloat Acc[3] = {0};
     MyFloat Potential = 0;
     GravTreeResult(GravTreeQuery& query): TreeWalkResultBase(query), Acc(0,0,0), Potential(0) {}
 
     template<TreeWalkReduceMode mode>
-    void reduce(const int place, const GravTreeParams& priv, struct particle_data * const parts)
+    void reduce(const int place, const GravTreeOutput& priv, struct particle_data * const parts)
     {
-        TreeWalkResultBase::reduce<mode>(place, priv, parts);
+        TreeWalkResultBase<GravTreeQuery, GravTreeOutput>::reduce<mode>(place, priv, parts);
         TREEWALK_REDUCE(priv.Accel[place][0], Acc[0]);
         TREEWALK_REDUCE(priv.Accel[place][1], Acc[1]);
         TREEWALK_REDUCE(priv.Accel[place][2], Acc[2]);
@@ -505,7 +519,7 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
     }
 };
 
-class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreeParams> {
+class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreeParams, GravTreeOutput> {
     public:
     /**
     * Postprocess - finalize quantities after tree walk completes.
@@ -516,16 +530,16 @@ class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResul
     void postprocess(const int i, particle_data * const part)
     {
         const double G = priv.G;
-        priv.Accel[i][0] *= G;
-        priv.Accel[i][1] *= G;
-        priv.Accel[i][2] *= G;
+        output.Accel[i][0] *= G;
+        output.Accel[i][1] *= G;
+        output.Accel[i][2] *= G;
 
-        if(priv.update_potential) {
+        if(output.update_potential) {
             /* On a PM step, update the stored full tree grav accel for the next PM step.
             * Needs to be done here so internal treewalk iterations don't get a partial acceleration.*/
-            Part[i].FullTreeGravAccel[0] = priv.Accel[i][0];
-            Part[i].FullTreeGravAccel[1] = priv.Accel[i][1];
-            Part[i].FullTreeGravAccel[2] = priv.Accel[i][2];
+            Part[i].FullTreeGravAccel[0] = output.Accel[i][0];
+            Part[i].FullTreeGravAccel[1] = output.Accel[i][1];
+            Part[i].FullTreeGravAccel[2] = output.Accel[i][2];
             /* calculate the potential */
             Part[i].Potential += Part[i].Mass / (FORCE_SOFTENING() / 2.8);
             /* remove self-potential */
@@ -534,8 +548,8 @@ class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResul
         }
     }
     public:
-        GravTreeWalk(const char * const name, const ForceTree * const tree, const GravTreeParams& priv, const bool use_gpu=false)
-            : TreeWalk(name, tree, priv, false, use_gpu) {
+        GravTreeWalk(const char * const name, const ForceTree * const tree, const GravTreeParams& priv, const GravTreeOutput& output, const bool use_gpu=false)
+            : TreeWalk(name, tree, priv, output, false, use_gpu) {
                 if(!tree->moments_computed_flag)
                     endrun(2, "Gravtree called before tree moments computed!\n");
             };
@@ -556,8 +570,9 @@ void
 grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool use_gpu)
 {
     GravShortTable gravtab(TreeParams.ShortRangeForceWindowType, pm->Asmth);
-    GravTreeParams priv(TreeParams.Rcut, Ti_Current, rho0, pm, tree->BoxSize, AccelStore, tree->full_particle_tree_flag, PartManager->NumPart, gravtab);
-    GravTreeWalk tw("GRAVTREE", tree, priv, use_gpu);
+    GravTreeParams priv(TreeParams.Rcut, Ti_Current, rho0, pm, tree->BoxSize, gravtab);
+    GravTreeOutput output(AccelStore, PartManager->NumPart, tree->full_particle_tree_flag);
+    GravTreeWalk tw("GRAVTREE", tree, priv, output, use_gpu);
     /* Do the treewalk! */
     tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, TreeParams.MaxExportBufferBytes);
 

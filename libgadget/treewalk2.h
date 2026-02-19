@@ -195,7 +195,7 @@ class CommBuffer
  *   2. Set tree, ev_label, type, and element sizes in the constructor
  *   3. Call treewalk_run() to execute the tree walk
  */
-template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType>
+template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType>
 class TreeWalk {
 public:
     /* A pointer to the force tree structure to walk.*/
@@ -204,9 +204,10 @@ public:
     /* name of the evaluator (used in printing messages) */
     const char * const ev_label;
 
-    /* Note this is a reference so that the ParamType destructor does not run during TreeWalk destruction,
-     * which would free the underlying ParamType memory */
+    /* Note this is a reference so that the ParamType/OutputType destructor does not run during TreeWalk destruction,
+     * which would free the underlying memory */
     const ParamType& priv;
+    const OutputType& output;
     /* Set to true if haswork() is overridden to do actual filtering.
      * Used to optimize queue building when haswork always returns true. */
     bool should_rebuild_queue;
@@ -249,9 +250,9 @@ public:
     /**
      * Constructor - initializes all members to safe defaults.
      */
-    TreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const ParamType& i_priv, bool i_should_rebuild_queue=true, bool i_use_gpu=false) :
+    TreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const ParamType& i_priv, const OutputType& i_out, bool i_should_rebuild_queue=true, bool i_use_gpu=false) :
         tree(i_tree), ev_label(i_ev_label),
-        priv(i_priv),
+        priv(i_priv), output(i_out),
         should_rebuild_queue(i_should_rebuild_queue),
         use_openmp_target(i_use_gpu),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
@@ -524,10 +525,10 @@ private:
                 const int i = WorkSet ? WorkSet[k] : k;
                 /* Primary never uses node list */
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
-                ResultType output(input);
+                ResultType result(input);
                 LocalTreeWalkType lv(tree, input);
-                int64_t ninteractions = lv.template visit<TREEWALK_PRIMARY>(input, &output, priv, parts);
-                output.template reduce<TREEWALK_PRIMARY>(i, priv, parts);
+                int64_t ninteractions = lv.template visit<TREEWALK_PRIMARY>(input, &result, priv, parts);
+                result.template reduce<TREEWALK_PRIMARY>(i, output, parts);
                 if(maxNinteractions < ninteractions)
                     maxNinteractions = ninteractions;
                 if(minNinteractions > ninteractions)
@@ -755,11 +756,11 @@ private:
                 const int task = exportlist->ExportTable_thread[i][k].Task;
                 const int64_t bufpos = real_recv_count[task] + counts->Export_offset[task];
                 real_recv_count[task]++;
-                ResultType * output = &((ResultType *) exportbuf->databuf)[bufpos];
-                output->template reduce<TREEWALK_GHOSTS>(place, priv, parts);
+                ResultType * result = &((ResultType *) exportbuf->databuf)[bufpos];
+                result->template reduce<TREEWALK_GHOSTS>(place, output, parts);
     #ifdef DEBUG
-                if(output->ID != parts[place].ID)
-                    endrun(8, "Error in communication: IDs mismatch %ld %ld\n", output->ID, parts[place].ID);
+                if(result->ID != parts[place].ID)
+                    endrun(8, "Error in communication: IDs mismatch %ld %ld\n", result->ID, parts[place].ID);
     #endif
             }
         }
@@ -806,10 +807,10 @@ private:
 };
 
 /* This calls the run() method repeatedly in a loop, redoing particles for density/hsml estimation.*/
-template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType>
-class LoopedTreeWalk: public TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType> {
+template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType>
+class LoopedTreeWalk: public TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType> {
     protected:
-    using Base = TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType>;
+    using Base = TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType>;
     using Base::build_queue;
     using Base::WorkSetSize;
     using Base::WorkSet;
