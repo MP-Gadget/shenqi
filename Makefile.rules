@@ -2,6 +2,7 @@
 #
 AR ?= ar
 MPICC ?= mpic++
+MPICXX ?= mpic++
 LOW_PRECISION ?= double
 
 OPTIMIZE ?= -O2 -g -fopenmp -Wall
@@ -39,6 +40,12 @@ BUNDLEDLIBS = -lbigfile-mpi -lbigfile -lpfft_omp -lfftw3_mpi -lfftw3_omp -lfftw3
 LIBS  = -lm  $(BOOST_LIBS) $(GSL_LIBS) $(FITSIO_LIBS) $(CUDA_LIBS)
 LIBS += -L../depends/lib $(BUNDLEDLIBS)
 V ?= 0
+
+.objs/%.o: %.cpp Makefile $(CONFIG)
+	@cmd="$(MPICXX) -MMD -c -o $@ $(CFLAGS) $<"; \
+	if test "x$(V)" = "x1" ; then echo $$cmd; fi; \
+	mkdir -p `dirname $@`; \
+	echo Compiling $<; $$cmd
 
 .objs/%.o: %.c Makefile $(CONFIG)
 	@cmd="$(MPICC) -MMD -c -o $@ $(CFLAGS) $<"; \

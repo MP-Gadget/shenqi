@@ -42,29 +42,26 @@ include ../Makefile.version
 # make V=1 to see the command line
 #
 
-GADGET_OBJS =  \
-	 gdbtools.o hci.o\
-	 fof.o fofpetaio.o petaio.o \
-	 domain.o exchange.o slotsmanager.o partmanager.o \
-	 blackhole.o bhinfo.o bhdynfric.o \
-	 timebinmgr.o \
-	 run.o drift.o stats.o \
-	 timestep.o init.o checkpoint.o \
-	 sfr_eff.o cooling.o cooling_rates.o cooling_uvfluc.o cooling_qso_lightup.o \
-	 winds.o veldisp.o density.o metal_return.o \
-	 treewalk.o density2.o cosmology.o \
-	 gravshort-tree.o gravshort-tree2.o gravshort-pair.o hydra.o hydra2.o timefac.o \
-	 gravpm.o powerspectrum.o \
-	 forcetree.o \
-	 petapm.o gravity.o \
-	 densitykernel.o lightcone.o walltime.o\
-	 runtests.o \
-	 neutrinos_lra.o \
-     omega_nu_single.o \
-	 config.o \
-	 uvbg.o \
-	 plane.o\
-	 lenstools.o
+GADGET_C_SRCS =  gdbtools.c hci.c\
+	 fof.c fofpetaio.c petaio.c \
+	 domain.c exchange.c slotsmanager.c partmanager.c \
+	 blackhole.c bhinfo.c bhdynfric.c \
+	 timebinmgr.c \
+	 run.c drift.c stats.c \
+	 timestep.c init.c checkpoint.c \
+	 sfr_eff.c cooling.c cooling_rates.c cooling_uvfluc.c cooling_qso_lightup.c \
+	 winds.c veldisp.c density.c metal_return.c \
+	 treewalk.c cosmology.c \
+	 gravshort-tree.c gravshort-pair.c hydra.c timefac.c \
+	 gravpm.c powerspectrum.c \
+	 forcetree.c petapm.c gravity.c \
+	 densitykernel.c lightcone.c walltime.c\
+	 runtests.c neutrinos_lra.c omega_nu_single.c config.c uvbg.c \
+	 plane.c lenstools.c
+
+GADGET_CPP_SRCS = hydra2.cpp density2.cpp gravshort-tree2.cpp
+
+GADGET_OBJS := $(addsuffix .o,$(basename $(GADGET_C_SRCS))) $(addsuffix .o,$(basename $(GADGET_CPP_SRCS)))
 
 GADGET_UTILS_OBJS= \
 utils/endrun.o \
@@ -87,12 +84,6 @@ GADGET_UTILS_OBJS := $(GADGET_UTILS_OBJS:%=.objs/%)
 all: libgadget.a libgadget-utils.a
 
 .PHONY: all test run-tests
-
-.objs/%2.o: %2.cpp Makefile $(CONFIG)
-	@cmd="$(MPICC) -MMD -c -o $@ $(CFLAGS) $<"; \
-	if test "x$(V)" = "x1" ; then echo $$cmd; fi; \
-	mkdir -p `dirname $@`; \
-	echo Compiling $<; $$cmd
 
 .objs/utils/test_%: tests/test_%.c .objs/utils/%.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
@@ -176,6 +167,13 @@ endif
 MPI_SHOWME := $(shell $(MPICC) -showme)
 
 .objs/%.compdb_entry: %.c
+	@echo "    {" > $@
+	@echo "        \"command\": \"$(MPI_SHOWME) $(CFLAGS) -c $<\","   >> $@
+	@echo "        \"directory\": \"$(CURDIR)\","               >> $@
+	@echo "        \"file\": \"$<\""                    >> $@
+	@echo "    },"                              >> $@
+
+.objs/%.compdb_entry: %.cpp
 	@echo "    {" > $@
 	@echo "        \"command\": \"$(MPI_SHOWME) $(CFLAGS) -c $<\","   >> $@
 	@echo "        \"directory\": \"$(CURDIR)\","               >> $@
