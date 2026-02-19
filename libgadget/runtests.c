@@ -7,7 +7,6 @@
 #include "petaio.h"
 #include "domain.h"
 #include "run.h"
-#include "treewalk.h"
 #include "density2.h"
 #include "hydra2.h"
 #include "hydra.h"

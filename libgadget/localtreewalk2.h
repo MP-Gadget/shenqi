@@ -1,8 +1,8 @@
 #ifndef _LOCALEVALUATOR_H_
 #define _LOCALEVALUATOR_H_
 
-#include <cstdint>
-#include <cmath>
+#include <stdint.h>
+#include <math.h>
 #include <omp.h>
 #include "utils/endrun.h"
 #include "forcetree.h"
