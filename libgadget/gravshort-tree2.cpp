@@ -67,18 +67,21 @@ GravShortTable::GravShortTable(const enum ShortRangeForceWindowType ShortRangeFo
     }
 }
 
-/* Compute force factor (*fac) and multiply potential (*pot) by the shortrange force window function.*/
-double
-GravShortTable::apply_short_range_window(const double r, const double cellsize, double * pot) const
+/* Compute force factor (*fac) and multiply potential (*pot) by the shortrange force window function.
+ * If the distance is outside the range of the table, 1 is returned and the caller should assume zero acceleration.
+ * If the distance is inside the range of the table, 0 is returned and the force factor and potential values
+ * should be applied to the particle query. */
+int
+GravShortTable::apply_short_range_window(const double r, double * fac, double * pot, const double cellsize) const
 {
     const double i = (r / cellsize / dx);
     size_t tabindex = floor(i);
     if(tabindex >= NGRAVTAB - 1)
         return 1;
     /* use a linear interpolation; */
+    *fac *= (tabindex + 1 - i) * shortrange_table[tabindex] + (i - tabindex) * shortrange_table[tabindex + 1];
     *pot *= (tabindex + 1 - i) * shortrange_table_potential[tabindex] + (i - tabindex) * shortrange_table_potential[tabindex];
-    double fac = (tabindex + 1 - i) * shortrange_table[tabindex] + (i - tabindex) * shortrange_table[tabindex + 1];
-    return fac;
+    return 0;
 }
 
 /* Class containing the fixed parameters of the gravity treewalk. */
@@ -418,10 +421,12 @@ class GravLocalTreeWalk {
             facpot = mass / h * wp;
         }
 
-        fac *= gravtab.apply_short_range_window(r, cellsize, &facpot);
-        for(int i = 0; i < 3; i++)
-            output->Acc[i] += dx[i] * fac;
-        output->Potential += facpot;
+        /* 0 means "r < table length". 1 means "r is outside table", tree acceleration is zero. */
+        if(0 == gravtab.apply_short_range_window(r, &fac, &facpot, cellsize)) {
+            for(int i = 0; i < 3; i++)
+                output->Acc[i] += dx[i] * fac;
+            output->Potential += facpot;
+        }
     }
 };
 
