@@ -121,7 +121,7 @@ class DensityPriv : public ParamTypeBase {
         if(!act->ActiveParticle || act->NumActiveHydro > 0.1 * (SlotsManager->info[0].size + SlotsManager->info[5].size)) {
             EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
             #pragma omp parallel for
-            for(int i = 0; i < PartManager->NumPart; i++)
+            for(int64_t i = 0; i < PartManager->NumPart; i++)
                 if(parts[i].Type == 0 && !parts[i].IsGarbage)
                     EntVarPred[parts[i].PI] = SPH_EntVarPred(parts[i], times);
         }
@@ -132,7 +132,7 @@ class DensityPriv : public ParamTypeBase {
             EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
             memset(EntVarPred, 0, sizeof(EntVarPred[0]) * SlotsManager->info[0].size);
             #pragma omp parallel for
-            for(int i = 0; i < act->NumActiveParticle; i++)
+            for(int64_t i = 0; i < act->NumActiveParticle; i++)
             {
                 int p_i = act->ActiveParticle ? act->ActiveParticle[i] : i;
                 if(parts[p_i].Type == 0 && !parts[p_i].IsGarbage)
@@ -160,7 +160,7 @@ class DensityOutput {
      * If DensityIndependentSphOn = 1 then this is used to set DhsmlEgyDensityFactor.*/
     MyFloat * DhsmlDensityFactor;
 
-    DensityOutput(const bool GradRho_mag, const size_t NumPart, const double BoxSize)
+    DensityOutput(const bool GradRho_mag, const int64_t NumPart, const double BoxSize)
     {
         Left = (MyFloat *) mymalloc("DENS_PRIV->Left", PartManager->NumPart * sizeof(MyFloat));
         Right = (MyFloat *) mymalloc("DENS_PRIV->Right", PartManager->NumPart * sizeof(MyFloat));
@@ -175,7 +175,7 @@ class DensityOutput {
 
         /* Init Left and Right: this has to be done before treewalk */
         #pragma omp parallel for
-        for(int i = 0; i < NumPart; i++)  {
+        for(int64_t i = 0; i < NumPart; i++)  {
             Right[i] = BoxSize;
             NumNgb[i] = 0;
             Left[i] = 0;
