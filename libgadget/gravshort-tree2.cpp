@@ -74,10 +74,11 @@ GravShortTable::apply_short_range_window(const double r, const double cellsize, 
     const double i = (r / cellsize / dx);
     size_t tabindex = floor(i);
     if(tabindex >= NGRAVTAB - 1)
-        return 0;
+        return 1;
     /* use a linear interpolation; */
     *pot *= (tabindex + 1 - i) * shortrange_table_potential[tabindex] + (i - tabindex) * shortrange_table_potential[tabindex];
-    return (tabindex + 1 - i) * shortrange_table[tabindex] + (i - tabindex) * shortrange_table[tabindex + 1];
+    double fac = (tabindex + 1 - i) * shortrange_table[tabindex] + (i - tabindex) * shortrange_table[tabindex + 1];
+    return fac;
 }
 
 /* Class containing the fixed parameters of the gravity treewalk. */
