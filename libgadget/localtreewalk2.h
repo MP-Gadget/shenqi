@@ -63,7 +63,7 @@ template <typename ParamType=ParamTypeBase> class TreeWalkQueryBase
     }
 };
 
-template <typename ParamType=ParamTypeBase>
+template <typename QueryType, typename OutputType>
 class TreeWalkResultBase
 {
     public:
@@ -71,7 +71,7 @@ class TreeWalkResultBase
         MyIDType ID;
     #endif
 
-    TreeWalkResultBase(const TreeWalkQueryBase<ParamType>& query)
+    TreeWalkResultBase(const QueryType& query)
         #ifdef DEBUG
         : ID(query.ID)
         #endif
@@ -85,7 +85,7 @@ class TreeWalkResultBase
         * @param mode   Whether this is primary, ghost, or toptree reduction
         */
         template<TreeWalkReduceMode mode>
-        void reduce(const int j, const ParamType& priv, struct particle_data * const parts)
+        void reduce(const int j, const OutputType& priv, struct particle_data * const parts)
         {
             #ifdef DEBUG
                 if(parts[j].ID != ID)

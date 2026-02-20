@@ -138,6 +138,8 @@ class HydroPriv : public ParamTypeBase {
     }
 };
 
+class HydroOutput {};
+
 class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     public:
     /* These are only used for DensityIndependentSphOn*/
@@ -175,7 +177,7 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     }
 };
 
-class HydroResult: public TreeWalkResultBase<HydroPriv> {
+class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
     public:
     MyFloat Acc[3] = {0};
     MyFloat DtEntropy = 0;
@@ -186,7 +188,7 @@ class HydroResult: public TreeWalkResultBase<HydroPriv> {
     }
 
     template<TreeWalkReduceMode mode>
-    void reduce(int place, const HydroPriv& priv, struct particle_data * const parts)
+    void reduce(int place, const HydroOutput& priv, struct particle_data * const parts)
     {
         TreeWalkResultBase::reduce<mode>(place, priv, parts);
         struct sph_particle_data * sphpart = &SphP[parts[place].PI];
@@ -390,9 +392,10 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
 
 class HydroTopTreeWalk: public TopTreeWalk<HydroQuery, HydroPriv, NGB_TREEFIND_SYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
-class HydroTreeWalk: public TreeWalk<HydroTreeWalk, HydroQuery, HydroResult, HydroLocalTreeWalk, HydroTopTreeWalk, HydroPriv> {
+class HydroTreeWalk: public TreeWalk<HydroTreeWalk, HydroQuery, HydroResult, HydroLocalTreeWalk, HydroTopTreeWalk, HydroPriv, HydroOutput> {
     public:
-    HydroTreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const HydroPriv& i_priv) : TreeWalk(i_ev_label, i_tree, i_priv) {}
+    HydroTreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const HydroPriv& i_priv, const HydroOutput& i_out):
+    TreeWalk(i_ev_label, i_tree, i_priv, i_out) {}
 
     bool haswork(const particle_data& particle)
     {
@@ -422,7 +425,8 @@ hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPre
         endrun(5, "Hydro called before hmax computed\n");
 
     HydroPriv priv(tree->BoxSize, EntVarPred, atime, &times, CP);
-    HydroTreeWalk tw("HYDRO", tree, priv);
+    HydroOutput output;
+    HydroTreeWalk tw("HYDRO", tree, priv, output);
 
     walltime_measure("/SPH/Hydro/Init");
 

@@ -99,6 +99,52 @@ class DensityPriv : public ParamTypeBase {
     bool DoEgyDensity;
 
     DriftKickTimes * times;
+    /*!< Desired number of SPH neighbours */
+    double DesNumNgb;
+    /*!< minimum allowed SPH smoothing length */
+    double MinGasHsml;
+    /*!< Predicted entropy at current particle drift time for SPH computation*/
+    MyFloat * EntVarPred;
+    /* For computing the predicted quantities dynamically during the treewalk.*/
+    KickFactorData kf;
+
+    DensityPriv(const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, DriftKickTimes * i_times, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const struct part_manager_type * const i_PartManager):
+    ParamTypeBase(i_PartManager->BoxSize),
+    update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), times(i_times), kf(i_times, CP)
+    {
+        struct particle_data * parts = i_PartManager->Base;
+        DesNumNgb = GetNumNgb(DensityParams.DensityKernelType);
+        MinGasHsml = DensityParams.MinGasHsmlFractional * (FORCE_SOFTENING()/2.8);
+
+        /* If all particles are active, easiest to compute all the predicted velocities immediately*/
+        EntVarPred = NULL;
+        if(!act->ActiveParticle || act->NumActiveHydro > 0.1 * (SlotsManager->info[0].size + SlotsManager->info[5].size)) {
+            EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
+            #pragma omp parallel for
+            for(int64_t i = 0; i < PartManager->NumPart; i++)
+                if(parts[i].Type == 0 && !parts[i].IsGarbage)
+                    EntVarPred[parts[i].PI] = SPH_EntVarPred(parts[i], times);
+        }
+        /* But if only some particles are active, the pow function in EntVarPred is slow and we have a lot of overhead, because we are doing 5500^3 exps for 5 particles.
+        * So instead we compute it for active particles and use an atomic to guard the changes inside the loop.
+        * For sufficiently small particle numbers the memset dominates and it is fastest to just compute each predicted entropy as we need it.*/
+        else if(act->NumActiveHydro > 0.0001 * (SlotsManager->info[0].size + SlotsManager->info[5].size)){
+            EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
+            memset(EntVarPred, 0, sizeof(EntVarPred[0]) * SlotsManager->info[0].size);
+            #pragma omp parallel for
+            for(int64_t i = 0; i < act->NumActiveParticle; i++)
+            {
+                int p_i = act->ActiveParticle ? act->ActiveParticle[i] : i;
+                if(parts[p_i].Type == 0 && !parts[p_i].IsGarbage)
+                    EntVarPred[parts[p_i].PI] = SPH_EntVarPred(parts[p_i], times);
+            }
+        }
+    }
+};
+
+
+class DensityOutput {
+    public:
     /* The gradient of the density, used sometimes during star formation.
      * May be NULL.*/
     MyFloat * GradRho;
@@ -114,76 +160,30 @@ class DensityPriv : public ParamTypeBase {
      * If DensityIndependentSphOn = 1 then this is used to set DhsmlEgyDensityFactor.*/
     MyFloat * DhsmlDensityFactor;
 
-    /*!< Desired number of SPH neighbours */
-    double DesNumNgb;
-    /*!< minimum allowed SPH smoothing length */
-    double MinGasHsml;
-    /*!< Predicted entropy at current particle drift time for SPH computation*/
-    MyFloat * EntVarPred;
-    /* For computing the predicted quantities dynamically during the treewalk.*/
-    KickFactorData kf;
-
-    DensityPriv(const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, DriftKickTimes * i_times, const bool GradRho_mag, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const struct part_manager_type * const i_PartManager):
-    ParamTypeBase(i_PartManager->BoxSize),
-    update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), times(i_times), kf(i_times, CP)
+    DensityOutput(const bool GradRho_mag, const int64_t NumPart, const double BoxSize)
     {
-        struct particle_data * parts = i_PartManager->Base;
         Left = (MyFloat *) mymalloc("DENS_PRIV->Left", PartManager->NumPart * sizeof(MyFloat));
         Right = (MyFloat *) mymalloc("DENS_PRIV->Right", PartManager->NumPart * sizeof(MyFloat));
         NumNgb = (MyFloat *) mymalloc("DENS_PRIV->NumNgb", PartManager->NumPart * sizeof(MyFloat));
         Rot = (MyFloat (*) [3]) mymalloc("DENS_PRIV->Rot", SlotsManager->info[0].size * sizeof(Rot[0]));
         /* This one stores the gradient for h finding. The factor stored in SPHP->DhsmlEgyDensityFactor depends on whether PE SPH is enabled.*/
         DhsmlDensityFactor = (MyFloat *) mymalloc("DhsmlDensity", PartManager->NumPart * sizeof(MyFloat));
-
-        DesNumNgb = GetNumNgb(DensityParams.DensityKernelType);
-        MinGasHsml = DensityParams.MinGasHsmlFractional * (FORCE_SOFTENING()/2.8);
-
         if(GradRho_mag)
             GradRho = (MyFloat *) mymalloc("SPH_GradRho", sizeof(MyFloat) * 3 * SlotsManager->info[0].size);
         else
             GradRho = NULL;
 
-        int i;
         /* Init Left and Right: this has to be done before treewalk */
         #pragma omp parallel for
-        for(i = 0; i < act->NumActiveParticle; i++)  {
-            int p_i = act->ActiveParticle ? act->ActiveParticle[i] : i;
-            /* We only really need active particles with work
-            * but I don't want to read the particle table here*/
-            Right[p_i] = BoxSize;
-            NumNgb[p_i] = 0;
-            Left[p_i] = 0;
-        }
-
-        /* If all particles are active, easiest to compute all the predicted velocities immediately*/
-        EntVarPred = NULL;
-        if(!act->ActiveParticle || act->NumActiveHydro > 0.1 * (SlotsManager->info[0].size + SlotsManager->info[5].size)) {
-            EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
-            #pragma omp parallel for
-            for(i = 0; i < PartManager->NumPart; i++)
-                if(parts[i].Type == 0 && !parts[i].IsGarbage)
-                    EntVarPred[parts[i].PI] = SPH_EntVarPred(parts[i], times);
-        }
-        /* But if only some particles are active, the pow function in EntVarPred is slow and we have a lot of overhead, because we are doing 5500^3 exps for 5 particles.
-        * So instead we compute it for active particles and use an atomic to guard the changes inside the loop.
-        * For sufficiently small particle numbers the memset dominates and it is fastest to just compute each predicted entropy as we need it.*/
-        else if(act->NumActiveHydro > 0.0001 * (SlotsManager->info[0].size + SlotsManager->info[5].size)){
-            EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
-            memset(EntVarPred, 0, sizeof(EntVarPred[0]) * SlotsManager->info[0].size);
-            #pragma omp parallel for
-            for(i = 0; i < act->NumActiveParticle; i++)
-            {
-                int p_i = act->ActiveParticle ? act->ActiveParticle[i] : i;
-                if(parts[p_i].Type == 0 && !parts[p_i].IsGarbage)
-                    EntVarPred[parts[p_i].PI] = SPH_EntVarPred(parts[p_i], times);
-            }
+        for(int64_t i = 0; i < NumPart; i++)  {
+            Right[i] = BoxSize;
+            NumNgb[i] = 0;
+            Left[i] = 0;
         }
     }
 
-    ~DensityPriv()
+    ~DensityOutput()
     {
-        /* Note this does not free EntVarPred
-         * as we need to return it for re-use in hydro. */
         if(GradRho)
             myfree(GradRho);
         myfree(DhsmlDensityFactor);
@@ -216,7 +216,7 @@ class DensityQuery : public TreeWalkQueryBase<DensityPriv>
 
 };
 
-class DensityResult : public TreeWalkResultBase<DensityPriv> {
+class DensityResult : public TreeWalkResultBase<DensityQuery, DensityOutput> {
     /*These are only used for density independent SPH*/
     public:
         MyFloat EgyRho = 0;
@@ -234,7 +234,7 @@ class DensityResult : public TreeWalkResultBase<DensityPriv> {
         {}
 
         template<TreeWalkReduceMode mode>
-        void reduce(int place, const DensityPriv& priv, struct particle_data * const parts)
+        void reduce(int place, const DensityOutput& priv, struct particle_data * const parts)
         {
             TreeWalkResultBase::reduce<mode>(place, priv, parts);
             TREEWALK_REDUCE(priv.NumNgb[place], Ngb);
@@ -259,10 +259,10 @@ class DensityResult : public TreeWalkResultBase<DensityPriv> {
                 }
 
                 /*Only used for density independent SPH*/
-                if(priv.DoEgyDensity) {
+                //if(priv.DoEgyDensity) {
                     TREEWALK_REDUCE(SphP[parts[place].PI].EgyWtDensity, EgyRho);
                     TREEWALK_REDUCE(SphP[parts[place].PI].DhsmlEgyDensityFactor, DhsmlEgyDensity);
-                }
+                //}
             }
             else if(parts[place].Type == 5)
             {
@@ -372,16 +372,14 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, Densit
             for(d = 0; d < 3; d ++) {
                 output->Rot[d] += fac * rot[d];
             }
-            if(priv.GradRho) {
-                for (d = 0; d < 3; d ++)
-                    output->GradRho[d] += fac * dist[d];
-            }
+            for (d = 0; d < 3; d ++)
+                output->GradRho[d] += fac * dist[d];
         }
 };
 
 class DensityTopTreeWalk: public TopTreeWalk<DensityQuery, DensityPriv, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
-class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, DensityResult, DensityLocalTreeWalk, DensityTopTreeWalk, DensityPriv> {
+class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, DensityResult, DensityLocalTreeWalk, DensityTopTreeWalk, DensityPriv, DensityOutput> {
     public:
     using LoopedTreeWalk::LoopedTreeWalk;
 
@@ -398,13 +396,13 @@ class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, Dens
     void
     postprocess(const int i, struct particle_data * const parts)
     {
-        MyFloat * DhsmlDens = &(priv.DhsmlDensityFactor[i]);
+        MyFloat * DhsmlDens = &(output.DhsmlDensityFactor[i]);
         double density = -1;
         if(parts[i].Type == 0)
             density = SphP[parts[i].PI].Density;
         else if(parts[i].Type == 5)
             density = BhP[parts[i].PI].Density;
-        if(density <= 0 && priv.NumNgb[i] > 0) {
+        if(density <= 0 && output.NumNgb[i] > 0) {
             endrun(12, "Particle %d type %d has bad density: %g\n", i, parts[i].Type, density);
         }
         *DhsmlDens *= parts[i].Hsml / (NUMDIMS * density);
@@ -438,7 +436,7 @@ class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, Dens
             else
                 SphP[parts[i].PI].DhsmlEgyDensityFactor = *DhsmlDens;
 
-            MyFloat * Rot = priv.Rot[PI];
+            MyFloat * Rot = output.Rot[PI];
             SphP[parts[i].PI].CurlVel = sqrt(Rot[0] * Rot[0] + Rot[1] * Rot[1] + Rot[2] * Rot[2]) / SphP[parts[i].PI].Density;
 
             SphP[parts[i].PI].DivVel /= SphP[parts[i].PI].Density;
@@ -463,9 +461,9 @@ class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, Dens
         if(priv.BlackHoleOn && parts[i].Type == 5)
             desnumngb = desnumngb * DensityParams.BlackHoleNgbFactor;
 
-        MyFloat * Left = priv.Left;
-        MyFloat * Right = priv.Right;
-        MyFloat * NumNgb = priv.NumNgb;
+        MyFloat * Left = output.Left;
+        MyFloat * Right = output.Right;
+        MyFloat * NumNgb = output.NumNgb;
 
         if(maxnumngb[tid] < NumNgb[i])
             maxnumngb[tid] = NumNgb[i];
@@ -509,7 +507,7 @@ class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, Dens
                 if(!(Right[i] < tree->BoxSize) && Left[i] == 0)
                     endrun(8188, "Cannot occur. Check for memory corruption: i=%d L = %g R = %g N=%g. Type %d, Pos %g %g %g hsml %g Box %g\n", i, Left[i], Right[i], NumNgb[i], parts[i].Type, parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2], parts[i].Hsml, tree->BoxSize);
 
-                MyFloat DensFac = priv.DhsmlDensityFactor[i];
+                MyFloat DensFac = output.DhsmlDensityFactor[i];
                 double fac = 1.26;
                 if(NumNgb[i] > 0)
                     fac = 1 - (NumNgb[i] - desnumngb) / (NUMDIMS * NumNgb[i]) * DensFac;
@@ -579,8 +577,9 @@ class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, Dens
 void
 density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTree * const tree)
 {
-    DensityPriv priv(update_hsml, DoEgyDensity, BlackHoleOn, &times, GradRho_mag, tree->BoxSize, CP, act, PartManager);
-    DensityTreeWalk tw("DENSITY", tree, priv);
+    DensityPriv priv(update_hsml, DoEgyDensity, BlackHoleOn, &times, tree->BoxSize, CP, act, PartManager);
+    DensityOutput output(GradRho_mag, PartManager->NumPart, tree->BoxSize);
+    DensityTreeWalk tw("DENSITY", tree, priv, output);
 
     //tw->visit = (TreeWalkVisitFunction) treewalk_visit_nolist_ngbiter;
     //tw->NoNgblist = 1;
@@ -596,7 +595,7 @@ density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Blac
         #pragma omp parallel for
         for(i = 0; i < SlotsManager->info[0].size; i++)
         {
-            MyFloat * gr = tw.priv.GradRho + (3*i);
+            MyFloat * gr = tw.output.GradRho + (3*i);
             GradRho_mag[i] = sqrt(gr[0]*gr[0] + gr[1] * gr[1] + gr[2] * gr[2]);
         }
     }
