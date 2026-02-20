@@ -92,7 +92,7 @@ Data which is already mapped to the GPU can be updated with new memory from the 
 Or GPU memory can be written back to the CPU with:
 
 .. code:: C
-    #pragma omp target update from(Accel[0:N]) nowait depend(in: Accel) depend(out: Accel)
+    #pragma omp target update from(Accel[0:N]) nowait depend(inout: Accel)
 
 Before memory is freed on the CPU (ie, in the destructor), you should call
 
@@ -112,9 +112,9 @@ Memory which is solely for the use of the GPU, and never uses CPU memory at all,
 
 and freed with omp_target_free(). This should be the default: any memory which is not transferred to other ranks should live on the GPU. Eventually the tree should be permanently GPU-resident.
 
-Data which is created on the GPU and then moved to the CPU should be allocated on the CPU in the normal way and mapped to the GPU with a map(from:) clause:
+Data which is created on the GPU and then moved to the CPU should be allocated on the CPU in the normal way and mapped to the GPU with a map(alloc:) clause:
 .. code:: C
-    #pragma omp target enter data map(from: *this) nowait
+    #pragma omp target enter data map(alloc: *this) nowait
 This allocates memory on the GPU shadowing the CPU memory, increments a reference count, but does not copy anything. The contents of the GPU memory is written back to the CPU only when the reference count reaches zero. The reference count is dereferenced at:
 .. code:: C
     #pragma omp target exit data map(from: *this) depend(in: *this) nowait
