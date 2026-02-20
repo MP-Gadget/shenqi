@@ -100,16 +100,13 @@ GravShortTable::apply_short_range_window(const double r, const double cellsize, 
       * massive neutrinos, but doesn't. */
      double cbrtrho0;
      GravShortTable gravtab;
+     /* Force softening*/
+     double ForceSoftening;
 
      GravTreeParams(const double Rcut, const inttime_t i_Ti_Current, const double rho0, const PetaPM * const pm, const double BoxSize, GravShortTable& gravtab):
      ParamTypeBase(BoxSize), cellsize(BoxSize / pm->Nmesh), Rcut(Rcut * pm->Asmth * cellsize), G(pm->G), Ti_Current(i_Ti_Current),
-     cbrtrho0(pow(rho0, 1.0 / 3)), gravtab(gravtab)
-     {
-     }
-
-     ~GravTreeParams(void)
-     {
-     }
+     cbrtrho0(pow(rho0, 1.0 / 3)), gravtab(gravtab), ForceSoftening(FORCE_SOFTENING())
+     {}
  };
 
 /* Class to store pointers to the outputs of the gravity code. */
@@ -355,7 +352,7 @@ class GravLocalTreeWalk {
                     /* ok, node can be used */
                     no = nop->sibling;
                     /* Compute the acceleration and apply it to the output structure*/
-                    apply_accn(output, dx, r2, nop->mom.mass, cellsize, priv.gravtab);
+                    apply_accn(output, dx, r2, nop->mom.mass, cellsize, priv.gravtab, priv.ForceSoftening);
                     ninteractions++;
                     continue;
                 }
@@ -371,7 +368,7 @@ class GravLocalTreeWalk {
                             dx[j] = NEAREST(Part[pp].Pos[j] - input.Pos[j], tree->BoxSize);
                         const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
                         /* Compute the acceleration and apply it to the output structure*/
-                        apply_accn(output, dx, r2, Part[pp].Mass, cellsize, priv.gravtab);
+                        apply_accn(output, dx, r2, Part[pp].Mass, cellsize, priv.gravtab, priv.ForceSoftening);
                         ninteractions++;
                     }
                     no = nop->sibling;
@@ -395,11 +392,9 @@ class GravLocalTreeWalk {
 
     /* Add the acceleration from a node or particle to the output structure,
      * computing the short-range kernel and softening.*/
-    void apply_accn(GravTreeResult * output, const double dx[3], const double r2, const double mass, const double cellsize, const GravShortTable& gravtab)
+    void apply_accn(GravTreeResult * output, const double dx[3], const double r2, const double mass, const double cellsize, const GravShortTable& gravtab, const double h)
     {
         const double r = sqrt(r2);
-
-        const double h = FORCE_SOFTENING();
         double fac = mass / (r2 * r);
         double facpot = -mass / r;
 
