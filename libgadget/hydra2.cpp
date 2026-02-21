@@ -394,7 +394,7 @@ class HydroTopTreeWalk: public TopTreeWalk<HydroQuery, HydroPriv, NGB_TREEFIND_S
 
 class HydroTreeWalk: public TreeWalk<HydroTreeWalk, HydroQuery, HydroResult, HydroLocalTreeWalk, HydroTopTreeWalk, HydroPriv, HydroOutput> {
     public:
-    HydroTreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const HydroPriv& i_priv, const HydroOutput& i_out):
+    HydroTreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const HydroPriv& i_priv, HydroOutput& i_out):
     TreeWalk(i_ev_label, i_tree, i_priv, i_out) {}
 
     bool haswork(const particle_data& particle)

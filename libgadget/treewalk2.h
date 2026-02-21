@@ -207,7 +207,7 @@ public:
     /* Note this is a reference so that the ParamType/OutputType destructor does not run during TreeWalk destruction,
      * which would free the underlying memory */
     const ParamType& priv;
-    const OutputType& output;
+    OutputType& output;
     /* Set to true if haswork() is overridden to do actual filtering.
      * Used to optimize queue building when haswork always returns true. */
     bool should_rebuild_queue;
@@ -250,7 +250,7 @@ public:
     /**
      * Constructor - initializes all members to safe defaults.
      */
-    TreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const ParamType& i_priv, const OutputType& i_out, bool i_should_rebuild_queue=true, bool i_use_gpu=false) :
+    TreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const ParamType& i_priv, OutputType& i_out, bool i_should_rebuild_queue=true, bool i_use_gpu=false) :
         tree(i_tree), ev_label(i_ev_label),
         priv(i_priv), output(i_out),
         should_rebuild_queue(i_should_rebuild_queue),

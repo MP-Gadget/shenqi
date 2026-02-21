@@ -557,7 +557,7 @@ class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResul
         }
     }
     public:
-        GravTreeWalk(const char * const name, const ForceTree * const tree, const GravTreeParams& priv, const GravTreeOutput& output, const bool use_gpu=false)
+        GravTreeWalk(const char * const name, const ForceTree * const tree, const GravTreeParams& priv, GravTreeOutput& output, const bool use_gpu=false)
             : TreeWalk(name, tree, priv, output, false, use_gpu) {
                 if(!tree->moments_computed_flag)
                     endrun(2, "Gravtree called before tree moments computed!\n");
