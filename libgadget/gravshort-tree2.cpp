@@ -134,6 +134,23 @@ class GravTreeOutput
          #pragma omp target enter data map(to: *this) nowait
          #pragma omp target enter data map(alloc: Accel) nowait depend(inout: *this)
      }
+
+     /* This makes the output arrays accessible on the CPU. It is done synchronously.
+      * We call this before postprocess so we can use it there.
+      */
+     void cpu_writeback(void)
+     {
+         // This just writes back the data
+         if(accelstorealloc) {
+             #pragma omp target update from(Accel) depend(inout: Accel)
+         }
+         // This writes back the data and decrements the reference count, freeing the GPU memory,
+         // which is what we want to do if we have pre-allocated memory which will not be freed in the destructor.
+         else {
+            #pragma omp target exit data map(from: Accel) depend(in: Accel)
+         }
+     }
+
      ~GravTreeOutput(void)
      {
          if(accelstorealloc) {
