@@ -313,10 +313,18 @@ public:
         ev_process(BunchSize, parts, MPI_COMM_WORLD);
 
         tstart = second();
-        #pragma omp parallel for
-        for(int i = 0; i < WorkSetSize; i ++) {
-            const int p_i = WorkSet ? WorkSet[i] : i;
-            static_cast<DerivedType*>(this)->postprocess(p_i, parts);
+        if(use_openmp_target) {
+            #pragma omp target teams distribute map(tofrom: parts) map(tofrom: SlotsManager->info[0].ptr) map(tofrom: SlotsManager->info[5].ptr) depend(inout: output)
+            for(int i = 0; i < WorkSetSize; i ++) {
+                const int p_i = WorkSet ? WorkSet[i] : i;
+                static_cast<DerivedType*>(this)->postprocess(p_i, parts);
+            }
+        } else {
+            #pragma omp parallel for
+            for(int i = 0; i < WorkSetSize; i ++) {
+                const int p_i = WorkSet ? WorkSet[i] : i;
+                static_cast<DerivedType*>(this)->postprocess(p_i, parts);
+            }
         }
         tend = second();
         timecomp3 += timediff(tstart, tend);
