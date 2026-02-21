@@ -335,6 +335,29 @@ allocator_realloc_int(Allocator * alloc, void * ptr, const size_t new_size, cons
         endrun(1, "Not an allocated address: Header = %8p ptr = %8p\n", header, cptr);
     }
 
+#ifdef USE_CUDA
+    if (alloc->use_malloc) {
+        void *new_ptr;
+        if (cudaMallocManaged(&new_ptr, new_size + ALIGNMENT, cudaMemAttachGlobal) != cudaSuccess) {
+            endrun(1, "Failed to allocate %lu bytes for %s\n", new_size, header->name);
+        }
+
+        // Copy old data to the new block (don't forget the header)
+        memcpy(new_ptr, header, ALIGNMENT + (new_size < header->request_size ? new_size : header->request_size));
+
+        // Free the old block
+        cudaFree(header);
+
+        // Update header pointer in the new block
+        struct BlockHeader *new_header = (struct BlockHeader *)new_ptr;
+        new_header->ptr = (char *)new_ptr + ALIGNMENT;
+        new_header->request_size = new_size;
+        vsprintf(new_header->annotation, fmt, va);
+
+        va_end(va);
+        return new_header->ptr;
+    }
+#else
     if(alloc->use_malloc) {
         struct BlockHeader * header2;
 #ifdef USE_CUDA
@@ -357,6 +380,7 @@ allocator_realloc_int(Allocator * alloc, void * ptr, const size_t new_size, cons
         memcpy(header2->self, header2, sizeof(header2[0]));
         return header2->ptr;
     }
+#endif
 
     if(0 != allocator_dealloc(alloc, ptr)) {
         allocator_print(header->alloc);
@@ -385,6 +409,7 @@ allocator_free (void * ptr)
     struct BlockHeader * header = (struct BlockHeader*) (cptr - ALIGNMENT);
 
     if (!is_header(header)) {
+        message(0, "Not an allocated address: Header = %8p ptr = %8p\n", header, cptr);
         allocator_print(header->alloc);
         endrun(1, "Not an allocated address: Header = %8p ptr = %8p\n", header, cptr);
     }
@@ -422,6 +447,11 @@ allocator_dealloc (Allocator * alloc, void * ptr)
         return ALLOC_ENOTALLOC;
     }
 
+#ifdef USE_CUDA
+    if(alloc->use_malloc) {
+        cudaFree(header);
+    }
+#else
     if(alloc->use_malloc) {
 #ifdef USE_CUDA
         cudaFree(header);
@@ -429,6 +459,7 @@ allocator_dealloc (Allocator * alloc, void * ptr)
         free(header);
 #endif
     }
+#endif
 
     /* remove the link to the memory. */
     header = (struct BlockHeader *) ptr; /* modify the true header in the allocator */

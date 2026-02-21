@@ -37,6 +37,8 @@
 #include "veldisp.h"
 #include "physconst.h"
 #include "plane.h"
+#include "cuda_runtime.h"
+#include "treewalk_kernel.h"
 
 static struct ClockTable Clocks;
 /* Size of table full of random numbers generated each timestep.*/
@@ -252,6 +254,7 @@ begrun(const int RestartSnapNum, struct header_data * head)
     init_cooling_and_star_formation(All.CoolingOn, All.StarformationOn, &All.CP, head->MassTable[0], head->BoxSize, units);
 
     gravshort_fill_ntab(All.ShortRangeForceWindowType, All.Asmth);
+    run_gravshort_fill_ntab(All.ShortRangeForceWindowType, All.Asmth);
 
     if(All.LightconeOn)
         lightcone_init(&All.CP, head->TimeSnapshot, head->UnitLength_in_cm, All.OutputDir);
@@ -534,18 +537,23 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         /* Gravitational acceleration here*/
         if(totgravactive) {
             if(All.HierarchicalGravity) {
+                message(0, "Hierarchical gravity.\n");
                 /* We need to store a GravAccel for new star particles as well, so we need extra memory.*/
                 GravAccel.nstore = PartManager->NumPart + SlotsManager->info[0].size;
                 GravAccel.GravAccel = (MyFloat (*) [3]) mymalloc2("GravAccel", GravAccel.nstore * sizeof(GravAccel.GravAccel[0]));
                 hierarchical_gravity_accelerations(&Act, &pm, ddecomp, GravAccel, &times, HybridNuTracer, &All.CP, All.OutputDir);
             }
             else if(All.TreeGravOn && totgravactive) {
-                    ForceTree Tree = {0};
+                    ForceTree * Tree_ptr;
+                    cudaMallocManaged(&Tree_ptr, sizeof(ForceTree));
+                    memset(Tree_ptr, 0, sizeof(ForceTree));
+                    cudaDeviceSynchronize();
+                    message(0, "Tree allocated by cudaMallocManaged.\n");
                     /* Do a short range pairwise only step if desired*/
                     const double rho0 = All.CP.Omega0 * 3 * All.CP.Hubble * All.CP.Hubble / (8 * M_PI * All.CP.GravInternal);
-                    force_tree_full(&Tree, ddecomp, HybridNuTracer, All.OutputDir);
-                    grav_short_tree(&Act, &pm, &Tree, NULL, rho0, times.Ti_Current);
-                    force_tree_free(&Tree);
+                    force_tree_full(Tree_ptr, ddecomp, HybridNuTracer, All.OutputDir);
+                    grav_short_tree(&Act, &pm, Tree_ptr, NULL, rho0, times.Ti_Current);
+                    force_tree_free(Tree_ptr);
             }
         }
         message(0, "Forces computed.\n");
@@ -837,11 +845,13 @@ runfof(const int RestartSnapNum, const inttime_t Ti_Current, const struct header
             force_tree_free(&gasTree);
             slots_free_sph_pred_data(&sph_predicted);
         }
-        ForceTree Tree = {0};
+        ForceTree * Tree_ptr;
+        cudaMallocManaged(&Tree_ptr, sizeof(ForceTree));
+        memset(Tree_ptr, 0, sizeof(ForceTree));
         struct grav_accel_store gg = {0};
         /* Cooling is just for the star formation rate, so does not actually use the random table*/
         RandTable rnd = set_random_numbers(All.RandomSeed, RNDTABLE);
-        cooling_and_starformation(&Act, header->TimeSnapshot, 0, &Tree, gg, ddecomp, &All.CP, GradRho, &rnd, NULL);
+        cooling_and_starformation(&Act, header->TimeSnapshot, 0, Tree_ptr, gg, ddecomp, &All.CP, GradRho, &rnd, NULL);
         free_random_numbers(&rnd);
 
         if(GradRho)

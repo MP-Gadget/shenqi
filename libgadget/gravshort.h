@@ -22,6 +22,11 @@ typedef struct {
     MyFloat Potential;
 } TreeWalkResultGravShort;
 
+typedef struct {
+    MyFloat Acc[3];
+    MyFloat Potential;
+} TreeWalkResultChildren;
+
 struct GravShortPriv {
     /* Size of a PM cell, in internal units. Box / Nmesh */
     double cellsize;

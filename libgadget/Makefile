@@ -41,7 +41,6 @@ include ../Makefile.version
 #
 # make V=1 to see the command line
 #
-
 GADGET_C_SRCS =  gdbtools.c hci.c\
 	 fof.c fofpetaio.c petaio.c \
 	 domain.c exchange.c slotsmanager.c partmanager.c \
@@ -61,7 +60,9 @@ GADGET_C_SRCS =  gdbtools.c hci.c\
 
 GADGET_CPP_SRCS = hydra2.cpp density2.cpp gravshort-tree2.cpp
 
-GADGET_OBJS := $(addsuffix .o,$(basename $(GADGET_C_SRCS))) $(addsuffix .o,$(basename $(GADGET_CPP_SRCS)))
+GADGET_CUDA_SRCS = treewalk_kernel.cu
+
+GADGET_OBJS := $(addsuffix .o,$(basename $(GADGET_C_SRCS))) $(addsuffix .o,$(basename $(GADGET_CPP_SRCS))) $(addsuffix .o,$(basename $(GADGET_CUDA_SRCS)))
 
 GADGET_UTILS_OBJS= \
 utils/endrun.o \
