@@ -132,12 +132,13 @@ class GravTreeOutput
           * Pointers are not mapped. However, we do not need to map Accel because it is not read during the treewalk, only written to.
           */
          #pragma omp target enter data map(to: *this) nowait
-         #pragma omp target enter data map(from: Accel) nowait
+         #pragma omp target enter data map(alloc: Accel) nowait depend(inout: *this)
      }
      ~GravTreeOutput(void)
      {
          if(accelstorealloc) {
-             #pragma omp target exit data map(delete:Accel)
+             if(omp_target_is_present(Accel, omp_get_default_device()))
+                #pragma omp target exit data map(delete:Accel)
              myfree(Accel);
          }
          #pragma omp target exit data map(delete:*this)
