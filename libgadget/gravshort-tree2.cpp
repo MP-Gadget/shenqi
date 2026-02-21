@@ -137,11 +137,10 @@ class GravTreeOutput
      ~GravTreeOutput(void)
      {
          if(accelstorealloc) {
-             if(omp_target_is_present(Accel, omp_get_default_device()))
-                #pragma omp target exit data map(delete:Accel)
-             myfree(Accel);
+                #pragma omp target exit data map(delete:Accel) nowait
+                myfree(Accel);
          }
-         #pragma omp target exit data map(delete:*this)
+         #pragma omp target exit data map(delete:*this) nowait
      }
 };
 
