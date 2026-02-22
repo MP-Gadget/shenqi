@@ -45,7 +45,7 @@ class GravShortTable
     GravShortTable(const enum ShortRangeForceWindowType ShortRangeForceWindowType, const double Asmth);
 
     /* Compute force factor (*fac) and multiply potential (*pot) by the shortrange force window function.*/
-    int apply_short_range_window(const double r, double * fac, double * pot, const double cellsize) const;
+    MYCUDAFN int apply_short_range_window(const double r, double * fac, double * pot, const double cellsize) const;
 };
 
 /* Fill the short-range gravity table*/

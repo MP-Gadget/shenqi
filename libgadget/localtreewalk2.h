@@ -7,6 +7,7 @@
 #include "utils/endrun.h"
 #include "forcetree.h"
 #include "partmanager.h"
+#include "types.h"
 
 #define TREEWALK_REDUCE(A, B) if constexpr(mode==TREEWALK_PRIMARY){ (A) = (B);} else {(A) = ((A) + (B));}
 
@@ -33,7 +34,7 @@ class ParamTypeBase
 {
     public:
         double BoxSize;
-        ParamTypeBase(const double i_BoxSize) : BoxSize(i_BoxSize) {};
+        MYCUDAFN ParamTypeBase(const double i_BoxSize) : BoxSize(i_BoxSize) {};
 };
 
 /* Base class for the TreeWalk queries. You should subclass this and subclass the constructor. */
@@ -51,7 +52,7 @@ template <typename ParamType=ParamTypeBase> class TreeWalkQueryBase
     * i_NodeList: list of topnodes to start the treewalk from.
     * firstnode is used only if i_NodeList is NULL, in practice this is for primary treewalks.
     * This should be subclassed: the new constructor was called 'fill' in treewalk v1. */
-    TreeWalkQueryBase(const particle_data& particle, const int * const i_NodeList, const int firstnode, const ParamType& priv) :
+    MYCUDAFN TreeWalkQueryBase(const particle_data& particle, const int * const i_NodeList, const int firstnode, const ParamType& priv) :
     Pos{particle.Pos[0], particle.Pos[1], particle.Pos[2]}, NodeList{firstnode, -1, -1, -1} /* Nodelist is rootnode and terminate immediately */
     #ifdef DEBUG
        , ID(particle.ID)
@@ -71,7 +72,7 @@ class TreeWalkResultBase
         MyIDType ID;
     #endif
 
-    TreeWalkResultBase(const QueryType& query)
+        MYCUDAFN TreeWalkResultBase(const QueryType& query)
         #ifdef DEBUG
         : ID(query.ID)
         #endif
@@ -85,7 +86,7 @@ class TreeWalkResultBase
         * @param mode   Whether this is primary, ghost, or toptree reduction
         */
         template<TreeWalkReduceMode mode>
-        void reduce(const int j, const OutputType& priv, struct particle_data * const parts)
+        MYCUDAFN void reduce(const int j, const OutputType& priv, struct particle_data * const parts)
         {
             #ifdef DEBUG
                 if(parts[j].ID != ID)
@@ -256,7 +257,7 @@ protected:
 * Returns 0 if the node has no business with this query.
 */
 template <NgbTreeFindSymmetric symmetric>
-int
+MYCUDAFN int
 cull_node(const double * const Pos, const double BoxSize, const MyFloat Hsml, const struct NODE * const current)
 {
     double dist;
@@ -297,7 +298,7 @@ public:
     double dist[3];
     double r2;
     /* Constructor from treewalk */
-    LocalNgbTreeWalk(const ForceTree * const i_tree, const QueryType& input):
+    MYCUDAFN LocalNgbTreeWalk(const ForceTree * const i_tree, const QueryType& input):
      tree(i_tree)
     { }
     /**
@@ -315,7 +316,7 @@ public:
      * @return number of particle-particle interactions.
      */
      template<TreeWalkReduceMode mode>
-     int64_t visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
+     MYCUDAFN int64_t visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
      {
          static_assert(mode != TREEWALK_TOPTREE, "Toptree should call toptree_visit, not visit.");
          int64_t ninteractions = 0;
@@ -388,7 +389,7 @@ public:
     * @param iter   Neighbour iterator with distance info
     * @param lv     Thread-local walk state
     */
-    void ngbiter(const QueryType& input, const int other, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
+    MYCUDAFN void ngbiter(const QueryType& input, const int other, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
     {
         const particle_data& particle = parts[other];
         double symHsml = input.Hsml;
@@ -417,7 +418,7 @@ class LocalNgbListTreeWalk : public LocalNgbTreeWalk<DerivedType, QueryType, Res
 {
 public:
     /* Constructor from treewalk */
-    LocalNgbListTreeWalk(const ForceTree * const i_tree, int * i_ngblist, const QueryType& input):
+    MYCUDAFN LocalNgbListTreeWalk(const ForceTree * const i_tree, int * i_ngblist, const QueryType& input):
     LocalNgbTreeWalk<DerivedType, QueryType, ResultType, ParamType, symmetric, mask>(i_tree, input), ngblist(i_ngblist)
     { }
     /**
@@ -430,7 +431,7 @@ public:
      * Use this one if the treewalk modifies other particles.
      **/
     template<TreeWalkReduceMode mode>
-    int64_t visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
+    MYCUDAFN int64_t visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
     {
         /* Check whether the tree contains the particles we are looking for*/
         if((this->tree->mask & mask) != mask)
@@ -483,7 +484,7 @@ protected:
     *
     * */
     template<TreeWalkReduceMode mode>
-    int ngb_treefind_threads(const QueryType& input, int startnode)
+    MYCUDAFN int ngb_treefind_threads(const QueryType& input, int startnode)
     {
         int no;
         int numcand = 0;
