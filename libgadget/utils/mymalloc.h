@@ -2,6 +2,7 @@
 #define _MYMALLOC_H_
 
 #include "memory.h"
+#include "system.h"
 
 extern Allocator A_MAIN[1];
 extern Allocator A_TEMP[1];
@@ -28,7 +29,7 @@ void report_detailed_memory_usage(const char *label, const char * fmt, ...);
 #define  ta_free(p) allocator_free(p)
 
 #define  report_memory_usage(x)    report_detailed_memory_usage(x, "%s:%d", __FILE__, __LINE__)
-#define  mymalloc_freebytes()       allocator_get_free_size(A_MAIN)
+#define  mymalloc_freebytes()       get_freemem_bytes()
 #define  mymalloc_usedbytes()       allocator_get_used_size(A_MAIN, ALLOC_DIR_BOTH)
 
 #endif

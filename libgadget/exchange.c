@@ -478,7 +478,7 @@ domain_find_iter_space(ExchangePlan * plan, const struct part_manager_type * pma
     message(0, "Using %td bytes for exchange.\n", nlimit);
 
     size_t package = sizeof(pman->Base[0]) + maxsize;
-    if(package >= nlimit || nlimit > mymalloc_freebytes())
+    if(package >= nlimit)
         endrun(212, "Package is too large, no free memory: package = %lu nlimit = %lu.", package, nlimit);
 
     /* Fast path: if we have enough space no matter what type the particles

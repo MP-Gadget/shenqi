@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include "memory.h"
 #include "endrun.h"
+#include "libgadget/utils/system.h"
 
 #ifdef USE_CUDA
 #include <cuda_runtime.h>
@@ -256,7 +257,7 @@ allocator_get_free_size(Allocator * alloc)
 {
     /*For malloc, return a fixed 2GB */
     if(alloc->use_malloc) {
-        return 2L*1024L*1024L*1024L;
+        return get_freemem_bytes();
     }
     return (alloc->top - alloc->bottom);
 }

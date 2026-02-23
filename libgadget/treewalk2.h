@@ -790,7 +790,7 @@ private:
         const double ImportBufferBoost = 2;
         bytesperbuffer += ceil(ImportBufferBoost * (query_type_elsize + result_type_elsize));
         /*Use all free bytes for the tree buffer, as in exchange. Leave some free memory for array overhead.*/
-        size_t freebytes = (size_t) mymalloc_freebytes();
+        size_t freebytes = mymalloc_freebytes();
         freebytes -= 4096 * 10 * bytesperbuffer;
 
         size_t BunchSize = (size_t) floor(((double)freebytes)/ bytesperbuffer);

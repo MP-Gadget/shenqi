@@ -409,6 +409,21 @@ cluster_get_num_hosts(void)
 }
 
 size_t
+get_freemem_bytes(void)
+{
+    /* AVPHYS_PAGES gives the number of available pages. */
+#if defined _SC_AVPHYS_PAGES && defined _SC_PAGESIZE
+    { /* This works on linux-gnu, solaris2 and cygwin.  */
+        double pages = sysconf (_SC_AVPHYS_PAGES);
+        double pagesize = sysconf (_SC_PAGESIZE);
+        if (0 <= pages && 0 <= pagesize)
+            return pages * pagesize;
+    }
+#endif
+    return 2040L * 1024L * 1024L;
+}
+
+size_t
 get_physmem_bytes(void)
 {
 #if defined _SC_PHYS_PAGES && defined _SC_PAGESIZE
