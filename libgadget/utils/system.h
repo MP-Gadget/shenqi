@@ -25,7 +25,7 @@ typedef struct _Rnd_Table
 } RandTable;
 
 int cluster_get_num_hosts(void);
-double get_physmem_bytes(void);
+size_t get_physmem_bytes(void);
 
 /* Gets a random number in the range [0, 1) from the table. The id is used modulo the size of the table,
  * so only the lowest bits are used.

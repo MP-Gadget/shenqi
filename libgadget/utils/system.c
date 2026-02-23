@@ -408,7 +408,7 @@ cluster_get_num_hosts(void)
     return nunique;
 }
 
-double
+size_t
 get_physmem_bytes(void)
 {
 #if defined _SC_PHYS_PAGES && defined _SC_PAGESIZE
@@ -417,18 +417,6 @@ get_physmem_bytes(void)
         double pagesize = sysconf (_SC_PAGESIZE);
         if (0 <= pages && 0 <= pagesize)
             return pages * pagesize;
-    }
-#endif
-
-#if defined HW_PHYSMEM
-    { /* This works on *bsd and darwin.  */
-        unsigned int physmem;
-        size_t len = sizeof physmem;
-        static int mib[2] = { CTL_HW, HW_PHYSMEM };
-
-        if (sysctl (mib, ARRAY_SIZE (mib), &physmem, &len, NULL, 0) == 0
-                && len == sizeof (physmem))
-            return (double) physmem;
     }
 #endif
     return 64 * 1024 * 1024;
