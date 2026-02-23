@@ -57,7 +57,9 @@ allocator_init(Allocator * alloc, const char * name, const size_t request_size, 
     alloc->top = alloc->size;
     alloc->bottom = 0;
 
-    allocator_reset(alloc, zero);
+    if(zero) {
+        memset(alloc->base, 0, alloc->size);
+    }
 
     return 0;
 }
@@ -81,7 +83,9 @@ allocator_malloc_init(Allocator * alloc, const char * name, const size_t request
     alloc->top = alloc->size;
     alloc->bottom = 0;
 
-    allocator_reset(alloc, zero);
+    if(zero) {
+        memset(alloc->base, 0, alloc->size);
+    }
 
     return 0;
 }
