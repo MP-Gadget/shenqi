@@ -13,8 +13,17 @@ void mymalloc_init(double MemoryMB);
 void tamalloc_init(void);
 void report_detailed_memory_usage(const char *label, const char * fmt, ...);
 
+/* Memory allocated with this mechanism is tracked by our allocator framework but allocated with posix_memalign */
 #define  mymalloc(name, size)            allocator_alloc_bot(A_MAIN, name, size)
 #define  mymalloc2(name, size)           allocator_alloc_top(A_MAIN, name, size)
+
+/* Memory allocated with this mechanism is allocated purely on the gpu
+ * but tracked with our framework so we can see how much meory we are using. */
+#define mycudamalloc(name, size)        allocator_alloc_bot(A_MAIN, name, size)
+
+/* Memory allocated with this mechanism is allocated mapped: primarily on the CPU,
+ * but accessible on the gpu as well, copied over on page faults.*/
+#define mycudamalloc(name, size)        allocator_alloc_bot(A_MAIN, name, size)
 
 #define  myrealloc(ptr, size)     allocator_realloc(A_MAIN, ptr, size)
 #define  myfree(x)                 allocator_free(x)
