@@ -15,7 +15,6 @@ typedef struct Allocator Allocator;
 
 struct Allocator {
     char name[12];
-    Allocator * parent;
 
     char * rawbase;
     char * base;
@@ -45,13 +44,10 @@ struct AllocatorIter {
 };
 
 int
-allocator_init(Allocator * alloc, const char * name, const size_t size, const int zero, Allocator * parent);
+allocator_init(Allocator * alloc, const char * name, const size_t size, const int zero);
 
 int
-allocator_malloc_init(Allocator * alloc, const char * name, const size_t size, const int zero, Allocator * parent);
-
-int
-allocator_split(Allocator * alloc, Allocator * parent, const char * name, const size_t request_size, const int zero);
+allocator_malloc_init(Allocator * alloc, const char * name, const size_t size, const int zero);
 
 int
 allocator_destroy(Allocator * alloc);
@@ -80,23 +76,6 @@ allocator_dealloc (Allocator * alloc, void * ptr);
 
 size_t
 allocator_get_free_size(Allocator * alloc);
-
-size_t
-allocator_get_used_size(Allocator * alloc, int dir);
-
-int
-allocator_iter_ended(AllocatorIter * iter);
-
-int
-allocator_iter_next(
-        AllocatorIter * iter
-    );
-
-int
-allocator_iter_start(
-        AllocatorIter * iter,
-        Allocator * alloc
-    );
 
 /* 0 for total */
 size_t

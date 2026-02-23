@@ -14,8 +14,8 @@ public:
         int thr;
         MPI_Init_thread(NULL, NULL, MPI_THREAD_FUNNELED, &thr);
         init_endrun(1);
-        allocator_init(A_MAIN, "MAIN", 650 * 1024 * 1024, 0, NULL);
-        allocator_init(A_TEMP, "TEMP", 8 * 1024 * 1024, 0, A_MAIN);
+        allocator_init(A_MAIN, "MAIN", 650 * 1024 * 1024, 0);
+        allocator_init(A_TEMP, "TEMP", 4 * 1024 * 1024, 0);
     }
     void teardown() {
         MPI_Finalize();

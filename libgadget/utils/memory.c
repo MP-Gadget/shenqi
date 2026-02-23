@@ -24,22 +24,29 @@ struct BlockHeader {
     char annotation[];
 } ;
 
+static int
+allocator_iter_ended(AllocatorIter * iter);
+
+static int
+allocator_iter_next(
+        AllocatorIter * iter
+    );
+
+static int
+allocator_iter_start(
+        AllocatorIter * iter,
+        Allocator * alloc
+    );
+
 int
-allocator_init(Allocator * alloc, const char * name, const size_t request_size, const int zero, Allocator * parent)
+allocator_init(Allocator * alloc, const char * name, const size_t request_size, const int zero)
 {
     size_t size = (request_size / ALIGNMENT + 1) * ALIGNMENT;
 
     char * rawbase;
-    if (parent) {
-        rawbase = (char *) allocator_alloc(parent, name, size + ALIGNMENT, ALLOC_DIR_BOT, "Child");
-        if(rawbase == NULL)
-            return ALLOC_ENOMEMORY;
-    }
-    else
-        if(posix_memalign((void **) &rawbase, ALIGNMENT, size + ALIGNMENT))
-            return ALLOC_ENOMEMORY;
+    if(posix_memalign((void **) &rawbase, ALIGNMENT, size + ALIGNMENT))
+        return ALLOC_ENOMEMORY;
 
-    alloc->parent = parent;
     alloc->rawbase = rawbase;
     alloc->base = rawbase + ALIGNMENT - ((size_t) rawbase % ALIGNMENT);
     alloc->size = size;
@@ -55,22 +62,15 @@ allocator_init(Allocator * alloc, const char * name, const size_t request_size, 
 }
 
 int
-allocator_malloc_init(Allocator * alloc, const char * name, const size_t request_size, const int zero, Allocator * parent)
+allocator_malloc_init(Allocator * alloc, const char * name, const size_t request_size, const int zero)
 {
     /* max support 4096 blocks; ignore request_size */
     size_t size = ALIGNMENT * 4096;
 
     char * rawbase;
-    if (parent) {
-        rawbase = (char *) allocator_alloc(parent, name, size + ALIGNMENT, ALLOC_DIR_BOT, "Child");
-        if (rawbase == NULL) return ALLOC_ENOMEMORY;
-    }
-    else
-        if(posix_memalign((void **) &rawbase, ALIGNMENT, size + ALIGNMENT))
-            return ALLOC_ENOMEMORY;
+    if(posix_memalign((void **) &rawbase, ALIGNMENT, size + ALIGNMENT))
+        return ALLOC_ENOMEMORY;
 
-
-    alloc->parent = parent;
     alloc->use_malloc = 1;
     alloc->rawbase = rawbase;
     alloc->base = rawbase;
@@ -191,10 +191,7 @@ allocator_destroy(Allocator * alloc)
         allocator_print(alloc);
         endrun(1, "leaked\n");
     }
-    if(alloc->parent)
-        allocator_dealloc(alloc->parent, alloc->rawbase);
-    else
-        free(alloc->rawbase);
+    free(alloc->rawbase);
     return 0;
 }
 
