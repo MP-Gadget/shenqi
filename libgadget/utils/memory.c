@@ -331,27 +331,15 @@ allocator_print(Allocator * alloc)
     AllocatorIter iter[1];
     message(1, " %-20s | %c | %-12s %-12s | %s\n", "Name", 'd', "Requested", "Allocated", "Annotation");
     message(1, "-------------------------------------------------------\n");
-    if(alloc->use_malloc) {
-        for(allocator_iter_start(iter, alloc);
-            !allocator_iter_ended(iter);
-            allocator_iter_next(iter))
-        {
-            message(1, " %-20s | %c | %012td %012td | %s\n",
-                    iter->name,
-                    "HMD"[iter->device],
-                    iter->request_size/1024, iter->size/1024, iter->annotation);
-        }
-    }
-    else {
     for(allocator_iter_start(iter, alloc);
         !allocator_iter_ended(iter);
         allocator_iter_next(iter))
     {
-        message(1, " %-20s | %c | %012td %012td | %s\n",
+        message(1, " %-20s | %c | %c | %012td %012td | %s\n",
                  iter->name,
+                 "HMD"[iter->device],
                  "T?B"[iter->dir + 1],
                  iter->request_size/1024, iter->size/1024, iter->annotation);
-    }
     }
 }
 
