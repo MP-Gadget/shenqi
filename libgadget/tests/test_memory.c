@@ -30,8 +30,11 @@ test_allocator(Allocator * A0)
     if(!A0->use_malloc)
         BOOST_TEST(p2new == p2);
 
-    BOOST_TEST(allocator_dealloc(A0, p1) == ALLOC_EMISMATCH);
-    BOOST_TEST(allocator_dealloc(A0, q1) == ALLOC_EMISMATCH);
+    /* LIFO is only enforced for the self-managed (non-malloc) allocator */
+    if(!A0->use_malloc) {
+        BOOST_TEST(allocator_dealloc(A0, p1) == ALLOC_EMISMATCH);
+        BOOST_TEST(allocator_dealloc(A0, q1) == ALLOC_EMISMATCH);
+    }
 
     BOOST_TEST(allocator_dealloc(A0, p2new) == 0);
     BOOST_TEST(allocator_dealloc(A0, q2) == 0);

@@ -242,16 +242,20 @@ allocator_iter_next(
 {
     struct BlockHeader * header;
     Allocator * alloc = iter->alloc;
-    if(alloc->bottom != iter->_bottom) {
-        header = (struct BlockHeader *) (iter->_bottom + alloc->base);
-        iter->_bottom += header->size;
-    } else if(iter->_top != alloc->size) {
-        header = (struct BlockHeader *) (iter->_top + alloc->base);
-        iter->_top += header->size;
-    } else {
-        iter->_ended = 1;
-        return 0;
-    }
+    /* In a use_malloc arena some memory regions may already be freed.
+     * In that case header->ptr is NULL and we should skip to the next non-freed memory. */
+    do {
+        if(alloc->bottom != iter->_bottom) {
+            header = (struct BlockHeader *) (iter->_bottom + alloc->base);
+            iter->_bottom += header->size;
+        } else if(iter->_top != alloc->size) {
+            header = (struct BlockHeader *) (iter->_top + alloc->base);
+            iter->_top += header->size;
+        } else {
+            iter->_ended = 1;
+            return 0;
+        }
+    } while(alloc->use_malloc && header->ptr == NULL);
     if (!is_header(header)) {
         /* several corruption that shall not happen */
         endrun(5, "Ptr %p is not a magic header\n", header);
@@ -441,18 +445,20 @@ allocator_dealloc (Allocator * alloc, void * ptr)
 
     /* ->self is always the header in the allocator; header maybe a duplicate in use_malloc */
     ptr = header->self;
-    if(header->dir == ALLOC_DIR_BOT) {
-        if(ptr != alloc->bottom - header->size + alloc->base) {
-            return ALLOC_EMISMATCH;
+    if(!alloc->use_malloc) {
+        if(header->dir == ALLOC_DIR_BOT) {
+            if(ptr != alloc->bottom - header->size + alloc->base) {
+                return ALLOC_EMISMATCH;
+            }
+            alloc->bottom -= header->size;
+        } else if(header->dir == ALLOC_DIR_TOP) {
+            if(ptr != alloc->top + alloc->base) {
+                return ALLOC_EMISMATCH;
+            }
+            alloc->top += header->size;
+        } else {
+            return ALLOC_ENOTALLOC;
         }
-        alloc->bottom -= header->size;
-    } else if(header->dir == ALLOC_DIR_TOP) {
-        if(ptr != alloc->top + alloc->base) {
-            return ALLOC_EMISMATCH;
-        }
-        alloc->top += header->size;
-    } else {
-        return ALLOC_ENOTALLOC;
     }
 
     if(alloc->use_malloc) {
@@ -468,7 +474,6 @@ allocator_dealloc (Allocator * alloc, void * ptr)
     header = (struct BlockHeader *) ptr; /* modify the true header in the allocator */
     header->ptr = NULL;
     header->self = NULL;
-    header->alloc = NULL;
     alloc->refcount --;
 
     return 0;
