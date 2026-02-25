@@ -13,6 +13,10 @@ typedef struct Allocator Allocator;
 #define ALLOC_DIR_BOT +1
 #define ALLOC_DIR_BOTH 0
 
+#define HOSTMEM 0
+#define MANAGEDMEM 1
+#define DEVICEMEM 2
+
 struct Allocator {
     char name[12];
 
@@ -39,6 +43,7 @@ struct AllocatorIter {
     size_t request_size;
     char * name;
     int dir;
+    int device;
     char * annotation;
     char * ptr;
 };
@@ -53,16 +58,25 @@ int
 allocator_destroy(Allocator * alloc);
 
 void *
-allocator_alloc(Allocator * alloc, const char * name, const size_t size, const int dir, const char * fmt, ...);
+allocator_alloc(Allocator * alloc, const char * name, const size_t size, const int dir, const int device, const char * fmt, ...);
 
 void *
 allocator_realloc_int(Allocator * alloc, void * ptr, const size_t size, const char * fmt, ...);
 
 #define allocator_alloc_bot(alloc, name, size) \
-    allocator_alloc(alloc, name, size, ALLOC_DIR_BOT, "%s:%d", __FILE__, __LINE__)
+    allocator_alloc(alloc, name, size, ALLOC_DIR_BOT, HOSTMEM, "%s:%d", __FILE__, __LINE__)
 
 #define allocator_alloc_top(alloc, name, size) \
-    allocator_alloc(alloc, name, size, ALLOC_DIR_TOP, "%s:%d", __FILE__, __LINE__)
+    allocator_alloc(alloc, name, size, ALLOC_DIR_TOP, HOSTMEM, "%s:%d", __FILE__, __LINE__)
+
+#define allocator_alloc_host(alloc, name, size) \
+        allocator_alloc(alloc, name, size, ALLOC_DIR_BOT, HOSTMEM, "%s:%d", __FILE__, __LINE__)
+
+#define allocator_alloc_host_top(alloc, name, size) \
+        allocator_alloc(alloc, name, size, ALLOC_DIR_TOP, HOSTMEM, "%s:%d", __FILE__, __LINE__)
+
+#define allocator_alloc_managed(alloc, name, size) \
+                allocator_alloc(alloc, name, size, ALLOC_DIR_BOT, MANAGEDMEM, "%s:%d", __FILE__, __LINE__)
 
 #define allocator_realloc(alloc, ptr, size) \
     allocator_realloc_int(alloc, ptr, size, "%s:%d", __FILE__, __LINE__)

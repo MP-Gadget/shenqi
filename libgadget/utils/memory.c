@@ -23,6 +23,7 @@ struct BlockHeader {
     size_t request_size;
     char name[NAMELEN];
     int dir;
+    int device;
     char annotation[];
 } ;
 
@@ -100,10 +101,11 @@ allocator_reset(Allocator * alloc, int zero)
         for(allocator_iter_start(iter, alloc); !allocator_iter_ended(iter); allocator_iter_next(iter))
         {
 #ifdef USE_CUDA
-            cudaFree(iter->ptr - ALIGNMENT);
-#else
-            free(iter->ptr - ALIGNMENT);
+            if(iter->device == MANAGEDMEM || iter->device == DEVICEMEM)
+                cudaFree(iter->ptr - ALIGNMENT);
+            else
 #endif
+                free(iter->ptr - ALIGNMENT);
         }
     }
     alloc->refcount = 1;
@@ -117,7 +119,7 @@ allocator_reset(Allocator * alloc, int zero)
 }
 
 static void *
-allocator_alloc_va(Allocator * alloc, const char * name, const size_t request_size, const int dir, const char * fmt, va_list va)
+allocator_alloc_va(Allocator * alloc, const char * name, const size_t request_size, const int dir, const int device, const char * fmt, va_list va)
 {
     size_t size = request_size;
 
@@ -156,6 +158,7 @@ allocator_alloc_va(Allocator * alloc, const char * name, const size_t request_si
     header->size = size;
     header->request_size = request_size;
     header->dir = dir;
+    header->device = device;
     header->alloc = alloc;
     strncpy(header->name, name, NAMELEN-1);
     header->name[NAMELEN-1] = '\0';
@@ -165,12 +168,24 @@ allocator_alloc_va(Allocator * alloc, const char * name, const size_t request_si
     char * cptr;
     if(alloc->use_malloc) {
         /* prepend a copy of the header to the malloc block; allocator_free will use it*/
-    #ifdef USE_CUDA
-        if (cudaMallocManaged((void **) &cptr, request_size + ALIGNMENT, cudaMemAttachGlobal) != cudaSuccess)
-    #else
-        if(posix_memalign((void **) &cptr, ALIGNMENT, request_size + ALIGNMENT))
-    #endif
+        if(header->device == HOSTMEM) {
+           if(posix_memalign((void **) &cptr, ALIGNMENT, request_size + ALIGNMENT))
             endrun(1, "Failed malloc: %lu bytes for %s\n", request_size, header->name);
+        }
+    #ifdef USE_CUDA
+        else if(header->device == MANAGEDMEM) {
+            if(cudaMallocManaged((void **) &cptr, request_size + ALIGNMENT, cudaMemAttachGlobal) != cudaSuccess)
+                endrun(1, "Failed managed malloc: %lu bytes for %s\n", request_size, header->name);
+        }
+    #else
+        else if(header->device == MANAGEDMEM) {
+            if(posix_memalign((void **) &cptr, ALIGNMENT, request_size + ALIGNMENT))
+                endrun(1, "Failed malloc: %lu bytes for %s\n", request_size, header->name);
+        }
+    #endif
+        else {
+            endrun(1, "Failed malloc: %d device not supported for %s\n", header->device, header->name);
+        }
         header->ptr = cptr + ALIGNMENT;
         memcpy(cptr, header, ALIGNMENT);
         cptr = header->ptr;
@@ -181,11 +196,11 @@ allocator_alloc_va(Allocator * alloc, const char * name, const size_t request_si
     return cptr;
 }
 void *
-allocator_alloc(Allocator * alloc, const char * name, const size_t request_size, const int dir, const char * fmt, ...)
+allocator_alloc(Allocator * alloc, const char * name, const size_t request_size, const int dir, const int device, const char * fmt, ...)
 {
     va_list va;
     va_start(va, fmt);
-    void * rt = allocator_alloc_va(alloc, name, request_size, dir, fmt, va);
+    void * rt = allocator_alloc_va(alloc, name, request_size, dir, device, fmt, va);
     va_end(va);
     return rt;
 }
@@ -247,6 +262,7 @@ allocator_iter_next(
     iter->size = header->size;
     iter->request_size = header->request_size;
     iter->dir = header->dir;
+    iter->device = header->device;
     return 1;
 }
 
@@ -311,6 +327,18 @@ allocator_print(Allocator * alloc)
     AllocatorIter iter[1];
     message(1, " %-20s | %c | %-12s %-12s | %s\n", "Name", 'd', "Requested", "Allocated", "Annotation");
     message(1, "-------------------------------------------------------\n");
+    if(alloc->use_malloc) {
+        for(allocator_iter_start(iter, alloc);
+            !allocator_iter_ended(iter);
+            allocator_iter_next(iter))
+        {
+            message(1, " %-20s | %c | %012td %012td | %s\n",
+                    iter->name,
+                    "HMD"[iter->device],
+                    iter->request_size/1024, iter->size/1024, iter->annotation);
+        }
+    }
+    else {
     for(allocator_iter_start(iter, alloc);
         !allocator_iter_ended(iter);
         allocator_iter_next(iter))
@@ -319,6 +347,7 @@ allocator_print(Allocator * alloc)
                  iter->name,
                  "T?B"[iter->dir + 1],
                  iter->request_size/1024, iter->size/1024, iter->annotation);
+    }
     }
 }
 
@@ -340,16 +369,18 @@ allocator_realloc_int(Allocator * alloc, void * ptr, const size_t new_size, cons
     if(alloc->use_malloc) {
         struct BlockHeader * header2;
 #ifdef USE_CUDA
-        if (cudaMallocManaged(&header2, new_size + ALIGNMENT, cudaMemAttachGlobal) != cudaSuccess) {
-            endrun(1, "Failed to allocate %lu bytes for %s\n", new_size, header->name);
+        if(header->device == MANAGEDMEM) {
+            if (cudaMallocManaged(&header2, new_size + ALIGNMENT, cudaMemAttachGlobal) != cudaSuccess) {
+                endrun(1, "Failed to allocate %lu bytes for %s\n", new_size, header->name);
+            }
+            // Copy old data to the new block (don't forget the header)
+            memcpy(header2, header, ALIGNMENT + (new_size < header->request_size ? new_size : header->request_size));
+            // Free the old block
+            cudaFree(header);
         }
-        // Copy old data to the new block (don't forget the header)
-        memcpy(header2, header, ALIGNMENT + (new_size < header->request_size ? new_size : header->request_size));
-        // Free the old block
-        cudaFree(header);
-#else
-        header2 = (struct BlockHeader *) realloc(header, new_size + ALIGNMENT);
+        else
 #endif
+            header2 = (struct BlockHeader *) realloc(header, new_size + ALIGNMENT);
         // Update header pointer in the new block
         header2->ptr = (char*) header2 + ALIGNMENT;
         header2->request_size = new_size;
@@ -371,7 +402,7 @@ allocator_realloc_int(Allocator * alloc, void * ptr, const size_t new_size, cons
         size_t size = ((new_size + ALIGNMENT - 1) / ALIGNMENT) * ALIGNMENT;
         memmove(alloc->base + alloc->top - size, tmp.ptr, new_size);
     }
-    void * newptr = allocator_alloc_va(alloc, tmp.name, new_size, tmp.dir, fmt, va);
+    void * newptr = allocator_alloc_va(alloc, tmp.name, new_size, tmp.dir, tmp.device, fmt, va);
     /*If we are extending memory, move the existing data block down after writing a new header below it*/
     if(tmp.dir == ALLOC_DIR_TOP && new_size > tmp.request_size) {
         memmove(newptr, tmp.ptr, tmp.size);
@@ -426,10 +457,11 @@ allocator_dealloc (Allocator * alloc, void * ptr)
 
     if(alloc->use_malloc) {
 #ifdef USE_CUDA
-        cudaFree(header);
-#else
-        free(header);
+        if(header->device != HOSTMEM)
+            cudaFree(header);
+        else
 #endif
+            free(header);
     }
 
     /* remove the link to the memory. */
