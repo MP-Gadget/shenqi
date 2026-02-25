@@ -13,6 +13,7 @@
 #define MAGIC "DEADBEEF"
 #define ALIGNMENT 4096
 
+#define NAMELEN 63
 struct BlockHeader {
     char magic[8];
     Allocator * alloc;
@@ -20,7 +21,7 @@ struct BlockHeader {
     char * self; /* points to the starting of the header in the allocator; useful in use_malloc mode */
     size_t size;
     size_t request_size;
-    char name[127];
+    char name[NAMELEN];
     int dir;
     char annotation[];
 } ;
@@ -156,8 +157,8 @@ allocator_alloc_va(Allocator * alloc, const char * name, const size_t request_si
     header->request_size = request_size;
     header->dir = dir;
     header->alloc = alloc;
-    strncpy(header->name, name, 126);
-    header->name[126] = '\0';
+    strncpy(header->name, name, NAMELEN-1);
+    header->name[NAMELEN-1] = '\0';
 
     vsprintf(header->annotation, fmt, va);
 
@@ -229,15 +230,14 @@ allocator_iter_next(
     if(alloc->bottom != iter->_bottom) {
         header = (struct BlockHeader *) (iter->_bottom + alloc->base);
         iter->_bottom += header->size;
-    } else
-    if(iter->_top != alloc->size) {
+    } else if(iter->_top != alloc->size) {
         header = (struct BlockHeader *) (iter->_top + alloc->base);
         iter->_top += header->size;
     } else {
         iter->_ended = 1;
         return 0;
     }
-    if (! is_header(header)) {
+    if (!is_header(header)) {
         /* several corruption that shall not happen */
         endrun(5, "Ptr %p is not a magic header\n", header);
     }
