@@ -14,7 +14,9 @@ void
 particle_alloc_memory(struct part_manager_type * PartManager, double BoxSize, int64_t MaxPart)
 {
     size_t bytes;
-    PartManager->Base = (struct particle_data *) mymalloc("P", bytes = MaxPart * sizeof(struct particle_data));
+    /* Allocate the particle tables in managed memory. This is heavy-weight, since the particle tables are most of the memory on the CPU.
+     * However, the treewalk currently needs to read the particles, so we have no other option (for now). */
+    PartManager->Base = (struct particle_data *) mymanagedmalloc("P", bytes = MaxPart * sizeof(struct particle_data));
     PartManager->MaxPart = MaxPart;
     PartManager->NumPart = 0;
     if(MaxPart >= 1L<<31 || MaxPart < 0)
