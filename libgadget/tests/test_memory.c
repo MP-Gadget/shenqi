@@ -25,14 +25,15 @@ test_allocator(Allocator * A0)
     BOOST_TEST(q2[2000]  == 1);
 
     /* Assert that reallocing does not move the base pointer.
-     * Note this is true only for bottom allocations*/
+     * Note this is true only for bottom allocations not using malloc*/
     int * p2new = (int *) allocator_realloc(A0, p2, 3072*sizeof(int));
-    BOOST_TEST(p2new == p2);
+    if(!A0->use_malloc)
+        BOOST_TEST(p2new == p2);
 
     BOOST_TEST(allocator_dealloc(A0, p1) == ALLOC_EMISMATCH);
     BOOST_TEST(allocator_dealloc(A0, q1) == ALLOC_EMISMATCH);
 
-    BOOST_TEST(allocator_dealloc(A0, p2) == 0);
+    BOOST_TEST(allocator_dealloc(A0, p2new) == 0);
     BOOST_TEST(allocator_dealloc(A0, q2) == 0);
 
     allocator_free(p1);
