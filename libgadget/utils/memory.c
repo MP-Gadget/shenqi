@@ -433,20 +433,18 @@ allocator_dealloc (Allocator * alloc, void * ptr)
 
     /* ->self is always the header in the allocator; header maybe a duplicate in use_malloc */
     ptr = header->self;
-    if(!alloc->use_malloc) {
-        if(header->dir == ALLOC_DIR_BOT) {
-            if(ptr != alloc->bottom - header->size + alloc->base) {
-                return ALLOC_EMISMATCH;
-            }
-            alloc->bottom -= header->size;
-        } else if(header->dir == ALLOC_DIR_TOP) {
-            if(ptr != alloc->top + alloc->base) {
-                return ALLOC_EMISMATCH;
-            }
-            alloc->top += header->size;
-        } else {
-            return ALLOC_ENOTALLOC;
+    if(header->dir == ALLOC_DIR_BOT) {
+        if(!alloc->use_malloc && (ptr != alloc->bottom - header->size + alloc->base)) {
+            return ALLOC_EMISMATCH;
         }
+        alloc->bottom -= header->size;
+    } else if(header->dir == ALLOC_DIR_TOP) {
+        if(!alloc->use_malloc && (ptr != alloc->top + alloc->base)) {
+            return ALLOC_EMISMATCH;
+        }
+        alloc->top += header->size;
+    } else {
+        return ALLOC_ENOTALLOC;
     }
 
     if(alloc->use_malloc) {
@@ -462,6 +460,7 @@ allocator_dealloc (Allocator * alloc, void * ptr)
     header = (struct BlockHeader *) ptr; /* modify the true header in the allocator */
     header->ptr = NULL;
     header->self = NULL;
+    header->request_size = 0;
     alloc->refcount --;
 
     return 0;
