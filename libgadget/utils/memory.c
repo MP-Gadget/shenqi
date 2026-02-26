@@ -450,19 +450,16 @@ allocator_dealloc (Allocator * alloc, void * ptr)
 
     /* ->self is always the header in the allocator; header maybe a duplicate in use_malloc */
     ptr = header->self;
-    if(header->dir == ALLOC_DIR_BOT) {
-        if(!alloc->use_malloc && (ptr != alloc->bottom - header->size + alloc->base)) {
+    if(!alloc->use_malloc) {
+    if((header->dir == ALLOC_DIR_BOT && (ptr != alloc->bottom - header->size + alloc->base)) ||
+        (header->dir == ALLOC_DIR_TOP && ptr != alloc->top + alloc->base)) {
             return ALLOC_EMISMATCH;
         }
-        alloc->bottom -= header->size;
-    } else if(header->dir == ALLOC_DIR_TOP) {
-        if(!alloc->use_malloc && (ptr != alloc->top + alloc->base)) {
-            return ALLOC_EMISMATCH;
-        }
-        alloc->top += header->size;
-    } else {
-        return ALLOC_ENOTALLOC;
     }
+    if(header->dir == ALLOC_DIR_BOT)
+        alloc->bottom -= header->size;
+    else if (header->dir == ALLOC_DIR_TOP)
+        alloc->top += header->size;
 
     if(alloc->use_malloc) {
 #ifdef USE_CUDA
@@ -479,7 +476,6 @@ allocator_dealloc (Allocator * alloc, void * ptr)
     header->self = NULL;
     header->request_size = 0;
     alloc->refcount --;
-
     return 0;
 }
 
@@ -612,30 +608,4 @@ allocator_realloc_int_malloc(Allocator * alloc, void * ptr, const size_t new_siz
     va_end(va);
     memcpy(header2->self, header2, sizeof(header2[0]));
     return header2->ptr;
-}
-
-void
-allocator_free_malloc (void * ptr)
-{
-    char * cptr = (char *) ptr;
-    struct BlockHeader * header = (struct BlockHeader*) (cptr - ALIGNMENT);
-    if (!is_header(header)) {
-        endrun(1, "Not an allocated address: Header = %8p ptr = %8p\n", header, cptr);
-    }
-    /* ->self is the header in the allocator */
-    ptr = header->self;
-    header->alloc->bottom -= header->size;
-#ifdef USE_CUDA
-        if(header->device != HOSTMEM)
-            cudaFree(header);
-        else
-#endif
-            free(header);
-
-    /* remove the link to the memory. */
-    header = (struct BlockHeader *) ptr; /* modify the true header in the allocator */
-    header->ptr = NULL;
-    header->self = NULL;
-    header->request_size = 0;
-    header->alloc->refcount --;
 }

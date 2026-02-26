@@ -20,7 +20,7 @@ void report_detailed_memory_usage(const char *label, const char * fmt, ...);
 #define mymanagedmalloc(name, size)        allocator_alloc_managed(A_MAIN, name, size)
 
 #define  myrealloc(ptr, size)     allocator_realloc(A_MAIN, ptr, size)
-#define  myfree(x)                 allocator_free_malloc(x)
+#define  myfree(x)                 allocator_free(x)
 
 #define  ta_malloc(name, type, nele)            (type*) allocator_alloc_bot(A_TEMP, name, sizeof(type) * (nele))
 #define  ta_malloc2(name, type, nele)           (type*) allocator_alloc_top(A_TEMP, name, sizeof(type) * (nele))

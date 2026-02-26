@@ -83,9 +83,6 @@ allocator_realloc_int_malloc(Allocator * alloc, void * ptr, const size_t size, c
 
 /* free like API, will look up allocator pointer. */
 void
-allocator_free_malloc(void * ptr);
-
-void
 allocator_free(void * ptr);
 
 /* 0 for total */
