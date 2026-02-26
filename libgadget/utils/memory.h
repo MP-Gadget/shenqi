@@ -61,7 +61,7 @@ void *
 allocator_alloc(Allocator * alloc, const char * name, const size_t size, const int dir, const int device, const char * fmt, ...);
 
 void *
-allocator_realloc_int(Allocator * alloc, void * ptr, const size_t size, const char * fmt, ...);
+allocator_realloc_int_malloc(Allocator * alloc, void * ptr, const size_t size, const char * fmt, ...);
 
 #define allocator_alloc_bot(alloc, name, size) \
     allocator_alloc(alloc, name, size, ALLOC_DIR_BOT, HOSTMEM, "%s:%d", __FILE__, __LINE__)
@@ -79,24 +79,27 @@ allocator_realloc_int(Allocator * alloc, void * ptr, const size_t size, const ch
                 allocator_alloc(alloc, name, size, ALLOC_DIR_BOT, MANAGEDMEM, "%s:%d", __FILE__, __LINE__)
 
 #define allocator_realloc(alloc, ptr, size) \
-    allocator_realloc_int(alloc, ptr, size, "%s:%d", __FILE__, __LINE__)
+    allocator_realloc_int_malloc(alloc, ptr, size, "%s:%d", __FILE__, __LINE__)
 
 /* free like API, will look up allocator pointer. */
 void
+allocator_free_malloc(void * ptr);
+
+void
 allocator_free(void * ptr);
-
-int
-allocator_dealloc (Allocator * alloc, void * ptr);
-
-size_t
-allocator_get_free_size(Allocator * alloc);
 
 /* 0 for total */
 size_t
 allocator_get_used_size(Allocator * alloc, int dir);
 
+size_t
+allocator_get_used_size_malloc(Allocator * alloc);
+
 void
 allocator_print(Allocator * alloc);
+
+void
+allocator_print_malloc(Allocator * alloc);
 
 int
 allocator_reset(Allocator * alloc, int zero);

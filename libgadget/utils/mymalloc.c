@@ -70,23 +70,21 @@ static size_t highest_memory_usage = 0;
 
 void report_detailed_memory_usage(const char *label, const char * fmt, ...)
 {
-    if(allocator_get_used_size(A_MAIN, ALLOC_DIR_BOTH) < highest_memory_usage) {
+    size_t memory_usage = allocator_get_used_size_malloc(A_MAIN);
+    if(memory_usage < highest_memory_usage) {
         return;
     }
 
     MPI_Comm comm = MPI_COMM_WORLD;
 
-    int NTask;
     int ThisTask;
-    MPI_Comm_size(comm, &NTask);
     MPI_Comm_rank(comm, &ThisTask);
-
 
     if (ThisTask != 0) {
         return;
     }
 
-    highest_memory_usage = allocator_get_used_size(A_MAIN, ALLOC_DIR_BOTH);
+    highest_memory_usage = memory_usage;
 
     va_list va;
     va_start(va, fmt);
@@ -95,5 +93,5 @@ void report_detailed_memory_usage(const char *label, const char * fmt, ...)
 
     message(1, "Peak Memory usage induced by %s\n", buf);
     myfree(buf);
-    allocator_print(A_MAIN);
+    allocator_print_malloc(A_MAIN);
 }

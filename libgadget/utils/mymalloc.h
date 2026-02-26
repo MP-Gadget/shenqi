@@ -20,11 +20,7 @@ void report_detailed_memory_usage(const char *label, const char * fmt, ...);
 #define mymanagedmalloc(name, size)        allocator_alloc_managed(A_MAIN, name, size)
 
 #define  myrealloc(ptr, size)     allocator_realloc(A_MAIN, ptr, size)
-#define  myfree(x)                 allocator_free(x)
-
-#define  ma_malloc(name, type, nele)            (type*) allocator_alloc_bot(A_MAIN, name, sizeof(type) * (nele))
-#define  ma_malloc2(name, type, nele)           (type*) allocator_alloc_top(A_MAIN, name, sizeof(type) * (nele))
-#define  ma_free(p) allocator_free(p)
+#define  myfree(x)                 allocator_free_malloc(x)
 
 #define  ta_malloc(name, type, nele)            (type*) allocator_alloc_bot(A_TEMP, name, sizeof(type) * (nele))
 #define  ta_malloc2(name, type, nele)           (type*) allocator_alloc_top(A_TEMP, name, sizeof(type) * (nele))
@@ -33,6 +29,6 @@ void report_detailed_memory_usage(const char *label, const char * fmt, ...);
 
 #define  report_memory_usage(x)    report_detailed_memory_usage(x, "%s:%d", __FILE__, __LINE__)
 #define  mymalloc_freebytes()       get_freemem_bytes()
-#define  mymalloc_usedbytes()       allocator_get_used_size(A_MAIN, ALLOC_DIR_BOTH)
+#define  mymalloc_usedbytes()       allocator_get_used_size_malloc(A_MAIN)
 
 #endif

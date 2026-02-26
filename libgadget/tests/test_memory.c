@@ -15,35 +15,33 @@ test_allocator(Allocator * A0)
 
     p1[0] = 1;
     p2[1] = 1;
-    allocator_print(A0);
+    if(A0->use_malloc)
+        allocator_print_malloc(A0);
+    else
+        allocator_print(A0);
 
     q2[2000] = 1;
-    q2 = (int *) allocator_realloc(A0, q2, 3072*sizeof(int));
-    BOOST_TEST(q2[2000] == 1);
-    /*Realloc to something smaller*/
-    q2 = (int *) allocator_realloc(A0, q2, 2048*sizeof(int));
-    BOOST_TEST(q2[2000]  == 1);
+    if(A0->use_malloc) {
+        q2 = (int *) allocator_realloc(A0, q2, 3072*sizeof(int));
+        BOOST_TEST(q2[2000] == 1);
+        /*Realloc to something smaller*/
+        q2 = (int *) allocator_realloc(A0, q2, 2048*sizeof(int));
+        BOOST_TEST(q2[2000]  == 1);
 
-    /* Assert that reallocing does not move the base pointer.
-     * Note this is true only for bottom allocations not using malloc*/
-    int * p2new = (int *) allocator_realloc(A0, p2, 3072*sizeof(int));
-    if(!A0->use_malloc)
-        BOOST_TEST(p2new == p2);
-
-    /* LIFO is only enforced for the self-managed (non-malloc) allocator */
-    if(!A0->use_malloc) {
-        BOOST_TEST(allocator_dealloc(A0, p1) == ALLOC_EMISMATCH);
-        BOOST_TEST(allocator_dealloc(A0, q1) == ALLOC_EMISMATCH);
+        int * p2new = (int *) allocator_realloc(A0, p2, 3072*sizeof(int));
+        BOOST_TEST(p2new[1] == 1);
+        allocator_free(p2new);
     }
-
-    BOOST_TEST(allocator_dealloc(A0, p2new) == 0);
-    BOOST_TEST(allocator_dealloc(A0, q2) == 0);
-
+    else {
+        allocator_free(p2);
+    }
+    allocator_free(q2);
     allocator_free(p1);
     allocator_free(q1);
-
-    allocator_print(A0);
-
+    if(A0->use_malloc)
+        allocator_print_malloc(A0);
+    else
+        allocator_print(A0);
     allocator_destroy(A0);
 }
 
