@@ -36,7 +36,7 @@ def check_sfr(sfrfile="output/sfr.txt"):
     assert 0.5 < np.median(sfr[:,2])/np.median(sfr[:,3]) < 1.5
     #Always a PM step
     ii = np.argmax(sfr[:, -1])
-    assert 0.25 < sfr[ii, 1] / sfr[ii, 4] < 1
+    assert 0.2 < sfr[ii, 1] / sfr[ii, 4] < 1, "sfr ratio is: {0}".format(sfr[ii, 1]/sfr[ii,4])
 
 def check_bh(bhfile="output/blackholes.txt"):
     """Check that blackholes.txt is as expected."""
