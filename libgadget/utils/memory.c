@@ -417,6 +417,10 @@ allocator_dealloc_malloc (Allocator * alloc, void * ptr)
 #endif
         free(header);
 
+    if(allocheader->ptr == NULL) {
+        allocator_print_malloc(alloc);
+        endrun(6, "Double-free of %s", allocheader->name);
+    }
     /* remove the link to the memory. */
     allocheader->ptr = NULL;
     allocheader->self = NULL;
