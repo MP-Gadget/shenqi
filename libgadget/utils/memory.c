@@ -49,20 +49,6 @@ struct AllocatorIter {
 };
 
 static int
-allocator_iter_ended(AllocatorIter * iter);
-
-static int
-allocator_iter_next(
-        AllocatorIter * iter
-    );
-
-static int
-allocator_iter_start(
-        AllocatorIter * iter,
-        Allocator * alloc
-    );
-
-static int
 allocator_dealloc (Allocator * alloc, void * ptr);
 
 static int
@@ -213,60 +199,10 @@ allocator_destroy(Allocator * alloc)
     return 0;
 }
 
-int
-allocator_iter_start(
-        AllocatorIter * iter,
-        Allocator * alloc
-    )
-{
-    iter->alloc = alloc;
-    iter->_bottom = 0;
-    iter->_top = alloc->top;
-    iter->_ended = 0;
-    return allocator_iter_next(iter);
-}
-
 static int
 is_header(struct BlockHeader * header)
 {
     return 0 == memcmp(header->magic, MAGIC, 8);
-}
-
-int
-allocator_iter_next(
-        AllocatorIter * iter
-    )
-{
-    struct BlockHeader * header;
-    Allocator * alloc = iter->alloc;
-    if(alloc->bottom != iter->_bottom) {
-        header = (struct BlockHeader *) (iter->_bottom + alloc->base);
-        iter->_bottom += header->size;
-    } else if(iter->_top != alloc->size) {
-        header = (struct BlockHeader *) (iter->_top + alloc->base);
-        iter->_top += header->size;
-    } else {
-        iter->_ended = 1;
-        return 0;
-    }
-    if (!is_header(header)) {
-        /* several corruption that shall not happen */
-        endrun(5, "Ptr %p is not a magic header\n", header);
-    }
-    iter->ptr =  header->ptr;
-    iter->name = header->name;
-    iter->annotation = header->annotation;
-    iter->size = header->size;
-    iter->request_size = header->request_size;
-    iter->dir = header->dir;
-    iter->device = header->device;
-    return 1;
-}
-
-int
-allocator_iter_ended(AllocatorIter * iter)
-{
-    return iter->_ended;
 }
 
 size_t
@@ -316,17 +252,22 @@ allocator_print(Allocator * alloc)
             allocator_get_used_size(alloc, ALLOC_DIR_BOT)/1024
             );
     }
-    AllocatorIter iter[1];
     message(1, " %-20s | %c | %-12s %-12s | %s\n", "Name", 'd', "Requested", "Allocated", "Annotation");
     message(1, "-------------------------------------------------------\n");
-    for(allocator_iter_start(iter, alloc);
-        !allocator_iter_ended(iter);
-        allocator_iter_next(iter))
-    {
+
+    char * headptr = alloc->base;
+    while(headptr < alloc->base + alloc->size) {
+        struct BlockHeader * header = (struct BlockHeader *) headptr;
+        /* Reached the end of the bottom allocation, start again at the top.*/
+        if(headptr == alloc->base + alloc->bottom) {
+            headptr = alloc->top + alloc->base;
+            continue;
+        }
         message(1, " %-20s | %c | %012td %012td | %s\n",
-                 iter->name,
-                 "T?B"[iter->dir + 1],
-                 iter->request_size/1024, iter->size/1024, iter->annotation);
+                 header->name,
+                 "T?B"[header->dir + 1],
+                 header->request_size/1024, header->size/1024, header->annotation);
+        headptr += header->size;
     }
 }
 
