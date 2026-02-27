@@ -13,6 +13,9 @@
 #define MAGIC "DEADBEEF"
 #define ALIGNMENT 4096
 
+/* max support 2048 blocks in the malloc allocator*/
+#define MAXBLOCK 2048
+
 #define NAMELEN 63
 #define ANNOTLEN 255
 struct BlockHeader {
@@ -44,6 +47,9 @@ allocator_iter_start(
 
 static int
 allocator_dealloc (Allocator * alloc, void * ptr);
+
+static int
+allocator_dealloc_malloc (Allocator * alloc, void * ptr);
 
 /* Malloc versions of the functions */
 static void *
@@ -78,8 +84,8 @@ allocator_init(Allocator * alloc, const char * name, const size_t request_size, 
 int
 allocator_malloc_init(Allocator * alloc, const char * name, const size_t request_size, const int zero)
 {
-    /* max support 2048 blocks; ignore request_size */
-    size_t size = sizeof(struct BlockHeader) * 2048;
+    /* max number of blocks supported; ignore request_size */
+    size_t size = sizeof(struct BlockHeader) * MAXBLOCK;
 
     char * rawbase;
     if(posix_memalign((void **) &rawbase, ALIGNMENT, size + ALIGNMENT))
@@ -432,10 +438,15 @@ allocator_free (void * ptr)
         endrun(1, "Not an allocated address: Header = %8p ptr = %8p\n", header, cptr);
     }
 
-    int rt = allocator_dealloc(header->alloc, ptr);
-    if (rt != 0) {
-        allocator_print(header->alloc);
-        endrun(1, "Mismatched Free: %s : %s\n", header->name, header->annotation);
+    if(!header->alloc->use_malloc) {
+        int rt = allocator_dealloc(header->alloc, ptr);
+        if (rt != 0) {
+            allocator_print(header->alloc);
+            endrun(1, "Mismatched Free: %s : %s\n", header->name, header->annotation);
+        }
+    }
+    else {
+        allocator_dealloc_malloc(header->alloc, ptr);
     }
 }
 
@@ -451,29 +462,45 @@ allocator_dealloc (Allocator * alloc, void * ptr)
 
     /* ->self is always the header in the allocator; header maybe a duplicate in use_malloc */
     ptr = header->self;
-    if(!alloc->use_malloc) {
     if((header->dir == ALLOC_DIR_BOT && (ptr != alloc->bottom - header->size + alloc->base)) ||
         (header->dir == ALLOC_DIR_TOP && ptr != alloc->top + alloc->base)) {
             return ALLOC_EMISMATCH;
-        }
-        if(header->dir == ALLOC_DIR_BOT)
-            alloc->bottom -= header->size;
-        else if (header->dir == ALLOC_DIR_TOP)
-            alloc->top += header->size;
+    }
+    if(header->dir == ALLOC_DIR_BOT)
+        alloc->bottom -= header->size;
+    else if (header->dir == ALLOC_DIR_TOP)
+        alloc->top += header->size;
+    /* remove the link to the memory. */
+    header = (struct BlockHeader *) ptr; /* modify the true header in the allocator */
+    header->ptr = NULL;
+    header->self = NULL;
+    header->request_size = 0;
+    alloc->refcount --;
+    return 0;
+}
+
+int
+allocator_dealloc_malloc (Allocator * alloc, void * ptr)
+{
+    char * cptr = (char *) ptr;
+    struct BlockHeader * header = (struct BlockHeader*) (cptr - ALIGNMENT);
+
+    if (!is_header(header)) {
+        return ALLOC_ENOTALLOC;
     }
 
-    if(alloc->use_malloc) {
-        if(header ==  (struct BlockHeader*) (alloc->bottom)) {
-            alloc->bottom -= header->size;
-            alloc->topcount --;
-        }
-#ifdef USE_CUDA
-        if(header->device != HOSTMEM)
-            cudaFree(header);
-        else
-#endif
-            free(header);
+    /* ->self is always the header in the allocator; header maybe a duplicate in use_malloc */
+    ptr = header->self;
+    if((struct BlockHeader*) ptr == (struct BlockHeader*) (alloc->base) + alloc->topcount) {
+        alloc->bottom -= header->size;
+        alloc->topcount --;
     }
+#ifdef USE_CUDA
+    if(header->device != HOSTMEM)
+        cudaFree(header);
+    else
+#endif
+        free(header);
 
     /* remove the link to the memory. */
     header = (struct BlockHeader *) ptr; /* modify the true header in the allocator */
@@ -515,20 +542,28 @@ static void *
 allocator_alloc_va_malloc(Allocator * alloc, const char * name, const size_t request_size, const int dir, const int device, const char * fmt, va_list va)
 {
     size_t size = sizeof(struct BlockHeader); /* for the header */
-    char * ptr;
     if(alloc->bottom + size > alloc->top) {
         allocator_print_malloc(alloc);
         endrun(1, "Not enough memory for %s %lu bytes\n", name, size);
     }
 
-    ptr = alloc->base + alloc->bottom;
+    struct BlockHeader * header;
+    /* Scan through the list of blocks linearly. This is slower than a freelist, but simpler and shouldn't matter for us. */
+    for(header = (struct BlockHeader *) alloc->base; header < ((struct BlockHeader *) alloc->base) + alloc->topcount; header++) {
+        /* We found a non-allocated header! */
+        if(header->ptr == NULL)
+            break;
+    }
     alloc->bottom += size;
     alloc->refcount += 1;
     alloc->topcount ++;
+    if(alloc->topcount > MAXBLOCK) {
+        allocator_print(alloc);
+        endrun(3, "%s Tried to allocate %d blocks in the malloc allocator, more than %d available.\n", name, alloc->topcount, MAXBLOCK);
+    }
 
-    struct BlockHeader * header = (struct BlockHeader *) ptr;
     memcpy(header->magic, MAGIC, 8);
-    header->self = ptr;
+    header->self = (char *) header;
     header->size = size;
     header->request_size = request_size;
     header->dir = dir;
