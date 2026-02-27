@@ -541,24 +541,20 @@ allocator_print_malloc(Allocator * alloc)
 static void *
 allocator_alloc_va_malloc(Allocator * alloc, const char * name, const size_t request_size, const int dir, const int device, const char * fmt, va_list va)
 {
-    size_t size = sizeof(struct BlockHeader); /* for the header */
-    if(alloc->bottom + size > alloc->top) {
-        allocator_print_malloc(alloc);
-        endrun(1, "Not enough memory for %s %lu bytes\n", name, size);
-    }
-
     struct BlockHeader * header;
+    struct BlockHeader * start = (struct BlockHeader *) alloc->base;
     /* Scan through the list of blocks linearly. This is slower than a freelist, but simpler and shouldn't matter for us. */
-    for(header = (struct BlockHeader *) alloc->base; header < ((struct BlockHeader *) alloc->base) + alloc->topcount; header++) {
+    for(header = start; header < start + alloc->topcount; header++) {
         /* We found a non-allocated header! */
         if(header->ptr == NULL)
             break;
     }
+    size_t size = sizeof(struct BlockHeader); /* for the header */
     alloc->bottom += size;
     alloc->refcount += 1;
     alloc->topcount ++;
     if(alloc->topcount > MAXBLOCK) {
-        allocator_print(alloc);
+        allocator_print_malloc(alloc);
         endrun(3, "%s Tried to allocate %d blocks in the malloc allocator, more than %d available.\n", name, alloc->topcount, MAXBLOCK);
     }
 
