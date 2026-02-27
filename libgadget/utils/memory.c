@@ -314,7 +314,7 @@ allocator_print(Allocator * alloc)
 }
 
 void *
-allocator_realloc_int(Allocator * alloc, void * ptr, const size_t new_size, const char * fmt, ...)
+allocator_realloc_int_nomalloc(Allocator * alloc, void * ptr, const size_t new_size, const char * fmt, ...)
 {
     va_list va;
     va_start(va, fmt);
@@ -584,3 +584,17 @@ allocator_realloc_int_malloc(Allocator * alloc, void * ptr, const size_t new_siz
     memcpy(header2->self, header2, sizeof(header2[0]));
     return header2->ptr;
 }
+
+void *
+allocator_realloc_int(Allocator * alloc, void * ptr, const size_t new_size, const char * fmt, ...)
+{
+    va_list va;
+    va_start(va, fmt);
+    void * newptr;
+    if(alloc->use_malloc)
+        newptr = allocator_realloc_int_malloc(alloc, ptr, new_size, fmt, va);
+    else
+        newptr = allocator_realloc_int_nomalloc(alloc, ptr, new_size, fmt, va);
+    va_end(va);
+    return newptr;
+ }
