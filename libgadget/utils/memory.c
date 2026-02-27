@@ -112,18 +112,8 @@ int
 allocator_reset(Allocator * alloc, int zero)
 {
     /* Free the memory when using malloc*/
-    if(alloc->use_malloc) {
-        AllocatorIter iter[1];
-        for(allocator_iter_start(iter, alloc); !allocator_iter_ended(iter); allocator_iter_next(iter))
-        {
-#ifdef USE_CUDA
-            if(iter->device == MANAGEDMEM || iter->device == DEVICEMEM)
-                cudaFree(iter->ptr - ALIGNMENT);
-            else
-#endif
-                free(iter->ptr - ALIGNMENT);
-        }
-    }
+    if(alloc->use_malloc)
+        endrun(3, "Cannot reset a malloc allocator\n");
     alloc->refcount = 1;
     alloc->top = alloc->size;
     alloc->bottom = 0;
@@ -138,12 +128,7 @@ static void *
 allocator_alloc_va(Allocator * alloc, const char * name, const size_t request_size, const int dir, const int device, const char * fmt, va_list va)
 {
     size_t size = request_size;
-
-    if(alloc->use_malloc) {
-        size = 0; /* because we'll get it from malloc */
-    } else {
-        size = ((size + ALIGNMENT - 1) / ALIGNMENT) * ALIGNMENT;
-    }
+    size = ((size + ALIGNMENT - 1) / ALIGNMENT) * ALIGNMENT;
     size += ALIGNMENT; /* for the header */
 
     char * ptr;
@@ -181,36 +166,11 @@ allocator_alloc_va(Allocator * alloc, const char * name, const size_t request_si
 
     vsprintf(header->annotation, fmt, va);
 
-    char * cptr;
-    if(alloc->use_malloc) {
-        /* prepend a copy of the header to the malloc block; allocator_free will use it*/
-        if(header->device == HOSTMEM) {
-           if(posix_memalign((void **) &cptr, ALIGNMENT, request_size + ALIGNMENT))
-            endrun(1, "Failed malloc: %lu bytes for %s\n", request_size, header->name);
-        }
-    #ifdef USE_CUDA
-        else if(header->device == MANAGEDMEM) {
-            if(cudaMallocManaged((void **) &cptr, request_size + ALIGNMENT, cudaMemAttachGlobal) != cudaSuccess)
-                endrun(1, "Failed managed malloc: %lu bytes for %s\n", request_size, header->name);
-        }
-    #else
-        else if(header->device == MANAGEDMEM) {
-            if(posix_memalign((void **) &cptr, ALIGNMENT, request_size + ALIGNMENT))
-                endrun(1, "Failed malloc: %lu bytes for %s\n", request_size, header->name);
-        }
-    #endif
-        else {
-            endrun(1, "Failed malloc: %d device not supported for %s\n", header->device, header->name);
-        }
-        header->ptr = cptr + ALIGNMENT;
-        memcpy(cptr, header, ALIGNMENT);
-        cptr = header->ptr;
-    } else {
-        cptr = ptr + ALIGNMENT;
-        header->ptr = cptr;
-    }
+    char * cptr = ptr + ALIGNMENT;
+    header->ptr = cptr;
     return cptr;
 }
+
 void *
 allocator_alloc(Allocator * alloc, const char * name, const size_t request_size, const int dir, const int device, const char * fmt, ...)
 {
@@ -262,20 +222,16 @@ allocator_iter_next(
 {
     struct BlockHeader * header;
     Allocator * alloc = iter->alloc;
-    /* In a use_malloc arena some memory regions may already be freed.
-     * In that case header->ptr is NULL and we should skip to the next non-freed memory. */
-    do {
-        if(alloc->bottom != iter->_bottom) {
-            header = (struct BlockHeader *) (iter->_bottom + alloc->base);
-            iter->_bottom += header->size;
-        } else if(iter->_top != alloc->size) {
-            header = (struct BlockHeader *) (iter->_top + alloc->base);
-            iter->_top += header->size;
-        } else {
-            iter->_ended = 1;
-            return 0;
-        }
-    } while(alloc->use_malloc && header->ptr == NULL);
+    if(alloc->bottom != iter->_bottom) {
+        header = (struct BlockHeader *) (iter->_bottom + alloc->base);
+        iter->_bottom += header->size;
+    } else if(iter->_top != alloc->size) {
+        header = (struct BlockHeader *) (iter->_top + alloc->base);
+        iter->_top += header->size;
+    } else {
+        iter->_ended = 1;
+        return 0;
+    }
     if (!is_header(header)) {
         /* several corruption that shall not happen */
         endrun(5, "Ptr %p is not a magic header\n", header);
@@ -309,18 +265,6 @@ allocator_get_free_size(Allocator * alloc)
 size_t
 allocator_get_used_size(Allocator * alloc, int dir)
 {
-    /* For malloc sum up the requested memory.
-     * I considered mallinfo, but there may be multiple memory arenas. */
-    if(alloc->use_malloc) {
-        size_t total = 0;
-        AllocatorIter iter[1];
-        for(allocator_iter_start(iter, alloc); !allocator_iter_ended(iter);
-            allocator_iter_next(iter))
-        {
-            total += iter->request_size;
-        }
-        return total;
-    }
     if (dir == ALLOC_DIR_TOP) {
         return (alloc->size - alloc->top);
     }
@@ -382,32 +326,6 @@ allocator_realloc_int(Allocator * alloc, void * ptr, const size_t new_size, cons
     if (!is_header(header)) {
         endrun(1, "Not an allocated address: Header = %8p ptr = %8p\n", header, cptr);
     }
-
-    if(alloc->use_malloc) {
-        struct BlockHeader * header2;
-#ifdef USE_CUDA
-        if(header->device == MANAGEDMEM) {
-            if (cudaMallocManaged(&header2, new_size + ALIGNMENT, cudaMemAttachGlobal) != cudaSuccess) {
-                endrun(1, "Failed to allocate %lu bytes for %s\n", new_size, header->name);
-            }
-            // Copy old data to the new block (don't forget the header)
-            memcpy(header2, header, ALIGNMENT + (new_size < header->request_size ? new_size : header->request_size));
-            // Free the old block
-            cudaFree(header);
-        }
-        else
-#endif
-            header2 = (struct BlockHeader *) realloc(header, new_size + ALIGNMENT);
-        // Update header pointer in the new block
-        header2->ptr = (char*) header2 + ALIGNMENT;
-        header2->request_size = new_size;
-        /* update record */
-        vsprintf(header2->annotation, fmt, va);
-        va_end(va);
-        memcpy(header2->self, header2, sizeof(header2[0]));
-        return header2->ptr;
-    }
-
     if(0 != allocator_dealloc(alloc, ptr)) {
         allocator_print(header->alloc);
         endrun(1, "Mismatched Free: %s : %s\n", header->name, header->annotation);
