@@ -564,6 +564,9 @@ allocator_realloc_int_malloc(Allocator * alloc, void * ptr, const size_t new_siz
     struct BlockHeader * header2;
 #ifdef USE_CUDA
     if(header->device == MANAGEDMEM) {
+        #ifdef DEBUG
+        message(0, "Realloc managed memory (%s : %s) is expensive, consider avoiding it\n", header->name, header->annotation);
+        #endif
         if (cudaMallocManaged(&header2, new_size + ALIGNMENT, cudaMemAttachGlobal) != cudaSuccess) {
             endrun(1, "Failed to allocate %lu bytes for %s\n", new_size, header->name);
         }
