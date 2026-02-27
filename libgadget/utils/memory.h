@@ -32,23 +32,6 @@ struct Allocator {
     int use_malloc; /* only do the book keeping. delegate to libc malloc/free */
 };
 
-typedef struct AllocatorIter AllocatorIter;
-struct AllocatorIter {
-    Allocator * alloc;
-    size_t _bottom;
-    size_t _top;
-    int _ended;
-
-    /* current block */
-    size_t size;
-    size_t request_size;
-    char * name;
-    int dir;
-    int device;
-    char * annotation;
-    char * ptr;
-};
-
 int
 allocator_init(Allocator * alloc, const char * name, const size_t size, const int zero);
 

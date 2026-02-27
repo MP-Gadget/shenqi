@@ -31,6 +31,23 @@ struct BlockHeader {
     char annotation[ANNOTLEN];
 } ;
 
+typedef struct AllocatorIter AllocatorIter;
+struct AllocatorIter {
+    Allocator * alloc;
+    size_t _bottom;
+    size_t _top;
+    int _ended;
+
+    /* current block */
+    size_t size;
+    size_t request_size;
+    char * name;
+    int dir;
+    int device;
+    char * annotation;
+    char * ptr;
+};
+
 static int
 allocator_iter_ended(AllocatorIter * iter);
 
