@@ -470,7 +470,9 @@ allocator_alloc_va_malloc(Allocator * alloc, const char * name, const size_t req
     size_t size = sizeof(struct BlockHeader); /* for the header */
     alloc->bottom += size;
     alloc->refcount += 1;
-    alloc->topcount ++;
+    /* New top allocation */
+    if(header == start + alloc->topcount)
+        alloc->topcount ++;
     if(alloc->topcount > MAXBLOCK) {
         allocator_print_malloc(alloc);
         endrun(3, "%s Tried to allocate %d blocks in the malloc allocator, more than %d available.\n", name, alloc->topcount, MAXBLOCK);
@@ -487,6 +489,8 @@ allocator_alloc_va_malloc(Allocator * alloc, const char * name, const size_t req
     header->name[NAMELEN-1] = '\0';
 
     vsnprintf(header->annotation, ANNOTLEN, fmt, va);
+
+    //message(5, "alloc %s MALLOC %s topcount %d refcount %d ptrdiff %ld\n", alloc->name, header->name, alloc->topcount, alloc->refcount, header - (struct BlockHeader*) alloc->base);
 
     char * cptr;
     /* prepend a copy of the header to the malloc block; allocator_free will use it*/
