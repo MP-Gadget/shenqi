@@ -64,6 +64,7 @@ allocator_init(Allocator * alloc, const char * name, const size_t request_size, 
     alloc->use_malloc = 0;
     strncpy(alloc->name, name, 11);
     alloc->refcount = 1;
+    alloc->topcount = 0;
     alloc->top = alloc->size;
     alloc->bottom = 0;
 
@@ -77,8 +78,8 @@ allocator_init(Allocator * alloc, const char * name, const size_t request_size, 
 int
 allocator_malloc_init(Allocator * alloc, const char * name, const size_t request_size, const int zero)
 {
-    /* max support 4096 blocks; ignore request_size */
-    size_t size = sizeof(struct BlockHeader) * 4096;
+    /* max support 2048 blocks; ignore request_size */
+    size_t size = sizeof(struct BlockHeader) * 2048;
 
     char * rawbase;
     if(posix_memalign((void **) &rawbase, ALIGNMENT, size + ALIGNMENT))
@@ -90,6 +91,7 @@ allocator_malloc_init(Allocator * alloc, const char * name, const size_t request
     alloc->size = size;
     strncpy(alloc->name, name, 11);
     alloc->refcount = 1;
+    alloc->topcount = 0;
     alloc->top = alloc->size;
     alloc->bottom = 0;
 
@@ -354,9 +356,8 @@ allocator_print(Allocator * alloc)
         !allocator_iter_ended(iter);
         allocator_iter_next(iter))
     {
-        message(1, " %-20s | %c | %c | %012td %012td | %s\n",
+        message(1, " %-20s | %c | %012td %012td | %s\n",
                  iter->name,
-                 "HMD"[iter->device],
                  "T?B"[iter->dir + 1],
                  iter->request_size/1024, iter->size/1024, iter->annotation);
     }
@@ -455,13 +456,17 @@ allocator_dealloc (Allocator * alloc, void * ptr)
         (header->dir == ALLOC_DIR_TOP && ptr != alloc->top + alloc->base)) {
             return ALLOC_EMISMATCH;
         }
+        if(header->dir == ALLOC_DIR_BOT)
+            alloc->bottom -= header->size;
+        else if (header->dir == ALLOC_DIR_TOP)
+            alloc->top += header->size;
     }
-    if(header->dir == ALLOC_DIR_BOT)
-        alloc->bottom -= header->size;
-    else if (header->dir == ALLOC_DIR_TOP)
-        alloc->top += header->size;
 
     if(alloc->use_malloc) {
+        if(header ==  (struct BlockHeader*) (alloc->bottom)) {
+            alloc->bottom -= header->size;
+            alloc->topcount --;
+        }
 #ifdef USE_CUDA
         if(header->device != HOSTMEM)
             cudaFree(header);
@@ -491,10 +496,10 @@ allocator_print_malloc(Allocator * alloc)
             get_freemem_bytes()/1024,
             allocator_get_used_size_malloc(alloc)/1024, alloc->refcount-1
             );
-    message(1, " %-20s | %c | %-20s | %s\n", "Name", ' ', "Requested", "Annotation");
+    message(1, " %-20s | %c | %-16s | %s\n", "Name", ' ', "Requested", "Annotation");
     message(1, "-------------------------------------------------------\n");
     struct BlockHeader * start = (struct BlockHeader *) alloc->base;
-    for(struct BlockHeader * header = start; header < start + alloc->refcount-1; header++) {
+    for(struct BlockHeader * header = start; header < start + alloc->topcount; header++) {
         if(!is_header(header))
             endrun(1, "Not a header\n");
         if(!header->ptr)
@@ -515,9 +520,11 @@ allocator_alloc_va_malloc(Allocator * alloc, const char * name, const size_t req
         allocator_print_malloc(alloc);
         endrun(1, "Not enough memory for %s %lu bytes\n", name, size);
     }
+
     ptr = alloc->base + alloc->bottom;
     alloc->bottom += size;
     alloc->refcount += 1;
+    alloc->topcount ++;
 
     struct BlockHeader * header = (struct BlockHeader *) ptr;
     memcpy(header->magic, MAGIC, 8);
@@ -565,7 +572,7 @@ allocator_get_used_size_malloc(Allocator * alloc)
      * I considered mallinfo, but there may be multiple memory arenas. */
     size_t total = 0;
     struct BlockHeader * start = (struct BlockHeader *) alloc->base;
-    for(struct BlockHeader * header = start; header < start + alloc->refcount-1; header++) {
+    for(struct BlockHeader * header = start; header < start + alloc->topcount; header++) {
         if(!header->ptr)
             continue;
         total += header->request_size;

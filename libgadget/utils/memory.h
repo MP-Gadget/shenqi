@@ -28,6 +28,7 @@ struct Allocator {
     size_t top;
 
     int refcount;
+    int topcount;
     int use_malloc; /* only do the book keeping. delegate to libc malloc/free */
 };
 
