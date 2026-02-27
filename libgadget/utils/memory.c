@@ -401,18 +401,15 @@ int
 allocator_dealloc_malloc (Allocator * alloc, void * ptr)
 {
     char * cptr = (char *) ptr;
-    struct BlockHeader * header = (struct BlockHeader*) (cptr - ALIGNMENT);
+    struct BlockHeader * header = (struct BlockHeader *) (cptr - ALIGNMENT);
 
     if (!is_header(header)) {
         return ALLOC_ENOTALLOC;
     }
 
     /* ->self is always the header in the allocator; header maybe a duplicate in use_malloc */
-    ptr = header->self;
-    if((struct BlockHeader*) ptr == (struct BlockHeader*) (alloc->base) + alloc->topcount) {
-        alloc->bottom -= header->size;
-        alloc->topcount --;
-    }
+    struct BlockHeader * allocheader = (struct BlockHeader *) header->self;
+    /* Free the memory */
 #ifdef USE_CUDA
     if(header->device != HOSTMEM)
         cudaFree(header);
@@ -421,11 +418,23 @@ allocator_dealloc_malloc (Allocator * alloc, void * ptr)
         free(header);
 
     /* remove the link to the memory. */
-    header = (struct BlockHeader *) ptr; /* modify the true header in the allocator */
-    header->ptr = NULL;
-    header->self = NULL;
-    header->request_size = 0;
-    alloc->refcount --;
+    allocheader->ptr = NULL;
+    allocheader->self = NULL;
+    allocheader->request_size = 0;
+    alloc->refcount--;
+
+    //message(5, "alloc %s Free %s topcount %d refcount %d ptrdiff %ld\n", alloc->name, allocheader->name, alloc->topcount, alloc->refcount, allocheader - (struct BlockHeader*) alloc->base);
+    /* If we just freed the topmost block, decrement the topcount. */
+    if(allocheader == (struct BlockHeader *) (alloc->base) + alloc->topcount-1) {
+        /* Decrement the topcount below all previously freed blocks. */
+        for(struct BlockHeader * top = allocheader; top >= (struct BlockHeader *) alloc->base; top--) {
+            if(top->ptr != NULL)
+                break;
+            alloc->bottom -= allocheader->size;
+            alloc->topcount --;
+        }
+    }
+
     return 0;
 }
 
