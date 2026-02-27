@@ -454,8 +454,10 @@ allocator_print_malloc(Allocator * alloc)
     message(1, "-------------------------------------------------------\n");
     struct BlockHeader * start = (struct BlockHeader *) alloc->base;
     for(struct BlockHeader * header = start; header < start + alloc->topcount; header++) {
+        #ifdef DEBUG
         if(!is_header(header))
-            endrun(1, "Not a header\n");
+            endrun(1, "Tried to print %p, Not a header\n", header);
+        #endif
         if(!header->ptr)
             continue;
         message(1, " %-20s | %c | %016td | %s\n",
