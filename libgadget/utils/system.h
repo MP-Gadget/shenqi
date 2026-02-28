@@ -64,6 +64,9 @@ typedef struct _gadget_thread_arrays {
  * The temporary arrays in gadget_thread_arrays are freed. */
 size_t gadget_compact_thread_arrays(int ** dest, gadget_thread_arrays * arrays);
 
+/* As above, but allocate a new array in managed memory for dest. No need for a realloc afterwards. */
+size_t gadget_compact_thread_arrays_managed(int ** dest, const char * name, gadget_thread_arrays * arrays);
+
 /* Set up pointers to different parts of a single segmented array, evenly spaced and corresponding queue space for different threads.*/
 gadget_thread_arrays gadget_setup_thread_arrays(const char * destname, const int alloc_high, const size_t total_size);
 

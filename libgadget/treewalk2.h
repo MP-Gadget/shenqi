@@ -235,8 +235,6 @@ public:
     unsigned int minNinteractions;
 
     /* internal flags*/
-    /*Did we use the active_set array as the WorkSet?*/
-    int work_set_stolen_from_active;
     /* The list of particles to work on. May be NULL, in which case all particles are used.*/
     int * WorkSet;
     /* Size of the workset list*/
@@ -251,7 +249,6 @@ public:
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
         Nexport_sum(0), NExportTargets(0),
         maxNinteractions(0), minNinteractions(INT_MAX),
-        work_set_stolen_from_active(0),
         WorkSet(nullptr), WorkSetSize(0)
     {
     }
@@ -323,19 +320,10 @@ public:
      * we can just reuse the active set as the queue.*/
     void build_queue(int * active_set, const size_t size, int may_have_garbage, const particle_data * const Parts)
     {
-        if(!should_rebuild_queue && !may_have_garbage)
-        {
-            WorkSetSize = size;
-            WorkSet = active_set;
-            work_set_stolen_from_active = 1;
-            return;
-        }
-
-        work_set_stolen_from_active = 0;
         /* Explicitly deal with the case where the queue is zero and there is nothing to do.
          * Some OpenMP compilers (nvcc) seem to still execute the below loop in that case*/
         if(size == 0) {
-            WorkSet = (int *) mymalloc("ActiveQueue", sizeof(int));
+            WorkSet = (int *) mymanagedmalloc("ActiveQueue", sizeof(int));
             WorkSetSize = size;
             return;
         }
@@ -373,10 +361,7 @@ public:
             gthread.sizes[tid] = nqthrlocal;
         }
         /*Merge step for the queue.*/
-        size_t nqueue = gadget_compact_thread_arrays(&WorkSet, &gthread);
-        /*Shrink memory*/
-        WorkSet = (int *) myrealloc(WorkSet, sizeof(int) * nqueue);
-
+        size_t nqueue = gadget_compact_thread_arrays_managed(&WorkSet, "Active Queue", &gthread);
     #if 0
         /* check the uniqueness of the active_set list. This is very slow. */
         qsort_openmp(WorkSet, nqueue, sizeof(int), cmpint);
@@ -668,8 +653,7 @@ private:
     /* Cleans up and frees memory */
     void ev_finish(void)
     {
-        if(!work_set_stolen_from_active)
-            myfree(WorkSet);
+        myfree(WorkSet);
     }
 
     /* Builds the list of exported particles and async sends the export queries. */
