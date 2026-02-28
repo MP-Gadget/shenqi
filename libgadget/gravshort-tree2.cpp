@@ -549,8 +549,8 @@ class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResul
         }
     }
     public:
-        GravTreeWalk(const char * const name, const ForceTree * const tree, const GravTreeParams& priv, const GravTreeOutput& output, const bool use_gpu=false)
-            : TreeWalk(name, tree, priv, output, false, use_gpu) {
+        GravTreeWalk(const char * const name, const ForceTree * const tree, const GravTreeParams& priv, const GravTreeOutput& output)
+            : TreeWalk(name, tree, priv, output, false) {
                 if(!tree->moments_computed_flag)
                     endrun(2, "Gravtree called before tree moments computed!\n");
             };
@@ -573,7 +573,7 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
     GravShortTable gravtab(TreeParams.ShortRangeForceWindowType, pm->Asmth);
     GravTreeParams priv(TreeParams.Rcut, Ti_Current, rho0, pm, tree->BoxSize, gravtab);
     GravTreeOutput output(AccelStore, PartManager->NumPart, tree->full_particle_tree_flag);
-    GravTreeWalk tw("GRAVTREE", tree, priv, output, use_gpu);
+    GravTreeWalk tw("GRAVTREE", tree, priv, output);
     /* Do the treewalk! */
     tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, TreeParams.MaxExportBufferBytes);
 

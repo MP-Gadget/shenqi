@@ -211,9 +211,6 @@ public:
     /* Set to true if haswork() is overridden to do actual filtering.
      * Used to optimize queue building when haswork always returns true. */
     bool should_rebuild_queue;
-    /* If this is true, the primary and secondary treewalks will be offloaded to an accelerator device (a GPU).
-     * This imposes certain limitations, most notably atomics will be slow.*/
-    const int use_openmp_target;
 
     /* performance metrics */
     /* Wait for remotes to finish.*/
@@ -250,11 +247,10 @@ public:
     /**
      * Constructor - initializes all members to safe defaults.
      */
-    TreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const ParamType& i_priv, const OutputType& i_out, bool i_should_rebuild_queue=true, bool i_use_gpu=false) :
+    TreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const ParamType& i_priv, const OutputType& i_out, bool i_should_rebuild_queue=true) :
         tree(i_tree), ev_label(i_ev_label),
         priv(i_priv), output(i_out),
         should_rebuild_queue(i_should_rebuild_queue),
-        use_openmp_target(i_use_gpu),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
         Nlistprimary(0), Nexport_sum(0), NExportTargets(0),
         maxNinteractions(0), minNinteractions(1<<30), Ninteractions(0),
