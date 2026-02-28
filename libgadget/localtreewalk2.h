@@ -293,14 +293,22 @@ template <typename DerivedType, typename QueryType, typename ResultType, typenam
 class LocalNgbTreeWalk
 {
 public:
-    /* A pointer to the force tree structure to walk.*/
-    const ForceTree * const tree;
+    /* A pointer to the tree nodes to walk.*/
+    const NODE * const Nodes;
     double dist[3];
     double r2;
     /* Constructor from treewalk */
-    MYCUDAFN LocalNgbTreeWalk(const ForceTree * const i_tree, const QueryType& input):
-     tree(i_tree)
-    { }
+    MYCUDAFN LocalNgbTreeWalk(const ForceTree * const tree, const QueryType& input):
+     Nodes(tree->Nodes)
+    {
+        /* Check whether the tree contains the particles we are looking for*/
+        if((tree->mask & mask) != mask)
+            endrun(5, "Treewalk for particles with mask %d but tree mask is only %d overlap %d.\n", mask, tree->mask, tree->mask & mask);
+        /* If symmetric, make sure we did hmax first*/
+        if constexpr(symmetric == NGB_TREEFIND_SYMMETRIC)
+            if(!tree->hmax_computed_flag)
+                endrun(3, "Tried to do a symmetric treewalk without computing hmax!\n");
+    }
     /**
      * Visit function - called between a tree node and a particle.
      * Override this to implement custom tree traversal logic.
@@ -323,18 +331,14 @@ public:
          for(int inode = 0; inode < NODELISTLENGTH && input.NodeList[inode] >= 0; inode++)
          {
              int no = input.NodeList[inode];
-             const double BoxSize = tree->BoxSize;
 
              while(no >= 0)
              {
-                 const struct NODE * const current = &tree->Nodes[no];
-
+                 const struct NODE * const current = &Nodes[no];
                  /* When walking exported particles we start from the encompassing top-level node,
                  * so if we get back to a top-level node again we are done.*/
                  if constexpr(mode == TREEWALK_GHOSTS) {
                      /* The first node is always top-level*/
-                     if(no > tree->lastnode)
-                         endrun(7, "Node is after lastnode. no %d lastnode %ld start %d first %ld\n", no, tree->lastnode, input.NodeList[inode], tree->firstnode);
                      if(current->f.TopLevel && no != input.NodeList[inode]) {
                          /* we reached a top-level node again, which means that we are done with the branch */
                          break;
@@ -342,7 +346,7 @@ public:
                  }
 
                 /* Cull the node */
-                if(0 == cull_node<symmetric>(input.Pos, BoxSize, input.Hsml, current)) {
+                if(0 == cull_node<symmetric>(input.Pos, priv.BoxSize, input.Hsml, current)) {
                      /* in case the node can be discarded */
                      no = current->sibling;
                      continue;
@@ -433,13 +437,6 @@ public:
     template<TreeWalkReduceMode mode>
     MYCUDAFN int64_t visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
     {
-        /* Check whether the tree contains the particles we are looking for*/
-        if((this->tree->mask & mask) != mask)
-            endrun(5, "Treewalk for particles with mask %d but tree mask is only %d overlap %d.\n", mask, this->tree->mask, this->tree->mask & mask);
-        /* If symmetric, make sure we did hmax first*/
-        if constexpr(symmetric == NGB_TREEFIND_SYMMETRIC)
-            if(!this->tree->hmax_computed_flag)
-                endrun(3, "Tried to do a symmetric treewalk without computing hmax!\n");
         int64_t ninteractions = 0;
         int inode = 0;
 
@@ -489,23 +486,13 @@ protected:
         int no;
         int numcand = 0;
 
-        const double BoxSize = this->tree->BoxSize;
+        const double BoxSize = this->BoxSize;
 
         no = startnode;
 
         while(no >= 0)
         {
-            if(node_is_particle(no, this->tree)) {
-                int fat = force_get_father(no, this->tree);
-                endrun(12312, "Particles should be added before getting here! no = %d, father = %d (ptype = %d) start=%d mode = %d\n", no, fat, this->tree->Nodes[fat].f.ChildType, startnode, mode);
-            }
-            if(node_is_pseudo_particle(no, this->tree)) {
-                int fat = force_get_father(no, this->tree);
-                endrun(12312, "Pseudo-Particles should be added before getting here! no = %d, father = %d (ptype = %d)\n", no, fat, this->tree->Nodes[fat].f.ChildType);
-            }
-
-            struct NODE *current = &this->tree->Nodes[no];
-
+            struct NODE *current = &this->Nodes[no];
             /* When walking exported particles we start from the encompassing top-level node,
              * so if we get back to a top-level node again we are done.*/
             if constexpr(mode == TREEWALK_GHOSTS) {

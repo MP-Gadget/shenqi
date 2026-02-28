@@ -286,10 +286,10 @@ shall_we_open_node(const double len, const double mass, const double r2, const d
 class GravLocalTreeWalk {
     public:
     /* A pointer to the force tree structure to walk.*/
-    const ForceTree * const tree;
+    const struct NODE * const Nodes;
 
-    /* Default trivial constructor from treewalk */
-    MYCUDAFN GravLocalTreeWalk(const ForceTree * const i_tree, const GravTreeQuery& input): tree(i_tree) {}
+    MYCUDAFN GravLocalTreeWalk(const ForceTree * const tree, const GravTreeQuery& input):
+    Nodes(tree->Nodes) {}
 
     /*! In the TreePM algorithm, the tree is walked only locally around the
      *  target coordinate.  Tree nodes that fall outside a box of half
@@ -327,10 +327,10 @@ class GravLocalTreeWalk {
             if(no < 0)
                 break;
 
-            while(no >= tree->firstnode)
+            while(no >= 0)
             {
                 /* The tree always walks internal nodes*/
-                const struct NODE * const nop = &tree->Nodes[no];
+                const struct NODE * const nop = &Nodes[no];
 
                 if constexpr(mode == TREEWALK_GHOSTS) {
                     if(nop->f.TopLevel && no != startno)  /* we reached a top-level node again, which means that we are done with the branch */
@@ -339,11 +339,11 @@ class GravLocalTreeWalk {
 
                 double dx[3];
                 for(int i = 0; i < 3; i++)
-                    dx[i] = NEAREST(nop->mom.cofm[i] - input.Pos[i], tree->BoxSize);
+                    dx[i] = NEAREST(nop->mom.cofm[i] - input.Pos[i], priv.BoxSize);
                 const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
 
                 /* Discard this node, move to sibling*/
-                if(shall_we_discard_node(nop->len, r2, nop->center, input.Pos, tree->BoxSize, rcut, rcut2))
+                if(shall_we_discard_node(nop->len, r2, nop->center, input.Pos, priv.BoxSize, rcut, rcut2))
                 {
                     no = nop->sibling;
                     /* Don't add this node*/
@@ -371,7 +371,7 @@ class GravLocalTreeWalk {
                     for(int i = 0; i < nop->s.noccupied; i++) {
                         const int pp = nop->s.suns[i];
                         for(int j = 0; j < 3; j++)
-                            dx[j] = NEAREST(Part[pp].Pos[j] - input.Pos[j], tree->BoxSize);
+                            dx[j] = NEAREST(Part[pp].Pos[j] - input.Pos[j], priv.BoxSize);
                         const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
                         /* Compute the acceleration and apply it to the output structure*/
                         apply_accn(output, dx, r2, Part[pp].Mass, cellsize, priv.gravtab, priv.ForceSoftening);
