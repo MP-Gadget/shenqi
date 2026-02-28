@@ -105,11 +105,20 @@ GravShortTable::apply_short_range_window(const double r, double * fac, double * 
      GravShortTable gravtab;
      /* Force softening*/
      double ForceSoftening;
+     double ErrTolForceAcc;
+     double BHOpeningAngle2;
+     int TreeUseBH;
 
-     GravTreeParams(const double Rcut, const inttime_t i_Ti_Current, const double rho0, const PetaPM * const pm, const double BoxSize, GravShortTable& gravtab):
-     ParamTypeBase(BoxSize), cellsize(BoxSize / pm->Nmesh), Rcut(Rcut * pm->Asmth * cellsize), G(pm->G), Ti_Current(i_Ti_Current),
-     cbrtrho0(pow(rho0, 1.0 / 3)), gravtab(gravtab), ForceSoftening(FORCE_SOFTENING())
-     {}
+     GravTreeParams(const struct gravshort_tree_params TreeParams, const inttime_t i_Ti_Current, const double rho0, const PetaPM * const pm, const double BoxSize, GravShortTable& gravtab):
+     ParamTypeBase(BoxSize), cellsize(BoxSize / pm->Nmesh), Rcut(TreeParams.Rcut * pm->Asmth * cellsize), G(pm->G), Ti_Current(i_Ti_Current),
+     cbrtrho0(pow(rho0, 1.0 / 3)), gravtab(gravtab), ForceSoftening(FORCE_SOFTENING()),
+     ErrTolForceAcc(TreeParams.ErrTolForceAcc), BHOpeningAngle2(TreeParams.BHOpeningAngle * TreeParams.BHOpeningAngle), TreeUseBH(TreeParams.TreeUseBH)
+     {
+        /* Enforce a maximum opening angle even for relative acceleration criterion, to avoid
+        * pathological cases. Default value is 0.9, from Volker Springel.*/
+        if(TreeUseBH == 0)
+            BHOpeningAngle2 = TreeParams.MaxBHOpeningAngle * TreeParams.MaxBHOpeningAngle;
+     }
  };
 
 /* Class to store pointers to the outputs of the gravity code. */
@@ -302,13 +311,7 @@ class GravLocalTreeWalk {
         const double cellsize = priv.cellsize;
         const double rcut = priv.Rcut;
         const double rcut2 = rcut * rcut;
-        const double aold = TreeParams.ErrTolForceAcc * input.OldAcc;
-        const int TreeUseBH = TreeParams.TreeUseBH;
-        double BHOpeningAngle2 = TreeParams.BHOpeningAngle * TreeParams.BHOpeningAngle;
-        /* Enforce a maximum opening angle even for relative acceleration criterion, to avoid
-         * pathological cases. Default value is 0.9, from Volker Springel.*/
-        if(TreeUseBH == 0)
-            BHOpeningAngle2 = TreeParams.MaxBHOpeningAngle * TreeParams.MaxBHOpeningAngle;
+        const double aold = priv.ErrTolForceAcc * input.OldAcc;
 
         //message(1, "BH: %d, opening angle %g aold %g\n", TreeUseBH, BHOpeningAngle2, aold);
         /*Start the tree walk*/
@@ -348,7 +351,7 @@ class GravLocalTreeWalk {
                 }
 
                 /* This node accelerates the particle directly, and is not opened.*/
-                const int open_node = shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, input.Pos, tree->BoxSize, aold, TreeUseBH, BHOpeningAngle2);
+                const int open_node = shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, input.Pos, priv.BoxSize, aold, priv.TreeUseBH, priv.BHOpeningAngle2);
 
                 if(!open_node)
                 {
@@ -444,13 +447,7 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
         /*Tree-opening constants*/
         const double rcut = priv.Rcut;
         const double rcut2 = rcut * rcut;
-        const double aold = TreeParams.ErrTolForceAcc * input.OldAcc;
-        const int TreeUseBH = TreeParams.TreeUseBH;
-        double BHOpeningAngle2 = TreeParams.BHOpeningAngle * TreeParams.BHOpeningAngle;
-        /* Enforce a maximum opening angle even for relative acceleration criterion, to avoid
-         * pathological cases. Default value is 0.9, from Volker Springel.*/
-        if(TreeUseBH == 0)
-            BHOpeningAngle2 = TreeParams.MaxBHOpeningAngle * TreeParams.MaxBHOpeningAngle;
+        const double aold = priv.ErrTolForceAcc * input.OldAcc;
 
         /*Input particle data*/
         const double * inpos = input.Pos;
@@ -471,7 +468,7 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
             /* Discard this node, move to sibling*/
             if (shall_we_discard_node(nop->len, r2, nop->center, inpos, tree->BoxSize, rcut, rcut2) ||
             /* This node accelerates the particle directly, and is not opened, move to sibling.*/
-            !shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, tree->BoxSize, aold, TreeUseBH, BHOpeningAngle2) )
+            !shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, tree->BoxSize, aold, priv.TreeUseBH, priv.BHOpeningAngle2) )
             {
                 no = nop->sibling;
                 /* Don't add this node*/
@@ -571,7 +568,7 @@ void
 grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool use_gpu)
 {
     GravShortTable gravtab(TreeParams.ShortRangeForceWindowType, pm->Asmth);
-    GravTreeParams priv(TreeParams.Rcut, Ti_Current, rho0, pm, tree->BoxSize, gravtab);
+    GravTreeParams priv(TreeParams, Ti_Current, rho0, pm, tree->BoxSize, gravtab);
     GravTreeOutput output(AccelStore, PartManager->NumPart, tree->full_particle_tree_flag);
     GravTreeWalk tw("GRAVTREE", tree, priv, output);
     /* Do the treewalk! */
