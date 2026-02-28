@@ -445,7 +445,7 @@ private:
             if(Nexportfull > 0)
                 message(0, "Toptree %s, iter %d. First particle %ld size %ld.\n", ev_label, Nexportfull, WorkSetStart, WorkSetSize);
             /* First do the toptree and export particles for sending.*/
-            WorkSetStart = ev_toptree(parts, &exportlist, WorkSetStart);
+            WorkSetStart = static_cast<DerivedType *>(this)->ev_toptree(parts, &exportlist, WorkSetStart);
             /* All processes sync via alltoall.*/
             ImpExpCounts counts(comm, exportlist);
             NExportTargets = counts.NExportTargets;
@@ -461,7 +461,7 @@ private:
             /* Only do this on the first iteration, as we only need to do it once.*/
             tstart = second();
             if(Nexportfull == 0)
-                ev_primary(parts); /* do local particles and prepare export list */
+                static_cast<DerivedType *>(this)->ev_primary(parts); /* do local particles and prepare export list */
             tend = second();
             timecomp1 += timediff(tstart, tend);
             /* Do processing of received particles. We implement a queue that
@@ -471,7 +471,7 @@ private:
             CommBuffer res_exports(counts.NTask, 1);
             ev_recv_export_result(&res_exports, &counts);
             CommBuffer res_imports(counts.NTask, 1);
-            ev_secondary(&res_imports, &imports, &counts, parts);
+            static_cast<DerivedType *>(this)->ev_secondary(&res_imports, &imports, &counts, parts);
             // report_memory_usage(ev_label);
             // Want to explicitly free the databuf early for this one so we free memory early.
             myfree(imports.databuf);
