@@ -71,7 +71,7 @@ GravShortTable::GravShortTable(const enum ShortRangeForceWindowType ShortRangeFo
  * If the distance is outside the range of the table, 1 is returned and the caller should assume zero acceleration.
  * If the distance is inside the range of the table, 0 is returned and the force factor and potential values
  * should be applied to the particle query. */
-int
+MYCUDAFN int
 GravShortTable::apply_short_range_window(const double r, double * fac, double * pot, const double cellsize) const
 {
     const double i = (r / cellsize / dx);
@@ -137,7 +137,7 @@ class GravTreeOutput
 };
 
  /*Compute the absolute magnitude of the acceleration for a particle.*/
- MyFloat
+ MYCUDAFN MyFloat
  grav_get_abs_accel(const struct particle_data& PP, const double G)
  {
      double aold=0;
@@ -152,7 +152,7 @@ class GravTreeOutput
  class GravTreeQuery : public TreeWalkQueryBase<GravTreeParams> {
     public:
     MyFloat OldAcc;
-    GravTreeQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const GravTreeParams& priv) :
+    MYCUDAFN GravTreeQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const GravTreeParams& priv) :
     TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), OldAcc(grav_get_abs_accel(particle, priv.G)) {}
  };
 
@@ -160,10 +160,10 @@ class GravTreeResult : public TreeWalkResultBase<GravTreeQuery, GravTreeOutput> 
     public:
     MyFloat Acc[3] = {0};
     MyFloat Potential = 0;
-    GravTreeResult(GravTreeQuery& query): TreeWalkResultBase(query), Acc(0,0,0), Potential(0) {}
+    MYCUDAFN GravTreeResult(GravTreeQuery& query): TreeWalkResultBase(query), Acc(0,0,0), Potential(0) {}
 
     template<TreeWalkReduceMode mode>
-    void reduce(const int place, const GravTreeOutput& priv, struct particle_data * const parts)
+    MYCUDAFN void reduce(const int place, const GravTreeOutput& priv, struct particle_data * const parts)
     {
         TreeWalkResultBase<GravTreeQuery, GravTreeOutput>::reduce<mode>(place, priv, parts);
         TREEWALK_REDUCE(priv.Accel[place][0], Acc[0]);
@@ -231,7 +231,7 @@ set_gravshort_tree_params(ParameterSet * ps)
 /* Check whether a node should be discarded completely, its contents not contributing
  * to the acceleration. This happens if the node is further away than the short-range force cutoff.
  * Return 1 if the node should be discarded, 0 otherwise. */
-static int
+static MYCUDAFN int
 shall_we_discard_node(const double len, const double r2, const double center[3], const double inpos[3], const double BoxSize, const double rcut, const double rcut2)
 {
     /* This checks the distance from the node center of mass
@@ -251,7 +251,7 @@ shall_we_discard_node(const double len, const double r2, const double center[3],
 /* This function tests whether a node shall be opened (ie, should the next node be .
  * If it should be discarded, 0 is returned.
  * If it should be used, 1 is returned, otherwise zero is returned. */
-static int
+static MYCUDAFN int
 shall_we_open_node(const double len, const double mass, const double r2, const double center[3], const double inpos[3], const double BoxSize, const double aold, const int TreeUseBH, const double BHOpeningAngle2)
 {
     /* Check the relative acceleration opening condition*/
@@ -280,7 +280,7 @@ class GravLocalTreeWalk {
     const ForceTree * const tree;
 
     /* Default trivial constructor from treewalk */
-    GravLocalTreeWalk(const ForceTree * const i_tree, const GravTreeQuery& input): tree(i_tree) {}
+    MYCUDAFN GravLocalTreeWalk(const ForceTree * const i_tree, const GravTreeQuery& input): tree(i_tree) {}
 
     /*! In the TreePM algorithm, the tree is walked only locally around the
      *  target coordinate.  Tree nodes that fall outside a box of half
@@ -294,7 +294,7 @@ class GravLocalTreeWalk {
      * Returns the number of particle-particle and particle-node interactions.
      */
     template<TreeWalkReduceMode mode>
-    int64_t visit(const GravTreeQuery& input, GravTreeResult * output, const GravTreeParams& priv, const struct particle_data * const parts)
+    MYCUDAFN int64_t visit(const GravTreeQuery& input, GravTreeResult * output, const GravTreeParams& priv, const struct particle_data * const parts)
     {
         static_assert(mode != TREEWALK_TOPTREE, "Toptree should call toptree_visit, not visit.");
 
@@ -395,7 +395,7 @@ class GravLocalTreeWalk {
 
     /* Add the acceleration from a node or particle to the output structure,
      * computing the short-range kernel and softening.*/
-    void apply_accn(GravTreeResult * output, const double dx[3], const double r2, const double mass, const double cellsize, const GravShortTable& gravtab, const double h)
+    MYCUDAFN void apply_accn(GravTreeResult * output, const double dx[3], const double r2, const double mass, const double cellsize, const GravShortTable& gravtab, const double h)
     {
         const double r = sqrt(r2);
         double fac = mass / (r2 * r);
@@ -528,7 +528,7 @@ class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResul
     *
     * @param i Particle index
     */
-    void postprocess(const int i, particle_data * const part)
+    MYCUDAFN void postprocess(const int i, particle_data * const part)
     {
         const double G = priv.G;
         output.Accel[i][0] *= G;

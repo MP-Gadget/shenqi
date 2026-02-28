@@ -12,10 +12,6 @@
 
 #include <libgadget/utils.h>
 
-#ifdef VALGRIND
-#define allocator_init allocator_malloc_init
-#endif
-
 int
 _cmocka_run_group_tests_mpi(const char * name, const struct CMUnitTest tests[], size_t size, void * p1, void * p2)
 {
@@ -30,8 +26,8 @@ _cmocka_run_group_tests_mpi(const char * name, const struct CMUnitTest tests[], 
     }
     /* allocate some memory for MAIN and TEMP */
 
-    allocator_init(A_MAIN, "MAIN", 650 * 1024 * 1024, 0, NULL);
-    allocator_init(A_TEMP, "TEMP", 8 * 1024 * 1024, 0, A_MAIN);
+    allocator_malloc_init(A_MAIN, "MAIN", 650 * 1024 * 1024, 0, NULL);
+    allocator_malloc_init(A_TEMP, "TEMP", 8 * 1024 * 1024, 0, A_MAIN);
 
     message(0, "GADGET_TESTDATA_ROOT : %s\n", GADGET_TESTDATA_ROOT);
 

@@ -9,4 +9,3 @@ GSL_INCL = -I$(GSL_DIR)/include
 GSL_LIBS = $(GSL) -lmvec -lmvec_nonshared
 
 #OPT += -DDEBUG
-#OPT += -DVALGRIND  # allow debugging with valgrind, disable the GADGET memory allocator.

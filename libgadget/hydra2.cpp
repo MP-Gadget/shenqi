@@ -61,7 +61,7 @@ int DensityIndependentSphOn(void)
 
 /* Function to get the center of mass density and HSML correction factor for an SPH particle with index i.
  * Encodes the main difference between pressure-entropy SPH and regular SPH.*/
-static MyFloat SPH_EOMDensity(const struct sph_particle_data * const pi)
+static MYCUDAFN MyFloat SPH_EOMDensity(const struct sph_particle_data * const pi)
 {
     if(HydroParams.DensityIndependentSphOn)
         return pi->EgyWtDensity;
@@ -71,7 +71,7 @@ static MyFloat SPH_EOMDensity(const struct sph_particle_data * const pi)
 
 /* Compute pressure using the predicted density (EgyWtDensity if Pressure-Entropy SPH,
  * Density otherwise) and predicted entropy*/
-static double
+static MYCUDAFN double
 PressurePredict(MyFloat EOMDensityPred, double EntVarPred)
 {
     /* As always, this kind of micro-optimisation is dangerous.
@@ -153,7 +153,7 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     MyFloat F1;
     MyFloat SPH_DhsmlDensityFactor;
     MyFloat dloga;
-    HydroQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const HydroPriv& priv):
+    MYCUDAFN HydroQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const HydroPriv& priv):
     TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), EgyRho(SphP[particle.PI].EgyWtDensity),
     Hsml(particle.Hsml), Mass(particle.Mass), Density(SphP[particle.PI].Density), SPH_DhsmlDensityFactor(SphP[particle.PI].DhsmlEgyDensityFactor),
     dloga(get_dloga_for_bin(particle.TimeBinHydro, priv.times->Ti_Current))
@@ -182,13 +182,13 @@ class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
     MyFloat Acc[3] = {0};
     MyFloat DtEntropy = 0;
     MyFloat MaxSignalVel = 0;
-    HydroResult(const HydroQuery query): TreeWalkResultBase(query), Acc(0,0,0), DtEntropy(0), MaxSignalVel(0)
+    MYCUDAFN HydroResult(const HydroQuery query): TreeWalkResultBase(query), Acc(0,0,0), DtEntropy(0), MaxSignalVel(0)
     {
         MaxSignalVel = sqrt(GAMMA * query.Pressure / query.EgyRho);
     }
 
     template<TreeWalkReduceMode mode>
-    void reduce(int place, const HydroOutput& priv, struct particle_data * const parts)
+    MYCUDAFN void reduce(int place, const HydroOutput& priv, struct particle_data * const parts)
     {
         TreeWalkResultBase::reduce<mode>(place, priv, parts);
         struct sph_particle_data * sphpart = &SphP[parts[place].PI];
@@ -207,7 +207,7 @@ class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
  * The Density in the SPHP struct is evaluated at the last time
  * the particle was active. Good for both EgyWtDensity and Density,
  * cube of the change in Hsml in drift.c. */
-double
+MYCUDAFN double
 SPH_DensityPred(MyFloat Density, MyFloat DivVel, double dtdrift)
 {
     /* Note minus sign!*/
@@ -229,7 +229,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
     double soundspeed_i;
     DensityKernel kernel_i;
 
-    HydroLocalTreeWalk(const ForceTree * const tree, const HydroQuery& input): LocalNgbTreeWalk(tree, input)
+    MYCUDAFN HydroLocalTreeWalk(const ForceTree * const tree, const HydroQuery& input): LocalNgbTreeWalk(tree, input)
     {
         MyFloat densityest = input.EgyRho;
         if(!HydroParams.DensityIndependentSphOn)
@@ -246,7 +246,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
      * @param input  Query data
      * @param output Result accumulator
      */
-    void ngbiter(const HydroQuery& input, const int other, HydroResult * output, const HydroPriv& priv, const struct particle_data * const parts)
+    MYCUDAFN void ngbiter(const HydroQuery& input, const int other, HydroResult * output, const HydroPriv& priv, const struct particle_data * const parts)
     {
         if(parts[other].Mass == 0) {
             endrun(12, "Encountered zero mass particle during hydro;"
@@ -397,12 +397,12 @@ class HydroTreeWalk: public TreeWalk<HydroTreeWalk, HydroQuery, HydroResult, Hyd
     HydroTreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const HydroPriv& i_priv, const HydroOutput& i_out):
     TreeWalk(i_ev_label, i_tree, i_priv, i_out) {}
 
-    bool haswork(const particle_data& particle)
+    MYCUDAFN bool haswork(const particle_data& particle)
     {
         return particle.Type == 0;
     }
 
-    void postprocess(const int i, struct particle_data * const parts)
+    MYCUDAFN void postprocess(const int i, struct particle_data * const parts)
     {
         if(parts[i].Type != 0)
             return;

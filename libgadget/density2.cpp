@@ -73,7 +73,7 @@ GetDensityKernelType(void)
 
 /* The evolved entropy at drift time: evolved dlog a.
  * Used to predict pressure and entropy for SPH */
-MyFloat
+MYCUDAFN MyFloat
 SPH_EntVarPred(const particle_data& particle, const DriftKickTimes * times)
 {
         const int bin = particle.TimeBinHydro;
@@ -201,7 +201,7 @@ class DensityQuery : public TreeWalkQueryBase<DensityPriv>
         MyFloat Hsml;
         int Type;
 
-        DensityQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const DensityPriv& priv):
+        MYCUDAFN DensityQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const DensityPriv& priv):
         TreeWalkQueryBase<DensityPriv>(particle, i_NodeList, firstnode, priv), Hsml(particle.Hsml), Type(particle.Type)
         {
             if(particle.Type != 0)
@@ -229,12 +229,12 @@ class DensityResult : public TreeWalkResultBase<DensityQuery, DensityOutput> {
         MyFloat Rot[3] = {0};
         /*Only used if sfr_need_to_compute_sph_grad_rho is true*/
         MyFloat GradRho[3] = {0};
-        DensityResult(DensityQuery& query): TreeWalkResultBase(query),
+        MYCUDAFN DensityResult(DensityQuery& query): TreeWalkResultBase(query),
         EgyRho(0), DhsmlEgyDensity(0), Rho(0), DhsmlDensity(0), Ngb(0), Div(0), Rot(0,0,0), GradRho(0,0,0)
         {}
 
         template<TreeWalkReduceMode mode>
-        void reduce(int place, const DensityOutput& priv, struct particle_data * const parts)
+        MYCUDAFN void reduce(int place, const DensityOutput& priv, struct particle_data * const parts)
         {
             TreeWalkResultBase::reduce<mode>(place, priv, parts);
             TREEWALK_REDUCE(priv.NumNgb[place], Ngb);
@@ -282,7 +282,7 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, Densit
         DensityKernel kernel;
         double kernel_volume;
 
-        DensityLocalTreeWalk(const ForceTree * const tree, const DensityQuery& input): LocalNgbTreeWalk(tree, input)
+        MYCUDAFN DensityLocalTreeWalk(const ForceTree * const tree, const DensityQuery& input): LocalNgbTreeWalk(tree, input)
         {
             density_kernel_init(&kernel, input.Hsml, DensityParams.DensityKernelType);
             kernel_volume = density_kernel_volume(&kernel);
@@ -299,7 +299,7 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, Densit
         *  initialize.
         *
         */
-        void ngbiter(const DensityQuery& input, const int other, DensityResult * output, const DensityPriv& priv, const struct particle_data * const parts)
+        MYCUDAFN void ngbiter(const DensityQuery& input, const int other, DensityResult * output, const DensityPriv& priv, const struct particle_data * const parts)
         {
             const particle_data& particle = parts[other];
             if(particle.Mass == 0) {
@@ -383,7 +383,7 @@ class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, Dens
     public:
     using LoopedTreeWalk::LoopedTreeWalk;
 
-    bool haswork(const particle_data& particle)
+    MYCUDAFN bool haswork(const particle_data& particle)
     {
         /* Don't want a density for swallowed black hole particles*/
         if(particle.Swallowed)
@@ -393,7 +393,7 @@ class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, Dens
         return 0;
     }
 
-    void
+    MYCUDAFN void
     postprocess(const int i, struct particle_data * const parts)
     {
         MyFloat * DhsmlDens = &(output.DhsmlDensityFactor[i]);
@@ -451,7 +451,7 @@ class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, Dens
 
     private:
     /* Returns 1 if we are done and do not need to loop. 0 if we need to repeat.*/
-    int
+    MYCUDAFN int
     density_check_neighbours (const int i, const int verbose, struct particle_data * const parts)
     {
         /* now check whether we had enough neighbours */
@@ -616,7 +616,7 @@ density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Blac
 }
 
 /* Set the initial smoothing length for gas and BH*/
-void
+MYCUDAFN void
 set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSeparation, struct part_manager_type * const PartManager)
 {
     /* Need moments because we use them to set Hsml*/

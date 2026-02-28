@@ -6,7 +6,7 @@ CONFIG ?= ../Options.mk
 
 include $(CONFIG)
 
-UTILS_TESTED = peano #memory openmpsort interp
+UTILS_TESTED = peano memory #openmpsort interp
 UTILS_MPI_TESTED = mpsort
 
 TESTED = cooling \

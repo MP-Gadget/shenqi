@@ -510,7 +510,9 @@ slots_reserve(int where, int64_t atleast[6], struct slots_manager_type * sman)
     int good = 1;
 
     if(sman->Base == NULL) {
-        sman->Base = (char*) mymalloc("SlotsBase", sizeof(struct sph_particle_data));
+        /* Allocate the particle tables in managed memory. This is heavy-weight, since the particle tables are most of the memory on the CPU.
+         * However, the treewalk currently needs to read the particles, so we have no other option (for now). */
+        sman->Base = (char*) mymanagedmalloc("SlotsBase", sizeof(struct sph_particle_data));
         /* This is so the ptr is never null! Avoid undefined behaviour. */
         for(ptype = 5; ptype >= 0; ptype--) {
             sman->info[ptype].ptr = sman->Base;
