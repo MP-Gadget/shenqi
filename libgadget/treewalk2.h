@@ -225,17 +225,14 @@ public:
     double timecomp3;
     /* Time spent for the reductions.*/
     double timecommsumm;
-    /* Number of particles in the Ngblist for the primary treewalk*/
-    int64_t Nlistprimary;
     /* Total number of exported particles
      * (Nexport is only the exported particles in the current export buffer). */
     int64_t Nexport_sum;
     /* Convenience variable for density. */
     size_t NExportTargets;
     /* Counters for imbalance diagnostics*/
-    int64_t maxNinteractions;
-    int64_t minNinteractions;
-    int64_t Ninteractions;
+    unsigned int maxNinteractions;
+    unsigned int minNinteractions;
 
     /* internal flags*/
     /*Did we use the active_set array as the WorkSet?*/
@@ -252,8 +249,8 @@ public:
         priv(i_priv), output(i_out),
         should_rebuild_queue(i_should_rebuild_queue),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
-        Nlistprimary(0), Nexport_sum(0), NExportTargets(0),
-        maxNinteractions(0), minNinteractions(1<<30), Ninteractions(0),
+        Nexport_sum(0), NExportTargets(0),
+        maxNinteractions(0), minNinteractions(INT_MAX),
         work_set_stolen_from_active(0),
         WorkSet(nullptr), WorkSetSize(0)
     {
@@ -291,7 +288,6 @@ public:
         timecomp3 += timediff(tstart, tend);
 
         Nexport_sum = 0;
-        Ninteractions = 0;
 
         const size_t BunchSize = compute_bunchsize(MaxExportBufferBytes);
         int64_t nmin, nmax, total;
@@ -398,16 +394,14 @@ public:
     {
         int NTask;
         MPI_Comm_size(comm, &NTask);
-        int64_t o_NExportTargets;
-        int64_t o_minNinteractions, o_maxNinteractions, o_Ninteractions, o_Nlistprimary, Nexport;
-        MPI_Reduce(&minNinteractions, &o_minNinteractions, 1, MPI_INT64, MPI_MIN, 0, comm);
-        MPI_Reduce(&maxNinteractions, &o_maxNinteractions, 1, MPI_INT64, MPI_MAX, 0, comm);
-        MPI_Reduce(&Ninteractions, &o_Ninteractions, 1, MPI_INT64, MPI_SUM, 0, comm);
-        MPI_Reduce(&Nlistprimary, &o_Nlistprimary, 1, MPI_INT64, MPI_SUM, 0, comm);
+        int64_t o_NExportTargets, Nexport;
+        unsigned int o_minNinteractions, o_maxNinteractions;
+        MPI_Reduce(&minNinteractions, &o_minNinteractions, 1, MPI_UNSIGNED, MPI_MIN, 0, comm);
+        MPI_Reduce(&maxNinteractions, &o_maxNinteractions, 1, MPI_UNSIGNED, MPI_MAX, 0, comm);
         MPI_Reduce(&Nexport_sum, &Nexport, 1, MPI_INT64, MPI_SUM, 0, comm);
         MPI_Reduce(&NExportTargets, &o_NExportTargets, 1, MPI_INT64, MPI_SUM, 0, comm);
-        message(0, "%s: min %ld max %ld avg %g average exports: %g avg target ranks: %g\n", ev_label, o_minNinteractions, o_maxNinteractions,
-                (double) o_Ninteractions / o_Nlistprimary, ((double) Nexport)/ NTask, ((double) o_NExportTargets)/ NTask);
+        message(0, "%s: min %u max %u average exports: %g avg target ranks: %g\n",
+            ev_label, o_minNinteractions, o_maxNinteractions, ((double) Nexport)/ NTask, ((double) o_NExportTargets)/ NTask);
     }
 
 private:
@@ -504,7 +498,7 @@ private:
     /* returns struct containing export counts */
     void ev_primary(particle_data * const parts)
     {
-    #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
+    #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions)
         {
             /* We must schedule dynamically so that we have reduced imbalance.
             * We do not need to worry about the export buffer filling up.*/
@@ -529,10 +523,8 @@ private:
                     maxNinteractions = ninteractions;
                 if(minNinteractions > ninteractions)
                     minNinteractions = ninteractions;
-                Ninteractions += ninteractions;
             }
         }
-        Nlistprimary += WorkSetSize;
     }
 
     int64_t ev_toptree(const particle_data * const parts, ExportMemory * const exportlist, const int64_t WorkSetStart)
