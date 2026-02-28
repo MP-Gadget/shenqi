@@ -356,7 +356,7 @@ BOOST_AUTO_TEST_CASE(test_rebuild_flat)
     PartManager->NumPart = numpart;
     /*Allocate tree*/
     /*Base pointer*/
-    ForceTree tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1, 0);
+    ForceTree tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1);
     ddecomp.TopLeaves[0].treenode = tb.firstnode;
     /* So unused memory has Father < 0*/
     for(i = tb.firstnode; i < tb.lastnode; i++)
@@ -364,7 +364,7 @@ BOOST_AUTO_TEST_CASE(test_rebuild_flat)
 
     do_tree_test(numpart, tb, &ddecomp);
     force_tree_free(&tb);
-    tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1, 0);
+    tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1);
     do_tree_mask_hmax_update_test(numpart, &tb, &ddecomp);
     BOOST_TEST(tb.Nodes[tb.firstnode].mom.hmax >= 0.0584);
     force_tree_free(&tb);
@@ -390,11 +390,11 @@ BOOST_AUTO_TEST_CASE(test_rebuild_close)
         PartManager->Base[i].Pos[2] = 4. + (i % ncbrt)/close;
     }
     PartManager->NumPart = numpart;
-    ForceTree tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1, 0);
+    ForceTree tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1);
     ddecomp.TopLeaves[0].treenode = tb.firstnode;
     do_tree_test(numpart, tb, &ddecomp);
     force_tree_free(&tb);
-    tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1, 0);
+    tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1);
     do_tree_mask_hmax_update_test(numpart, &tb, &ddecomp);
     force_tree_free(&tb);
     myfree(PartManager->Base);
@@ -439,7 +439,7 @@ BOOST_AUTO_TEST_CASE(test_rebuild_random)
     particle_alloc_memory(PartManager, 8, numpart);
     /*Allocate tree*/
     /*Base pointer*/
-    ForceTree tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1, 0);
+    ForceTree tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1);
     ddecomp.TopLeaves[0].treenode = tb.firstnode;
     BOOST_TEST(tb.Nodes);
     int i;
@@ -447,7 +447,7 @@ BOOST_AUTO_TEST_CASE(test_rebuild_random)
         do_random_test(r, numpart, tb, &ddecomp);
     }
     force_tree_free(&tb);
-    tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1, 0);
+    tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1);
     do_tree_mask_hmax_update_test(numpart, &tb, &ddecomp);
     force_tree_free(&tb);
     myfree(PartManager->Base);
