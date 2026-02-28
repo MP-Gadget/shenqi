@@ -525,7 +525,7 @@ class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResul
     *
     * @param i Particle index
     */
-    MYCUDAFN void postprocess(const int i, particle_data * const part)
+    MYCUDAFN void postprocess(const int i, particle_data * const parts)
     {
         const double G = priv.G;
         output.Accel[i][0] *= G;
@@ -535,14 +535,14 @@ class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResul
         if(output.update_potential) {
             /* On a PM step, update the stored full tree grav accel for the next PM step.
             * Needs to be done here so internal treewalk iterations don't get a partial acceleration.*/
-            Part[i].FullTreeGravAccel[0] = output.Accel[i][0];
-            Part[i].FullTreeGravAccel[1] = output.Accel[i][1];
-            Part[i].FullTreeGravAccel[2] = output.Accel[i][2];
+            parts[i].FullTreeGravAccel[0] = output.Accel[i][0];
+            parts[i].FullTreeGravAccel[1] = output.Accel[i][1];
+            parts[i].FullTreeGravAccel[2] = output.Accel[i][2];
             /* calculate the potential */
-            Part[i].Potential += Part[i].Mass / (FORCE_SOFTENING() / 2.8);
+            parts[i].Potential += parts[i].Mass / (FORCE_SOFTENING() / 2.8);
             /* remove self-potential */
-            Part[i].Potential -= 2.8372975 * pow(Part[i].Mass, 2.0 / 3) * priv.cbrtrho0;
-            Part[i].Potential *= G;
+            parts[i].Potential -= 2.8372975 * pow(parts[i].Mass, 2.0 / 3) * priv.cbrtrho0;
+            parts[i].Potential *= G;
         }
     }
     public:
