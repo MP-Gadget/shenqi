@@ -450,7 +450,7 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
 
         /* Allocate memory for the accelerations so we don't over-write the acceleration from the longest timestep.
          * Need all particles as the index in the tree is the particle index. */
-        MyFloat (*GravAccel)[3] = (MyFloat (*) [3]) mymalloc2("GravAccel", PartManager->NumPart * sizeof(GravAccel[0]));
+        MyFloat (*GravAccel)[3] = (MyFloat (*) [3]) mymanagedmalloc("GravAccel", PartManager->NumPart * sizeof(GravAccel[0]));
         /* Do the accelerations and build the tree*/
         grav_short_tree_build_tree(subact, pm, ddecomp, GravAccel, times->Ti_Current, rho0, HybridNuGrav, EmergencyOutputDir);
 
@@ -562,7 +562,7 @@ int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm,
             if(GravAccel)
                 myfree(GravAccel);
             /* Allocate memory for the accelerations so we don't over-write the acceleration from the longest timestep*/
-            GravAccel = (MyFloat (*) [3]) mymalloc2("GravAccel", PartManager->NumPart * sizeof(GravAccel[0]));
+            GravAccel = (MyFloat (*) [3]) mymanagedmalloc("GravAccel", PartManager->NumPart * sizeof(GravAccel[0]));
             /* Tree with moments but only particle timesteps below this value*/
             grav_short_tree_build_tree(&subact, pm, ddecomp, GravAccel, times->Ti_Current, rho0, HybridNuGrav, EmergencyOutputDir);
         }

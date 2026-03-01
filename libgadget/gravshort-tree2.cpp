@@ -134,7 +134,7 @@ class GravTreeOutput
      {
          accelstorealloc = 0;
          if(!AccelStore) {
-             Accel = (MyFloat (*) [3]) mymalloc2("GravAccel", NumPart * sizeof(Accel[0]));
+             Accel = (MyFloat (*) [3]) mymanagedmalloc("GravAccel", NumPart * sizeof(Accel[0]));
              accelstorealloc = 1;
          }
      }
@@ -568,12 +568,20 @@ void
 grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool use_gpu)
 {
     GravShortTable gravtab(TreeParams.ShortRangeForceWindowType, pm->Asmth);
-    GravTreeParams priv(TreeParams, Ti_Current, rho0, pm, tree->BoxSize, gravtab);
-    GravTreeOutput output(AccelStore, PartManager->NumPart, tree->full_particle_tree_flag);
-    GravTreeWalk tw("GRAVTREE", tree, priv, output);
+    GravTreeParams * priv = (GravTreeParams *) mymanagedmalloc("GravTreeParams", sizeof(GravTreeParams));
+    new (priv) GravTreeParams(TreeParams, Ti_Current, rho0, pm, tree->BoxSize, gravtab);
+
+    GravTreeOutput * output = (GravTreeOutput *) mymanagedmalloc("GravTreeOutput", sizeof(GravTreeOutput));
+    new(output) GravTreeOutput(AccelStore, PartManager->NumPart, tree->full_particle_tree_flag);
+
+    GravTreeWalk tw("GRAVTREE", tree, *priv, *output);
     /* Do the treewalk! */
     tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, TreeParams.MaxExportBufferBytes);
 
+    output->~GravTreeOutput();
+    myfree(output);
+    priv->~GravTreeParams();
+    myfree(priv);
     /*  gather some diagnostic information */
     double timetree = tw.timecomp0 + tw.timecomp1 + tw.timecomp2 + tw.timecomp3;
     walltime_add("/Tree/WalkTop", tw.timecomp0);
