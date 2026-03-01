@@ -93,7 +93,7 @@ class HydroPriv : public ParamTypeBase {
     double fac_mu;
     double fac_vsic_fix;
     double hubble_a2;
-    DriftKickTimes * times;
+    DriftKickTimes times;
     double * PressurePred;
     KickFactorData kf;
     double drifts[TIMEBINS+1];
@@ -101,7 +101,7 @@ class HydroPriv : public ParamTypeBase {
     HydroPriv(const double BoxSize, MyFloat * i_EntVarPred, const double i_atime, DriftKickTimes * const i_times, Cosmology * CP) :
     ParamTypeBase(BoxSize), atime(i_atime), hubble(hubble_function(CP, atime)),
     EntVarPred(i_EntVarPred), fac_mu(pow(atime, 3 * (GAMMA - 1) / 2) / atime), fac_vsic_fix(hubble * pow(atime, 3 * GAMMA_MINUS1)),
-    hubble_a2(hubble * atime * atime), times(i_times), kf(i_times, CP)
+    hubble_a2(hubble * atime * atime), times(*i_times), kf(i_times, CP)
     {
         /* Cache the pressure for speed*/
         PressurePred = NULL;
@@ -109,7 +109,7 @@ class HydroPriv : public ParamTypeBase {
         * For very small numbers of particles the memset is more expensive than just doing the exponential math,
         * so we don't pre-compute at all.*/
         if(EntVarPred) {
-            PressurePred = (double *) mymalloc("PressurePred", SlotsManager->info[0].size * sizeof(double));
+            PressurePred = (double *) mymanagedmalloc("PressurePred", SlotsManager->info[0].size * sizeof(double));
             /* Do it in slot order for memory locality*/
             #pragma omp parallel for
             for(int i = 0; i < SlotsManager->info[0].size; i++) {
@@ -123,12 +123,12 @@ class HydroPriv : public ParamTypeBase {
         /* Initialize some time factors*/
         memset(drifts, 0, sizeof(drifts[0])*(TIMEBINS+1));
         #pragma omp parallel for
-        for(int i = times->mintimebin; i <= TIMEBINS; i++)
+        for(int i = times.mintimebin; i <= TIMEBINS; i++)
         {
             /* For density: last active drift time is Ti_kick - 1/2 timestep as the kick time is half a timestep ahead.
             * For active particles no density drift is needed.*/
-            if(!is_timebin_active(i, times->Ti_Current))
-                drifts[i] = get_exact_drift_factor(CP, times->Ti_lastactivedrift[i], times->Ti_Current);
+            if(!is_timebin_active(i, times.Ti_Current))
+                drifts[i] = get_exact_drift_factor(CP, times.Ti_lastactivedrift[i], times.Ti_Current);
         }
     }
     ~HydroPriv()
@@ -156,13 +156,13 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     MYCUDAFN HydroQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const HydroPriv& priv):
     TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), EgyRho(SphP[particle.PI].EgyWtDensity),
     Hsml(particle.Hsml), Mass(particle.Mass), Density(SphP[particle.PI].Density), SPH_DhsmlDensityFactor(SphP[particle.PI].DhsmlEgyDensityFactor),
-    dloga(get_dloga_for_bin(particle.TimeBinHydro, priv.times->Ti_Current))
+    dloga(get_dloga_for_bin(particle.TimeBinHydro, priv.times.Ti_Current))
     {
         priv.kf.SPH_VelPred(particle, Vel);
         if(priv.EntVarPred)
             EntVarPred = priv.EntVarPred[particle.PI];
         else
-            EntVarPred = SPH_EntVarPred(particle, priv.times);
+            EntVarPred = SPH_EntVarPred(particle, &priv.times);
 
         const double eomdensity = SPH_EOMDensity(&SphP[particle.PI]);
         if(priv.PressurePred)
@@ -278,13 +278,13 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
             * with minimal locking since nothing happens should we compute them twice.
             * Zero can be the special value since there should never be zero entropy.*/
             if(EntVarPred == 0) {
-                EntVarPred = SPH_EntVarPred(parts[other], priv.times);
+                EntVarPred = SPH_EntVarPred(parts[other], &priv.times);
                 #pragma omp atomic write
                 priv.EntVarPred[Part[other].PI] = EntVarPred;
             }
         }
         else
-            EntVarPred = SPH_EntVarPred(parts[other], priv.times);
+            EntVarPred = SPH_EntVarPred(parts[other], &priv.times);
 
         /* Predict densities. Note that for active timebins the density is up to date so SPH_DensityPred is just returns the current densities.
          * This improves on the technique used in Gadget-2 by being a linear prediction that does not become pathological in deep timebins.*/
@@ -346,7 +346,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
             /* now make sure that viscous acceleration is not too large */
 
             /*XXX: why is this dloga ?*/
-            double dloga = 2 * DMAX(input.dloga, get_dloga_for_bin(Part[other].TimeBinHydro, priv.times->Ti_Current));
+            double dloga = 2 * DMAX(input.dloga, get_dloga_for_bin(Part[other].TimeBinHydro, priv.times.Ti_Current));
             if(dloga > 0 && (dwk_i + dwk_j) < 0)
             {
                 if((input.Mass + parts[other].Mass) > 0) {
@@ -424,14 +424,18 @@ hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPre
     if(!tree->hmax_computed_flag)
         endrun(5, "Hydro called before hmax computed\n");
 
-    HydroPriv priv(tree->BoxSize, EntVarPred, atime, &times, CP);
+    HydroPriv * priv = (HydroPriv *) mymanagedmalloc("GravTreeParams", sizeof(HydroPriv));
+    new (priv) HydroPriv(tree->BoxSize, EntVarPred, atime, &times, CP);
+
     HydroOutput output;
-    HydroTreeWalk tw("HYDRO", tree, priv, output);
+    HydroTreeWalk tw("HYDRO", tree, *priv, output);
 
     walltime_measure("/SPH/Hydro/Init");
 
     tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base);
 
+    priv->~HydroPriv();
+    myfree(priv);
     /* collect some timing information */
     double timeall = walltime_measure(WALLTIME_IGNORE);
     double timecomp = tw.timecomp0 + tw.timecomp1 + tw.timecomp2 + tw.timecomp3;

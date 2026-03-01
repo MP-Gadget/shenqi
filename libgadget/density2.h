@@ -54,6 +54,7 @@ class KickFactorData
     double hydrokicks[TIMEBINS+1];
 
     /* Initialise the grav and hydrokick arrays for the current kick times.*/
+    MYCUDAFN
     KickFactorData(const DriftKickTimes * const times, Cosmology * CP)
     {
         int i;
@@ -76,6 +77,7 @@ class KickFactorData
      * at the current Force computation time ti,
      * which always coincides with the Drift inttime.
      * For hydro forces.*/
+    MYCUDAFN
     const void
     SPH_VelPred(const particle_data& particle, MyFloat * VelPred) const
     {
@@ -92,6 +94,7 @@ class KickFactorData
      * at the current Force computation time ti,
      * which always coincides with the Drift inttime.
      * For hydro forces.*/
+    MYCUDAFN
     const void
     DM_VelPred(const particle_data& particle, MyFloat * VelPred) const
     {
@@ -104,6 +107,7 @@ class KickFactorData
 
 /* The evolved entropy at drift time: evolved dlog a.
  * Used to predict pressure and entropy for SPH */
+MYCUDAFN
 MyFloat SPH_EntVarPred(const particle_data& particle, const DriftKickTimes * times);
 
 /* Set the initial smoothing length for gas and BH. Used on first timestep in init()*/
