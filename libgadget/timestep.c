@@ -1377,7 +1377,7 @@ build_active_particles(ActiveParticles * act, const DriftKickTimes * const times
             gthread.sizes[tid] = nthreadlocal;
         }
         /*Now we want a merge step for the ActiveParticle list.*/
-        act->NumActiveParticle = gadget_compact_thread_arrays(&act->ActiveParticle, &gthread);
+        act->NumActiveParticle = gadget_compact_thread_arrays_managed(&act->ActiveParticle, "ActiveParticle", &gthread);
         act->NumActiveGravity = nactivegrav;
         act->NumActiveHydro = nactivehydro;
         act->Particles = PartManager->Base;
@@ -1433,12 +1433,10 @@ build_active_sublist(const ActiveParticles * act, const int maxtimebin, const in
         gthread.sizes[tid] = nactivethread;
     }
     /*Now we want a merge step for the ActiveParticle list.*/
-    sub_act->NumActiveParticle = gadget_compact_thread_arrays(&sub_act->ActiveParticle, &gthread);
+    sub_act->NumActiveParticle = gadget_compact_thread_arrays_managed(&sub_act->ActiveParticle, "SubActiveParticle", &gthread);
     sub_act->NumActiveGravity = sub_act->NumActiveParticle;
     sub_act->MaxActiveParticle = sub_act->NumActiveParticle;
     sub_act->Particles = act->Particles;
-
-    sub_act->ActiveParticle = (int *) myrealloc(sub_act->ActiveParticle, sizeof(int)*(sub_act->NumActiveParticle));
     return *sub_act;
 }
 
