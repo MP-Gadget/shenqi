@@ -2,7 +2,6 @@
 #define _LOCALEVALUATOR_H_
 
 #include <stdint.h>
-#include <math.h>
 #include <omp.h>
 #include "utils/endrun.h"
 #include "forcetree.h"
@@ -298,9 +297,14 @@ public:
     double dist[3];
     double r2;
     /* Constructor from treewalk */
-    MYCUDAFN LocalNgbTreeWalk(const ForceTree * const tree, const QueryType& input):
-     Nodes(tree->Nodes)
+    MYCUDAFN LocalNgbTreeWalk(const NODE * const Node, const QueryType& input):
+     Nodes(Node)
+     { }
+
+    static void validate_tree(const ForceTree * const tree)
     {
+        if(!force_tree_allocated(tree))
+            endrun(0, "Tree has been freed before this treewalk.\n");
         /* Check whether the tree contains the particles we are looking for*/
         if((tree->mask & mask) != mask)
             endrun(5, "Treewalk for particles with mask %d but tree mask is only %d overlap %d.\n", mask, tree->mask, tree->mask & mask);
@@ -422,8 +426,8 @@ class LocalNgbListTreeWalk : public LocalNgbTreeWalk<DerivedType, QueryType, Res
 {
 public:
     /* Constructor from treewalk */
-    MYCUDAFN LocalNgbListTreeWalk(const ForceTree * const i_tree, int * i_ngblist, const QueryType& input):
-    LocalNgbTreeWalk<DerivedType, QueryType, ResultType, ParamType, symmetric, mask>(i_tree, input), ngblist(i_ngblist)
+    MYCUDAFN LocalNgbListTreeWalk(const NODE * const Nodes, int * i_ngblist, const QueryType& input):
+    LocalNgbTreeWalk<DerivedType, QueryType, ResultType, ParamType, symmetric, mask>(Nodes, input), ngblist(i_ngblist)
     { }
     /**
      * Variant of ngbiter that uses an Ngblist: first it builds a list of

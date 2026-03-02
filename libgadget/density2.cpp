@@ -282,7 +282,7 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, Densit
         DensityKernel kernel;
         double kernel_volume;
 
-        MYCUDAFN DensityLocalTreeWalk(const ForceTree * const tree, const DensityQuery& input): LocalNgbTreeWalk(tree, input)
+        MYCUDAFN DensityLocalTreeWalk(const NODE * const Nodes, const DensityQuery& input): LocalNgbTreeWalk(Nodes, input)
         {
             density_kernel_init(&kernel, input.Hsml, DensityParams.DensityKernelType);
             kernel_volume = density_kernel_volume(&kernel);

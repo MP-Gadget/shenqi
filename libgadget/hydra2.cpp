@@ -229,7 +229,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
     double soundspeed_i;
     DensityKernel kernel_i;
 
-    MYCUDAFN HydroLocalTreeWalk(const ForceTree * const tree, const HydroQuery& input): LocalNgbTreeWalk(tree, input)
+    MYCUDAFN HydroLocalTreeWalk(const NODE * const Nodes, const HydroQuery& input): LocalNgbTreeWalk(Nodes, input)
     {
         MyFloat densityest = input.EgyRho;
         if(!HydroParams.DensityIndependentSphOn)

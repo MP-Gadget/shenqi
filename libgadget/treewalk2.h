@@ -265,12 +265,10 @@ public:
      */
     void run(int * active_set, size_t size, particle_data * const parts, const size_t MaxExportBufferBytes = 3584*1024*1024L)
     {
-        if(!force_tree_allocated(tree)) {
-            endrun(0, "Tree has been freed before this treewalk.\n");
-        }
-
         double tstart, tend;
         tstart = second();
+        LocalTreeWalkType::validate_tree(tree);
+
         /* The last argument is may_have_garbage: in practice the only
             * trivial haswork is the gravtree. This has no (active) garbage because
             * the active list was just rebuilt, but on a PM step the active list is NULL
@@ -501,7 +499,7 @@ private:
                 /* Primary never uses node list */
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
                 ResultType result(input);
-                LocalTreeWalkType lv(tree, input);
+                LocalTreeWalkType lv(tree->Nodes, input);
                 int64_t ninteractions = lv.template visit<TREEWALK_PRIMARY>(input, &result, priv, parts);
                 result.template reduce<TREEWALK_PRIMARY>(i, output, parts);
                 if(maxNinteractions < ninteractions)
@@ -635,7 +633,7 @@ private:
                         for(j = 0; j < nimports_task; j++) {
                             QueryType * input = &((QueryType *) databufstart)[j];
                             ResultType * output = new (&results[j]) ResultType(*input);
-                            LocalTreeWalkType lv(tree, *input);
+                            LocalTreeWalkType lv(tree->Nodes, *input);
                             lv.template visit<TREEWALK_GHOSTS>(*input, output, priv, parts);
                         }
                     }

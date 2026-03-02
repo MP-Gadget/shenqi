@@ -288,8 +288,21 @@ class GravLocalTreeWalk {
     /* A pointer to the force tree structure to walk.*/
     const struct NODE * const Nodes;
 
-    MYCUDAFN GravLocalTreeWalk(const ForceTree * const tree, const GravTreeQuery& input):
-    Nodes(tree->Nodes) {}
+    MYCUDAFN GravLocalTreeWalk(const NODE * const Node, const GravTreeQuery& input):
+    Nodes(Node) {}
+
+    static void validate_tree(const ForceTree * const tree)
+    {
+        if(!force_tree_allocated(tree))
+            endrun(0, "Tree has been freed before this treewalk.\n");
+        /* Check whether the tree contains the particles we are looking for*/
+        int mask = GASMASK + DMMASK + STARMASK + BHMASK; // Neutrinos may be absent.
+        if((tree->mask & mask) != mask)
+            endrun(5, "Gravity treewalk needs all particle types but tree mask is %d\n", tree->mask);
+
+        if(!tree->moments_computed_flag)
+            endrun(2, "Gravtree called before tree moments computed!\n");
+    }
 
     /*! In the TreePM algorithm, the tree is walked only locally around the
      *  target coordinate.  Tree nodes that fall outside a box of half
@@ -547,10 +560,7 @@ class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResul
     }
     public:
         GravTreeWalk(const char * const name, const ForceTree * const tree, const GravTreeParams& priv, const GravTreeOutput& output)
-            : TreeWalk(name, tree, priv, output, false) {
-                if(!tree->moments_computed_flag)
-                    endrun(2, "Gravtree called before tree moments computed!\n");
-            };
+            : TreeWalk(name, tree, priv, output, false) {};
 };
 
 /*! This function computes the gravitational forces for all active particles from all particles in the tree.
