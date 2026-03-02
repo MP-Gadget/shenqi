@@ -432,7 +432,7 @@ hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPre
 
     walltime_measure("/SPH/Hydro/Init");
 
-    tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base);
+    tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, MPI_COMM_WORLD);
 
     priv->~HydroPriv();
     myfree(priv);

@@ -386,7 +386,7 @@ class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, Dens
     MYCUDAFN bool haswork(const particle_data& particle)
     {
         /* Don't want a density for swallowed black hole particles*/
-        if(particle.Swallowed)
+        if(particle.Swallowed || particle.IsGarbage)
             return 0;
         if(particle.Type == 0 || particle.Type == 5)
             return 1;

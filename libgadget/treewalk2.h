@@ -250,7 +250,7 @@ public:
      * size: length of the active set
      * particle_data parts: list of particles to use
      */
-    void run(int * active_set, size_t size, particle_data * const parts, const size_t MaxExportBufferBytes = 3584*1024*1024L)
+    void run(int * active_set, size_t size, particle_data * const parts, MPI_Comm comm, const size_t MaxExportBufferBytes = 3584*1024*1024L)
     {
         double tstart, tend;
         tstart = second();
@@ -260,7 +260,7 @@ public:
         int64_t WorkSetSize = build_queue(&WorkSet, active_set, size, parts);
         tend = second();
         timecomp3 += timediff(tstart, tend);
-        run_on_queue(WorkSet, WorkSetSize, parts);
+        run_on_queue(WorkSet, WorkSetSize, parts, comm);
 
         myfree(WorkSet);
     }
@@ -273,7 +273,7 @@ public:
      * WorkSetSize: length of the active set
      * particle_data parts: list of particles to use
      */
-    void run_on_queue(int * WorkSet, int64_t WorkSetSize, particle_data * const parts, const size_t MaxExportBufferBytes = 3584*1024*1024L)
+    void run_on_queue(int * WorkSet, int64_t WorkSetSize, particle_data * const parts, MPI_Comm comm, const size_t MaxExportBufferBytes = 3584*1024*1024L)
     {
         double tstart, tend;
         LocalTreeWalkType::validate_tree(tree);
@@ -281,17 +281,17 @@ public:
         const size_t BunchSize = compute_bunchsize(MaxExportBufferBytes);
         int64_t nmin, nmax, total;
         int NTask;
-        MPI_Comm_size(MPI_COMM_WORLD, &NTask);
-        MPI_Reduce(&WorkSetSize, &nmin, 1, MPI_INT64, MPI_MIN, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&WorkSetSize, &nmax, 1, MPI_INT64, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&WorkSetSize, &total, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
+        MPI_Comm_size(comm, &NTask);
+        MPI_Reduce(&WorkSetSize, &nmin, 1, MPI_INT64, MPI_MIN, 0, comm);
+        MPI_Reduce(&WorkSetSize, &nmax, 1, MPI_INT64, MPI_MAX, 0, comm);
+        MPI_Reduce(&WorkSetSize, &total, 1, MPI_INT64, MPI_SUM, 0, comm);
         message(0, "Treewalk %s: total part %ld max/MPI: %ld min/MPI: %ld balance: %g query %ld result %ld BunchSize %ld.\n",
             ev_label, total, nmax, nmin, (double)nmax/((total+0.001)/NTask), sizeof(QueryType), sizeof(ResultType), BunchSize);
         /* Print some balance numbers*/
         report_memory_usage(ev_label);
 
         /* Main loop that tries to walk toptree, then do primary and secondary evals. */
-        ev_process(WorkSet, WorkSetSize, BunchSize, parts, MPI_COMM_WORLD);
+        ev_process(WorkSet, WorkSetSize, BunchSize, parts, comm);
 
         tstart = second();
         #pragma omp parallel for
@@ -811,7 +811,7 @@ class LoopedTreeWalk: public TreeWalk<DerivedType, QueryType, ResultType, LocalT
             NPLeft = loop.sizes;
             Redo_thread_alloc = loop.total_size;
 
-            run_on_queue(CurQueue, size, parts);
+            run_on_queue(CurQueue, size, parts, MPI_COMM_WORLD);
             Niteration++;
 
             /* Now done with the current queue*/

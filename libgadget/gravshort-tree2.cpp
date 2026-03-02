@@ -586,7 +586,7 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
 
     GravTreeWalk tw("GRAVTREE", tree, *priv, *output);
     /* Do the treewalk! Run directly on the active list as we want to use all particles. */
-    tw.run_on_queue(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, TreeParams.MaxExportBufferBytes);
+    tw.run_on_queue(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, MPI_COMM_WORLD, TreeParams.MaxExportBufferBytes);
 
     output->~GravTreeOutput();
     myfree(output);
