@@ -560,7 +560,7 @@ class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResul
     }
     public:
         GravTreeWalk(const char * const name, const ForceTree * const tree, const GravTreeParams& priv, const GravTreeOutput& output)
-            : TreeWalk(name, tree, priv, output, false) {};
+            : TreeWalk(name, tree, priv, output) {};
 };
 
 /*! This function computes the gravitational forces for all active particles from all particles in the tree.
@@ -585,8 +585,8 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
     new(output) GravTreeOutput(AccelStore, PartManager->NumPart, tree->full_particle_tree_flag);
 
     GravTreeWalk tw("GRAVTREE", tree, *priv, *output);
-    /* Do the treewalk! */
-    tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, TreeParams.MaxExportBufferBytes);
+    /* Do the treewalk! Run directly on the active list as we want to use all particles. */
+    tw.run_on_queue(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, TreeParams.MaxExportBufferBytes);
 
     output->~GravTreeOutput();
     myfree(output);
