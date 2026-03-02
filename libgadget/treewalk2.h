@@ -256,17 +256,8 @@ public:
         tstart = second();
         LocalTreeWalkType::validate_tree(tree);
 
-        /* The last argument is may_have_garbage: in practice the only
-            * trivial haswork is the gravtree. This has no (active) garbage because
-            * the active list was just rebuilt, but on a PM step the active list is NULL
-            * and we may still have swallowed BHs around. So in practice this avoids
-            * computing gravtree for swallowed BHs on a PM step.*/
-        int may_have_garbage = 0;
-        /* Note this is not collective, but that should not matter.*/
-        if(!active_set && SlotsManager->info[5].size > 0)
-            may_have_garbage = 1;
         int * WorkSet=NULL;
-        int64_t WorkSetSize = build_queue(&WorkSet, active_set, size, may_have_garbage, parts);
+        int64_t WorkSetSize = build_queue(&WorkSet, active_set, size, parts);
         tend = second();
         timecomp3 += timediff(tstart, tend);
         run_on_queue(WorkSet, WorkSetSize, parts);
@@ -312,13 +303,11 @@ public:
         timecomp3 += timediff(tstart, tend);
     }
 
-    /* Build the queue from the haswork function, in case we want to reuse it.
+    /* Build the queue by calling the haswork function on each particle in the active_set.
      * Arguments:
      * active_set: these items have haswork called on them.
-     * size: size of the active set.
-     * may_have_garbage: flags whether the active set may contain garbage. If the haswork is trivial and this is not set,
-     * we can just reuse the active set as the queue.*/
-    int64_t build_queue(int ** WorkSet, int * active_set, const size_t size, int may_have_garbage, const particle_data * const Parts)
+     * size: size of the active set.*/
+    int64_t build_queue(int ** WorkSet, int * active_set, const size_t size, const particle_data * const Parts)
     {
         /* Explicitly deal with the case where the queue is zero and there is nothing to do.
          * Some OpenMP compilers (nvcc) seem to still execute the below loop in that case*/
@@ -802,10 +791,8 @@ class LoopedTreeWalk: public TreeWalk<DerivedType, QueryType, ResultType, LocalT
         /* Build the first queue */
         double tstart = second();
         int * ReDoQueue = NULL;
-        int64_t size = build_queue(&ReDoQueue, queue, queuesize, 0, parts);
+        int64_t size = build_queue(&ReDoQueue, queue, queuesize, parts);
         double tend = second();
-        /* We don't need to redo the queue generation
-        * but need to keep track of allocated memory.*/
         this->timecomp3 += timediff(tstart, tend);
         Niteration = 0;
         /* we will repeat the whole thing for those particles where we didn't find enough neighbours */
