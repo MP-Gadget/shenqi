@@ -186,7 +186,12 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
         F1 = fabs(SphP[particle.PI].DivVel) /
             (fabs(SphP[particle.PI].DivVel) + SphP[particle.PI].CurlVel +
              0.0001 * soundspeed_i / Hsml / priv.fac_mu);
-    }
+    };
+
+    static MYCUDAFN bool haswork(const particle_data& particle)
+    {
+        return particle.Type == 0;
+    };
 };
 
 class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
@@ -407,11 +412,6 @@ class HydroTopTreeWalk: public TopTreeWalk<HydroQuery, HydroPriv, NGB_TREEFIND_S
 class HydroTreeWalk: public TreeWalk<HydroTreeWalk, HydroQuery, HydroResult, HydroLocalTreeWalk, HydroTopTreeWalk, HydroPriv, HydroOutput> {
     public:
     using TreeWalk::TreeWalk;
-
-    MYCUDAFN bool haswork(const particle_data& particle)
-    {
-        return particle.Type == 0;
-    }
 };
 
 /*! This function is the driver routine for the calculation of hydrodynamical

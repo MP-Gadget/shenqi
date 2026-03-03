@@ -46,6 +46,15 @@ template <typename ParamType=ParamTypeBase> class TreeWalkQueryBase
         MyIDType ID;
     #endif
 
+    /**
+    * Check if a particle should be processed in this tree walk.
+    * Override to filter particles based on type, flags, etc.
+    *
+    * @param i  Particle index
+    * @return true if the particle should be processed
+    */
+    static MYCUDAFN bool haswork(const particle_data& part) { return true; }
+
     /* Constructor:
     * particle_data: particle that is walking the tree.
     * i_NodeList: list of topnodes to start the treewalk from.

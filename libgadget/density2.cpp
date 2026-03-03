@@ -358,8 +358,17 @@ class DensityQuery : public TreeWalkQueryBase<DensityPriv>
             }
             else
                 priv.kf.SPH_VelPred(particle, Vel);
-        }
+        };
 
+        static MYCUDAFN bool haswork(const particle_data& particle)
+        {
+            /* Don't want a density for swallowed black hole particles*/
+            if(particle.Swallowed || particle.IsGarbage)
+                return 0;
+            if(particle.Type == 0 || particle.Type == 5)
+                return 1;
+            return 0;
+        };
 };
 
 class DensityResult : public TreeWalkResultBase<DensityQuery, DensityOutput> {
@@ -528,16 +537,6 @@ class DensityTopTreeWalk: public TopTreeWalk<DensityQuery, DensityPriv, NGB_TREE
 class DensityTreeWalk: public LoopedTreeWalk<DensityTreeWalk, DensityQuery, DensityResult, DensityLocalTreeWalk, DensityTopTreeWalk, DensityPriv, DensityOutput> {
     public:
     using LoopedTreeWalk::LoopedTreeWalk;
-
-    MYCUDAFN bool haswork(const particle_data& particle)
-    {
-        /* Don't want a density for swallowed black hole particles*/
-        if(particle.Swallowed || particle.IsGarbage)
-            return 0;
-        if(particle.Type == 0 || particle.Type == 5)
-            return 1;
-        return 0;
-    }
 };
 
 /*! \file density.c

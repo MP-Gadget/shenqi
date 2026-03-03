@@ -341,7 +341,7 @@ public:
                 if(pp.IsGarbage || pp.Swallowed)
                     continue;
 
-                if(!static_cast<DerivedType*>(this)->haswork(pp))
+                if(!QueryType::haswork(pp))
                     continue;
         #ifdef DEBUG
                 if(nqthrlocal >= gthread.total_size)
@@ -382,15 +382,6 @@ public:
     }
 
 private:
-    /**
-    * Check if a particle should be processed in this tree walk.
-    * Override to filter particles based on type, flags, etc.
-    *
-    * @param i  Particle index
-    * @return true if the particle should be processed
-    */
-    bool haswork(const particle_data& part) { return true; }
-
     /* Main processing loop. Walks the toptree, exports and imports, then does primary and secondary eval.
         * The loop is there in case the export buffer fills up.
         */
