@@ -4,7 +4,6 @@
 #include "forcetree.h"
 #include "petapm.h"
 #include "powerspectrum.h"
-#include "timestep.h"
 
 enum ShortRangeForceWindowType {
     SHORTRANGE_FORCE_WINDOW_TYPE_EXACT = 0,
@@ -48,9 +47,6 @@ class GravShortTable
     MYCUDAFN int apply_short_range_window(const double r, double * fac, double * pot, const double cellsize) const;
 };
 
-/* Fill the short-range gravity table*/
-void gravshort_fill_ntab(const enum ShortRangeForceWindowType ShortRangeForceWindowType, const double Asmth);
-
 /*! Sets the (comoving) softening length, converting from units of the mean DM separation to comoving internal units. */
 void gravshort_set_softenings(double MeanDMSeparation);
 
@@ -70,20 +66,13 @@ void set_gravshort_tree_params(ParameterSet * ps);
 void set_gravshort_treepar(struct gravshort_tree_params tree_params);
 struct gravshort_tree_params get_gravshort_treepar(void);
 
-/* Set up the module*/
-void set_gravshort_tree_params_old(ParameterSet * ps);
-/* Helpers for the tests*/
-void set_gravshort_treepar_old(struct gravshort_tree_params tree_params);
-struct gravshort_tree_params get_gravshort_treepar_old(void);
-
 /* Computes the gravitational force on the PM grid
  * and saves the total matter power spectrum.
  * Parameters: Cosmology, Time, UnitLength_in_cm and PowerOutputDir are used by the power spectrum output code.
  * TimeIC is used by the massive neutrino code. A tree is built and freed during this function*/
 void gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, double UnitLength_in_cm, const char * PowerOutputDir, double TimeIC);
 
-void grav_short_pair(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, double Rcut, double rho0);
-void grav_short_tree_old(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current);
+/* Compute the short range gravitational tree force. */
 void grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool use_gpu=false);
 
 /*Read the power spectrum, without changing the input value.*/

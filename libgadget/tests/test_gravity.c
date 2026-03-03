@@ -182,7 +182,6 @@ static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int di
 
     PetaPM pm = {0};
     gravpm_init_periodic(&pm, PartManager->BoxSize, Asmth, Nmesh, G);
-    gravshort_fill_ntab(SHORTRANGE_FORCE_WINDOW_TYPE_EXACT, Asmth);
     /* Setup cosmology*/
     Cosmology CP ={0};
     CP.MNu[0] = CP.MNu[1] = CP.MNu[2] = 0;
@@ -208,6 +207,7 @@ static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int di
     treeacc.ErrTolForceAcc = ErrTolForceAcc;
     treeacc.FractionalGravitySoftening = 1./30.;
     treeacc.MaxExportBufferBytes = 1024 * 1024 * 1024;
+    treeacc.ShortRangeForceWindowType = SHORTRANGE_FORCE_WINDOW_TYPE_EXACT;
 
     set_gravshort_treepar(treeacc);
     gravshort_set_softenings(PartManager->BoxSize / cbrt(PartManager->NumPart));

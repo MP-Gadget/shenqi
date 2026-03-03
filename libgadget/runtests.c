@@ -4,6 +4,7 @@
 #include "partmanager.h"
 #include "forcetree.h"
 #include "gravity.h"
+#include "gravity_old.h"
 #include "petaio.h"
 #include "domain.h"
 #include "run.h"
