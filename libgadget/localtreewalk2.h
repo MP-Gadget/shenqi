@@ -85,7 +85,7 @@ class TreeWalkResultBase
         * @param mode   Whether this is primary, ghost, or toptree reduction
         */
         template<TreeWalkReduceMode mode>
-        MYCUDAFN void reduce(const int j, const OutputType& priv, struct particle_data * const parts)
+        MYCUDAFN void reduce(const int j, const OutputType * priv, struct particle_data * const parts)
         {
             #ifdef DEBUG
                 if(parts[j].ID != ID)

@@ -16,10 +16,10 @@
 #include "libgadget/types.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
-
-#include "forcetree.h"
 #include "treewalk2.h"
 #include "localtreewalk2.h"
+
+#include "forcetree.h"
 #include "timestep.h"
 #include "walltime.h"
 #include "partmanager.h"
@@ -143,6 +143,33 @@ class GravTreeOutput
          if(accelstorealloc)
              myfree(Accel);
      }
+
+     /**
+     * Postprocess - finalize quantities after tree walk completes.
+     * Override to normalize results, compute derived quantities, etc.
+     *
+     * @param i Particle index
+     */
+     MYCUDAFN void postprocess(const int i, particle_data * const parts, const GravTreeParams * priv)
+     {
+         const double G = priv->G;
+         Accel[i][0] *= G;
+         Accel[i][1] *= G;
+         Accel[i][2] *= G;
+
+         if(update_potential) {
+             /* On a PM step, update the stored full tree grav accel for the next PM step.
+             * Needs to be done here so internal treewalk iterations don't get a partial acceleration.*/
+             parts[i].FullTreeGravAccel[0] = Accel[i][0];
+             parts[i].FullTreeGravAccel[1] = Accel[i][1];
+             parts[i].FullTreeGravAccel[2] = Accel[i][2];
+             /* calculate the potential */
+             parts[i].Potential += parts[i].Mass / (FORCE_SOFTENING() / 2.8);
+             /* remove self-potential */
+             parts[i].Potential -= 2.8372975 * pow(parts[i].Mass, 2.0 / 3) * priv->cbrtrho0;
+             parts[i].Potential *= G;
+         }
+     }
 };
 
  /*Compute the absolute magnitude of the acceleration for a particle.*/
@@ -172,13 +199,13 @@ class GravTreeResult : public TreeWalkResultBase<GravTreeQuery, GravTreeOutput> 
     MYCUDAFN GravTreeResult(GravTreeQuery& query): TreeWalkResultBase(query), Acc(0,0,0), Potential(0) {}
 
     template<TreeWalkReduceMode mode>
-    MYCUDAFN void reduce(const int place, const GravTreeOutput& priv, struct particle_data * const parts)
+    MYCUDAFN void reduce(const int place, const GravTreeOutput * output, struct particle_data * const parts)
     {
-        TreeWalkResultBase<GravTreeQuery, GravTreeOutput>::reduce<mode>(place, priv, parts);
-        TREEWALK_REDUCE(priv.Accel[place][0], Acc[0]);
-        TREEWALK_REDUCE(priv.Accel[place][1], Acc[1]);
-        TREEWALK_REDUCE(priv.Accel[place][2], Acc[2]);
-        if(priv.update_potential) {
+        TreeWalkResultBase<GravTreeQuery, GravTreeOutput>::reduce<mode>(place, output, parts);
+        TREEWALK_REDUCE(output->Accel[place][0], Acc[0]);
+        TREEWALK_REDUCE(output->Accel[place][1], Acc[1]);
+        TREEWALK_REDUCE(output->Accel[place][2], Acc[2]);
+        if(output->update_potential) {
             TREEWALK_REDUCE(Part[place].Potential, Potential);
         }
     }
@@ -532,35 +559,7 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
 
 class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreeParams, GravTreeOutput> {
     public:
-    /**
-    * Postprocess - finalize quantities after tree walk completes.
-    * Override to normalize results, compute derived quantities, etc.
-    *
-    * @param i Particle index
-    */
-    MYCUDAFN void postprocess(const int i, particle_data * const parts)
-    {
-        const double G = priv.G;
-        output.Accel[i][0] *= G;
-        output.Accel[i][1] *= G;
-        output.Accel[i][2] *= G;
-
-        if(output.update_potential) {
-            /* On a PM step, update the stored full tree grav accel for the next PM step.
-            * Needs to be done here so internal treewalk iterations don't get a partial acceleration.*/
-            parts[i].FullTreeGravAccel[0] = output.Accel[i][0];
-            parts[i].FullTreeGravAccel[1] = output.Accel[i][1];
-            parts[i].FullTreeGravAccel[2] = output.Accel[i][2];
-            /* calculate the potential */
-            parts[i].Potential += parts[i].Mass / (FORCE_SOFTENING() / 2.8);
-            /* remove self-potential */
-            parts[i].Potential -= 2.8372975 * pow(parts[i].Mass, 2.0 / 3) * priv.cbrtrho0;
-            parts[i].Potential *= G;
-        }
-    }
-    public:
-        GravTreeWalk(const char * const name, const ForceTree * const tree, const GravTreeParams& priv, const GravTreeOutput& output)
-            : TreeWalk(name, tree, priv, output) {};
+    using TreeWalk::TreeWalk;
 };
 
 /*! This function computes the gravitational forces for all active particles from all particles in the tree.
@@ -584,7 +583,7 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
     GravTreeOutput * output = (GravTreeOutput *) mymanagedmalloc("GravTreeOutput", sizeof(GravTreeOutput));
     new(output) GravTreeOutput(AccelStore, PartManager->NumPart, tree->full_particle_tree_flag);
 
-    GravTreeWalk tw("GRAVTREE", tree, *priv, *output);
+    GravTreeWalk tw("GRAVTREE", tree, *priv, output);
     /* Do the treewalk! Run directly on the active list as we want to use all particles. */
     tw.run_on_queue(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, MPI_COMM_WORLD, TreeParams.MaxExportBufferBytes);
 

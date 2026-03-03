@@ -206,7 +206,7 @@ public:
     /* Note this is a reference so that the ParamType/OutputType destructor does not run during TreeWalk destruction,
      * which would free the underlying memory */
     const ParamType& priv;
-    const OutputType& output;
+    OutputType * output;
 
     /* performance metrics */
     /* Wait for remotes to finish.*/
@@ -232,7 +232,7 @@ public:
     /**
      * Constructor - initializes all members to safe defaults.
      */
-    TreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const ParamType& i_priv, const OutputType& i_out):
+    TreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const ParamType& i_priv, OutputType * i_out):
         tree(i_tree), ev_label(i_ev_label),
         priv(i_priv), output(i_out),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
@@ -275,7 +275,6 @@ public:
      */
     void run_on_queue(int * WorkSet, int64_t WorkSetSize, particle_data * const parts, MPI_Comm comm, const size_t MaxExportBufferBytes = 3584*1024*1024L)
     {
-        double tstart, tend;
         LocalTreeWalkType::validate_tree(tree);
         Nexport_sum = 0;
         const size_t BunchSize = compute_bunchsize(MaxExportBufferBytes);
@@ -293,13 +292,18 @@ public:
         /* Main loop that tries to walk toptree, then do primary and secondary evals. */
         ev_process(WorkSet, WorkSetSize, BunchSize, parts, comm);
 
-        tstart = second();
+        static_cast<DerivedType *>(this)->ev_postprocess(WorkSet, WorkSetSize, parts);
+    }
+
+    void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const parts)
+    {
+        double tstart = second();
         #pragma omp parallel for
         for(int i = 0; i < WorkSetSize; i ++) {
             const int p_i = WorkSet ? WorkSet[i] : i;
-            static_cast<DerivedType*>(this)->postprocess(p_i, parts);
+            output->postprocess(p_i, parts, &priv);
         }
-        tend = second();
+        double tend = second();
         timecomp3 += timediff(tstart, tend);
     }
 
@@ -386,14 +390,6 @@ private:
     * @return true if the particle should be processed
     */
     bool haswork(const particle_data& part) { return true; }
-
-    /**
-    * Postprocess - finalize quantities after tree walk completes.
-    * Override to normalize results, compute derived quantities, etc.
-    *
-    * @param i Particle index
-    */
-    void postprocess(const int i, particle_data * const part) {}
 
     /* Main processing loop. Walks the toptree, exports and imports, then does primary and secondary eval.
         * The loop is there in case the export buffer fills up.
@@ -622,9 +618,9 @@ private:
                         #pragma omp for
                         for(j = 0; j < nimports_task; j++) {
                             QueryType * input = &((QueryType *) databufstart)[j];
-                            ResultType * output = new (&results[j]) ResultType(*input);
+                            ResultType * resoutput = new (&results[j]) ResultType(*input);
                             LocalTreeWalkType lv(tree->Nodes, *input);
-                            lv.template visit<TREEWALK_GHOSTS>(*input, output, priv, parts);
+                            lv.template visit<TREEWALK_GHOSTS>(*input, resoutput, priv, parts);
                         }
                     }
                 /* Send the completed data back*/
@@ -767,26 +763,23 @@ class LoopedTreeWalk: public TreeWalk<DerivedType, QueryType, ResultType, LocalT
     using Base = TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType>;
     using Base::build_queue;
     using Base::run_on_queue;
-    /* Redo counters and queues*/
-    size_t *NPLeft;
-    int **NPRedo;
-    size_t Redo_thread_alloc;
-    /* Max and min arrays for each iteration of the count*/
-    double * maxnumngb;
-    double * minnumngb;
+    using Base::output;
+    using Base::priv;
+    using Base::tree;
 
     public:
         using Base::TreeWalk;
-        /* Number of times the outer loop was run. */
-        int Niteration;
+        using Base::timecomp3;
+
+    /* Done in the loop */
+    void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const parts) {};
 
     /* This function does treewalk_run in a loop, allocating a queue to allow some particles to be redone.
     * This loop is used primarily in density estimation.*/
     void do_hsml_loop(int * queue, int64_t queuesize, const int update_hsml, particle_data * parts)
     {
-        int NumThreads = omp_get_max_threads();
-        maxnumngb = ta_malloc("numngb", double, NumThreads);
-        minnumngb = ta_malloc("numngb2", double, NumThreads);
+        double maxnumngb = 0;
+        double minnumngb = 1e60;
 
         /* Build the first queue */
         double tstart = second();
@@ -794,24 +787,45 @@ class LoopedTreeWalk: public TreeWalk<DerivedType, QueryType, ResultType, LocalT
         int64_t size = build_queue(&ReDoQueue, queue, queuesize, parts);
         double tend = second();
         this->timecomp3 += timediff(tstart, tend);
-        Niteration = 0;
+        /* Number of times the outer loop was run. */
+        int Niteration = 0;
         /* we will repeat the whole thing for those particles where we didn't find enough neighbours */
         do {
             /* The RedoQueue needs enough memory to store every workset particle on every thread, because
             * we cannot guarantee that the sph particles are evenly spread across threads!*/
             int * CurQueue = ReDoQueue;
-            int i;
-            for(i = 0; i < NumThreads; i++) {
-                maxnumngb[i] = 0;
-                minnumngb[i] = 1e50;
-            }
             /* The ReDoQueue swaps between high and low allocations so we can have two allocated alternately*/
             gadget_thread_arrays loop = gadget_setup_thread_arrays("ReDoQueue", 0, size);
-            NPRedo = loop.srcs;
-            NPLeft = loop.sizes;
-            Redo_thread_alloc = loop.total_size;
 
             run_on_queue(CurQueue, size, parts, MPI_COMM_WORLD);
+
+            tstart = second();
+            output->verbose = (Niteration >= MAXITER - 5);
+            /* Check which particles we need to repeat for. */
+            #pragma omp parallel for reduction(max: maxnumngb) reduction(min: minnumngb)
+            for(int i = 0; i < size; i ++) {
+                const int tid = omp_get_thread_num();
+                const int p_i = CurQueue ? CurQueue[i] : i;
+                if(maxnumngb < output->NumNgb[p_i])
+                    maxnumngb = output->NumNgb[p_i];
+                if(minnumngb > output->NumNgb[p_i])
+                    minnumngb = output->NumNgb[p_i];
+                int done = output->postprocess(p_i, parts, &priv);
+                if(!done) {
+                    /* More work needed: add this particle to the redo queue*/
+                    loop.srcs[tid][loop.sizes[tid]] = p_i;
+                    loop.sizes[tid] ++;
+                    if(loop.sizes[tid] > loop.total_size)
+                        endrun(5, "Particle %ld on thread %d exceeded allocated size of redo queue %ld\n", loop.sizes[tid], tid, loop.total_size);
+                }
+                /* If we are done repeating, update the hmax in the parent node,
+                * if that type is in the tree.*/
+                if(done && (tree->mask & (1<<parts[p_i].Type)))
+                    update_tree_hmax_father(tree, p_i, parts[p_i].Pos, parts[p_i].Hsml);
+            }
+            tend = second();
+            timecomp3 += timediff(tstart, tend);
+
             Niteration++;
 
             /* Now done with the current queue*/
@@ -823,15 +837,10 @@ class LoopedTreeWalk: public TreeWalk<DerivedType, QueryType, ResultType, LocalT
                 myfree(ReDoQueue);
                 break;
             }
-            for(i = 1; i < NumThreads; i++) {
-                if(maxnumngb[0] < maxnumngb[i])
-                    maxnumngb[0] = maxnumngb[i];
-                if(minnumngb[0] > minnumngb[i])
-                    minnumngb[0] = minnumngb[i];
-            }
+
             double minngb, maxngb;
-            MPI_Reduce(&maxnumngb[0], &maxngb, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-            MPI_Reduce(&minnumngb[0], &minngb, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
+            MPI_Reduce(&maxnumngb, &maxngb, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+            MPI_Reduce(&minnumngb, &minngb, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
             message(0, "Max ngb=%g, min ngb=%g\n", maxngb, minngb);
     #ifdef DEBUG
             this->print_stats(MPI_COMM_WORLD);
@@ -850,8 +859,6 @@ class LoopedTreeWalk: public TreeWalk<DerivedType, QueryType, ResultType, LocalT
                 endrun(1155, "failed to converge density for %ld particles\n", size);
             }
         } while(1);
-        ta_free(minnumngb);
-        ta_free(maxnumngb);
     };
 };
 

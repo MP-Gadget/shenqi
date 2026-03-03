@@ -138,7 +138,19 @@ class HydroPriv : public ParamTypeBase {
     }
 };
 
-class HydroOutput {};
+class HydroOutput {
+    public:
+    MYCUDAFN void postprocess(const int i, struct particle_data * const parts, const HydroPriv * priv)
+    {
+        if(parts[i].Type != 0)
+            return;
+        /* Translate energy change rate into entropy change rate */
+        SphP[parts[i].PI].DtEntropy *= GAMMA_MINUS1 / (priv->hubble_a2 * pow(SphP[parts[i].PI].Density, GAMMA_MINUS1));
+        /* if we have winds, we decouple particles briefly if delaytime>0 */
+        if(winds_is_particle_decoupled(i))
+            winds_decoupled_hydro(i, priv->atime);
+    }
+};
 
 class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     public:
@@ -188,9 +200,9 @@ class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
     }
 
     template<TreeWalkReduceMode mode>
-    MYCUDAFN void reduce(int place, const HydroOutput& priv, struct particle_data * const parts)
+    MYCUDAFN void reduce(int place, const HydroOutput * output, struct particle_data * const parts)
     {
-        TreeWalkResultBase::reduce<mode>(place, priv, parts);
+        TreeWalkResultBase::reduce<mode>(place, output, parts);
         struct sph_particle_data * sphpart = &SphP[parts[place].PI];
         for(int k = 0; k < 3; k++)
             TREEWALK_REDUCE(sphpart->HydroAccel[k], Acc[k]);
@@ -394,23 +406,11 @@ class HydroTopTreeWalk: public TopTreeWalk<HydroQuery, HydroPriv, NGB_TREEFIND_S
 
 class HydroTreeWalk: public TreeWalk<HydroTreeWalk, HydroQuery, HydroResult, HydroLocalTreeWalk, HydroTopTreeWalk, HydroPriv, HydroOutput> {
     public:
-    HydroTreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const HydroPriv& i_priv, const HydroOutput& i_out):
-    TreeWalk(i_ev_label, i_tree, i_priv, i_out) {}
+    using TreeWalk::TreeWalk;
 
     MYCUDAFN bool haswork(const particle_data& particle)
     {
         return particle.Type == 0;
-    }
-
-    MYCUDAFN void postprocess(const int i, struct particle_data * const parts)
-    {
-        if(parts[i].Type != 0)
-            return;
-        /* Translate energy change rate into entropy change rate */
-        SphP[parts[i].PI].DtEntropy *= GAMMA_MINUS1 / (priv.hubble_a2 * pow(SphP[parts[i].PI].Density, GAMMA_MINUS1));
-        /* if we have winds, we decouple particles briefly if delaytime>0 */
-        if(winds_is_particle_decoupled(i))
-            winds_decoupled_hydro(i, priv.atime);
     }
 };
 
@@ -428,7 +428,7 @@ hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPre
     new (priv) HydroPriv(tree->BoxSize, EntVarPred, atime, &times, CP);
 
     HydroOutput output;
-    HydroTreeWalk tw("HYDRO", tree, *priv, output);
+    HydroTreeWalk tw("HYDRO", tree, *priv, &output);
 
     walltime_measure("/SPH/Hydro/Init");
 
