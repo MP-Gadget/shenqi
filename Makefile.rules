@@ -54,9 +54,6 @@ V ?= 0
 	echo Compiling $<; $$cmd
 
 # Rule to compile .cu files (using nvcc)
-.objs/%.o: %.cu
-	$(NVCC) $(NVOPTIMIZE) -c $< -o $@
-
 .objs/%.o: %.cu Makefile $(CONFIG)
 	@cmd="$(NVCC) -MMD -c -o $@ $(NVOPTIMIZE) -I../depends/include $<"; \
 	if test "x$(V)" = "x1" ; then echo $$cmd; fi; \

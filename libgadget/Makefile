@@ -60,8 +60,13 @@ GADGET_C_SRCS =  gdbtools.c hci.c\
 	 plane.c lenstools.c
 
 GADGET_CPP_SRCS = hydra2.cpp density2.cpp gravshort-tree2.cpp walltime.cpp
+GADGET_CUDA_SRCS = gravshort-tree2.cu
 
+ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
+GADGET_OBJS := $(addsuffix .o,$(basename $(GADGET_C_SRCS))) $(addsuffix .o,$(basename $(GADGET_CPP_SRCS))) $(addsuffix .o,$(basename $(GADGET_CUDA_SRCS)))
+else
 GADGET_OBJS := $(addsuffix .o,$(basename $(GADGET_C_SRCS))) $(addsuffix .o,$(basename $(GADGET_CPP_SRCS)))
+endif
 
 GADGET_UTILS_OBJS= \
 utils/endrun.o \
