@@ -20,10 +20,10 @@ ifneq ($(findstring -DUSE_CFITSIO, $(OPT)),)
 endif
 
 ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
-    CUDA_INCL ?=
-    CUDA_LIBS ?= -lcudart
+    CUDA_INCL ?= $(shell pkg-config --cflags cudart)
+    CUDA_LIBS ?= $(shell pkg-config --libs cudart)
     NVCC ?= nvcc
-    NVOPTIMIZE ?= -O3
+    NVOPTIMIZE ?= -O3 -g
 endif
 
 OPTIONS = $(OPTIMIZE) $(OPT)

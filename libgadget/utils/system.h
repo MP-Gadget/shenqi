@@ -14,7 +14,7 @@
 /* Check the version of OPENMP. We now require OpenMP 5.1 for GPU offloading.
  * At time of writing no version of gcc supports this!
  */
-#if _OPENMP < 201511
+#if _OPENMP < 201511 && !defined(__CUDACC__)
 #error MP-Gadget requires OpenMP >= 4.5. Use a newer compiler (nvc > 21, clang > 13+). gcc currently reports OpenMP 4.5 support
 #endif
 

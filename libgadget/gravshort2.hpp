@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <math.h>
 
-#include "libgadget/types.h"
+#include "types.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
 #include "treewalk2.h"

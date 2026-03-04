@@ -3,8 +3,6 @@
  *
  *  This contains the cuda-specific function calls. A separate file only because the C++ compilers cannot always understand cuda.
  */
-#ifdef USE_CUDA
-
 #include <stdlib.h>
 #include <math.h>
 
@@ -26,4 +24,3 @@ grav_short_tree_cuda(const ActiveParticles * act, ForceTree * tree, GravTreePara
         tw.run_on_queue(act->ActiveParticle, act->NumActiveParticle, parts, comm, MaxExportBufferBytes);
         tw.print_stats("/Tree", comm);
 }
-#endif
