@@ -12,7 +12,7 @@ static struct ClockTable * CT = NULL;
 static double WallTimeClock;
 static double LastReportTime;
 
-static void walltime_clock_insert(const char * name);
+static void walltime_clock_insert(const std::string& name);
 static void walltime_summary_clocks(struct Clock * C, int N, int root, MPI_Comm comm);
 static void walltime_update_parents(void);
 static double seconds(void);
@@ -78,41 +78,32 @@ void walltime_summary(int root, MPI_Comm comm) {
 static int clockcmp(const void * c1, const void * c2) {
     const struct Clock * p1 = (const struct Clock *) c1;
     const struct Clock * p2 = (const struct Clock *) c2;
-    return strcmp(p1->name, p2->name);
+    return p1->name.compare(p2->name);
 }
 
-static void walltime_clock_insert(const char * name) {
-    if(strlen(name) > 1) {
-        char tmp[80] = {0};
-        strncpy(tmp, name, 79);
-        char * p;
+static void walltime_clock_insert(const std::string& name) {
+    if(name.length() > 1) {
+        size_t end = name.find("/", 1);
         walltime_clock("/");
-        for(p = tmp + 1; *p; p ++) {
-            if (*p == '/') {
-                *p = 0;
-                walltime_clock(tmp);
-                *p = '/';
-            }
+        while (end != std::string::npos) {
+            walltime_clock(name.substr(0, end));
+            end = name.find("/", end+1);
         }
     }
     if(CT->N == CT->Nmax) {
         /* too many counters */
         abort();
     }
-    const int nmsz = sizeof(CT->C[CT->N].name);
-    strncpy(CT->C[CT->N].name, name, nmsz);
-    CT->C[CT->N].name[nmsz-1] = '\0';
-    strncpy(CT->AC[CT->N].name, CT->C[CT->N].name, nmsz);
-    CT->AC[CT->N].name[nmsz-1] = '\0';
+    CT->C[CT->N].name = name;
+    CT->AC[CT->N].name = CT->C[CT->N].name;
     CT->N ++;
     qsort_openmp(CT->C, CT->N, sizeof(struct Clock), clockcmp);
     qsort_openmp(CT->AC, CT->N, sizeof(struct Clock), clockcmp);
 }
 
-int walltime_clock(const char * name) {
+int walltime_clock(const std::string& name) {
     struct Clock dummy;
-    strncpy(dummy.name, name, sizeof(dummy.name));
-    dummy.name[sizeof(dummy.name)-1]='\0';
+    dummy.name = name;
 
     struct Clock * rt = (struct Clock *) bsearch(&dummy, CT->C, CT->N, sizeof(struct Clock), clockcmp);
     if(rt == NULL) {
@@ -122,12 +113,12 @@ int walltime_clock(const char * name) {
     return rt - CT->C;
 };
 
-char walltime_get_symbol(const char * name) {
+char walltime_get_symbol(const std::string& name) {
     int id = walltime_clock(name);
     return CT->C[id].symbol;
 }
 
-double walltime_get(const char * name, enum clocktype type) {
+double walltime_get(const std::string& name, enum clocktype type) {
     int id = walltime_clock(name);
     /* only make sense on root */
     switch(type) {
@@ -146,7 +137,7 @@ double walltime_get(const char * name, enum clocktype type) {
     }
     return 0;
 }
-double walltime_get_time(const char * name) {
+double walltime_get_time(const std::string& name) {
     int id = walltime_clock(name);
     return CT->C[id].time;
 }
@@ -157,11 +148,10 @@ static void walltime_update_parents() {
     for(i = 0; i < CT->N; i ++) {
         CT->Nchildren[i] = 0;
         int j;
-        char * prefix = CT->C[i].name;
-        int l = strlen(prefix);
+        std::string& prefix = CT->C[i].name;
         double t = 0;
         for(j = i + 1; j < CT->N; j++) {
-            if(0 == strncmp(prefix, CT->C[j].name, l)) {
+            if(prefix == CT->C[j].name.substr(0, prefix.length())) {
                 t += CT->C[j].time;
                 CT->Nchildren[i] ++;
             } else {
@@ -177,12 +167,12 @@ void walltime_reset() {
     WallTimeClock = seconds();
 }
 
-double walltime_add_internal(const char * name, const double dt) {
+double walltime_add_internal(const std::string& name, const double dt) {
     int id = walltime_clock(name);
     CT->C[id].time += dt;
     return dt;
 }
-double walltime_measure_internal(const char * name) {
+double walltime_measure_internal(const std::string& name) {
     double t = seconds();
     double dt = t - WallTimeClock;
     WallTimeClock = seconds();
@@ -192,22 +182,21 @@ double walltime_measure_internal(const char * name) {
     }
     return dt;
 }
-double walltime_measure_full(const char * name, const char * file, const int line) {
+double walltime_measure_full(const std::string& name, const char * file, const int line) {
     char fullname[128] = {0};
     const char * basename = file + strlen(file);
     while(basename >= file && *basename != '/') basename --;
     basename ++;
-    snprintf(fullname, 128, "%s@%s:%04d", name, basename, line);
+    snprintf(fullname, 128, "%s@%s:%04d", name.c_str(), basename, line);
     return walltime_measure_internal(fullname);
 }
-double walltime_add_full(const char * name, const double dt, const char * file, const int line) {
+double walltime_add_full(const std::string& name, const double dt, const char * file, const int line) {
     char fullname[128] = {0};
     const char * basename = file + strlen(file);
     while(basename >= file && *basename != '/') basename --;
     basename ++;
-    snprintf(fullname, 128, "%s@%s:%04d", name, basename, line);
+    snprintf(fullname, 128, "%s@%s:%04d", name.c_str(), basename, line);
     return walltime_add_internal(fullname, dt);
-
 }
 
 /* returns the number of cpu-ticks in seconds that
@@ -221,23 +210,23 @@ void walltime_report(FILE * fp, int root, MPI_Comm comm) {
     int rank;
     MPI_Comm_rank(comm, &rank);
     if(rank != root) return;
-    int i;
-    for(i = 0; i < CT->N; i ++) {
-        char * name = CT->C[i].name;
+
+    for(int i = 0; i < CT->N; i ++) {
+        std::string name = CT->C[i].name;
+        size_t end = name.find("/");
+        size_t start = 0;
         int level = 0;
-        char * p = name;
-        while(*p) {
-            if(*p == '/') {
-                level ++;
-                name = p + 1;
-            }
-            p++;
+        while (end != std::string::npos) {
+            level++;
+            start = end + 1;
+            end = name.find("/", start);
         }
+        name = name.substr(start, end);
         /* if there is just one child, don't print it*/
         if(CT->Nchildren[i] == 1) continue;
         fprintf(fp, "%*s%-26s  %10.2f %4.1f%%  %10.2f %4.1f%%  %10.2f %10.2f\n",
                 level, "",  /* indents */
-                name,   /* just the last seg of name*/
+                name.c_str(),   /* just the last seg of name*/
                 CT->AC[i].mean,
                 CT->AC[i].mean / CT->ElapsedTime * 100.,
                 CT->C[i].mean,

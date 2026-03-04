@@ -1,19 +1,20 @@
 #ifndef GADGET_WALLTIME_H
 #define GADGET_WALLTIME_H
 
+#include <string>
 #include <stdio.h>
 #include <mpi.h>
 
-int walltime_clock(const char * name);
+int walltime_clock(const std::string& name);
 void walltime_reset(void);
 #define WALLTIME_IGNORE "."
 #define LINENO(a, b) a ":" # b
 #define walltime_measure(name) walltime_measure_full(name, __FILE__ , __LINE__)
 #define walltime_add(name, dt) walltime_add_full(name, dt,  __FILE__, __LINE__)
-double walltime_measure_internal(const char * name);
-double walltime_add_internal(const char * name, const double dt);
-double walltime_measure_full(const char * name, const char * file, const int line);
-double walltime_add_full(const char * name, const double dt, const char * file, const int line);
+double walltime_measure_internal(const std::string& name);
+double walltime_add_internal(const std::string& name, const double dt);
+double walltime_measure_full(const std::string& name, const char * file, const int line);
+double walltime_add_full(const std::string& name, const double dt, const char * file, const int line);
 
 enum clocktype {
     CLOCK_STEP_MEAN ,
@@ -25,10 +26,10 @@ enum clocktype {
 };
 
 
-char walltime_get_symbol(const char * name);
+char walltime_get_symbol(const std::string& name);
 
-double walltime_get_time(const char * name);
-double walltime_get(const char * name, const enum clocktype type);
+double walltime_get_time(const std::string& name);
+double walltime_get(const std::string& name, const enum clocktype type);
 #define walltime_step_min(id) walltime_get(id, CLOCK_STEP_MIN)
 #define walltime_step_max(id) walltime_get(id, CLOCK_STEP_MAX)
 #define walltime_step_mean(id) walltime_get(id, CLOCK_STEP_MEAN)
@@ -40,7 +41,7 @@ void walltime_summary(const int root, MPI_Comm comm);
 void walltime_report(FILE * fd, const int root, MPI_Comm comm);
 
 struct Clock {
-    char name[128];
+    std::string name;
     double time;
     double max;
     double min;
