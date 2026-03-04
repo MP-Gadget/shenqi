@@ -164,7 +164,7 @@ class GravTreeOutput
              parts[i].FullTreeGravAccel[1] = Accel[i][1];
              parts[i].FullTreeGravAccel[2] = Accel[i][2];
              /* calculate the potential */
-             parts[i].Potential += parts[i].Mass / (FORCE_SOFTENING() / 2.8);
+             parts[i].Potential += parts[i].Mass / (priv->ForceSoftening / 2.8);
              /* remove self-potential */
              parts[i].Potential -= 2.8372975 * pow(parts[i].Mass, 2.0 / 3) * priv->cbrtrho0;
              parts[i].Potential *= G;
