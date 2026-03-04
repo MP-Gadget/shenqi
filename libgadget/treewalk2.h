@@ -2,10 +2,12 @@
 #define _TREEWALK2_H_
 
 #include <cstdint>
+#include <string>
 #include <omp.h>
 #include <cmath>
 #include "localtreewalk2.h"
 #include "forcetree.h"
+#include "walltime.h"
 #include "utils/mymalloc.h"
 #include "utils/endrun.h"
 #include "utils/system.h"
@@ -367,8 +369,20 @@ public:
     }
 
     /* Print some counters for a completed treewalk*/
-    void print_stats(MPI_Comm comm)
+    void print_stats(const std::string& walltimeprefix, MPI_Comm comm)
     {
+        /* collect some timing information */
+        double timeall = walltime_measure(WALLTIME_IGNORE);
+        double timecomp = timecomp0 + timecomp1 + timecomp2 + timecomp3;
+
+        walltime_add(walltimeprefix+"/WalkTop", timecomp0);
+        walltime_add(walltimeprefix+"/WalkPrim", timecomp1);
+        walltime_add(walltimeprefix+"/WalkSec", timecomp2);
+        walltime_add(walltimeprefix+"/PostProc", timecomp3);
+        walltime_add(walltimeprefix+"/Wait", timewait1);
+        walltime_add(walltimeprefix+"/Reduce", timecommsumm);
+        walltime_add(walltimeprefix+"/Misc", timeall - (timecomp + timewait1 + timecommsumm));
+
         int NTask;
         MPI_Comm_size(comm, &NTask);
         int64_t o_NExportTargets, Nexport;
@@ -833,9 +847,6 @@ class LoopedTreeWalk: public TreeWalk<DerivedType, QueryType, ResultType, LocalT
             MPI_Reduce(&maxnumngb, &maxngb, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
             MPI_Reduce(&minnumngb, &minngb, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
             message(0, "Max ngb=%g, min ngb=%g\n", maxngb, minngb);
-    #ifdef DEBUG
-            this->print_stats(MPI_COMM_WORLD);
-    #endif
 
             /*Shrink memory*/
             ReDoQueue = (int *) myrealloc(ReDoQueue, sizeof(int) * size);

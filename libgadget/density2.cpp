@@ -576,7 +576,7 @@ density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Blac
     /* Do the treewalk with looping for hsml*/
     tw.do_hsml_loop(act->ActiveParticle, act->NumActiveParticle, update_hsml, PartManager->Base);
 
-    tw.print_stats(MPI_COMM_WORLD);
+    tw.print_stats("/SPH/Density", MPI_COMM_WORLD);
 
     if(GradRho_mag) {
         int64_t i;
@@ -595,17 +595,6 @@ density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Blac
 
     *EntVarPred = priv->EntVarPred;
     /* collect some timing information */
-
-    double timeall = walltime_measure(WALLTIME_IGNORE);
-    double timecomp = tw.timecomp0 + tw.timecomp3 + tw.timecomp1 + tw.timecomp2;
-    walltime_add("/SPH/Density/WalkTop", tw.timecomp0);
-    walltime_add("/SPH/Density/WalkPrim", tw.timecomp1);
-    walltime_add("/SPH/Density/WalkSec", tw.timecomp2);
-    walltime_add("/SPH/Density/PostPre", tw.timecomp3);
-    // walltime_add("/SPH/Density/Compute", timecomp);
-    walltime_add("/SPH/Density/Wait", tw.timewait1);
-    walltime_add("/SPH/Density/Reduce", tw.timecommsumm);
-    walltime_add("/SPH/Density/Misc", timeall - (timecomp + tw.timewait1 + tw.timecommsumm));
 }
 
 /* Set the initial smoothing length for gas and BH*/

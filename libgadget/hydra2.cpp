@@ -436,18 +436,6 @@ hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPre
 
     priv->~HydroPriv();
     myfree(priv);
-    /* collect some timing information */
-    double timeall = walltime_measure(WALLTIME_IGNORE);
-    double timecomp = tw.timecomp0 + tw.timecomp1 + tw.timecomp2 + tw.timecomp3;
 
-    walltime_add("/SPH/Hydro/WalkTop", tw.timecomp0);
-    walltime_add("/SPH/Hydro/WalkPrim", tw.timecomp1);
-    walltime_add("/SPH/Hydro/WalkSec", tw.timecomp2);
-    walltime_add("/SPH/Hydro/PostPre", tw.timecomp3);
-    // walltime_add("/SPH/Hydro/Compute", timecomp);
-    walltime_add("/SPH/Hydro/Wait", tw.timewait1);
-    walltime_add("/SPH/Hydro/Reduce", tw.timecommsumm);
-    walltime_add("/SPH/Hydro/Misc", timeall - (timecomp + tw.timewait1 + tw.timecommsumm));
-
-    tw.print_stats(MPI_COMM_WORLD);
+    tw.print_stats("/SPH/Hydro", MPI_COMM_WORLD);
 }

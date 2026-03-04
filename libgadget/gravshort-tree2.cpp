@@ -583,28 +583,16 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
     GravTreeOutput * output = (GravTreeOutput *) mymanagedmalloc("GravTreeOutput", sizeof(GravTreeOutput));
     new(output) GravTreeOutput(AccelStore, PartManager->NumPart, tree->full_particle_tree_flag);
 
-    GravTreeWalk tw("GRAVTREE", tree, *priv, output);
     /* Do the treewalk! Run directly on the active list as we want to use all particles. */
+    GravTreeWalk tw("GRAVTREE", tree, *priv, output);
     tw.run_on_queue(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, MPI_COMM_WORLD, TreeParams.MaxExportBufferBytes);
+    tw.print_stats("/Tree", MPI_COMM_WORLD);
 
     output->~GravTreeOutput();
     myfree(output);
     priv->~GravTreeParams();
     myfree(priv);
-    /*  gather some diagnostic information */
-    double timetree = tw.timecomp0 + tw.timecomp1 + tw.timecomp2 + tw.timecomp3;
-    walltime_add("/Tree/WalkTop", tw.timecomp0);
-    walltime_add("/Tree/WalkPrim", tw.timecomp1);
-    walltime_add("/Tree/WalkSec", tw.timecomp2);
-    walltime_add("/Tree/Reduce", tw.timecommsumm);
-    walltime_add("/Tree/PostPre", tw.timecomp3);
-    walltime_add("/Tree/Wait", tw.timewait1);
 
-    double timeall = walltime_measure(WALLTIME_IGNORE);
-
-    walltime_add("/Tree/Misc", timeall - (timetree + tw.timewait1 + tw.timecommsumm));
-
-    tw.print_stats(MPI_COMM_WORLD);
     /* TreeUseBH > 1 means use the BH criterion on the initial timestep only,
      * avoiding the fully open O(N^2) case.*/
     if(TreeParams.TreeUseBH > 1)
