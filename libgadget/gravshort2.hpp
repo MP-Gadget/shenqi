@@ -302,8 +302,11 @@ class GravLocalTreeWalk {
                 }
                 else if (nop->f.ChildType == PSEUDO_NODE_TYPE)
                 {
+                    // This should never happen in TREEWALK_GHOSTS mode! But we cannot endrun from the GPU.
+                    #ifndef __CUDACC__
                     if constexpr(mode == TREEWALK_GHOSTS)
                         endrun(12312, "Secondary for particle from node %d found pseudo at %d.\n", input.NodeList[listindex], no);
+                    #endif
                     /* Move to the sibling (likely also a pseudo node)*/
                     no = nop->sibling;
                     continue;
