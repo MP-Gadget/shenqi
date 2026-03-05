@@ -103,6 +103,42 @@ class TreeWalkResultBase
         }
 };
 
+/**
+* Cull a node.
+*
+* Returns 1 if the node shall be opened;
+* Returns 0 if the node has no business with this query.
+*/
+template <NgbTreeFindSymmetric symmetric>
+MYCUDAFN int
+cull_node(const double * const Pos, const double BoxSize, const MyFloat Hsml, const struct NODE * const current)
+{
+    double dist;
+    if constexpr (symmetric == NGB_TREEFIND_SYMMETRIC) {
+        dist = DMAX(current->mom.hmax, Hsml) + 0.5 * current->len;
+    } else {
+        dist = Hsml + 0.5 * current->len;
+    }
+
+    double r2 = 0;
+    double dx = 0;
+    /* do each direction */
+    for(int d = 0; d < 3; d ++) {
+        dx = NEAREST(current->center[d] - Pos[d], BoxSize);
+        if(dx > dist) return 0;
+        if(dx < -dist) return 0;
+        r2 += dx * dx;
+    }
+    /* now test against the minimal sphere enclosing everything */
+    constexpr double FACT1  = 0.5 *  (1.7320508075688772 - 1.0); /* FACT1 = 0.5 * (sqrt(3)-1) ~ 0.366 */
+    dist += FACT1 * current->len;
+
+    if(r2 > dist * dist) {
+        return 0;
+    }
+    return 1;
+};
+
 /*!< Thread-local list of the particles to be exported,
  * and the destination tasks. This table allows the
 results to be disentangled again and to be
@@ -256,42 +292,6 @@ protected:
     size_t nodelistindex;
     /* Pointer to memory for exports*/
     data_index * const DataIndexTable;
-};
-
-/**
-* Cull a node.
-*
-* Returns 1 if the node shall be opened;
-* Returns 0 if the node has no business with this query.
-*/
-template <NgbTreeFindSymmetric symmetric>
-MYCUDAFN int
-cull_node(const double * const Pos, const double BoxSize, const MyFloat Hsml, const struct NODE * const current)
-{
-    double dist;
-    if constexpr (symmetric == NGB_TREEFIND_SYMMETRIC) {
-        dist = DMAX(current->mom.hmax, Hsml) + 0.5 * current->len;
-    } else {
-        dist = Hsml + 0.5 * current->len;
-    }
-
-    double r2 = 0;
-    double dx = 0;
-    /* do each direction */
-    for(int d = 0; d < 3; d ++) {
-        dx = NEAREST(current->center[d] - Pos[d], BoxSize);
-        if(dx > dist) return 0;
-        if(dx < -dist) return 0;
-        r2 += dx * dx;
-    }
-    /* now test against the minimal sphere enclosing everything */
-    constexpr double FACT1  = 0.5 *  (1.7320508075688772 - 1.0); /* FACT1 = 0.5 * (sqrt(3)-1) ~ 0.366 */
-    dist += FACT1 * current->len;
-
-    if(r2 > dist * dist) {
-        return 0;
-    }
-    return 1;
 };
 
 /* Class that stores thread-local information and walks the local tree for a particle.
