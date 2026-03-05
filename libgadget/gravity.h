@@ -43,8 +43,21 @@ class GravShortTable
     /* Initialise the tables from pre-computed data */
     GravShortTable(const enum ShortRangeForceWindowType ShortRangeForceWindowType, const double Asmth);
 
-    /* Compute force factor (*fac) and multiply potential (*pot) by the shortrange force window function.*/
-    MYCUDAFN int apply_short_range_window(const double r, double * fac, double * pot, const double cellsize) const;
+    /* Compute force factor (*fac) and multiply potential (*pot) by the shortrange force window function.
+     * If the distance is outside the range of the table, 1 is returned and the caller should assume zero acceleration.
+     * If the distance is inside the range of the table, 0 is returned and the force factor and potential values
+     * should be applied to the particle query. */
+    MYCUDAFN int apply_short_range_window(const double r, double * fac, double * pot, const double cellsize) const
+    {
+        const double i = (r / cellsize / dx);
+        size_t tabindex = floor(i);
+        if(tabindex >= NGRAVTAB - 1)
+            return 1;
+        /* use a linear interpolation; */
+        *fac *= (tabindex + 1 - i) * shortrange_table[tabindex] + (i - tabindex) * shortrange_table[tabindex + 1];
+        *pot *= (tabindex + 1 - i) * shortrange_table_potential[tabindex] + (i - tabindex) * shortrange_table_potential[tabindex];
+        return 0;
+    }
 };
 
 /*! Sets the (comoving) softening length, converting from units of the mean DM separation to comoving internal units. */

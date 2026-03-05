@@ -106,7 +106,7 @@ class GravTreeOutput
 };
 
  /*Compute the absolute magnitude of the acceleration for a particle.*/
- MYCUDAFN MyFloat
+ MYCUDAFN static MyFloat
  grav_get_abs_accel(const struct particle_data& PP, const double G)
  {
      double aold=0;
