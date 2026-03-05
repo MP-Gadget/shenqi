@@ -12,7 +12,7 @@
 #include "treewalk2.cuh"
 class GravTreeWalkGPU : public TreeWalkGPU <GravTreeWalkGPU, GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreeParams, GravTreeOutput> {
     public:
-    using TreeWalk::TreeWalk;
+    using TreeWalkGPU::TreeWalkGPU;
 };
 
 /*! CUDA treewalk.
