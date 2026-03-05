@@ -139,7 +139,7 @@ class GravTreeResult : public TreeWalkResultBase<GravTreeQuery, GravTreeOutput> 
         TREEWALK_REDUCE(output->Accel[place][1], Acc[1]);
         TREEWALK_REDUCE(output->Accel[place][2], Acc[2]);
         if(output->update_potential) {
-            TREEWALK_REDUCE(Part[place].Potential, Potential);
+            TREEWALK_REDUCE(parts[place].Potential, Potential);
         }
     }
 };
@@ -291,10 +291,10 @@ class GravLocalTreeWalk {
                     for(int i = 0; i < nop->s.noccupied; i++) {
                         const int pp = nop->s.suns[i];
                         for(int j = 0; j < 3; j++)
-                            dx[j] = NEAREST(Part[pp].Pos[j] - input.Pos[j], priv.BoxSize);
+                            dx[j] = NEAREST(parts[pp].Pos[j] - input.Pos[j], priv.BoxSize);
                         const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
                         /* Compute the acceleration and apply it to the output structure*/
-                        apply_accn(output, dx, r2, Part[pp].Mass, cellsize, priv.gravtab, priv.ForceSoftening);
+                        apply_accn(output, dx, r2, parts[pp].Mass, cellsize, priv.gravtab, priv.ForceSoftening);
                         ninteractions++;
                     }
                     no = nop->sibling;
