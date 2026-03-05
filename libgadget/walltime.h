@@ -4,15 +4,13 @@
 #include <string>
 #include <stdio.h>
 #include <mpi.h>
+#include <map>
 
-int walltime_clock(const std::string& name);
 void walltime_reset(void);
 #define WALLTIME_IGNORE "."
 #define LINENO(a, b) a ":" # b
 #define walltime_measure(name) walltime_measure_full(name, __FILE__ , __LINE__)
 #define walltime_add(name, dt) walltime_add_full(name, dt,  __FILE__, __LINE__)
-double walltime_measure_internal(const std::string& name);
-double walltime_add_internal(const std::string& name, const double dt);
 double walltime_measure_full(const std::string& name, const char * file, const int line);
 double walltime_add_full(const std::string& name, const double dt, const char * file, const int line);
 
@@ -41,7 +39,6 @@ void walltime_summary(const int root, MPI_Comm comm);
 void walltime_report(FILE * fd, const int root, MPI_Comm comm);
 
 struct Clock {
-    std::string name;
     double time;
     double max;
     double min;
@@ -50,11 +47,9 @@ struct Clock {
 };
 
 struct ClockTable {
-    int Nmax;
-    int N;
-    struct Clock C[512];
-    struct Clock AC[512];
-    int Nchildren[512];
+    std::map<std::string, struct Clock> C;
+    std::map<std::string, struct Clock> AC;
+    std::map<std::string, int> Nchildren;
     double ElapsedTime;
     double StepTime;
     /*These are used for estimating when to timeout*/
