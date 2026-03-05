@@ -37,11 +37,13 @@ void treewalk_primary_kernel(
 
     atomicMax(maxNinteractions, (unsigned int) ninteractions);
     atomicMin(minNinteractions, (unsigned int) ninteractions);
-}
+};
 
 template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType>
 class TreeWalkGPU: public TreeWalk
 {
+    public:
+    using TreeWalk::TreeWalk;
     // Function to launch kernel (wrapper)
     void ev_primary(int * WorkSet, int64_t WorkSetSize, particle_data * const particles) {
         /* Declare device memory for counters */
@@ -72,8 +74,8 @@ class TreeWalkGPU: public TreeWalk
             // Error handling
             endrun(5, "ev_primary kernel failed: %s\n", cudaGetErrorString(status));
         }
-    }
-}
+    };
+};
 
 #endif
 #endif
