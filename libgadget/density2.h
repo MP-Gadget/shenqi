@@ -78,7 +78,7 @@ class KickFactorData
      * which always coincides with the Drift inttime.
      * For hydro forces.*/
     MYCUDAFN
-    const void
+    void
     SPH_VelPred(const particle_data& particle, MyFloat * VelPred) const
     {
         int j;
@@ -95,7 +95,7 @@ class KickFactorData
      * which always coincides with the Drift inttime.
      * For hydro forces.*/
     MYCUDAFN
-    const void
+    void
     DM_VelPred(const particle_data& particle, MyFloat * VelPred) const
     {
         int j;

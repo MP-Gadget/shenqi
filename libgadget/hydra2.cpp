@@ -199,7 +199,7 @@ class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
     MyFloat Acc[3] = {0};
     MyFloat DtEntropy = 0;
     MyFloat MaxSignalVel = 0;
-    MYCUDAFN HydroResult(const HydroQuery query): TreeWalkResultBase(query), Acc(0,0,0), DtEntropy(0), MaxSignalVel(0)
+    MYCUDAFN HydroResult(const HydroQuery query): TreeWalkResultBase(query), DtEntropy(0), MaxSignalVel(0)
     {
         MaxSignalVel = sqrt(GAMMA * query.Pressure / query.EgyRho);
     }

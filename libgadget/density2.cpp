@@ -385,7 +385,7 @@ class DensityResult : public TreeWalkResultBase<DensityQuery, DensityOutput> {
         /*Only used if sfr_need_to_compute_sph_grad_rho is true*/
         MyFloat GradRho[3] = {0};
         MYCUDAFN DensityResult(DensityQuery& query): TreeWalkResultBase(query),
-        EgyRho(0), DhsmlEgyDensity(0), Rho(0), DhsmlDensity(0), Ngb(0), Div(0), Rot(0,0,0), GradRho(0,0,0)
+        EgyRho(0), DhsmlEgyDensity(0), Rho(0), DhsmlDensity(0), Ngb(0), Div(0)
         {}
 
         template<TreeWalkReduceMode mode>
