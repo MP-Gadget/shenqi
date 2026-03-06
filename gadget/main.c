@@ -13,8 +13,7 @@
 #include <libgadget/checkpoint.h>
 #include <libgadget/config.h>
 #include <libgadget/forcetree.c>
-
-#include <libgadget/utils.h>
+#include <libgadget/utils/endrun.h>
 
 #include "params.h"
 

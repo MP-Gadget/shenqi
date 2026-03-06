@@ -77,7 +77,6 @@ utils/mpsort.o \
 utils/mymalloc.o \
 utils/system.o \
 utils/paramset.o \
-utils/event.o \
 utils/openmpsort.o \
 utils/unitsystem.o \
 utils/string.o \

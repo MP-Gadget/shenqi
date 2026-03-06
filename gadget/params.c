@@ -2,7 +2,6 @@
 #include <libgadget/densitykernel.h>
 #include <libgadget/timebinmgr.h>
 #include <libgadget/timestep.h>
-#include <libgadget/utils.h>
 #include <libgadget/treewalk.h>
 #include <libgadget/cooling_rates.h>
 #include <libgadget/winds.h>
@@ -20,6 +19,7 @@
 #include <libgadget/uvbg.h>
 #include <libgadget/stats.h>
 #include <libgadget/plane.h>
+#include <libgadget/utils/endrun.h>
 
 static int
 BlackHoleFeedbackMethodAction (ParameterSet * ps, const char * name, void * data)
