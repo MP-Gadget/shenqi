@@ -27,6 +27,8 @@ struct gravshort_tree_params
     size_t MaxExportBufferBytes;
     /* Type of the short range window function: exact from table or erfc */
     enum ShortRangeForceWindowType ShortRangeForceWindowType;
+    /* Should we enable the GPU acceleration? */
+    bool UseGPU;
 };
 
 class GravShortTable
@@ -86,7 +88,7 @@ struct gravshort_tree_params get_gravshort_treepar(void);
 void gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, double UnitLength_in_cm, const char * PowerOutputDir, double TimeIC);
 
 /* Compute the short range gravitational tree force. */
-void grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool use_gpu=false);
+void grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current);
 
 /*Read the power spectrum, without changing the input value.*/
 void measure_power_spectrum(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex *value);

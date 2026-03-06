@@ -52,6 +52,12 @@ create_gadget_parameter_set()
 {
     ParameterSet * ps = parameter_set_new();
 
+    #ifdef USE_CUDA
+    param_declare_int(ps,    "UseGPU", OPTIONAL, 1, "Should we enable GPU acceleration of the Treewalk.");
+    #else
+    param_declare_int(ps,    "UseGPU", OPTIONAL, 0, "Should we enable GPU acceleration of the Treewalk.");
+    #endif
+
     param_declare_string(ps, "InitCondFile", REQUIRED, NULL, "Path to the Initial Condition File");
     param_declare_string(ps, "OutputDir",    REQUIRED, NULL, "Prefix to the output files");
 
