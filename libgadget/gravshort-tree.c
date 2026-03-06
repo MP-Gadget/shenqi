@@ -15,6 +15,7 @@
 #include "timestep.h"
 #include "gravshort.h"
 #include "walltime.h"
+#include "gravity_old.h"
 
 /*! \file gravtree.c
  *  \brief main driver routines for gravitational (short-range) force computation
@@ -76,6 +77,9 @@ force_treeev_shortrange(TreeWalkQueryGravShort * input,
 void
 grav_short_tree_old(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current)
 {
+    /* This is separate from the new tree code. */
+    gravshort_fill_ntab(TreeParams.ShortRangeForceWindowType, pm->Asmth);
+
     TreeWalk tw[1] = {{0}};
     struct GravShortPriv priv;
     priv.cellsize = tree->BoxSize / pm->Nmesh;
