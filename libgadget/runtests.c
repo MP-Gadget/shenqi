@@ -380,6 +380,8 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     force_tree_full(&Tree, ddecomp, 0, OutputDir);
 
     struct gravshort_tree_params treeacc = get_gravshort_treepar();
+    /* Turn GPU acceleration off. */
+    treeacc.UseGPU = 0;
     /* Reset to normal tree */
     int origUseBH = treeacc.TreeUseBH;
     if(origUseBH > 1)
@@ -406,7 +408,6 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     double oldgrav = second() - start;
-
     /* This checks fully opened tree force against pair force*/
     double meanerr, maxerr, meanangle, maxangle;
     check_accns(&meanerr,&maxerr, &meanangle, &maxangle, PairAccn);
@@ -414,6 +415,23 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
 
     if(maxerr > 0.1)
         endrun(2, "New and old tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
+
+    /* Compare the CPU and GPU gravity trees. */
+    treeacc.UseGPU = 1;
+    set_gravshort_treepar(treeacc);
+    treeacc.TreeUseBH = origUseBH;
+    grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    /* Twice for force consistency*/
+    start = second();
+    grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
+    double gpugrav = second() - start;
+    check_accns(&meanerr,&maxerr, &meanangle, &maxangle, PairAccn);
+    message(0, "Grav tree CPU vs GPU. max : %g mean: %g angle %g max angle %g forcetol: %g time: %g->%g\n", maxerr, meanerr, meanangle, maxangle, treeacc.ErrTolForceAcc, newgrav, gpugrav);
+
+    if(maxerr > 0.1)
+        endrun(2, "CPU and GPU tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
 
     force_tree_free(&Tree);
     petapm_destroy(pm);
