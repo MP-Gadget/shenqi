@@ -391,6 +391,8 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     /* Twice for force consistency*/
     double start = second();
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     double newgrav = second() - start;
     copy_and_mean_accn(PairAccn);
     treeacc.TreeUseBH = origUseBH;
@@ -401,6 +403,8 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     set_gravshort_treepar_old(treeacc);
     start = second();
     grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     double oldgrav = second() - start;
 
     /* This checks fully opened tree force against pair force*/
@@ -425,6 +429,8 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     /* computes GradRho with a treewalk. No hsml update as we are reading from a snapshot.*/
     start = second();
     density(&Act, 0, 0, 1, times, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     double newdens = second() - start;
     slots_free_sph_pred_data(&sph_predicted);
     sph_predicted.EntVarPred = NULL;
@@ -436,6 +442,8 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     set_densitypar_old(dp);
     start = second();
     density_old(&Act, 0, 0, 1, times, CP, &sph_predicted, GradRho, &gasTree);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     double olddens = second() - start;
 
     slots_free_sph_pred_data(&sph_predicted);
@@ -457,6 +465,8 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     set_hydropar_old(get_hydropar());
     start = second();
     hydro_force_old(&Act, header->TimeSnapshot, &sph_predicted, times,  CP, &gasTree);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     double oldhydro = second() - start;
     /* This checks fully opened tree force against pair force*/
     check_hydroaccns(&meanerr,&maxerr, &meanangle, &maxangle, HydroAccn);
