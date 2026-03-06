@@ -253,6 +253,7 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
         origtreeacc.TreeUseBH = 0;
     struct gravshort_tree_params treeacc = origtreeacc;
     const double rho0 = CP->Omega0 * CP->RhoCrit;
+    set_gravshort_treepar_old(treeacc);
     grav_short_pair(&Act, pm, &Tree, treeacc.Rcut, rho0);
 
     copy_and_mean_accn(PairAccn);
