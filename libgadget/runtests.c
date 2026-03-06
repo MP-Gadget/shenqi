@@ -416,6 +416,7 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     if(maxerr > 0.1)
         endrun(2, "New and old tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
 
+#ifdef USE_CUDA
     /* Compare the CPU and GPU gravity trees. */
     treeacc.UseGPU = 1;
     set_gravshort_treepar(treeacc);
@@ -429,10 +430,9 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     double gpugrav = second() - start;
     check_accns(&meanerr,&maxerr, &meanangle, &maxangle, PairAccn);
     message(0, "Grav tree CPU vs GPU. max : %g mean: %g angle %g max angle %g forcetol: %g time: %g->%g\n", maxerr, meanerr, meanangle, maxangle, treeacc.ErrTolForceAcc, newgrav, gpugrav);
-
     if(maxerr > 0.1)
         endrun(2, "CPU and GPU tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
-
+#endif
     force_tree_free(&Tree);
     petapm_destroy(pm);
 
