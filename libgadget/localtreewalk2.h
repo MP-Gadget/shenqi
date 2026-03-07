@@ -96,7 +96,7 @@ class TreeWalkResultBase
         template<TreeWalkReduceMode mode>
         MYCUDAFN void reduce(const int j, const OutputType * priv, struct particle_data * const parts)
         {
-            #ifdef DEBUG
+            #if defined DEBUG && not defined __CUDACC__
                 if(parts[j].ID != ID)
                     endrun(2, "Mismatched ID (%ld != %ld) for particle %d in treewalk reduction, mode %d\n", parts[j].ID, ID, j, mode);
             #endif
