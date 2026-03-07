@@ -31,10 +31,11 @@ class ExportMemory {
     QueueChunkRestart(ta_malloc2("queuerestart", int, NThread))
     {
         int i;
-        for(i = 0; i < NThread; i++)
+        for(i = 0; i < NThread; i++) {
             ExportTable_thread[i] = (data_index*) mymalloc("DataIndexTable", sizeof(data_index) * BunchSize);
-        for(i = 0; i < NThread; i++)
             QueueChunkEnd[i] = -1;
+            Nexport_thread[i] = 0;
+        }
     }
 
     ~ExportMemory()
