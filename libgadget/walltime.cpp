@@ -63,8 +63,6 @@ static void walltime_update_parents() {
             if(prefix == name.substr(0, prefix.length())) {
                 t += clock2.time;
                 CT->Nchildren[prefix] ++;
-            } else {
-                break;
             }
         }
         /* update only if there are children */
