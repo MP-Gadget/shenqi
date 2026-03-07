@@ -23,7 +23,7 @@ typedef LOW_PRECISION MyFloat;
  * Functions not decorated default to __host__. Only functions with the __device__ marker can be
  * called from the device. Functions which are __device__ or __global__ should be declared in a .cu file.
  */
-#if defined(USE_CUDA) && defined(__CUDACC__)
+#if defined(__CUDACC__)
 #define MYCUDAFN __host__ __device__
 #else
 #define MYCUDAFN

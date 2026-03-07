@@ -5,6 +5,9 @@
 #include <unistd.h>
 #include <math.h>
 #include <omp.h>
+#ifdef USE_CUDA
+#include <cuda_runtime.h>
+#endif
 
 #include <libgadget/slotsmanager.h>
 #include <libgadget/partmanager.h>
@@ -13,8 +16,7 @@
 #include <libgadget/checkpoint.h>
 #include <libgadget/config.h>
 #include <libgadget/forcetree.c>
-
-#include <libgadget/utils.h>
+#include <libgadget/utils/endrun.h>
 
 #include "params.h"
 
@@ -70,6 +72,16 @@ int main(int argc, char **argv)
         struct rlimit rlim = {0};
         setrlimit(RLIMIT_CORE, &rlim);
     }
+#ifdef USE_CUDA
+    /* Force CUDA context initialisation (and UVM virtual-address reservation)
+     * before any host posix_memalign call.  On AArch64 unified-memory systems
+     * (Grace-Hopper) the UVM driver reserves its address range with
+     * mmap(MAP_FIXED,...), which silently unmaps any pre-existing anonymous
+     * mapping at the same addresses.  tamalloc_init and mymalloc_init both
+     * call posix_memalign; if CUDA claims that range afterwards the allocator
+     * pools are destroyed, leading to segfaults on the next access. */
+    cudaFree(0);
+#endif
     tamalloc_init();
 
     int ShowBacktrace;

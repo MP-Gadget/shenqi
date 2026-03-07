@@ -20,13 +20,14 @@ ifneq ($(findstring -DUSE_CFITSIO, $(OPT)),)
 endif
 
 ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
-    CUDA_INCL ?=
-    CUDA_LIBS ?= -lcudart
+    CUDA_INCL ?= $(shell pkg-config --cflags cudart)
+    CUDA_LIBS ?= $(shell pkg-config --libs cudart)
     NVCC ?= nvcc
-    NVOPTIMIZE ?= -O3
+    NVOPTIMIZE ?= -O3 -g
 endif
 
 OPTIONS = $(OPTIMIZE) $(OPT)
+NVOPTIONS = $(NVOPTIMIZE) $(OPT)
 GADGET_TESTDATA_ROOT = $(CURDIR)/../
 
 CFLAGS = $(OPTIONS) $(GSL_INCL) $(BOOST_INCL) $(FITSIO_INCL) $(CUDA_INCL)
@@ -53,12 +54,11 @@ V ?= 0
 	mkdir -p `dirname $@`; \
 	echo Compiling $<; $$cmd
 
+ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
 # Rule to compile .cu files (using nvcc)
-.objs/%.o: %.cu
-	$(NVCC) $(NVOPTIMIZE) -c $< -o $@
-
 .objs/%.o: %.cu Makefile $(CONFIG)
-	@cmd="$(NVCC) -MMD -c -o $@ $(NVOPTIMIZE) -I../depends/include $<"; \
+	@cmd="$(NVCC) -MMD -c -o $@ $(NVOPTIONS) -I../depends/include $<"; \
 	if test "x$(V)" = "x1" ; then echo $$cmd; fi; \
 	mkdir -p `dirname $@`; \
 	echo Compiling $<; $$cmd
+endif

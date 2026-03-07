@@ -14,7 +14,7 @@
 /* Check the version of OPENMP. We now require OpenMP 5.1 for GPU offloading.
  * At time of writing no version of gcc supports this!
  */
-#if _OPENMP < 201511
+#if _OPENMP < 201511 && !defined(__CUDACC__)
 #error MP-Gadget requires OpenMP >= 4.5. Use a newer compiler (nvc > 21, clang > 13+). gcc currently reports OpenMP 4.5 support
 #endif
 
@@ -63,6 +63,9 @@ typedef struct _gadget_thread_arrays {
  * Function returns size of the final array, pointer to final array is stored in dest.
  * The temporary arrays in gadget_thread_arrays are freed. */
 size_t gadget_compact_thread_arrays(int ** dest, gadget_thread_arrays * arrays);
+
+/* As above, but allocate a new array in managed memory for dest. No need for a realloc afterwards. */
+size_t gadget_compact_thread_arrays_managed(int ** dest, const char * name, gadget_thread_arrays * arrays);
 
 /* Set up pointers to different parts of a single segmented array, evenly spaced and corresponding queue space for different threads.*/
 gadget_thread_arrays gadget_setup_thread_arrays(const char * destname, const int alloc_high, const size_t total_size);

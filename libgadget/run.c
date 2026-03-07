@@ -251,8 +251,6 @@ begrun(const int RestartSnapNum, struct header_data * head)
 
     init_cooling_and_star_formation(All.CoolingOn, All.StarformationOn, &All.CP, head->MassTable[0], head->BoxSize, units);
 
-    gravshort_fill_ntab(All.ShortRangeForceWindowType, All.Asmth);
-
     if(All.LightconeOn)
         lightcone_init(&All.CP, head->TimeSnapshot, head->UnitLength_in_cm, All.OutputDir);
 
@@ -536,7 +534,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             if(All.HierarchicalGravity) {
                 /* We need to store a GravAccel for new star particles as well, so we need extra memory.*/
                 GravAccel.nstore = PartManager->NumPart + SlotsManager->info[0].size;
-                GravAccel.GravAccel = (MyFloat (*) [3]) mymalloc2("GravAccel", GravAccel.nstore * sizeof(GravAccel.GravAccel[0]));
+                GravAccel.GravAccel = (MyFloat (*) [3]) mymanagedmalloc("GravAccel", GravAccel.nstore * sizeof(GravAccel.GravAccel[0]));
                 hierarchical_gravity_accelerations(&Act, &pm, ddecomp, GravAccel, &times, HybridNuTracer, &All.CP, All.OutputDir);
             }
             else if(All.TreeGravOn && totgravactive) {

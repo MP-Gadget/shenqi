@@ -4,6 +4,7 @@
 #include "partmanager.h"
 #include "forcetree.h"
 #include "gravity.h"
+#include "gravity_old.h"
 #include "petaio.h"
 #include "domain.h"
 #include "run.h"
@@ -252,6 +253,7 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
         origtreeacc.TreeUseBH = 0;
     struct gravshort_tree_params treeacc = origtreeacc;
     const double rho0 = CP->Omega0 * CP->RhoCrit;
+    set_gravshort_treepar_old(treeacc);
     grav_short_pair(&Act, pm, &Tree, treeacc.Rcut, rho0);
 
     copy_and_mean_accn(PairAccn);
@@ -379,6 +381,8 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     force_tree_full(&Tree, ddecomp, 0, OutputDir);
 
     struct gravshort_tree_params treeacc = get_gravshort_treepar();
+    /* Turn GPU acceleration off. */
+    treeacc.UseGPU = 0;
     /* Reset to normal tree */
     int origUseBH = treeacc.TreeUseBH;
     if(origUseBH > 1)
@@ -390,6 +394,8 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     /* Twice for force consistency*/
     double start = second();
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     double newgrav = second() - start;
     copy_and_mean_accn(PairAccn);
     treeacc.TreeUseBH = origUseBH;
@@ -400,8 +406,9 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     set_gravshort_treepar_old(treeacc);
     start = second();
     grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     double oldgrav = second() - start;
-
     /* This checks fully opened tree force against pair force*/
     double meanerr, maxerr, meanangle, maxangle;
     check_accns(&meanerr,&maxerr, &meanangle, &maxangle, PairAccn);
@@ -410,6 +417,23 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     if(maxerr > 0.1)
         endrun(2, "New and old tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
 
+#ifdef USE_CUDA
+    /* Compare the CPU and GPU gravity trees. */
+    treeacc.UseGPU = 1;
+    set_gravshort_treepar(treeacc);
+    treeacc.TreeUseBH = origUseBH;
+    grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    /* Twice for force consistency*/
+    start = second();
+    grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
+    double gpugrav = second() - start;
+    check_accns(&meanerr,&maxerr, &meanangle, &maxangle, PairAccn);
+    message(0, "Grav tree CPU vs GPU. max : %g mean: %g angle %g max angle %g forcetol: %g time: %g->%g\n", maxerr, meanerr, meanangle, maxangle, treeacc.ErrTolForceAcc, newgrav, gpugrav);
+    if(maxerr > 0.1)
+        endrun(2, "CPU and GPU tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
+#endif
     force_tree_free(&Tree);
     petapm_destroy(pm);
 
@@ -424,6 +448,8 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     /* computes GradRho with a treewalk. No hsml update as we are reading from a snapshot.*/
     start = second();
     density(&Act, 0, 0, 1, times, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     double newdens = second() - start;
     slots_free_sph_pred_data(&sph_predicted);
     sph_predicted.EntVarPred = NULL;
@@ -435,6 +461,8 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     set_densitypar_old(dp);
     start = second();
     density_old(&Act, 0, 0, 1, times, CP, &sph_predicted, GradRho, &gasTree);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     double olddens = second() - start;
 
     slots_free_sph_pred_data(&sph_predicted);
@@ -456,6 +484,8 @@ run_consistency_test(int RestartSnapNum, Cosmology * CP, const double Asmth, con
     set_hydropar_old(get_hydropar());
     start = second();
     hydro_force_old(&Act, header->TimeSnapshot, &sph_predicted, times,  CP, &gasTree);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     double oldhydro = second() - start;
     /* This checks fully opened tree force against pair force*/
     check_hydroaccns(&meanerr,&maxerr, &meanangle, &maxangle, HydroAccn);

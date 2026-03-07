@@ -2,10 +2,12 @@
 #define _TREEWALK2_H_
 
 #include <cstdint>
+#include <string>
 #include <omp.h>
 #include <cmath>
 #include "localtreewalk2.h"
 #include "forcetree.h"
+#include "walltime.h"
 #include "utils/mymalloc.h"
 #include "utils/endrun.h"
 #include "utils/system.h"
@@ -29,10 +31,11 @@ class ExportMemory {
     QueueChunkRestart(ta_malloc2("queuerestart", int, NThread))
     {
         int i;
-        for(i = 0; i < NThread; i++)
+        for(i = 0; i < NThread; i++) {
             ExportTable_thread[i] = (data_index*) mymalloc("DataIndexTable", sizeof(data_index) * BunchSize);
-        for(i = 0; i < NThread; i++)
             QueueChunkEnd[i] = -1;
+            Nexport_thread[i] = 0;
+        }
     }
 
     ~ExportMemory()
@@ -78,8 +81,13 @@ class ImpExpCounts
         /* Calculate the amount of data to send. */
         for(int64_t i = 0; i < exports.NThread; i++)
         {
-            for(size_t k = 0; k < exports.Nexport_thread[i]; k++)
+            for(size_t k = 0; k < exports.Nexport_thread[i]; k++) {
+#ifdef DEBUG
+                if(exports.ExportTable_thread[i][k].Task > NTask)
+                    endrun(5, "export count at %ld %lu of %lu is %d > NTask: %d\n",i, k, exports.Nexport_thread[i], exports.ExportTable_thread[i][k].Task, NTask);
+#endif
                 Export_count[exports.ExportTable_thread[i][k].Task]++;
+	    }
             /* This is the export count*/
             Nexport += exports.Nexport_thread[i];
         }
@@ -203,17 +211,10 @@ public:
 
     /* name of the evaluator (used in printing messages) */
     const char * const ev_label;
-
     /* Note this is a reference so that the ParamType/OutputType destructor does not run during TreeWalk destruction,
      * which would free the underlying memory */
     const ParamType& priv;
-    const OutputType& output;
-    /* Set to true if haswork() is overridden to do actual filtering.
-     * Used to optimize queue building when haswork always returns true. */
-    bool should_rebuild_queue;
-    /* If this is true, the primary and secondary treewalks will be offloaded to an accelerator device (a GPU).
-     * This imposes certain limitations, most notably atomics will be slow.*/
-    const int use_openmp_target;
+    OutputType * output;
 
     /* performance metrics */
     /* Wait for remotes to finish.*/
@@ -228,43 +229,27 @@ public:
     double timecomp3;
     /* Time spent for the reductions.*/
     double timecommsumm;
-    /* Number of particles in the Ngblist for the primary treewalk*/
-    int64_t Nlistprimary;
     /* Total number of exported particles
      * (Nexport is only the exported particles in the current export buffer). */
     int64_t Nexport_sum;
     /* Convenience variable for density. */
     size_t NExportTargets;
     /* Counters for imbalance diagnostics*/
-    int64_t maxNinteractions;
-    int64_t minNinteractions;
-    int64_t Ninteractions;
-
-    /* internal flags*/
-    /*Did we use the active_set array as the WorkSet?*/
-    int work_set_stolen_from_active;
-    /* The list of particles to work on. May be NULL, in which case all particles are used.*/
-    int * WorkSet;
-    /* Size of the workset list*/
-    int64_t WorkSetSize;
+    unsigned int maxNinteractions;
+    unsigned int minNinteractions;
     /**
      * Constructor - initializes all members to safe defaults.
      */
-    TreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const ParamType& i_priv, const OutputType& i_out, bool i_should_rebuild_queue=true, bool i_use_gpu=false) :
+    TreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const ParamType& i_priv, OutputType * i_out):
         tree(i_tree), ev_label(i_ev_label),
         priv(i_priv), output(i_out),
-        should_rebuild_queue(i_should_rebuild_queue),
-        use_openmp_target(i_use_gpu),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
-        Nlistprimary(0), Nexport_sum(0), NExportTargets(0),
-        maxNinteractions(0), minNinteractions(1<<30), Ninteractions(0),
-        work_set_stolen_from_active(0),
-        WorkSet(nullptr), WorkSetSize(0)
-    {
-    }
+        Nexport_sum(0), NExportTargets(0),
+        maxNinteractions(0), minNinteractions(INT_MAX)
+    {    }
 
     /* Do the distributed tree walking. Warning: as this is a threaded treewalk,
-     * it may call tw->visit on particles more than once and in a noneterministic order.
+     * it may call visit on particles more than once and in a noneterministic order.
      * Your module should behave correctly in this case!
      *
      * active_set : a list of indices of particles that walk the tree. If active_set is NULL,
@@ -273,79 +258,74 @@ public:
      * size: length of the active set
      * particle_data parts: list of particles to use
      */
-    void run(int * active_set, size_t size, particle_data * const parts, const size_t MaxExportBufferBytes = 3584*1024*1024L)
+    void run(int * active_set, size_t size, particle_data * const parts, MPI_Comm comm, const size_t MaxExportBufferBytes = 3584*1024*1024L)
     {
-        if(!force_tree_allocated(tree)) {
-            endrun(0, "Tree has been freed before this treewalk.\n");
-        }
-
         double tstart, tend;
         tstart = second();
-        /* The last argument is may_have_garbage: in practice the only
-            * trivial haswork is the gravtree. This has no (active) garbage because
-            * the active list was just rebuilt, but on a PM step the active list is NULL
-            * and we may still have swallowed BHs around. So in practice this avoids
-            * computing gravtree for swallowed BHs on a PM step.*/
-        int may_have_garbage = 0;
-        /* Note this is not collective, but that should not matter.*/
-        if(!active_set && SlotsManager->info[5].size > 0)
-            may_have_garbage = 1;
-        build_queue(active_set, size, may_have_garbage, parts);
+        LocalTreeWalkType::validate_tree(tree);
+
+        int * WorkSet=NULL;
+        int64_t WorkSetSize = build_queue(&WorkSet, active_set, size, parts);
         tend = second();
         timecomp3 += timediff(tstart, tend);
+        run_on_queue(WorkSet, WorkSetSize, parts, comm);
 
+        myfree(WorkSet);
+    }
+
+    /* Do the distributed tree walking. This assumes that the work queue has already been built.
+     *
+     * WorkSet : a list of indices of particles that walk the tree. If NULL,
+     *              all (WorkSetSize) particles are used. This is not the list of particles
+     * in the tree, but the particles that do the walking.
+     * WorkSetSize: length of the active set
+     * particle_data parts: list of particles to use
+     */
+    void run_on_queue(int * WorkSet, int64_t WorkSetSize, particle_data * const parts, MPI_Comm comm, const size_t MaxExportBufferBytes = 3584*1024*1024L)
+    {
+        LocalTreeWalkType::validate_tree(tree);
         Nexport_sum = 0;
-        Ninteractions = 0;
-
         const size_t BunchSize = compute_bunchsize(MaxExportBufferBytes);
         int64_t nmin, nmax, total;
         int NTask;
-        MPI_Comm_size(MPI_COMM_WORLD, &NTask);
-        MPI_Reduce(&WorkSetSize, &nmin, 1, MPI_INT64, MPI_MIN, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&WorkSetSize, &nmax, 1, MPI_INT64, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&WorkSetSize, &total, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
+        MPI_Comm_size(comm, &NTask);
+        MPI_Reduce(&WorkSetSize, &nmin, 1, MPI_INT64, MPI_MIN, 0, comm);
+        MPI_Reduce(&WorkSetSize, &nmax, 1, MPI_INT64, MPI_MAX, 0, comm);
+        MPI_Reduce(&WorkSetSize, &total, 1, MPI_INT64, MPI_SUM, 0, comm);
         message(0, "Treewalk %s: total part %ld max/MPI: %ld min/MPI: %ld balance: %g query %ld result %ld BunchSize %ld.\n",
             ev_label, total, nmax, nmin, (double)nmax/((total+0.001)/NTask), sizeof(QueryType), sizeof(ResultType), BunchSize);
         /* Print some balance numbers*/
         report_memory_usage(ev_label);
 
         /* Main loop that tries to walk toptree, then do primary and secondary evals. */
-        ev_process(BunchSize, parts, MPI_COMM_WORLD);
+        ev_process(WorkSet, WorkSetSize, BunchSize, parts, comm);
 
-        tstart = second();
+        static_cast<DerivedType *>(this)->ev_postprocess(WorkSet, WorkSetSize, parts);
+    }
+
+    void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const parts)
+    {
+        double tstart = second();
         #pragma omp parallel for
         for(int i = 0; i < WorkSetSize; i ++) {
             const int p_i = WorkSet ? WorkSet[i] : i;
-            static_cast<DerivedType*>(this)->postprocess(p_i, parts);
+            output->postprocess(p_i, parts, &priv);
         }
-        tend = second();
+        double tend = second();
         timecomp3 += timediff(tstart, tend);
-        ev_finish();
     }
 
-    /* Build the queue from the haswork function, in case we want to reuse it.
+    /* Build the queue by calling the haswork function on each particle in the active_set.
      * Arguments:
      * active_set: these items have haswork called on them.
-     * size: size of the active set.
-     * may_have_garbage: flags whether the active set may contain garbage. If the haswork is trivial and this is not set,
-     * we can just reuse the active set as the queue.*/
-    void build_queue(int * active_set, const size_t size, int may_have_garbage, const particle_data * const Parts)
+     * size: size of the active set.*/
+    int64_t build_queue(int ** WorkSet, int * active_set, const size_t size, const particle_data * const Parts)
     {
-        if(!should_rebuild_queue && !may_have_garbage)
-        {
-            WorkSetSize = size;
-            WorkSet = active_set;
-            work_set_stolen_from_active = 1;
-            return;
-        }
-
-        work_set_stolen_from_active = 0;
         /* Explicitly deal with the case where the queue is zero and there is nothing to do.
          * Some OpenMP compilers (nvcc) seem to still execute the below loop in that case*/
         if(size == 0) {
-            WorkSet = (int *) mymalloc("ActiveQueue", sizeof(int));
-            WorkSetSize = size;
-            return;
+            *WorkSet = (int *) mymanagedmalloc("ActiveQueue", sizeof(int));
+            return size;
         }
 
         /*We want a lockless algorithm which preserves the ordering of the particle list.*/
@@ -369,7 +349,7 @@ public:
                 if(pp.IsGarbage || pp.Swallowed)
                     continue;
 
-                if(!static_cast<DerivedType*>(this)->haswork(pp))
+                if(!QueryType::haswork(pp))
                     continue;
         #ifdef DEBUG
                 if(nqthrlocal >= gthread.total_size)
@@ -381,61 +361,51 @@ public:
             gthread.sizes[tid] = nqthrlocal;
         }
         /*Merge step for the queue.*/
-        size_t nqueue = gadget_compact_thread_arrays(&WorkSet, &gthread);
-        /*Shrink memory*/
-        WorkSet = (int *) myrealloc(WorkSet, sizeof(int) * nqueue);
-
+        size_t nqueue = gadget_compact_thread_arrays_managed(WorkSet, "Active Queue", &gthread);
     #if 0
         /* check the uniqueness of the active_set list. This is very slow. */
-        qsort_openmp(WorkSet, nqueue, sizeof(int), cmpint);
+        qsort_openmp(*WorkSet, nqueue, sizeof(int), cmpint);
         for(i = 0; i < nqueue - 1; i ++) {
-            if(WorkSet[i] == WorkSet[i+1]) {
+            if(*WorkSet[i] == *WorkSet[i+1]) {
                 endrun(8829, "A few particles are twicely active.\n");
             }
         }
     #endif
-        WorkSetSize = nqueue;
+        return nqueue;
     }
 
     /* Print some counters for a completed treewalk*/
-    void print_stats(MPI_Comm comm)
+    void print_stats(const std::string& walltimeprefix, MPI_Comm comm)
     {
+        /* collect some timing information */
+        double timeall = walltime_measure(WALLTIME_IGNORE);
+        double timecomp = timecomp0 + timecomp1 + timecomp2 + timecomp3;
+
+        walltime_add(walltimeprefix+"/WalkTop", timecomp0);
+        walltime_add(walltimeprefix+"/WalkPrim", timecomp1);
+        walltime_add(walltimeprefix+"/WalkSec", timecomp2);
+        walltime_add(walltimeprefix+"/PostProc", timecomp3);
+        walltime_add(walltimeprefix+"/Wait", timewait1);
+        walltime_add(walltimeprefix+"/Reduce", timecommsumm);
+        walltime_add(walltimeprefix+"/Misc", timeall - (timecomp + timewait1 + timecommsumm));
+
         int NTask;
         MPI_Comm_size(comm, &NTask);
-        int64_t o_NExportTargets;
-        int64_t o_minNinteractions, o_maxNinteractions, o_Ninteractions, o_Nlistprimary, Nexport;
-        MPI_Reduce(&minNinteractions, &o_minNinteractions, 1, MPI_INT64, MPI_MIN, 0, comm);
-        MPI_Reduce(&maxNinteractions, &o_maxNinteractions, 1, MPI_INT64, MPI_MAX, 0, comm);
-        MPI_Reduce(&Ninteractions, &o_Ninteractions, 1, MPI_INT64, MPI_SUM, 0, comm);
-        MPI_Reduce(&Nlistprimary, &o_Nlistprimary, 1, MPI_INT64, MPI_SUM, 0, comm);
+        int64_t o_NExportTargets, Nexport;
+        unsigned int o_minNinteractions, o_maxNinteractions;
+        MPI_Reduce(&minNinteractions, &o_minNinteractions, 1, MPI_UNSIGNED, MPI_MIN, 0, comm);
+        MPI_Reduce(&maxNinteractions, &o_maxNinteractions, 1, MPI_UNSIGNED, MPI_MAX, 0, comm);
         MPI_Reduce(&Nexport_sum, &Nexport, 1, MPI_INT64, MPI_SUM, 0, comm);
         MPI_Reduce(&NExportTargets, &o_NExportTargets, 1, MPI_INT64, MPI_SUM, 0, comm);
-        message(0, "%s: min %ld max %ld avg %g average exports: %g avg target ranks: %g\n", ev_label, o_minNinteractions, o_maxNinteractions,
-                (double) o_Ninteractions / o_Nlistprimary, ((double) Nexport)/ NTask, ((double) o_NExportTargets)/ NTask);
+        message(0, "%s: min %u max %u average exports: %g avg target ranks: %g\n",
+            ev_label, o_minNinteractions, o_maxNinteractions, ((double) Nexport)/ NTask, ((double) o_NExportTargets)/ NTask);
     }
 
 private:
-    /**
-    * Check if a particle should be processed in this tree walk.
-    * Override to filter particles based on type, flags, etc.
-    *
-    * @param i  Particle index
-    * @return true if the particle should be processed
-    */
-    bool haswork(const particle_data& part) { return true; }
-
-    /**
-    * Postprocess - finalize quantities after tree walk completes.
-    * Override to normalize results, compute derived quantities, etc.
-    *
-    * @param i Particle index
-    */
-    void postprocess(const int i, particle_data * const part) {}
-
     /* Main processing loop. Walks the toptree, exports and imports, then does primary and secondary eval.
         * The loop is there in case the export buffer fills up.
         */
-    void ev_process(const size_t BunchSize, particle_data * const parts, MPI_Comm comm)
+    void ev_process(int * WorkSet, const int64_t WorkSetSize, const size_t BunchSize, particle_data * const parts, MPI_Comm comm)
     {
         /* Number of times we filled up our export buffer*/
         int Nexportfull = 0;
@@ -455,7 +425,7 @@ private:
             if(Nexportfull > 0)
                 message(0, "Toptree %s, iter %d. First particle %ld size %ld.\n", ev_label, Nexportfull, WorkSetStart, WorkSetSize);
             /* First do the toptree and export particles for sending.*/
-            WorkSetStart = ev_toptree(parts, &exportlist, WorkSetStart);
+            WorkSetStart = static_cast<DerivedType *>(this)->ev_toptree(WorkSet, WorkSetStart, WorkSetSize, parts, &exportlist);
             /* All processes sync via alltoall.*/
             ImpExpCounts counts(comm, exportlist);
             NExportTargets = counts.NExportTargets;
@@ -471,7 +441,7 @@ private:
             /* Only do this on the first iteration, as we only need to do it once.*/
             tstart = second();
             if(Nexportfull == 0)
-                ev_primary(parts); /* do local particles and prepare export list */
+                static_cast<DerivedType *>(this)->ev_primary(WorkSet, WorkSetSize, parts); /* do local particles and prepare export list */
             tend = second();
             timecomp1 += timediff(tstart, tend);
             /* Do processing of received particles. We implement a queue that
@@ -481,7 +451,7 @@ private:
             CommBuffer res_exports(counts.NTask, 1);
             ev_recv_export_result(&res_exports, &counts);
             CommBuffer res_imports(counts.NTask, 1);
-            ev_secondary(&res_imports, &imports, &counts, parts);
+            static_cast<DerivedType *>(this)->ev_secondary(&res_imports, &imports, &counts, parts);
             // report_memory_usage(ev_label);
             // Want to explicitly free the databuf early for this one so we free memory early.
             myfree(imports.databuf);
@@ -506,9 +476,9 @@ private:
     }
 
     /* returns struct containing export counts */
-    void ev_primary(particle_data * const parts)
+    void ev_primary(int * WorkSet, const int64_t WorkSetSize, particle_data * const parts)
     {
-    #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions) reduction(+: Ninteractions)
+    #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions)
         {
             /* We must schedule dynamically so that we have reduced imbalance.
             * We do not need to worry about the export buffer filling up.*/
@@ -526,20 +496,18 @@ private:
                 /* Primary never uses node list */
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
                 ResultType result(input);
-                LocalTreeWalkType lv(tree, input);
+                LocalTreeWalkType lv(tree->Nodes, input);
                 int64_t ninteractions = lv.template visit<TREEWALK_PRIMARY>(input, &result, priv, parts);
                 result.template reduce<TREEWALK_PRIMARY>(i, output, parts);
                 if(maxNinteractions < ninteractions)
                     maxNinteractions = ninteractions;
                 if(minNinteractions > ninteractions)
                     minNinteractions = ninteractions;
-                Ninteractions += ninteractions;
             }
         }
-        Nlistprimary += WorkSetSize;
     }
 
-    int64_t ev_toptree(const particle_data * const parts, ExportMemory * const exportlist, const int64_t WorkSetStart)
+    int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, const particle_data * const parts, ExportMemory * const exportlist)
     {
         int64_t currentIndex = WorkSetStart;
         int BufferFullFlag = 0;
@@ -661,9 +629,9 @@ private:
                         #pragma omp for
                         for(j = 0; j < nimports_task; j++) {
                             QueryType * input = &((QueryType *) databufstart)[j];
-                            ResultType * output = new (&results[j]) ResultType(*input);
-                            LocalTreeWalkType lv(tree, *input);
-                            lv.template visit<TREEWALK_GHOSTS>(*input, output, priv, parts);
+                            ResultType * resoutput = new (&results[j]) ResultType(*input);
+                            LocalTreeWalkType lv(tree->Nodes, *input);
+                            lv.template visit<TREEWALK_GHOSTS>(*input, resoutput, priv, parts);
                         }
                     }
                 /* Send the completed data back*/
@@ -675,13 +643,6 @@ private:
         myfree(complete_array);
         MPI_Type_free(&type);
         return;
-    }
-
-    /* Cleans up and frees memory */
-    void ev_finish(void)
-    {
-        if(!work_set_stolen_from_active)
-            myfree(WorkSet);
     }
 
     /* Builds the list of exported particles and async sends the export queries. */
@@ -812,72 +773,74 @@ class LoopedTreeWalk: public TreeWalk<DerivedType, QueryType, ResultType, LocalT
     protected:
     using Base = TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType>;
     using Base::build_queue;
-    using Base::WorkSetSize;
-    using Base::WorkSet;
-    using Base::should_rebuild_queue;
-    using Base::run;
-    /* Redo counters and queues*/
-    size_t *NPLeft;
-    int **NPRedo;
-    size_t Redo_thread_alloc;
-    /* Max and min arrays for each iteration of the count*/
-    double * maxnumngb;
-    double * minnumngb;
+    using Base::run_on_queue;
+    using Base::output;
+    using Base::priv;
+    using Base::tree;
 
     public:
         using Base::TreeWalk;
-        /* Number of times the outer loop was run. */
-        int Niteration;
+        using Base::timecomp3;
+
+    /* Done in the loop */
+    void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const parts) {};
 
     /* This function does treewalk_run in a loop, allocating a queue to allow some particles to be redone.
     * This loop is used primarily in density estimation.*/
     void do_hsml_loop(int * queue, int64_t queuesize, const int update_hsml, particle_data * parts)
     {
-        int NumThreads = omp_get_max_threads();
-        maxnumngb = ta_malloc("numngb", double, NumThreads);
-        minnumngb = ta_malloc("numngb2", double, NumThreads);
+        double maxnumngb = 0;
+        double minnumngb = 1e60;
 
         /* Build the first queue */
         double tstart = second();
-        build_queue(queue, queuesize, 0, parts);
+        int * ReDoQueue = NULL;
+        int64_t size = build_queue(&ReDoQueue, queue, queuesize, parts);
         double tend = second();
-
-        /* Next call to treewalk_run will over-write these pointers*/
-        int64_t size = WorkSetSize;
-        int * ReDoQueue = WorkSet;
-        /* First queue is allocated low*/
-        int alloc_high = 0;
-        /* We don't need to redo the queue generation
-        * but need to keep track of allocated memory.*/
-        bool orig_build_queue = should_rebuild_queue;
-        should_rebuild_queue = false;
         this->timecomp3 += timediff(tstart, tend);
-        Niteration = 0;
+        /* Number of times the outer loop was run. */
+        int Niteration = 0;
         /* we will repeat the whole thing for those particles where we didn't find enough neighbours */
         do {
             /* The RedoQueue needs enough memory to store every workset particle on every thread, because
             * we cannot guarantee that the sph particles are evenly spread across threads!*/
             int * CurQueue = ReDoQueue;
-            int i;
-            for(i = 0; i < NumThreads; i++) {
-                maxnumngb[i] = 0;
-                minnumngb[i] = 1e50;
-            }
             /* The ReDoQueue swaps between high and low allocations so we can have two allocated alternately*/
-            if(!alloc_high)
-                alloc_high = 1;
-            else
-                alloc_high = 0;
-            gadget_thread_arrays loop = gadget_setup_thread_arrays("ReDoQueue", alloc_high, size);
-            NPRedo = loop.srcs;
-            NPLeft = loop.sizes;
-            Redo_thread_alloc = loop.total_size;
-            run(CurQueue, size, parts);
+            gadget_thread_arrays loop = gadget_setup_thread_arrays("ReDoQueue", 0, size);
+
+            run_on_queue(CurQueue, size, parts, MPI_COMM_WORLD);
+
+            tstart = second();
+            output->verbose = (Niteration >= MAXITER - 5);
+            /* Check which particles we need to repeat for. */
+            #pragma omp parallel for reduction(max: maxnumngb) reduction(min: minnumngb)
+            for(int i = 0; i < size; i ++) {
+                const int tid = omp_get_thread_num();
+                const int p_i = CurQueue ? CurQueue[i] : i;
+                if(maxnumngb < output->NumNgb[p_i])
+                    maxnumngb = output->NumNgb[p_i];
+                if(minnumngb > output->NumNgb[p_i])
+                    minnumngb = output->NumNgb[p_i];
+                int done = output->postprocess(p_i, parts, &priv);
+                if(!done) {
+                    /* More work needed: add this particle to the redo queue*/
+                    loop.srcs[tid][loop.sizes[tid]] = p_i;
+                    loop.sizes[tid] ++;
+                    if(loop.sizes[tid] > loop.total_size)
+                        endrun(5, "Particle %ld on thread %d exceeded allocated size of redo queue %ld\n", loop.sizes[tid], tid, loop.total_size);
+                }
+                /* If we are done repeating, update the hmax in the parent node,
+                * if that type is in the tree.*/
+                if(done && (tree->mask & (1<<parts[p_i].Type)))
+                    update_tree_hmax_father(tree, p_i, parts[p_i].Pos, parts[p_i].Hsml);
+            }
+            tend = second();
+            timecomp3 += timediff(tstart, tend);
+
             Niteration++;
 
             /* Now done with the current queue*/
-            if(orig_build_queue || Niteration > 1)
-                myfree(CurQueue);
+            myfree(CurQueue);
 
             size = gadget_compact_thread_arrays(&ReDoQueue, &loop);
             /* We can stop if we are not updating hsml or if we are done.*/
@@ -885,19 +848,11 @@ class LoopedTreeWalk: public TreeWalk<DerivedType, QueryType, ResultType, LocalT
                 myfree(ReDoQueue);
                 break;
             }
-            for(i = 1; i < NumThreads; i++) {
-                if(maxnumngb[0] < maxnumngb[i])
-                    maxnumngb[0] = maxnumngb[i];
-                if(minnumngb[0] > minnumngb[i])
-                    minnumngb[0] = minnumngb[i];
-            }
+
             double minngb, maxngb;
-            MPI_Reduce(&maxnumngb[0], &maxngb, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-            MPI_Reduce(&minnumngb[0], &minngb, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
+            MPI_Reduce(&maxnumngb, &maxngb, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+            MPI_Reduce(&minnumngb, &minngb, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
             message(0, "Max ngb=%g, min ngb=%g\n", maxngb, minngb);
-    #ifdef DEBUG
-            this->print_stats(MPI_COMM_WORLD);
-    #endif
 
             /*Shrink memory*/
             ReDoQueue = (int *) myrealloc(ReDoQueue, sizeof(int) * size);
@@ -912,8 +867,6 @@ class LoopedTreeWalk: public TreeWalk<DerivedType, QueryType, ResultType, LocalT
                 endrun(1155, "failed to converge density for %ld particles\n", size);
             }
         } while(1);
-        ta_free(minnumngb);
-        ta_free(maxnumngb);
     };
 };
 

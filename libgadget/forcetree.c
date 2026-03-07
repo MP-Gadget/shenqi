@@ -208,7 +208,7 @@ force_tree_build(int mask, DomainDecomp * ddecomp, const ActiveParticles *act, c
     {
         /* Allocate memory: note that because node numbers are passed around between ranks,
          * this has to be something which is the same on all ranks. */
-        tree = force_treeallocate(maxnodes, PartManager->MaxPart, ddecomp, alloc_father, 0);
+        tree = force_treeallocate(maxnodes, PartManager->MaxPart, ddecomp, alloc_father);
         tree.mask = mask;
         tree.BoxSize = PartManager->BoxSize;
         force_tree_create_nodes(&tree, act, mask, ddecomp);
@@ -696,7 +696,7 @@ ForceTree
 force_tree_top_build(DomainDecomp * ddecomp, const int alloc_high)
 {
     /* Allocate memory. Two extra for the first node and for a sentinel*/
-    ForceTree tree = force_treeallocate(ddecomp->NTopNodes+2, 0, ddecomp, 0, alloc_high);
+    ForceTree tree = force_treeallocate(ddecomp->NTopNodes+2, 0, ddecomp, 0);
     tree.mask = ALLMASK;
     tree.BoxSize = PartManager->BoxSize;
     // message(1, "Building toptree first %d last %d, topnodes %d\n", tree.firstnode, tree.lastnode, ddecomp->NTopNodes);
@@ -1371,7 +1371,7 @@ void force_update_hmax(ActiveParticles * act, ForceTree * tree, DomainDecomp * d
  *  maxnodes approximately equal to 0.7*maxpart is sufficient to store the
  *  tree for up to maxpart particles.
  */
-ForceTree force_treeallocate(const int64_t maxnodes, const int64_t maxpart, const DomainDecomp * ddecomp, const int alloc_father, const int alloc_high)
+ForceTree force_treeallocate(const int64_t maxnodes, const int64_t maxpart, const DomainDecomp * ddecomp, const int alloc_father)
 {
     ForceTree tb = {0};
 
@@ -1382,10 +1382,7 @@ ForceTree force_treeallocate(const int64_t maxnodes, const int64_t maxpart, cons
         memset(tb.Father, -1, maxpart * sizeof(int));
 #endif
     }
-    if(alloc_high)
-        tb.Nodes_base = (struct NODE *) mymalloc2("Nodes_base", (maxnodes + 1) * sizeof(struct NODE));
-    else
-        tb.Nodes_base = (struct NODE *) mymalloc("Nodes_base", (maxnodes + 1) * sizeof(struct NODE));
+    tb.Nodes_base = (struct NODE *) mymanagedmalloc("Nodes_base", (maxnodes + 1) * sizeof(struct NODE));
 #ifdef DEBUG
     memset(tb.Nodes_base, -1, (maxnodes + 1) * sizeof(struct NODE));
 #endif

@@ -55,13 +55,18 @@ GADGET_C_SRCS =  gdbtools.c hci.c\
 	 gravshort-tree.c gravshort-pair.c hydra.c timefac.c \
 	 gravpm.c powerspectrum.c \
 	 forcetree.c petapm.c gravity.c \
-	 densitykernel.c lightcone.c walltime.c\
+	 densitykernel.c lightcone.c \
 	 runtests.c neutrinos_lra.c omega_nu_single.c config.c uvbg.c \
 	 plane.c lenstools.c
 
-GADGET_CPP_SRCS = hydra2.cpp density2.cpp gravshort-tree2.cpp
+GADGET_CPP_SRCS = hydra2.cpp density2.cpp gravshort-tree2.cpp walltime.cpp
+GADGET_CUDA_SRCS = gravshortcuda.cu
 
+ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
+GADGET_OBJS := $(addsuffix .o,$(basename $(GADGET_C_SRCS))) $(addsuffix .o,$(basename $(GADGET_CPP_SRCS))) $(addsuffix .o,$(basename $(GADGET_CUDA_SRCS)))
+else
 GADGET_OBJS := $(addsuffix .o,$(basename $(GADGET_C_SRCS))) $(addsuffix .o,$(basename $(GADGET_CPP_SRCS)))
+endif
 
 GADGET_UTILS_OBJS= \
 utils/endrun.o \
@@ -72,7 +77,6 @@ utils/mpsort.o \
 utils/mymalloc.o \
 utils/system.o \
 utils/paramset.o \
-utils/event.o \
 utils/openmpsort.o \
 utils/unitsystem.o \
 utils/string.o \
