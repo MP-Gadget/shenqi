@@ -92,38 +92,9 @@ show_backtrace(void)
 
 static int ShowBacktrace;
 
-/* Saved SIGSEGV action from before we installed our handler.
- * On CUDA unified memory machines the CUDA UVM driver installs its own
- * SIGSEGV handler to transparently fix managed-memory page faults.  If we
- * simply overwrite that handler we intercept those faults ourselves and
- * MPI_Abort instead of letting CUDA resolve them.  By saving the old action
- * and chaining to it first we let the old handler run: if it can fix the
- * fault (UVM page fault) it returns normally and we return too, resuming
- * execution; if it cannot (real crash) it will abort/re-raise and we never
- * return. */
-static struct sigaction old_sigsegv_action;
-static int have_old_sigsegv_action = 0;
-
 static void
 OsSigHandler(int no, siginfo_t *info, void *context)
 {
-    /* For SIGSEGV, try the old handler first.  This gives CUDA UVM (or any
-     * other library) the chance to handle managed-memory page faults
-     * transparently.  If the old handler returns, the fault was resolved and
-     * we simply return too so execution resumes at the faulting instruction. */
-    if(no == SIGSEGV && have_old_sigsegv_action) {
-        if(old_sigsegv_action.sa_flags & SA_SIGINFO) {
-            if(old_sigsegv_action.sa_sigaction) {
-                old_sigsegv_action.sa_sigaction(no, info, context);
-                return;
-            }
-        } else if(old_sigsegv_action.sa_handler != SIG_DFL &&
-                  old_sigsegv_action.sa_handler != SIG_IGN) {
-            old_sigsegv_action.sa_handler(no);
-            return;
-        }
-    }
-
     const char btline[] = "Task %d Killed by Signal %d. Use eu-addr2line to get function names.\n";
     char linebuf[128];
     int ThisTask;
@@ -149,14 +120,15 @@ init_endrun(int backtrace)
 
     act.sa_sigaction = OsSigHandler;
     act.sa_flags = SA_SIGINFO;
-
-    int i;
-    for(i = 0; siglist[i] != 0; i++) {
-        sigaction(siglist[i], &act, &oact);
-        if(siglist[i] == SIGSEGV) {
-            old_sigsegv_action = oact;
-            have_old_sigsegv_action = 1;
-        }
+    /* Look for another SIGSEGV handler.
+     * If we have one, better to use it,
+     * maybe it prints a prettier backtrace. */
+    for(int i = 0; siglist[i] != 0; i++) {
+        sigaction(siglist[i], NULL, &oact);
+        if(oact.sa_flags & SA_SIGINFO && oact.sa_sigaction == NULL)
+            sigaction(siglist[i], &act, &oact);
+        else if(oact.sa_handler == SIG_IGN || oact.sa_handler == SIG_DFL)
+            sigaction(siglist[i], &act, &oact);
     }
 }
 
@@ -201,4 +173,3 @@ void message(int where, const char * fmt, ...)
     MPIU_Tracev(MPI_COMM_WORLD, where, 0, fmt, va);
     va_end(va);
 }
-
