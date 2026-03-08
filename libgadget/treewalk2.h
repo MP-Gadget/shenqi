@@ -609,7 +609,7 @@ private:
         }
     }
 
-    void ev_wait_secondary(CommBuffer * res_imports, CommBuffer * imports, ImpExpCounts* counts, const struct particle_data * const parts)
+    void ev_wait_secondary(CommBuffer * res_imports, CommBuffer * imports, ImpExpCounts* counts, struct particle_data * const parts)
     {
         res_imports->databuf = (char *) mymanagedmalloc("ImportResult", counts->Nimport * sizeof(ResultType));
 

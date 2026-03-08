@@ -60,7 +60,7 @@ void treewalk_secondary_kernel(
     particle_data * const parts,
     const NODE * const Nodes,
     ResultType * results,
-    const QueryType * imports,
+    QueryType * imports,
     const int64_t WorkSetSize,
     const ParamType * priv)
 {
@@ -71,7 +71,7 @@ void treewalk_secondary_kernel(
     QueryType * input = &(imports[tid]);
     ResultType * resoutput = new (&results[tid]) ResultType(*input);
     LocalTreeWalkType lv(Nodes, *input);
-    lv.template visit<TREEWALK_GHOSTS>(*input, resoutput, priv, parts);
+    lv.template visit<TREEWALK_GHOSTS>(*input, resoutput, *priv, parts);
 };
 
 template <typename ParamType, typename OutputType>
@@ -155,7 +155,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
     }
 
     /* Do the postprocessing on the GPU. This simply evaluates the postprocess function for every particle. */
-    void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const parts)
+    void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const particles)
     {
         const int threadsPerBlock = 256;
         const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
