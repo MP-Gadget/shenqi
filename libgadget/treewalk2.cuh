@@ -5,7 +5,6 @@
  *
  * Functions here are compiled as CUDA by nvcc, and launch __global__ kernels for the treewalk.
  * Functions here may not use global memory.
- * Functions here may not call endrun() or message().
  *
  * Note that the NVCC compiler DOES NOT support OpenMP! Because the functions here
  * are implemented as a compile-time template, any treewalk function using OpenMP
@@ -13,6 +12,9 @@
  *
  * Functions here should call cudaDeviceSynchronize() and check the return code for the kernel error status,
  * so that we are sure the result is available.
+ *
+ * Kernels may not call endrun() or message(), but the template treewalk functions should if there is a CUDA error.
+ * CUDA errors are generally not recoverable.
  */
 #include "treewalk2.h"
 
@@ -72,6 +74,24 @@ void treewalk_secondary_kernel(
     lv.template visit<TREEWALK_GHOSTS>(*input, resoutput, priv, parts);
 };
 
+template <typename ParamType, typename OutputType>
+__global__
+void treewalk_postprocess_kernel(
+    // The memory here should be allocated cudaManagedMalloc
+    particle_data * const parts,
+    const int * WorkSet,
+    const int64_t WorkSetSize,
+    const ParamType * priv,
+    OutputType * output)
+{
+    int64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= WorkSetSize)
+        return;
+
+    const int p_i = WorkSet ? WorkSet[tid] : tid;
+    output->postprocess(p_i, parts, priv);
+}
+
 template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType>
 class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType>
 {
@@ -96,8 +116,8 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         cudaMemcpy(d_minNinteractions, &minNinteractions, sizeof(unsigned int), cudaMemcpyHostToDevice);
 
         // workset is NULL at a PM step
-        int threadsPerBlock = 256;
-        int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
+        const int threadsPerBlock = 256;
+        const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
         /* All arrays need to be managed malloc or device:
          * particles, tree nodes,
          * WorkSet, counters (device)
@@ -123,17 +143,27 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
      * */
     void ev_secondary(ResultType * results, QueryType * imports, const int64_t WorkSetSize, struct particle_data * const particles)
     {
-        int threadsPerBlock = 256;
-        int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
+        const int threadsPerBlock = 256;
+        const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
         /* All arrays need to be managed malloc or device:
          * priv and output should be heap-allocated as placement-new pointers in managed memory */
         treewalk_secondary_kernel<QueryType, ResultType, LocalTreeWalkType, ParamType, OutputType>
         <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, results, imports, WorkSetSize, &priv);
         cudaError_t status = cudaDeviceSynchronize();
-        if (status != cudaSuccess) {
-            // Error handling
+        if (status != cudaSuccess)
             endrun(5, "ev_secondary kernel failed: %s\n", cudaGetErrorString(status));
-        }
+    }
+
+    /* Do the postprocessing on the GPU. This simply evaluates the postprocess function for every particle. */
+    void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const parts)
+    {
+        const int threadsPerBlock = 256;
+        const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
+        treewalk_postprocess_kernel<ParamType, OutputType>
+        <<<blocks, threadsPerBlock>>>(particles, WorkSet, WorkSetSize, &priv, output);
+        cudaError_t status = cudaDeviceSynchronize();
+        if (status != cudaSuccess)
+            endrun(5, "ev_postprocess kernel failed: %s\n", cudaGetErrorString(status));
     }
 };
 
