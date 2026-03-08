@@ -1,11 +1,8 @@
-#include <stdlib.h>
-#include <mpi.h>
-#include <string.h>
-#include <stdio.h>
 #include "walltime.h"
+#include <mpi.h>
+#include <format>
 
 #include "utils/mymalloc.h"
-#include "utils/openmpsort.h"
 
 static struct ClockTable * CT = NULL;
 
@@ -147,11 +144,12 @@ void walltime_reset() {
 }
 
 double walltime_measure_full(const std::string& name, const char * file, const int line) {
-    char fullname[128] = {0};
-    const char * basename = file + strlen(file);
-    while(basename >= file && *basename != '/') basename --;
-    basename ++;
-    snprintf(fullname, 128, "%s@%s:%04d", name.c_str(), basename, line);
+    std::string filename(file);
+    auto pos = filename.find_last_of('/');
+    auto basename = filename;
+    if(pos != std::string::npos)
+        basename = filename.substr(pos+1);
+    std::string fullname = std::format("{}@{}:{:04d}", name, basename, line);
 
     double t = seconds();
     double dt = t - WallTimeClock;
@@ -165,11 +163,12 @@ double walltime_measure_full(const std::string& name, const char * file, const i
 }
 
 double walltime_add_full(const std::string& name, const double dt, const char * file, const int line) {
-    char fullname[128] = {0};
-    const char * basename = file + strlen(file);
-    while(basename >= file && *basename != '/') basename --;
-    basename ++;
-    snprintf(fullname, 128, "%s@%s:%04d", name.c_str(), basename, line);
+    std::string filename(file);
+    auto pos = filename.find_last_of('/');
+    auto basename = filename;
+    if(pos != std::string::npos)
+        basename = filename.substr(pos+1);
+    std::string fullname = std::format("{}@{}:{:04d}", name, basename, line);
     if(!CT->C.contains(fullname))
             walltime_clock_insert(fullname);
     CT->C[fullname].time += dt;
