@@ -1,6 +1,33 @@
 #ifndef _LOCALEVALUATOR_H_
 #define _LOCALEVALUATOR_H_
-
+/* This header file contains the base classes for the treewalk.
+ * Each class should be subclassed in each user of the treewalk, so that, for example,
+ * GravTreeQuery derives from QueryBase.
+ *
+ * Everything here will be constructed and evaluated in the context of a single thread.
+ * The thread may be in OpenMP, for the CPU evaluator, or on GPU, for the CUDA evaluator.
+ * This imposes several restrictions:
+ * - Nothing here may refer to global memory, as this is a data race on OpenMP and a segfault on GPU.
+ * - GPU code may not call __host__ functions. This includes endrun and message.
+ * Any uses of these functions here should be guarded by ifdef __CUDACC__
+ * (the exception is the validate_tree() method), which is declared static, and used for checking on the host.
+ * - Nothing here should call into MPI, as the GPU compiler is not an MPI compiler.
+ *
+ * Specific classes:
+ * - ParamType: This contains input parameters of the treewalk, and should not be changed by the treewalk.
+ * It should be a heap pointer so it can be copied to GPU.
+ * - OutputType: The contains the output arrays, for example the accelerations.
+ * - QueryType: This is the information needed for the particle that is walking the tree.
+ * This data is also sent by the MPI_ISend to other processors.
+ * - ResultType: Contains the information coming from a treewalk. This is received from other processes.
+ *
+ * LocalTreeWalk: these are functions for evaluating QueryType and ResultType.
+ * The main function is visit() which contains the main loop for walking the tree.
+ * In practice there are only two classes of LocalTreeWalk: the Gravity tree and the neighbour tree.
+ * Everything apart from gravity is a neighbour tree,
+ * LocalTopTreeType: This is as the LocalTreeWalk, but for the toptree, since there are a bunch of different
+ * variables needed only for this. The toptree is not yet on GPU and so may use endrun.
+ * */
 #include <stdint.h>
 #include <omp.h>
 #include "utils/endrun.h"
@@ -384,10 +411,8 @@ public:
                     continue;
                 }
                 else if(current->f.ChildType == PSEUDO_NODE_TYPE) {
-                    /* pseudo particle */
-                    if constexpr(mode == TREEWALK_GHOSTS)
-                        endrun(12312, "Secondary for particle from node %d found pseudo at %d.\n", input.NodeList[inode], no);
-                    /* This has already been evaluated with the toptree. Move sideways.*/
+                    /* pseudo particle: this has already been evaluated with the toptree.
+                     * Move sideways.*/
                     no = current->sibling;
                     continue;
                 }
@@ -534,14 +559,9 @@ protected:
                 continue;
             }
             else if(current->f.ChildType == PSEUDO_NODE_TYPE) {
-                /* pseudo particle */
-                if constexpr(mode == TREEWALK_GHOSTS) {
-                    endrun(12312, "Secondary for nodelist %d found pseudo at %d.\n", startnode, no);
-                } else {
-                    /* This has already been evaluated with the toptree. Move sideways.*/
-                    no = current->sibling;
-                    continue;
-                }
+                /* pseudo particle: this has already been evaluated with the toptree. Move sideways.*/
+                no = current->sibling;
+                continue;
             }
             /* ok, we need to open the node */
             no = current->s.suns[0];
