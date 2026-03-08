@@ -598,7 +598,7 @@ private:
      * - nimports_task: size of the query and result arrays.
      *
     Takes the data within imports, which should be a pointer to nimports_task values */
-    void ev_secondary(ResultType * results, QueryType * imports, const int64_t nimports_task, const struct particle_data * const parts)
+    void ev_secondary(ResultType * results, QueryType * imports, const int64_t nimports_task, struct particle_data * const parts)
     {
         #pragma omp parallel for
         for(int64_t j = 0; j < nimports_task; j++) {
