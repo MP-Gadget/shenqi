@@ -17,8 +17,6 @@
 #include "utils/mymalloc.h"
 #include "utils/string.h"
 
-char * GDB_format_particle(int i);
-
 SIMPLE_GETTER(GTGravAccel, FullTreeGravAccel[0], float, 3, struct particle_data)
 SIMPLE_GETTER(GTGravPM, GravPM[0], float, 3, struct particle_data)
 
@@ -257,7 +255,6 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
     grav_short_pair(&Act, pm, &Tree, treeacc.Rcut, rho0);
 
     copy_and_mean_accn(PairAccn);
-    message(0, "GravShort Pairs %s\n", GDB_format_particle(0));
     char * fname = fastpm_strdup_printf("%s/PART-pairs-%03d", OutputDir, RestartSnapNum);
 
     petaio_save_snapshot(fname, &IOTable, 0, header->TimeSnapshot, CP);
@@ -275,7 +272,6 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
     if(maxerr > 0.1)
         endrun(2, "Fully open tree force does not agree with pairwise calculation! maxerr %g > 0.1!\n", maxerr);
 
-    message(0, "GravShort Tree %s\n", GDB_format_particle(0));
     fname = fastpm_strdup_printf("%s/PART-tree-open-%03d", OutputDir, RestartSnapNum);
     petaio_save_snapshot(fname, &IOTable, 0, header->TimeSnapshot, CP);
 

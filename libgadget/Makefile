@@ -42,7 +42,7 @@ include ../Makefile.version
 # make V=1 to see the command line
 #
 
-GADGET_C_SRCS =  gdbtools.c hci.c\
+GADGET_C_SRCS =  hci.c\
 	 fof.c fofpetaio.c petaio.c \
 	 domain.c exchange.c slotsmanager.c partmanager.c \
 	 blackhole.c bhinfo.c bhdynfric.c \
