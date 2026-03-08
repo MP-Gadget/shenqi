@@ -300,19 +300,19 @@ public:
         /* Main loop that tries to walk toptree, then do primary and secondary evals. */
         ev_process(WorkSet, WorkSetSize, BunchSize, parts, comm);
 
+        double tstart = second();
         static_cast<DerivedType *>(this)->ev_postprocess(WorkSet, WorkSetSize, parts);
+        double tend = second();
+        timecomp3 += timediff(tstart, tend);
     }
 
     void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const parts)
     {
-        double tstart = second();
         #pragma omp parallel for
         for(int i = 0; i < WorkSetSize; i ++) {
             const int p_i = WorkSet ? WorkSet[i] : i;
             output->postprocess(p_i, parts, &priv);
         }
-        double tend = second();
-        timecomp3 += timediff(tstart, tend);
     }
 
     /* Build the queue by calling the haswork function on each particle in the active_set.
