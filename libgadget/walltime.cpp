@@ -1,6 +1,6 @@
 #include "walltime.h"
 #include <mpi.h>
-#include <format>
+#include <cstdio>
 
 #include "utils/mymalloc.h"
 
@@ -143,14 +143,23 @@ void walltime_reset() {
     WallTimeClock = seconds();
 }
 
-double walltime_measure_full(const std::string& name, const char * file, const int line) {
+static std::string walltime_get_fullname(const std::string& name, const char * file, const int line) {
     std::string filename(file);
     auto pos = filename.find_last_of('/');
     auto basename = filename;
     if(pos != std::string::npos)
         basename = filename.substr(pos+1);
-    std::string fullname = std::format("{}@{}:{:04d}", name, basename, line);
+    /* Print the integer to a char string */
+    char buf[10];
+    snprintf(buf, sizeof(buf), "%04d", line);
+    std::string fullname = name + "@" + basename + ":" + std::string(buf);
+    // This is not portable to nvcc.
+    // std::string fullname = std::format("{}@{}:{:04d}", name, basename, line);
+    return fullname;
+}
 
+double walltime_measure_full(const std::string& name, const char * file, const int line) {
+    auto fullname = walltime_get_fullname(name, file, line);
     double t = seconds();
     double dt = t - WallTimeClock;
     WallTimeClock = seconds();
@@ -163,12 +172,7 @@ double walltime_measure_full(const std::string& name, const char * file, const i
 }
 
 double walltime_add_full(const std::string& name, const double dt, const char * file, const int line) {
-    std::string filename(file);
-    auto pos = filename.find_last_of('/');
-    auto basename = filename;
-    if(pos != std::string::npos)
-        basename = filename.substr(pos+1);
-    std::string fullname = std::format("{}@{}:{:04d}", name, basename, line);
+    auto fullname = walltime_get_fullname(name, file, line);
     if(!CT->C.contains(fullname))
             walltime_clock_insert(fullname);
     CT->C[fullname].time += dt;
