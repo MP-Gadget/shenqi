@@ -1,6 +1,19 @@
 #ifndef TREEWALK2_CUH
 #define TREEWALK2_CUH
-
+/* This file contains the GPU specialisations for the treewalk, and launches the CUDA kernels.
+ * The template parameter types are specialisations of the functions in localtreewalk2.h.
+ *
+ * Functions here are compiled as CUDA by nvcc, and launch __global__ kernels for the treewalk.
+ * Functions here may not use global memory.
+ * Functions here may not call endrun() or message().
+ *
+ * Note that the NVCC compiler DOES NOT support OpenMP! Because the functions here
+ * are implemented as a compile-time template, any treewalk function using OpenMP
+ * and not over-ridden will not be parallelized.
+ *
+ * Functions here should call cudaDeviceSynchronize() and check the return code for the kernel error status,
+ * so that we are sure the result is available.
+ */
 #include "treewalk2.h"
 
 #include <cuda_runtime.h>           // For CUDA runtime API functions.
