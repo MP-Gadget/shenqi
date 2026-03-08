@@ -611,7 +611,7 @@ private:
 
     void ev_wait_secondary(CommBuffer * res_imports, CommBuffer * imports, ImpExpCounts* counts, const struct particle_data * const parts)
     {
-        res_imports->databuf = (char *) mymalloc2("ImportResult", counts->Nimport * sizeof(ResultType));
+        res_imports->databuf = (char *) mymanagedmalloc("ImportResult", counts->Nimport * sizeof(ResultType));
 
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(ResultType), MPI_BYTE, &type);
@@ -657,7 +657,7 @@ private:
     void ev_send_recv_export_import(const ImpExpCounts * const counts, const ExportMemory * const exportlist, CommBuffer * exports, CommBuffer * imports, const particle_data * const parts)
     {
         exports->databuf = (char *) mymalloc("ExportQuery", counts->Nexport * sizeof(QueryType));
-        imports->databuf = (char *) mymalloc("ImportQuery", counts->Nimport * sizeof(QueryType));
+        imports->databuf = (char *) mymanagedmalloc("ImportQuery", counts->Nimport * sizeof(QueryType));
 
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(QueryType), MPI_BYTE, &type);
