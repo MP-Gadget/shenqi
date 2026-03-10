@@ -195,7 +195,7 @@ public:
      * @param output Result accumulator
      * @return 0 on success, -1 if export buffer is full
      */
-    int toptree_visit(const int target, const QueryType& input, const ParamType& priv, const struct particle_data * const parts)
+    int toptree_visit(const int target, const QueryType& input, const ParamType& priv)
     {
         //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
         /* Reset the number of exported particles.*/

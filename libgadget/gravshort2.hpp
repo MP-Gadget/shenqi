@@ -362,7 +362,7 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
     public:
     /*! Find exports. The tricky part of this routine is that tree nodes that would normally be discarded without opening must not be exported.
      */
-    int toptree_visit(const int target, const GravTreeQuery& input, const GravTreeParams& priv, const struct particle_data * const parts)
+    int toptree_visit(const int target, const GravTreeQuery& input, const GravTreeParams& priv)
     {
         //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
         /* Reset the exported particles for this target. */

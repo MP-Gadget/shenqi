@@ -556,7 +556,7 @@ private:
                     const int i = WorkSet ? WorkSet[k] : k;
                     /* Toptree never uses node list */
                     QueryType input(parts[i], NULL, tree->firstnode, priv);
-                    const int rt = lv.toptree_visit(i, input, priv, parts);
+                    const int rt = lv.toptree_visit(i, input, priv);
                     /* If we filled up, we need to save the partially evaluated chunk, and leave this loop.*/
                     if(rt < 0) {
                         //message(5, "Export buffer full for particle %d chnk: %ld -> %ld on thread %d with %ld exports\n", i, chnk, end, tid, lv->NThisParticleExport);
