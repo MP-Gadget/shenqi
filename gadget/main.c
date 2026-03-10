@@ -74,13 +74,11 @@ int main(int argc, char **argv)
     }
 #ifdef USE_CUDA
     /* Force CUDA context initialisation (and UVM virtual-address reservation)
-     * before any host posix_memalign call.  On AArch64 unified-memory systems
-     * (Grace-Hopper) the UVM driver reserves its address range with
-     * mmap(MAP_FIXED,...), which silently unmaps any pre-existing anonymous
-     * mapping at the same addresses.  tamalloc_init and mymalloc_init both
-     * call posix_memalign; if CUDA claims that range afterwards the allocator
-     * pools are destroyed, leading to segfaults on the next access. */
-    cudaFree(0);
+     * before any host posix_memalign call. This does nothing, but it ensures the address range is available
+     * and allows us to check for CUDA working.*/
+    cuda_error_t err = cudaFree(0);
+    if(err != cudaSuccess)
+        message(0, "CUDA calls fail: %s\n", cudaGetErrorString(err));
 #endif
     tamalloc_init();
 
