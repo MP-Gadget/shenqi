@@ -345,9 +345,6 @@ public:
                 /*Use raw particle number if active_set is null, otherwise use active_set*/
                 const int p_i = active_set ? active_set[i] : (int) i;
                 const particle_data& pp = Parts[p_i];
-                /* Skip the garbage /swallowed particles */
-                if(pp.IsGarbage || pp.Swallowed)
-                    continue;
 
                 if(!QueryType::haswork(pp))
                     continue;

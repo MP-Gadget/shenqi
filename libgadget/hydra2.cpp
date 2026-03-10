@@ -190,6 +190,8 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
 
     static MYCUDAFN bool haswork(const particle_data& particle)
     {
+        if(!TreeWalkQueryBase::haswork(particle))
+            return false;
         return particle.Type == 0;
     };
 };

@@ -363,11 +363,11 @@ class DensityQuery : public TreeWalkQueryBase<DensityPriv>
         static MYCUDAFN bool haswork(const particle_data& particle)
         {
             /* Don't want a density for swallowed black hole particles*/
-            if(particle.Swallowed || particle.IsGarbage)
-                return 0;
+            if(!TreeWalkQueryBase::haswork(particle))
+                return false;
             if(particle.Type == 0 || particle.Type == 5)
-                return 1;
-            return 0;
+                return true;
+            return false;
         };
 };
 

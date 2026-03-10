@@ -74,13 +74,19 @@ template <typename ParamType=ParamTypeBase> class TreeWalkQueryBase
     #endif
 
     /**
-    * Check if a particle should be processed in this tree walk.
-    * Override to filter particles based on type, flags, etc.
+    * Check if a particle should be processed in this tree walk. Excludes garbage
+    * or swallowed particles.
+    * Child classes should subclass this to filter particles based on type or flags.
+    * Subclasses must call the parent class function to ensure garbage is filtered!
     *
     * @param i  Particle index
     * @return true if the particle should be processed
     */
-    static MYCUDAFN bool haswork(const particle_data& part) { return true; }
+    static MYCUDAFN bool haswork(const particle_data& part) {
+        if(part.IsGarbage || part.Swallowed)
+            return false;
+        return true;
+    }
 
     /* Constructor:
     * particle_data: particle that is walking the tree.
