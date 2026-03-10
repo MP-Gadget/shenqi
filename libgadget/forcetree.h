@@ -173,13 +173,10 @@ void
 force_tree_create_nodes(ForceTree * tree, const ActiveParticles * act, int mask, DomainDecomp * ddecomp);
 
 ForceTree
-force_treeallocate(const int64_t maxnodes, const int64_t maxpart, const DomainDecomp * ddecomp, const int alloc_father, const int alloc_high);
+force_treeallocate(const int64_t maxnodes, const int64_t maxpart, const DomainDecomp * ddecomp, const int alloc_father);
 
 void
 force_update_node_parallel(const ForceTree * tree, const DomainDecomp * ddecomp);
 
 
 #endif
-
-
-

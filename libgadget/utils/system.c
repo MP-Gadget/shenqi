@@ -532,6 +532,34 @@ MPIU_write_pids(char * filename)
     myfree(pids);
 }
 
+
+size_t
+gadget_compact_thread_arrays_managed(int ** dest, const char * name, gadget_thread_arrays * arrays)
+{
+    int i;
+    size_t asize = 0;
+    size_t * offsets = ta_malloc("tmp", size_t, arrays->narrays);
+    for(i = 0; i < arrays->narrays; i++)
+    {
+        offsets[i] = asize;
+        asize += arrays->sizes[i];
+    }
+    /* Allocate the destination array as managed memory. */
+    int * destarr = (int *) mymanagedmalloc(name, sizeof(int) * asize);
+
+    #pragma omp parallel for
+    for(i = 0; i < arrays->narrays; i++)
+        memmove(destarr + offsets[i], arrays->srcs[i], sizeof(int) * arrays->sizes[i]);
+    ta_free(offsets);
+    /* Also frees arrays->dest */
+    for(i = arrays->narrays-1; i >= 0; i--)
+        myfree(arrays->srcs[i]);
+    ta_free(arrays->srcs);
+    ta_free(arrays->sizes);
+    *dest = destarr;
+    return asize;
+}
+
 size_t gadget_compact_thread_arrays(int ** dest, gadget_thread_arrays * arrays)
 {
     int i;
@@ -554,6 +582,7 @@ size_t gadget_compact_thread_arrays(int ** dest, gadget_thread_arrays * arrays)
     *dest = arrays->dest;
     return asize;
 }
+
 
 gadget_thread_arrays gadget_setup_thread_arrays(const char * destname, const int alloc_high, const size_t total_size)
 {

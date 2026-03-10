@@ -5,6 +5,9 @@
 #include <unistd.h>
 #include <math.h>
 #include <omp.h>
+#ifdef USE_CUDA
+#include <cuda_runtime.h>
+#endif
 
 #include <libgadget/slotsmanager.h>
 #include <libgadget/partmanager.h>
@@ -13,8 +16,7 @@
 #include <libgadget/checkpoint.h>
 #include <libgadget/config.h>
 #include <libgadget/forcetree.c>
-
-#include <libgadget/utils.h>
+#include <libgadget/utils/endrun.h>
 
 #include "params.h"
 
@@ -70,6 +72,14 @@ int main(int argc, char **argv)
         struct rlimit rlim = {0};
         setrlimit(RLIMIT_CORE, &rlim);
     }
+#ifdef USE_CUDA
+    /* Force CUDA context initialisation (and UVM virtual-address reservation)
+     * before any host posix_memalign call. This does nothing, but it ensures the address range is available
+     * and allows us to check for CUDA working.*/
+    cuda_error_t err = cudaFree(0);
+    if(err != cudaSuccess)
+        message(0, "CUDA calls fail: %s\n", cudaGetErrorString(err));
+#endif
     tamalloc_init();
 
     int ShowBacktrace;

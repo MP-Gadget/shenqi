@@ -93,7 +93,7 @@ show_backtrace(void)
 static int ShowBacktrace;
 
 static void
-OsSigHandler(int no)
+OsSigHandler(int no, siginfo_t *info, void *context)
 {
     const char btline[] = "Task %d Killed by Signal %d. Use eu-addr2line to get function names.\n";
     char linebuf[128];
@@ -118,12 +118,17 @@ init_endrun(int backtrace)
     int siglist[] = { SIGSEGV, SIGQUIT, SIGILL, SIGFPE, SIGBUS, 0};
     sigemptyset(&act.sa_mask);
 
-    act.sa_handler = OsSigHandler;
-    act.sa_flags = 0;
-
-    int i;
-    for(i = 0; siglist[i] != 0; i ++) {
-        sigaction(siglist[i], &act, &oact);
+    act.sa_sigaction = OsSigHandler;
+    act.sa_flags = SA_SIGINFO;
+    /* Look for another SIGSEGV handler.
+     * If we have one, better to use it,
+     * maybe it prints a prettier backtrace. */
+    for(int i = 0; siglist[i] != 0; i++) {
+        sigaction(siglist[i], NULL, &oact);
+        if(oact.sa_flags & SA_SIGINFO && oact.sa_sigaction == NULL)
+            sigaction(siglist[i], &act, &oact);
+        else if(oact.sa_handler == SIG_IGN || oact.sa_handler == SIG_DFL)
+            sigaction(siglist[i], &act, &oact);
     }
 }
 
@@ -168,4 +173,3 @@ void message(int where, const char * fmt, ...)
     MPIU_Tracev(MPI_COMM_WORLD, where, 0, fmt, va);
     va_end(va);
 }
-

@@ -12,10 +12,6 @@ struct slots_manager_type SlotsManager[1];
 
 #define SLOTS_ENABLED(ptype, sman) (sman->info[ptype].enabled)
 
-static struct sph_particle_data * GDB_SphP;
-static struct star_particle_data * GDB_StarP;
-static struct bh_particle_data * GDB_BhP;
-
 static int
 slots_gc_base(struct part_manager_type * pman);
 
@@ -573,9 +569,6 @@ slots_reserve(int where, int64_t atleast[6], struct slots_manager_type * sman)
         sman->info[ptype].ptr = newSlotsBase + offsets[ptype];
         sman->info[ptype].maxsize = newMaxSlots[ptype];
     }
-    GDB_SphP = (struct sph_particle_data *) sman->info[0].ptr;
-    GDB_StarP = (struct star_particle_data *) sman->info[4].ptr;
-    GDB_BhP = (struct bh_particle_data *) sman->info[5].ptr;
     return total_bytes;
 }
 

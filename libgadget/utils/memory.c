@@ -473,8 +473,19 @@ allocator_alloc_va_malloc(Allocator * alloc, const char * name, const size_t req
     }
 #ifdef USE_CUDA
     else if(header->device == MANAGEDMEM) {
-        if(cudaMallocManaged((void **) &cptr, request_size + ALIGNMENT, cudaMemAttachGlobal) != cudaSuccess)
+        cudaError_t memerr = cudaMallocManaged((void **) &cptr, request_size + ALIGNMENT, cudaMemAttachGlobal);
+        if(memerr == cudaErrorMemoryAllocation || memerr == cudaErrorInvalidValue)
             endrun(1, "Failed managed malloc: %lu bytes for %s\n", request_size, header->name);
+        else if(memerr != cudaSuccess) {
+            /* Likely this is because we are running on a system without an actual GPU.
+             * In this case continue with regular posix memory so that we can do development
+             * and run the tests on such a machine.*/
+            message(0, "CUDA malloc error: %s: %s\n",  cudaGetErrorName(memerr), cudaGetErrorString(memerr));
+            if(posix_memalign((void **) &cptr, ALIGNMENT, request_size + ALIGNMENT))
+                endrun(1, "Failed malloc: %lu bytes for %s\n", request_size, header->name);
+            /* Make clear this is now host memory*/
+            header->device = HOSTMEM;
+        }
     }
 #else
     else if(header->device == MANAGEDMEM) {
@@ -525,9 +536,18 @@ allocator_realloc_int_malloc(Allocator * alloc, void * ptr, const size_t new_siz
         #ifdef DEBUG
         message(0, "Realloc managed memory (%s : %s) is expensive, consider avoiding it\n", header->name, header->annotation);
         #endif
-        if (cudaMallocManaged(&header2, new_size + ALIGNMENT, cudaMemAttachGlobal) != cudaSuccess) {
-            endrun(1, "Failed to allocate %lu bytes for %s\n", new_size, header->name);
+        cudaError_t memerr = cudaMallocManaged(&header2, new_size + ALIGNMENT, cudaMemAttachGlobal);
+        if(memerr == cudaErrorMemoryAllocation || memerr == cudaErrorInvalidValue)
+            endrun(1, "Failed managed malloc: %lu bytes for %s\n", new_size+ALIGNMENT, header->name);
+        else if(memerr != cudaSuccess) {
+            /* Likely this is because we are running on a system without an actual GPU.
+             * In this case continue with regular posix memory so that we can do development
+             * and run the tests on such a machine.*/
+            message(0, "CUDA malloc error: %s: %s\n",  cudaGetErrorName(memerr), cudaGetErrorString(memerr));
+            if(posix_memalign((void **) &header2, ALIGNMENT, new_size + ALIGNMENT))
+                endrun(1, "Failed malloc: %lu bytes for %s\n", new_size, header->name);
         }
+
         // Copy old data to the new block (don't forget the header)
         memcpy(header2, header, ALIGNMENT + (new_size < header->request_size ? new_size : header->request_size));
         // Free the old block

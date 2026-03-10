@@ -15,7 +15,7 @@ jobs:
       OMP_NUM_THREADS: 2
     defaults:
       run:
-        shell: bash -l {0}
+        shell: bash -elo pipefail {0}
     steps:
 
     - name: Checkout source code
@@ -62,7 +62,7 @@ jobs:
         #python3 ../../tools/make_class_power.py paramfile.genic --extraz 4 3
         mpirun -np 2 ../../genic/MP-GenIC paramfile.genic
         mpirun -np 2 ../../gadget/MP-Gadget paramfile.gadget
-        mpirun -np 2 ../../gadget/MP-Gadget paramfile.gadget 3 2 # Check FOF mode works
+        mpirun -np 2 ../../gadget/MP-Gadget paramfile.gadget 3 2 # check fof mode works
         python check_results.py
     - name: examples/star-small
       run: |

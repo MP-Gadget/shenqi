@@ -93,7 +93,7 @@ class HydroPriv : public ParamTypeBase {
     double fac_mu;
     double fac_vsic_fix;
     double hubble_a2;
-    DriftKickTimes * times;
+    DriftKickTimes times;
     double * PressurePred;
     KickFactorData kf;
     double drifts[TIMEBINS+1];
@@ -101,7 +101,7 @@ class HydroPriv : public ParamTypeBase {
     HydroPriv(const double BoxSize, MyFloat * i_EntVarPred, const double i_atime, DriftKickTimes * const i_times, Cosmology * CP) :
     ParamTypeBase(BoxSize), atime(i_atime), hubble(hubble_function(CP, atime)),
     EntVarPred(i_EntVarPred), fac_mu(pow(atime, 3 * (GAMMA - 1) / 2) / atime), fac_vsic_fix(hubble * pow(atime, 3 * GAMMA_MINUS1)),
-    hubble_a2(hubble * atime * atime), times(i_times), kf(i_times, CP)
+    hubble_a2(hubble * atime * atime), times(*i_times), kf(i_times, CP)
     {
         /* Cache the pressure for speed*/
         PressurePred = NULL;
@@ -109,7 +109,7 @@ class HydroPriv : public ParamTypeBase {
         * For very small numbers of particles the memset is more expensive than just doing the exponential math,
         * so we don't pre-compute at all.*/
         if(EntVarPred) {
-            PressurePred = (double *) mymalloc("PressurePred", SlotsManager->info[0].size * sizeof(double));
+            PressurePred = (double *) mymanagedmalloc("PressurePred", SlotsManager->info[0].size * sizeof(double));
             /* Do it in slot order for memory locality*/
             #pragma omp parallel for
             for(int i = 0; i < SlotsManager->info[0].size; i++) {
@@ -123,12 +123,12 @@ class HydroPriv : public ParamTypeBase {
         /* Initialize some time factors*/
         memset(drifts, 0, sizeof(drifts[0])*(TIMEBINS+1));
         #pragma omp parallel for
-        for(int i = times->mintimebin; i <= TIMEBINS; i++)
+        for(int i = times.mintimebin; i <= TIMEBINS; i++)
         {
             /* For density: last active drift time is Ti_kick - 1/2 timestep as the kick time is half a timestep ahead.
             * For active particles no density drift is needed.*/
-            if(!is_timebin_active(i, times->Ti_Current))
-                drifts[i] = get_exact_drift_factor(CP, times->Ti_lastactivedrift[i], times->Ti_Current);
+            if(!is_timebin_active(i, times.Ti_Current))
+                drifts[i] = get_exact_drift_factor(CP, times.Ti_lastactivedrift[i], times.Ti_Current);
         }
     }
     ~HydroPriv()
@@ -138,7 +138,19 @@ class HydroPriv : public ParamTypeBase {
     }
 };
 
-class HydroOutput {};
+class HydroOutput {
+    public:
+    MYCUDAFN void postprocess(const int i, struct particle_data * const parts, const HydroPriv * priv)
+    {
+        if(parts[i].Type != 0)
+            return;
+        /* Translate energy change rate into entropy change rate */
+        SphP[parts[i].PI].DtEntropy *= GAMMA_MINUS1 / (priv->hubble_a2 * pow(SphP[parts[i].PI].Density, GAMMA_MINUS1));
+        /* if we have winds, we decouple particles briefly if delaytime>0 */
+        if(winds_is_particle_decoupled(i))
+            winds_decoupled_hydro(i, priv->atime);
+    }
+};
 
 class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     public:
@@ -156,13 +168,13 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     MYCUDAFN HydroQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const HydroPriv& priv):
     TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), EgyRho(SphP[particle.PI].EgyWtDensity),
     Hsml(particle.Hsml), Mass(particle.Mass), Density(SphP[particle.PI].Density), SPH_DhsmlDensityFactor(SphP[particle.PI].DhsmlEgyDensityFactor),
-    dloga(get_dloga_for_bin(particle.TimeBinHydro, priv.times->Ti_Current))
+    dloga(get_dloga_for_bin(particle.TimeBinHydro, priv.times.Ti_Current))
     {
         priv.kf.SPH_VelPred(particle, Vel);
         if(priv.EntVarPred)
             EntVarPred = priv.EntVarPred[particle.PI];
         else
-            EntVarPred = SPH_EntVarPred(particle, priv.times);
+            EntVarPred = SPH_EntVarPred(particle, &priv.times);
 
         const double eomdensity = SPH_EOMDensity(&SphP[particle.PI]);
         if(priv.PressurePred)
@@ -174,7 +186,14 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
         F1 = fabs(SphP[particle.PI].DivVel) /
             (fabs(SphP[particle.PI].DivVel) + SphP[particle.PI].CurlVel +
              0.0001 * soundspeed_i / Hsml / priv.fac_mu);
-    }
+    };
+
+    static MYCUDAFN bool haswork(const particle_data& particle)
+    {
+        if(!TreeWalkQueryBase::haswork(particle))
+            return false;
+        return particle.Type == 0;
+    };
 };
 
 class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
@@ -182,15 +201,15 @@ class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
     MyFloat Acc[3] = {0};
     MyFloat DtEntropy = 0;
     MyFloat MaxSignalVel = 0;
-    MYCUDAFN HydroResult(const HydroQuery query): TreeWalkResultBase(query), Acc(0,0,0), DtEntropy(0), MaxSignalVel(0)
+    MYCUDAFN HydroResult(const HydroQuery query): TreeWalkResultBase(query), DtEntropy(0), MaxSignalVel(0)
     {
         MaxSignalVel = sqrt(GAMMA * query.Pressure / query.EgyRho);
     }
 
     template<TreeWalkReduceMode mode>
-    MYCUDAFN void reduce(int place, const HydroOutput& priv, struct particle_data * const parts)
+    MYCUDAFN void reduce(int place, const HydroOutput * output, struct particle_data * const parts)
     {
-        TreeWalkResultBase::reduce<mode>(place, priv, parts);
+        TreeWalkResultBase::reduce<mode>(place, output, parts);
         struct sph_particle_data * sphpart = &SphP[parts[place].PI];
         for(int k = 0; k < 3; k++)
             TREEWALK_REDUCE(sphpart->HydroAccel[k], Acc[k]);
@@ -229,7 +248,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
     double soundspeed_i;
     DensityKernel kernel_i;
 
-    MYCUDAFN HydroLocalTreeWalk(const ForceTree * const tree, const HydroQuery& input): LocalNgbTreeWalk(tree, input)
+    MYCUDAFN HydroLocalTreeWalk(const NODE * const Nodes, const HydroQuery& input): LocalNgbTreeWalk(Nodes, input)
     {
         MyFloat densityest = input.EgyRho;
         if(!HydroParams.DensityIndependentSphOn)
@@ -278,13 +297,13 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
             * with minimal locking since nothing happens should we compute them twice.
             * Zero can be the special value since there should never be zero entropy.*/
             if(EntVarPred == 0) {
-                EntVarPred = SPH_EntVarPred(parts[other], priv.times);
+                EntVarPred = SPH_EntVarPred(parts[other], &priv.times);
                 #pragma omp atomic write
                 priv.EntVarPred[Part[other].PI] = EntVarPred;
             }
         }
         else
-            EntVarPred = SPH_EntVarPred(parts[other], priv.times);
+            EntVarPred = SPH_EntVarPred(parts[other], &priv.times);
 
         /* Predict densities. Note that for active timebins the density is up to date so SPH_DensityPred is just returns the current densities.
          * This improves on the technique used in Gadget-2 by being a linear prediction that does not become pathological in deep timebins.*/
@@ -346,7 +365,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
             /* now make sure that viscous acceleration is not too large */
 
             /*XXX: why is this dloga ?*/
-            double dloga = 2 * DMAX(input.dloga, get_dloga_for_bin(Part[other].TimeBinHydro, priv.times->Ti_Current));
+            double dloga = 2 * DMAX(input.dloga, get_dloga_for_bin(Part[other].TimeBinHydro, priv.times.Ti_Current));
             if(dloga > 0 && (dwk_i + dwk_j) < 0)
             {
                 if((input.Mass + parts[other].Mass) > 0) {
@@ -394,24 +413,7 @@ class HydroTopTreeWalk: public TopTreeWalk<HydroQuery, HydroPriv, NGB_TREEFIND_S
 
 class HydroTreeWalk: public TreeWalk<HydroTreeWalk, HydroQuery, HydroResult, HydroLocalTreeWalk, HydroTopTreeWalk, HydroPriv, HydroOutput> {
     public:
-    HydroTreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const HydroPriv& i_priv, const HydroOutput& i_out):
-    TreeWalk(i_ev_label, i_tree, i_priv, i_out) {}
-
-    MYCUDAFN bool haswork(const particle_data& particle)
-    {
-        return particle.Type == 0;
-    }
-
-    MYCUDAFN void postprocess(const int i, struct particle_data * const parts)
-    {
-        if(parts[i].Type != 0)
-            return;
-        /* Translate energy change rate into entropy change rate */
-        SphP[parts[i].PI].DtEntropy *= GAMMA_MINUS1 / (priv.hubble_a2 * pow(SphP[parts[i].PI].Density, GAMMA_MINUS1));
-        /* if we have winds, we decouple particles briefly if delaytime>0 */
-        if(winds_is_particle_decoupled(i))
-            winds_decoupled_hydro(i, priv.atime);
-    }
+    using TreeWalk::TreeWalk;
 };
 
 /*! This function is the driver routine for the calculation of hydrodynamical
@@ -424,26 +426,18 @@ hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPre
     if(!tree->hmax_computed_flag)
         endrun(5, "Hydro called before hmax computed\n");
 
-    HydroPriv priv(tree->BoxSize, EntVarPred, atime, &times, CP);
+    HydroPriv * priv = (HydroPriv *) mymanagedmalloc("GravTreeParams", sizeof(HydroPriv));
+    new (priv) HydroPriv(tree->BoxSize, EntVarPred, atime, &times, CP);
+
     HydroOutput output;
-    HydroTreeWalk tw("HYDRO", tree, priv, output);
+    HydroTreeWalk tw("HYDRO", tree, *priv, &output);
 
     walltime_measure("/SPH/Hydro/Init");
 
-    tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base);
+    tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, MPI_COMM_WORLD);
 
-    /* collect some timing information */
-    double timeall = walltime_measure(WALLTIME_IGNORE);
-    double timecomp = tw.timecomp0 + tw.timecomp1 + tw.timecomp2 + tw.timecomp3;
+    priv->~HydroPriv();
+    myfree(priv);
 
-    walltime_add("/SPH/Hydro/WalkTop", tw.timecomp0);
-    walltime_add("/SPH/Hydro/WalkPrim", tw.timecomp1);
-    walltime_add("/SPH/Hydro/WalkSec", tw.timecomp2);
-    walltime_add("/SPH/Hydro/PostPre", tw.timecomp3);
-    // walltime_add("/SPH/Hydro/Compute", timecomp);
-    walltime_add("/SPH/Hydro/Wait", tw.timewait1);
-    walltime_add("/SPH/Hydro/Reduce", tw.timecommsumm);
-    walltime_add("/SPH/Hydro/Misc", timeall - (timecomp + tw.timewait1 + tw.timecommsumm));
-
-    tw.print_stats(MPI_COMM_WORLD);
+    tw.print_stats("/SPH/Hydro", MPI_COMM_WORLD);
 }

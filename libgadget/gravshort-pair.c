@@ -9,6 +9,7 @@
 
 #include "treewalk.h"
 #include "gravshort.h"
+#include "gravity_old.h"
 #include "walltime.h"
 
 static void
@@ -29,6 +30,12 @@ grav_short_pair(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, doub
     priv.G = pm->G;
     priv.cbrtrho0 = pow(rho0, 1.0 / 3);
     priv.Accel = (MyFloat (*) [3]) mymalloc2("GravAccel", PartManager->NumPart * sizeof(priv.Accel[0]));
+
+    /* Initialize the short-range window table used by grav_apply_short_range_window.
+     * The new tree code (gravshort-tree2.cpp) uses its own GravShortTable instance,
+     * but the pair code uses the global static table in gravity.c. */
+    struct gravshort_tree_params tp = get_gravshort_treepar_old();
+    gravshort_fill_ntab(tp.ShortRangeForceWindowType, pm->Asmth);
 
     message(0, "Starting pair-wise short range gravity...\n");
 

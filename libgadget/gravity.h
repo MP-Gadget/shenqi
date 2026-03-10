@@ -4,7 +4,6 @@
 #include "forcetree.h"
 #include "petapm.h"
 #include "powerspectrum.h"
-#include "timestep.h"
 
 enum ShortRangeForceWindowType {
     SHORTRANGE_FORCE_WINDOW_TYPE_EXACT = 0,
@@ -28,6 +27,8 @@ struct gravshort_tree_params
     size_t MaxExportBufferBytes;
     /* Type of the short range window function: exact from table or erfc */
     enum ShortRangeForceWindowType ShortRangeForceWindowType;
+    /* Should we enable the GPU acceleration? */
+    bool UseGPU;
 };
 
 class GravShortTable
@@ -44,12 +45,22 @@ class GravShortTable
     /* Initialise the tables from pre-computed data */
     GravShortTable(const enum ShortRangeForceWindowType ShortRangeForceWindowType, const double Asmth);
 
-    /* Compute force factor (*fac) and multiply potential (*pot) by the shortrange force window function.*/
-    MYCUDAFN int apply_short_range_window(const double r, double * fac, double * pot, const double cellsize) const;
+    /* Compute force factor (*fac) and multiply potential (*pot) by the shortrange force window function.
+     * If the distance is outside the range of the table, 1 is returned and the caller should assume zero acceleration.
+     * If the distance is inside the range of the table, 0 is returned and the force factor and potential values
+     * should be applied to the particle query. */
+    MYCUDAFN int apply_short_range_window(const double r, double * fac, double * pot, const double cellsize) const
+    {
+        const double i = (r / cellsize / dx);
+        size_t tabindex = floor(i);
+        if(tabindex >= NGRAVTAB - 1)
+            return 1;
+        /* use a linear interpolation; */
+        *fac *= (tabindex + 1 - i) * shortrange_table[tabindex] + (i - tabindex) * shortrange_table[tabindex + 1];
+        *pot *= (tabindex + 1 - i) * shortrange_table_potential[tabindex] + (i - tabindex) * shortrange_table_potential[tabindex];
+        return 0;
+    }
 };
-
-/* Fill the short-range gravity table*/
-void gravshort_fill_ntab(const enum ShortRangeForceWindowType ShortRangeForceWindowType, const double Asmth);
 
 /*! Sets the (comoving) softening length, converting from units of the mean DM separation to comoving internal units. */
 void gravshort_set_softenings(double MeanDMSeparation);
@@ -70,21 +81,14 @@ void set_gravshort_tree_params(ParameterSet * ps);
 void set_gravshort_treepar(struct gravshort_tree_params tree_params);
 struct gravshort_tree_params get_gravshort_treepar(void);
 
-/* Set up the module*/
-void set_gravshort_tree_params_old(ParameterSet * ps);
-/* Helpers for the tests*/
-void set_gravshort_treepar_old(struct gravshort_tree_params tree_params);
-struct gravshort_tree_params get_gravshort_treepar_old(void);
-
 /* Computes the gravitational force on the PM grid
  * and saves the total matter power spectrum.
  * Parameters: Cosmology, Time, UnitLength_in_cm and PowerOutputDir are used by the power spectrum output code.
  * TimeIC is used by the massive neutrino code. A tree is built and freed during this function*/
 void gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, double UnitLength_in_cm, const char * PowerOutputDir, double TimeIC);
 
-void grav_short_pair(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, double Rcut, double rho0);
-void grav_short_tree_old(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current);
-void grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool use_gpu=false);
+/* Compute the short range gravitational tree force. */
+void grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current);
 
 /*Read the power spectrum, without changing the input value.*/
 void measure_power_spectrum(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex *value);
