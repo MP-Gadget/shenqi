@@ -92,6 +92,15 @@ void treewalk_postprocess_kernel(
     output->postprocess(p_i, parts, priv);
 }
 
+struct HasWorkPredicate {
+     const particle_data * parts;
+     const int * active_set;
+     MYCUDAFN bool operator()(int i) const {
+         int p_i = active_set ? active_set[i] : i;
+         return QueryType::haswork(p_i, parts);
+     }
+ };
+
 template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType>
 class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType>
 {
@@ -103,6 +112,29 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
     using Base::tree;
     using Base::priv;
     using Base::output;
+
+    /* Build the queue by calling the haswork function on each particle in the active_set.
+     * Arguments:
+     * active_set: these items have haswork called on them.
+     * size: size of the active set.*/
+    int64_t build_queue(int ** WorkSet, int * active_set, const size_t size, const particle_data * const Parts)
+    {
+        /* Explicitly deal with the case where the queue is zero and there is nothing to do.
+         * Some OpenMP compilers (nvcc) seem to still execute the below loop in that case*/
+        if(size == 0) {
+            *WorkSet = (int *) mymanagedmalloc("ActiveQueue", sizeof(int));
+            return size;
+        }
+
+        *WorkSet = mymanagedmalloc("ActiveQueue", size * sizeof(int));
+        auto end = thrust::copy_if(
+            thrust::device,
+            thrust::make_counting_iterator(0),   // input: indices 0..size-1
+            thrust::make_counting_iterator((int)size),
+            *WorkSet, HasWorkPredicate);
+        return WorkSetSize = end - d_WorkSet;
+    }
+
     // Function to launch kernel (wrapper)
     void ev_primary(int * WorkSet, int64_t WorkSetSize, particle_data * const particles) {
         /* Declare device memory for counters */
@@ -115,7 +147,6 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         cudaMemcpy(d_maxNinteractions, &maxNinteractions, sizeof(unsigned int), cudaMemcpyHostToDevice);
         cudaMemcpy(d_minNinteractions, &minNinteractions, sizeof(unsigned int), cudaMemcpyHostToDevice);
 
-        // workset is NULL at a PM step
         const int threadsPerBlock = 256;
         const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
         /* All arrays need to be managed malloc or device:
