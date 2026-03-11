@@ -11,11 +11,11 @@
 #include "types.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
-#include "treewalk2.h"
 #include "localtreewalk2.h"
 
 #include "forcetree.h"
 #include "partmanager.h"
+#include "gravity.h"
 
 /* Class containing the fixed parameters of the gravity treewalk. */
  class GravTreeParams : public ParamTypeBase {

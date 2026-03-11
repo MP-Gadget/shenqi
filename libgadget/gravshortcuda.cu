@@ -6,10 +6,10 @@
 #include <stdlib.h>
 #include <math.h>
 
-#include "gravity.h"
 #include "gravshort2.hpp"
 
 #include "treewalk2.cuh"
+
 class GravTreeWalkGPU : public TreeWalkGPU <GravTreeWalkGPU, GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreeParams, GravTreeOutput> {
     public:
     using TreeWalkGPU::TreeWalkGPU;
