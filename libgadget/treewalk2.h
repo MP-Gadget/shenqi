@@ -512,7 +512,7 @@ private:
             /* Signals a full export buffer on this thread*/
             int BufferFull_thread = 0;
             const int tid = omp_get_thread_num();
-            LocalTopTreeWalkType lv(tree, exportlist->BunchSize, exportlist->ExportTable_thread[tid]);
+            LocalTopTreeWalkType lv(tree);
 
             /* We schedule dynamically so that we have reduced imbalance.
                 * We do not use the openmp dynamic scheduling, but roll our own
@@ -551,7 +551,9 @@ private:
                     const int i = WorkSet ? WorkSet[k] : k;
                     /* Toptree never uses node list */
                     QueryType input(parts[i], NULL, tree->firstnode, priv);
-                    const int rt = lv.toptree_visit(i, input, priv);
+                    data_index * currentexport = exportlist->ExportTable_thread[tid] + exportlist->Nexport_thread[tid];
+                    int64_t curSize = exportlist->BunchSize - exportlist->Nexport_thread[tid];
+                    const int64_t rt = lv.toptree_visit(i, input, priv, currentexport, curSize);
                     /* If we filled up, we need to save the partially evaluated chunk, and leave this loop.*/
                     if(rt < 0) {
                         //message(5, "Export buffer full for particle %d chnk: %ld -> %ld on thread %d with %ld exports\n", i, chnk, end, tid, lv->NThisParticleExport);
@@ -563,9 +565,11 @@ private:
                         exportlist->QueueChunkEnd[tid] = end;
                         break;
                     }
+                    /* Only increment the counter if this particle walk succeeded. */
+                    else
+                        exportlist->Nexport_thread[tid] += rt;
                 }
             } while(chnk < WorkSetSize && BufferFull_thread == 0);
-            exportlist->Nexport_thread[tid] = lv.Nexport;
             BufferFullFlag += BufferFull_thread;
         }
 

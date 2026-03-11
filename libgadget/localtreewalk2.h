@@ -30,6 +30,7 @@
  * */
 #include <stdint.h>
 #include <omp.h>
+#include "libgadget/domain.h"
 #include "utils/endrun.h"
 #include "forcetree.h"
 #include "partmanager.h"
@@ -188,30 +189,26 @@ template <typename QueryType, typename ParamType, NgbTreeFindSymmetric symmetric
 class TopTreeWalk
 {
 public:
-    /* Current number of exports from this chunk*/
-    size_t Nexport;
-
     /* Constructor from treewalk */
-    TopTreeWalk(const ForceTree * const i_tree, const size_t i_BunchSize, data_index * const ExportTable_thread):
-    Nexport(0), tree(i_tree), BunchSize(i_BunchSize), NThisParticleExport(0), nodelistindex(0), DataIndexTable(ExportTable_thread)
+    TopTreeWalk(const ForceTree * const i_tree):
+    tree(i_tree), nodelistindex(0)
     { }
 
     /* Wrapper of the regular particle visit with some extra cleanup of the particle export table for the toptree walk
      * @param input  Query data for the particle
      * @param output Result accumulator
-     * @return 0 on success, -1 if export buffer is full
+     * @return the number of nodes used in the dataindex table on success, -1 if export buffer is full
      */
-    int toptree_visit(const int target, const QueryType& input, const ParamType& priv)
+    int toptree_visit(const int target, const QueryType& input, const ParamType& priv, data_index * const DataIndexTable, const size_t BunchSize)
     {
         //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
-        /* Reset the number of exported particles.*/
-        NThisParticleExport = 0;
+        /* The number of exports from this particle treewalk. If negative, signals the buffer filled up.*/
+        int64_t NThisParticleExport = 0;
+        nodelistindex = 0;
 
-        /* Flags if the particle export failed. */
-        int export_failed = 0;
         /* Toptree walk always starts from the first node */
         int no = tree->firstnode;
-        const double BoxSize = tree->BoxSize;
+        const double BoxSize = priv.BoxSize;
 
         while(no >= 0)
         {
@@ -224,9 +221,9 @@ public:
             }
             if(current->f.ChildType == PSEUDO_NODE_TYPE) {
                 /* Export the pseudo particle*/
-                export_failed = export_particle(current->s.suns[0], target);
+                 NThisParticleExport = export_particle(current->s.suns[0], target, NThisParticleExport, DataIndexTable, BunchSize);
                 /* Exit the loop as we cannot export more particles.*/
-                if(export_failed != 0)
+                if(NThisParticleExport < 0)
                     break;
                 /* Move sideways*/
                 no = current->sibling;
@@ -242,22 +239,9 @@ public:
         }
         if(NThisParticleExport > 1000)
             message(5, "%ld exports for particle %d! Odd.\n", NThisParticleExport, target);
-        /* If we filled up, we need to remove the partially evaluated last particle from the export list,
-        * save the partially evaluated chunk, and leave this loop.*/
-        if(export_failed != 0) {
-            //message(5, "Export buffer full for particle %d with %ld (%lu) exports\n", target, NThisParticleExport, Nexport);
-            /* Drop partial exports on the current particle, whose toptree will be re-evaluated*/
-            Nexport -= NThisParticleExport;
-            /* Check that the final export in the list is indeed from a different particle*/
-            if(NThisParticleExport > 0 && DataIndexTable[Nexport-1].Index >= target)
-                endrun(5, "Something screwed up in export queue: nexp %ld (local %ld) last %d < index %d\n", Nexport,
-                    NThisParticleExport, target, DataIndexTable[Nexport-1].Index);
-            /* Check that the earliest dropped export in the list is from the same particle*/
-            if(NThisParticleExport > 0 && DataIndexTable[Nexport].Index != target)
-                endrun(5, "Something screwed up in export queue: nexp %ld (local %ld) last %d != index %d\n", Nexport,
-                    NThisParticleExport, target, DataIndexTable[Nexport].Index);
-        }
-        return export_failed;
+        /* If we filled up, this partial toptree walk will be discarded and the toptree loop exited.*/
+        //message(5, "Export buffer full for particle %d with %ld (%lu) exports\n", target, NThisParticleExport, Nexport);
+        return NThisParticleExport;
     }
 
 protected:
@@ -268,63 +252,53 @@ protected:
      * This can also be called from a nonthreaded code
      *
      * */
-    int export_particle(const int no, const int target)
+    int64_t export_particle(const int no, const int target, int64_t nexp, data_index * const DataIndexTable, const int64_t BunchSize)
     {
         //message(1, "Export_particle: no %d target %d exports %ld %lu nodelist %ld\n", no, target, NThisParticleExport, Nexport, nodelistindex);
         if(no < tree->lastnode) {
             endrun(1, "Called export on a non-pseudo node %d < %ld.\n", no, tree->lastnode);
         }
-        if(!DataIndexTable)
-            endrun(1, "DataIndexTable not allocated\n");
         if(no - tree->lastnode > tree->NTopLeaves)
             endrun(1, "Bad export leaf: no = %d lastnode %ld ntop %d target %d\n", no, tree->lastnode, tree->NTopLeaves, target);
-        const int task = tree->TopLeaves[no - tree->lastnode].Task;
-        /* This index is a unique entry in the global DataIndexTable.*/
-        size_t nexp = Nexport;
+        struct topleaf_data * topleaf = &tree->TopLeaves[no - tree->lastnode];
+        const int task = topleaf->Task;
         /* If the last export was to this task, we can perhaps just add this export to the existing NodeList. We can
          * be sure that all exports of this particle are contiguous.*/
-        if(NThisParticleExport >= 1 && DataIndexTable[nexp-1].Task == task) {
+        if(nexp >= 1 && DataIndexTable[nexp-1].Task == task) {
     #ifdef DEBUG
             /* This is just to be safe: only happens if our indices are off.*/
             if(DataIndexTable[nexp - 1].Index != target)
-                endrun(1, "Previous of %ld (%lu) exports is target %d not current %d\n", NThisParticleExport, nexp, DataIndexTable[nexp-1].Index, target);
+                endrun(1, "Previous of %ld exports is target %d not current %d\n", nexp, DataIndexTable[nexp-1].Index, target);
     #endif
             if(nodelistindex < NODELISTLENGTH) {
     #ifdef DEBUG
                 if(DataIndexTable[nexp-1].NodeList[nodelistindex] != -1)
                     endrun(1, "Current nodelist %ld entry (%d) not empty!\n", nodelistindex, DataIndexTable[nexp-1].NodeList[nodelistindex]);
     #endif
-                DataIndexTable[nexp-1].NodeList[nodelistindex] = tree->TopLeaves[no - tree->lastnode].treenode;
+                DataIndexTable[nexp-1].NodeList[nodelistindex] = topleaf->treenode;
                 nodelistindex++;
-                return 0;
+                return nexp;
             }
         }
         /* out of buffer space. Need to interrupt. */
-        if(Nexport >= BunchSize) {
+        if(nexp >= BunchSize) {
             return -1;
         }
         DataIndexTable[nexp].Task = task;
         DataIndexTable[nexp].Index = target;
-        DataIndexTable[nexp].NodeList[0] = tree->TopLeaves[no - tree->lastnode].treenode;
+        DataIndexTable[nexp].NodeList[0] = topleaf->treenode;
         int i;
         for(i = 1; i < NODELISTLENGTH; i++)
             DataIndexTable[nexp].NodeList[i] = -1;
-        Nexport++;
         nodelistindex = 1;
-        NThisParticleExport++;
-        return 0;
+        nexp++;
+        return nexp;
     }
 
     /* A pointer to the force tree structure to walk.*/
     const ForceTree * const tree;
-    /* Number of particles we can fit into the export buffer*/
-    const size_t BunchSize;
-    /* Number of entries in the export table for this particle*/
-    size_t NThisParticleExport;
     /* Index to use in the current node list*/
     size_t nodelistindex;
-    /* Pointer to memory for exports*/
-    data_index * const DataIndexTable;
 };
 
 /* Class that stores thread-local information and walks the local tree for a particle.
