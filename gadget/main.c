@@ -76,7 +76,7 @@ int main(int argc, char **argv)
     /* Force CUDA context initialisation (and UVM virtual-address reservation)
      * before any host posix_memalign call. This does nothing, but it ensures the address range is available
      * and allows us to check for CUDA working.*/
-    cuda_error_t err = cudaFree(0);
+    cudaError_t err = cudaFree(0);
     if(err != cudaSuccess)
         message(0, "CUDA calls fail: %s\n", cudaGetErrorString(err));
 #endif
