@@ -35,7 +35,10 @@ __global__ void count_toptree_exports(
     // The memory here should be allocated cudaManagedMalloc
     particle_data * const parts,
     const NODE * const Nodes,
+    const topleaf_data * const TopLeaves,
+    const int NTopLeaves,
     const int firstnode,
+    const int lastnode,
     const int * const WorkSet,
     const int64_t WorkSetSize,
     // by reference so the destructor does not run,
@@ -47,11 +50,11 @@ __global__ void count_toptree_exports(
     if (tid >= WorkSetSize)
         return;
 
-    LocalTopTreeWalkType lv(tree);
+    LocalTopTreeWalkType lv(Nodes, TopLeaves, NTopLeaves, lastnode);
     const int i = WorkSet ? WorkSet[tid] : tid;
     /* Toptree never uses node list */
-    QueryType input(parts[i], NULL, firstnode, priv);
-    const int rt = lv.toptree_visit(i, input, priv, parts, NULL, 0);
+    QueryType input(parts[i], NULL, firstnode, *priv);
+    const int rt = lv.toptree_visit(i, input, *priv, NULL, 0);
     exportcounts[tid] = rt;
 }
 
@@ -61,7 +64,10 @@ void do_toptree_exports(
     // The memory here should be allocated cudaManagedMalloc
     particle_data * const parts,
     const NODE * const Nodes,
+    const topleaf_data * const TopLeaves,
+    const int NTopLeaves,
     const int firstnode,
+    const int lastnode,
     const int * const WorkSet,
     const int64_t WorkSetSize,
     // by reference so the destructor does not run,
@@ -75,15 +81,15 @@ void do_toptree_exports(
     if (tid >= WorkSetSize)
         return;
 
-    LocalTopTreeWalkType lv(tree);
+    LocalTopTreeWalkType lv(Nodes, TopLeaves, NTopLeaves, lastnode);
 
     const int i = WorkSet ? WorkSet[tid] : tid;
     /* Toptree never uses node list */
-    QueryType input(parts[i], NULL, firstnode, priv);
+    QueryType input(parts[i], NULL, firstnode, *priv);
     int offset = (tid > 0) * exportoffsets[tid-1];
     /* This will save exports to the memory in ExportTable[exportoffsets[tid-1]].
      * We ignore return as it is the same as exportcounts. BunchSize is large as we arranged never to overflow.*/
-    lv.toptree_visit(i, input, priv, ExportTable[offset], 1<<31);
+    lv.toptree_visit(i, input, *priv, &ExportTable[offset], 1<<29);
 };
 
 template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType, typename OutputType>
@@ -170,7 +176,7 @@ class HasWorkPredicate {
 struct Greater_than_BunchSize
 {
     size_t BunchSize;
-    __device__ bool operator() (int i) const { 
+    __device__ bool operator() (int i) const {
         return i >= BunchSize;
     }
 };
@@ -217,7 +223,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         return end - *WorkSet;
     }
 
-    int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, const particle_data * const particles, ExportMemory * const exportlist)
+    int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, particle_data * const particles, ExportMemory * const exportlist)
     {
         int64_t curSize = WorkSetSize - WorkSetStart;
         const int threadsPerBlock = 256;
@@ -229,37 +235,44 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         if(err != cudaSuccess)
             endrun(5, "Failed to allocate device memory for export counts: %s\n", cudaGetErrorString(err));
 
-        /* First count the exports from each particle and store the counts in exportcounts. */
+        /* First count the exports from each particle and store the counts in exportcounts.
+         * We only count exports we have not yet sent.
+         * TODO Avoid counting exports we haven't sent yet multiple times, save exportcounts.
+         */
         count_toptree_exports<QueryType, LocalTopTreeWalkType, ParamType>
-        <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, tree->firstnode, currentIndex, curSize, &priv, exportcounts);
+        <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->firstnode, tree->lastnode, WorkSet + currentIndex, curSize, &priv, exportcounts);
 
         /*  inclusive_scan is a partial sum:
          * it counts the total number of particle exports before and including the current point, so we know which
          * elements of the export table to slot this particle's exports into.
          * Particle j has exports from exportcounts[j-1] to exportcounts[j]
          * Final element is Nexports */
+        /* Only count exports that we have not yet sent. */
         thrust::inclusive_scan(thrust::device, exportcounts, exportcounts+curSize, exportcounts);
-        /* Here we check whether our export buffer will fill up. TODO: Avoid recomputing the export counts on subsequent iterations.
-         * TODO this also needs logic to get the final count from the device.
-         */
-        /* If the export buffer filled up, find the first place where it did. */
-        /* First element where the exportcount is larger than the bunch size */
+        /* Here we check whether our export buffer will fill up.
+         * If the export buffer filled up, find the first place where it did.
+         * First element where the exportcount is larger than the bunch size */
         Greater_than_BunchSize gtrbunch{exportlist->BunchSize};
+        bool BufferFull = false;
         auto iter = thrust::find_if(thrust::device, exportcounts, exportcounts+curSize,gtrbunch);
         if(iter != exportcounts+curSize) {
             curSize = iter - exportcounts;
             if(curSize == 0)
                 endrun(5, "Not enough export space to make progress! lastsuc %ld\n", currentIndex);
-            message(1, "Tree export buffer full with %lu exports (%lu Mbytes). First particle %ld new start: %ld size %ld.\n",
-                exportcounts[curSize], exportcounts[curSize]*sizeof(QueryType)/1024/1024, WorkSetStart, WorkSetStart + curSize, WorkSetSize);
+            BufferFull = true;
         }
         /* Note this is the sum including the current element. */
-        exportlist->Nexport_thread[0] = exportcounts[curSize];
+        cudaMemcpy(&exportlist->Nexport_thread[0], &exportcounts[curSize], sizeof(int), cudaMemcpyDeviceToHost);
         exportlist->ExportTable_thread[0] = (data_index *) mymanagedmalloc("DataIndexTable", exportlist->Nexport_thread[0] * sizeof(data_index));
+
+        if(BufferFull)
+            message(1, "Tree export buffer full with %lu exports (%lu Mbytes). First particle %ld new start: %ld size %ld.\n",
+                exportlist->Nexport_thread[0], exportlist->Nexport_thread[0]*sizeof(QueryType)/1024/1024, WorkSetStart + currentIndex, WorkSetStart + curSize, WorkSetSize);
+
         /* Now we run toptree_visit again with the export offsets to make the export table.
          * Likely most particles have zero exports, so this will be somewhat faster than the first run. */
         do_toptree_exports<QueryType, LocalTopTreeWalkType, ParamType>
-         <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, tree->firstnode, currentIndex, curSize, &priv, exportcounts, exportlist->ExportTable_thread);
+         <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->firstnode, tree->lastnode, WorkSet + currentIndex, curSize, &priv, exportcounts, exportlist->ExportTable_thread[0]);
 
         cudaError_t status = cudaDeviceSynchronize();
         if (status != cudaSuccess)

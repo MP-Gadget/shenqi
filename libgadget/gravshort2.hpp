@@ -362,7 +362,7 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
     public:
     /*! Find exports. The tricky part of this routine is that tree nodes that would normally be discarded without opening must not be exported.
      */
-    int toptree_visit(const int target, const GravTreeQuery& input, const GravTreeParams& priv, data_index * const DataIndexTable, const size_t BunchSize)
+    MYCUDAFN int toptree_visit(const int target, const GravTreeQuery& input, const GravTreeParams& priv, data_index * const DataIndexTable, const size_t BunchSize)
     {
         //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
         /* Reset the exported particles for this target. */
@@ -376,21 +376,21 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
         const double * inpos = input.Pos;
 
         /* For a top tree walk we always start from the first element of the tree. */
-        int no = tree->firstnode;
+        int no = input.NodeList[0];
         while(no >= 0)
         {
             /* The tree always walks internal nodes*/
-            const struct NODE *nop = &tree->Nodes[no];
+            const NODE * const nop = &Nodes[no];
 
             double dx[3];
             for(int i = 0; i < 3; i++)
-                dx[i] = NEAREST(nop->mom.cofm[i] - inpos[i], tree->BoxSize);
+                dx[i] = NEAREST(nop->mom.cofm[i] - inpos[i], priv.BoxSize);
             const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
 
             /* Discard this node, move to sibling*/
-            if (shall_we_discard_node(nop->len, r2, nop->center, inpos, tree->BoxSize, rcut, rcut2) ||
+            if (shall_we_discard_node(nop->len, r2, nop->center, inpos, priv.BoxSize, rcut, rcut2) ||
             /* This node accelerates the particle directly, and is not opened, move to sibling.*/
-            !shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, tree->BoxSize, aold, priv.TreeUseBH, priv.BHOpeningAngle2) )
+            !shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, priv.BoxSize, aold, priv.TreeUseBH, priv.BHOpeningAngle2) )
             {
                 no = nop->sibling;
                 /* Don't add this node*/
@@ -418,8 +418,10 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
             /* Open the toptree node. */
             no = nop->s.suns[0];
         }
+    #if defined DEBUG && not defined __CUDACC__
         if(NThisParticleExport > 1000)
             message(5, "%ld exports for particle %d! Odd.\n", NThisParticleExport, target);
+    #endif
         /* If we filled up, this partial toptree walk will be discarded and the toptree loop exited.*/
         //message(5, "Export buffer full for particle %d with %ld (%lu) exports\n", target, NThisParticleExport, Nexport);
         return NThisParticleExport;

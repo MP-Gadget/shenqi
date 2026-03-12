@@ -190,8 +190,8 @@ class TopTreeWalk
 {
 public:
     /* Constructor from treewalk */
-    TopTreeWalk(const ForceTree * const i_tree):
-    tree(i_tree), nodelistindex(0)
+    MYCUDAFN TopTreeWalk(const NODE * const i_Node, const topleaf_data * const i_TopLeaves, const int i_NTopLeaves, const int i_lastnode):
+    Nodes(i_Node), TopLeaves(i_TopLeaves), NTopLeaves(i_NTopLeaves), lastnode(i_lastnode), nodelistindex(0)
     { }
 
     /* Wrapper of the regular particle visit with some extra cleanup of the particle export table for the toptree walk
@@ -199,7 +199,7 @@ public:
      * @param output Result accumulator
      * @return the number of nodes used in the dataindex table on success, -1 if export buffer is full
      */
-    int toptree_visit(const int target, const QueryType& input, const ParamType& priv, data_index * const DataIndexTable, const size_t BunchSize)
+    MYCUDAFN int toptree_visit(const int target, const QueryType& input, const ParamType& priv, data_index * const DataIndexTable, const size_t BunchSize)
     {
         //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
         /* The number of exports from this particle treewalk. If negative, signals the buffer filled up.*/
@@ -207,12 +207,12 @@ public:
         nodelistindex = 0;
 
         /* Toptree walk always starts from the first node */
-        int no = tree->firstnode;
+        int no = input.NodeList[0];
         const double BoxSize = priv.BoxSize;
 
         while(no >= 0)
         {
-            struct NODE *current = &tree->Nodes[no];
+            const NODE * const current = &Nodes[no];
             /* Cull the node */
             if(0 == cull_node<symmetric>(input.Pos, BoxSize, input.Hsml, current)) {
                 /* in case the node can be discarded */
@@ -252,29 +252,26 @@ protected:
      * This can also be called from a nonthreaded code
      *
      * */
-    int64_t export_particle(const int no, const int target, int64_t nexp, data_index * const DataIndexTable, const int64_t BunchSize)
+    MYCUDAFN int64_t export_particle(const int no, const int target, int64_t nexp, data_index * const DataIndexTable, const int64_t BunchSize)
     {
         //message(1, "Export_particle: no %d target %d exports %ld %lu nodelist %ld\n", no, target, NThisParticleExport, Nexport, nodelistindex);
-        if(no < tree->lastnode) {
-            endrun(1, "Called export on a non-pseudo node %d < %ld.\n", no, tree->lastnode);
-        }
-        if(no - tree->lastnode > tree->NTopLeaves)
-            endrun(1, "Bad export leaf: no = %d lastnode %ld ntop %d target %d\n", no, tree->lastnode, tree->NTopLeaves, target);
-        struct topleaf_data * topleaf = &tree->TopLeaves[no - tree->lastnode];
+    #if defined DEBUG && not defined __CUDACC__
+        if(no - lastnode > NTopLeaves)
+            endrun(1, "Bad export leaf: no = %d lastnode %d ntop %d target %d\n", no, lastnode, NTopLeaves, target);
+    #endif
+        const topleaf_data * const topleaf = &TopLeaves[no - lastnode];
         const int task = topleaf->Task;
         /* If the last export was to this task, we can perhaps just add this export to the existing NodeList. We can
          * be sure that all exports of this particle are contiguous.*/
         if(nexp >= 1 && DataIndexTable[nexp-1].Task == task) {
-    #ifdef DEBUG
+    #if defined DEBUG && not defined __CUDACC__
             /* This is just to be safe: only happens if our indices are off.*/
             if(DataIndexTable[nexp - 1].Index != target)
                 endrun(1, "Previous of %ld exports is target %d not current %d\n", nexp, DataIndexTable[nexp-1].Index, target);
+            if(nodelistindex < NODELISTLENGTH && DataIndexTable[nexp-1].NodeList[nodelistindex] != -1)
+                endrun(1, "Current nodelist %ld entry (%d) not empty!\n", nodelistindex, DataIndexTable[nexp-1].NodeList[nodelistindex]);
     #endif
             if(nodelistindex < NODELISTLENGTH) {
-    #ifdef DEBUG
-                if(DataIndexTable[nexp-1].NodeList[nodelistindex] != -1)
-                    endrun(1, "Current nodelist %ld entry (%d) not empty!\n", nodelistindex, DataIndexTable[nexp-1].NodeList[nodelistindex]);
-    #endif
                 DataIndexTable[nexp-1].NodeList[nodelistindex] = topleaf->treenode;
                 nodelistindex++;
                 return nexp;
@@ -287,8 +284,7 @@ protected:
         DataIndexTable[nexp].Task = task;
         DataIndexTable[nexp].Index = target;
         DataIndexTable[nexp].NodeList[0] = topleaf->treenode;
-        int i;
-        for(i = 1; i < NODELISTLENGTH; i++)
+        for(int i = 1; i < NODELISTLENGTH; i++)
             DataIndexTable[nexp].NodeList[i] = -1;
         nodelistindex = 1;
         nexp++;
@@ -296,7 +292,10 @@ protected:
     }
 
     /* A pointer to the force tree structure to walk.*/
-    const ForceTree * const tree;
+    const NODE * const Nodes;
+    const topleaf_data * const TopLeaves;
+    const int NTopLeaves;
+    const int lastnode;
     /* Index to use in the current node list*/
     size_t nodelistindex;
 };

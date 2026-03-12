@@ -502,7 +502,7 @@ private:
         }
     }
 
-    int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, const particle_data * const parts, ExportMemory * const exportlist)
+    int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, particle_data * const parts, ExportMemory * const exportlist)
     {
         int64_t currentIndex = WorkSetStart;
         int BufferFullFlag = 0;
@@ -512,7 +512,7 @@ private:
             /* Signals a full export buffer on this thread*/
             int BufferFull_thread = 0;
             const int tid = omp_get_thread_num();
-            LocalTopTreeWalkType lv(tree);
+            LocalTopTreeWalkType lv(tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->lastnode);
 
             /* We schedule dynamically so that we have reduced imbalance.
                 * We do not use the openmp dynamic scheduling, but roll our own
