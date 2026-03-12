@@ -191,7 +191,7 @@ class TopTreeWalk
 public:
     /* Constructor from treewalk */
     MYCUDAFN TopTreeWalk(const NODE * const i_Node, const topleaf_data * const i_TopLeaves, const int i_NTopLeaves, const int i_lastnode):
-    Nodes(i_Node), TopLeaves(i_TopLeaves), NTopLeaves(i_NTopLeaves), lastnode(i_lastnode), nodelistindex(0)
+    Nodes(i_Node), TopLeaves(i_TopLeaves), NTopLeaves(i_NTopLeaves), lastnode(i_lastnode), lasttask(0), nodelistindex(0)
     { }
 
     /* Wrapper of the regular particle visit with some extra cleanup of the particle export table for the toptree walk
@@ -204,7 +204,6 @@ public:
         //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
         /* The number of exports from this particle treewalk. If negative, signals the buffer filled up.*/
         int64_t NThisParticleExport = 0;
-        nodelistindex = 0;
 
         /* Toptree walk always starts from the first node */
         int no = input.NodeList[0];
@@ -221,10 +220,14 @@ public:
             }
             if(current->f.ChildType == PSEUDO_NODE_TYPE) {
                 /* Export the pseudo particle*/
-                 NThisParticleExport = export_particle(current->s.suns[0], target, NThisParticleExport, DataIndexTable, BunchSize);
-                /* Exit the loop as we cannot export more particles.*/
-                if(NThisParticleExport < 0)
-                    break;
+                if(!DataIndexTable)
+                    NThisParticleExport = export_count(current->s.suns[0], NThisParticleExport);
+                else {
+                    NThisParticleExport = export_particle(current->s.suns[0], target, NThisParticleExport, DataIndexTable, BunchSize);
+                    /* Exit the loop as we cannot export more particles.*/
+                    if(NThisParticleExport < 0)
+                        break;
+                }
                 /* Move sideways*/
                 no = current->sibling;
                 continue;
@@ -263,7 +266,7 @@ protected:
         const int task = topleaf->Task;
         /* If the last export was to this task, we can perhaps just add this export to the existing NodeList. We can
          * be sure that all exports of this particle are contiguous.*/
-        if(nexp >= 1 && DataIndexTable[nexp-1].Task == task) {
+        if(nexp >= 1 && lasttask == task) {
     #if defined DEBUG && not defined __CUDACC__
             /* This is just to be safe: only happens if our indices are off.*/
             if(DataIndexTable[nexp - 1].Index != target)
@@ -287,8 +290,26 @@ protected:
         for(int i = 1; i < NODELISTLENGTH; i++)
             DataIndexTable[nexp].NodeList[i] = -1;
         nodelistindex = 1;
+        lasttask = task;
         nexp++;
         return nexp;
+    }
+
+    /* Returns 1 if the number of exports is incremented, zero otherwise. */
+    MYCUDAFN int64_t export_count(const int no, int64_t nexp)
+    {
+        //message(1, "Export_particle: no %d target %d exports %ld %lu nodelist %ld\n", no, target, NThisParticleExport, Nexport, nodelistindex);
+        const topleaf_data * const topleaf = &TopLeaves[no - lastnode];
+        const int task = topleaf->Task;
+        /* If the last export was to this task, we can perhaps just add this export to the existing NodeList. We can
+         * be sure that all exports of this particle are contiguous.*/
+        if(nexp >= 1 && lasttask == task && nodelistindex < NODELISTLENGTH) {
+            nodelistindex++;
+            return nexp;
+        }
+        lasttask = task;
+        nodelistindex = 1;
+        return nexp+1;
     }
 
     /* A pointer to the force tree structure to walk.*/
@@ -296,6 +317,7 @@ protected:
     const topleaf_data * const TopLeaves;
     const int NTopLeaves;
     const int lastnode;
+    int lasttask;
     /* Index to use in the current node list*/
     size_t nodelistindex;
 };

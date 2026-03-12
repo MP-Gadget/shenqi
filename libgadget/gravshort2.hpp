@@ -400,9 +400,14 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
             /* A pseudo particle that would normally be opened should now be exported. */
             if(nop->f.ChildType == PSEUDO_NODE_TYPE) {
                 /* Export the pseudo particle*/
-                NThisParticleExport = export_particle(nop->s.suns[0], target, NThisParticleExport, DataIndexTable, BunchSize);
-                if(NThisParticleExport < 0)
-                    break;
+                if(!DataIndexTable)
+                    NThisParticleExport = export_count(nop->s.suns[0], NThisParticleExport);
+                else {
+                    NThisParticleExport = export_particle(nop->s.suns[0], target, NThisParticleExport, DataIndexTable, BunchSize);
+                    /* Exit the loop as we cannot export more particles.*/
+                    if(NThisParticleExport < 0)
+                        break;
+                }
                 /* Move sideways*/
                 no = nop->sibling;
                 continue;
