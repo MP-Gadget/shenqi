@@ -25,6 +25,7 @@
 #include <thrust/iterator/counting_iterator.h>  // thrust::make_counting_iterator
 #include <thrust/execution_policy.h>            // thrust::device
 #include <thrust/scan.h>            // thrust::exclusive_scan
+#include <thrust/find.h>            // thrust::find_if
 
 /* Each thread counts the number of exports needed for each particle.
  * counts are stored in the exportcounts argument.
@@ -80,7 +81,7 @@ void do_toptree_exports(
     /* Toptree never uses node list */
     QueryType input(parts[i], NULL, firstnode, priv);
     int offset = (tid > 0) * exportoffsets[tid-1];
-    /* This will save exports to the memory in ExportTable[exportoffsets[tid]].
+    /* This will save exports to the memory in ExportTable[exportoffsets[tid-1]].
      * We ignore return as it is the same as exportcounts. BunchSize is large as we arranged never to overflow.*/
     lv.toptree_visit(i, input, priv, ExportTable[offset], 1<<31);
 };
@@ -156,7 +157,8 @@ void treewalk_postprocess_kernel(
     output->postprocess(p_i, parts, priv);
 }
 
-struct HasWorkPredicate {
+template <typename QueryType>
+class HasWorkPredicate {
      const particle_data * parts;
      const int * active_set;
      MYCUDAFN bool operator()(int i) const {
@@ -164,6 +166,14 @@ struct HasWorkPredicate {
          return QueryType::haswork(p_i, parts);
      }
  };
+
+struct Greater_than_BunchSize
+{
+    size_t BunchSize;
+    __device__ bool operator() (int i) const { 
+        return i >= BunchSize;
+    }
+};
 
 template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType>
 class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType>
@@ -194,7 +204,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         if(err != cudaSuccess)
             endrun(5, "Failed to allocate device memory for active set: %s\n", cudaGetErrorString(err));
 
-        HasWorkPredicate functor{parts, active_set};
+        HasWorkPredicate<QueryType> functor{parts, active_set};
         /* This is a standard stream compaction algorithm. It evaluates the haswork function
          * for every particle, stores the results in an array of flags, counts the non-zero flags,
          * and then scatters each particle integer to the right index in the final array. All is parallelized. */
@@ -203,19 +213,19 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
             thrust::make_counting_iterator(0),   // input: indices 0..size-1
             thrust::make_counting_iterator((int)size),
             *WorkSet, functor);
-        return WorkSetSize = end - WorkSet;
+
+        return end - *WorkSet;
     }
 
-    int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, const particle_data * const parts, ExportMemory * const exportlist)
+    int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, const particle_data * const particles, ExportMemory * const exportlist)
     {
         int64_t curSize = WorkSetSize - WorkSetStart;
         const int threadsPerBlock = 256;
         const int blocks = (curSize + threadsPerBlock - 1) / threadsPerBlock;
-        int64_t currentIndex = WorkSet + WorkSetStart;
-        int BufferFullFlag = 0;
+        int64_t currentIndex = WorkSetStart;
 
-        int * exportcounts,
-        auto err = cudaMalloc(&exportcounts, sizeof(int) * curSize);
+        int * exportcounts;
+        cudaError_t err = cudaMalloc(&exportcounts, sizeof(int) * curSize);
         if(err != cudaSuccess)
             endrun(5, "Failed to allocate device memory for export counts: %s\n", cudaGetErrorString(err));
 
@@ -234,10 +244,9 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
          */
         /* If the export buffer filled up, find the first place where it did. */
         /* First element where the exportcount is larger than the bunch size */
-        auto iter = thrust::find_if(thrust::device, exportcounts, exportcounts+curSize,
-                [exportlist->BunchSize] __device__ (int i) { return i >= exportlist->BunchSize;});
+        Greater_than_BunchSize gtrbunch{exportlist->BunchSize};
+        auto iter = thrust::find_if(thrust::device, exportcounts, exportcounts+curSize,gtrbunch);
         if(iter != exportcounts+curSize) {
-            BufferFullFlag = 1;
             curSize = iter - exportcounts;
             if(curSize == 0)
                 endrun(5, "Not enough export space to make progress! lastsuc %ld\n", currentIndex);
@@ -246,11 +255,11 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         }
         /* Note this is the sum including the current element. */
         exportlist->Nexport_thread[0] = exportcounts[curSize];
-        exportlist->ExportTable_thread[0] = (DataIndexTable *) mymanagedmalloc("DataIndexTable", exportlist->Nexport_thread[0] * sizeof(DataIndexTable));
+        exportlist->ExportTable_thread[0] = (data_index *) mymanagedmalloc("DataIndexTable", exportlist->Nexport_thread[0] * sizeof(data_index));
         /* Now we run toptree_visit again with the export offsets to make the export table.
          * Likely most particles have zero exports, so this will be somewhat faster than the first run. */
         do_toptree_exports<QueryType, LocalTopTreeWalkType, ParamType>
-         <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, tree->firstnode, currentIndex, curSize, &priv, exportoffsets, exportlist->ExportTable_thread);
+         <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, tree->firstnode, currentIndex, curSize, &priv, exportcounts, exportlist->ExportTable_thread);
 
         cudaError_t status = cudaDeviceSynchronize();
         if (status != cudaSuccess)
