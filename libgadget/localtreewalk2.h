@@ -30,7 +30,7 @@
  * */
 #include <stdint.h>
 #include <omp.h>
-#include "libgadget/domain.h"
+#include "domain.h"
 #include "utils/endrun.h"
 #include "forcetree.h"
 #include "partmanager.h"

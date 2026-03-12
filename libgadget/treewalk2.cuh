@@ -16,7 +16,7 @@
  * Kernels may not call endrun() or message(), but the template treewalk functions should if there is a CUDA error.
  * CUDA errors are generally not recoverable.
  */
-#include "libgadget/utils/mymalloc.h"
+#include "utils/mymalloc.h"
 #include "treewalk2.h"
 
 #include <cuda_runtime.h>           // For CUDA runtime API functions.
