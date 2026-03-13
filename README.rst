@@ -9,13 +9,13 @@ An out of date source code browser may be found here:
 Description
 -----------
 
-Shenqi is ultimately derived from P-Gadget / Gadget-2, with the gravity solver algorithm from Gadget-4, 
-although there has been significant changes since then. Shenqi's predecessor, MP-Gadget, is the source code 
+Shenqi is ultimately derived from P-Gadget / Gadget-2, with the gravity solver algorithm from Gadget-4,
+although there has been significant changes since then. Shenqi's predecessor, MP-Gadget, is the source code
 used to run the BlueTides and ASTRID simulations (http://bluetides-project.org).
 Shenqi makes heavy use of boost and also requires GSL and a C++ compiler with C++20 and OpenMP 4.5 support.
 
 The random number generator used in ShenqiIC is NOT THE SAME as the random number generator used in N-GenIC.
-As a result the same random seed will produce different structure than N-GenIC. If this is important, use 
+As a result the same random seed will produce different structure than N-GenIC. If this is important, use
 MP-GenIC to generate ICs, as the IC formats are compatible.
 
 The infrastructure is heavily reworked. As a summary:
@@ -59,6 +59,15 @@ These features may be removed from shenqi if they get in the way (they remain in
 
 Already removed:
 - EXCUR_REION
+
+GPU Porting
+-----------
+
+Our GPU port is in CUDA, and the higher level NVIDIA thrust library. A template class library is used for the treewalk to ensure code is not duplicated. It thus currently requires an NVIDIA GPU, although thrust will run on an OpenMP backend with the right compile options. The overall template structure is described in treewalk2.h and the CUDA-specific functions and kernel launchers are found in treewalk2.cuh. The code requires a working nvcc for the GPU. nvcc may need to be explicitly given a path to mpi.h. Although no GPU code actually calls into MPI, some structs have an MPI_Comm member so the header is needed.
+
+The code should be used with 1 GPU per MPI rank.
+
+We also considered a port to OpenMP 5.0 target and decided against it. The tooling for OpenMP is significantly worse than for CUDA. gcc does not currently advertise openmp 5.0 support, and we were quickly able to induce an internal compiler error. Static analysers are mostly non-existent for OpenMP. In addition, memory dependencies for target code use an *implicit* dependency graph and there is no error checker available. Should the dependency be misspelt, the code will compile, run and silently induce a race condition. We felt this to be untenable.
 
 Installation
 ------------
@@ -157,18 +166,8 @@ The snapshot is in bigfile format. For data analysis in Python, use
 
 Refer to https://github.com/rainwoodman/bigfile for usage.
 
-Otherwise directly open the blocks with Fortran or C, noting the data-type
+Otherwise directly open the blocks with C, noting the data-type
 information and attributes in header and attrs files (in plain text)
-
-
-GLIBC 2.22
-----------
-
-Cray updated their GLIBC to 2.22+ recently.
-A good move but it happens to be a buggy version of GLIBC:
-https://sourceware.org/bugzilla/show_bug.cgi?id=19590
-causing non-existing symbols like `_ZGVcN4v___log_finite`.
-Adding `-lmvec -lmvec_nonshared` to GSL_LIBS works around the issue.
 
 Bigfile
 -------
@@ -186,11 +185,11 @@ Contributors
 Gadget-2 was authored by Volker Springel.
 The original P-GADGET3 was maintained by Volker Springel
 
-MP-Gadget is maintained by Simeon Bird, Yu Feng and Yueying Ni.
+shenqi was written by Simeon Bird, Yanhui Yang, and Nianyi Chen.
 
-Contributors to MP-Gadget include:
+Contributors and maintainers of MP-Gadget included:
 
-Yihao Zhou, Yanhui Yang. Nicholas Battaglia, Nianyi Chen, James Davies, Nishikanta Khandai, Karime Maamari, Chris Pederson, Phoebe Upton Sanderbeck, and Lauren Anderson.
+Yu Feng, Yueying Ni, Yihao Zhou, Yanhui Yang. Nicholas Battaglia, Nianyi Chen, James Davies, Nishikanta Khandai, Karime Maamari, Chris Pederson, Phoebe Upton Sanderbeck, and Lauren Anderson.
 
 Code review
 -----------
