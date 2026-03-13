@@ -11,11 +11,11 @@
 #include "types.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
-#include "treewalk2.h"
 #include "localtreewalk2.h"
 
 #include "forcetree.h"
 #include "partmanager.h"
+#include "gravity.h"
 
 /* Class containing the fixed parameters of the gravity treewalk. */
  class GravTreeParams : public ParamTypeBase {
@@ -362,11 +362,11 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
     public:
     /*! Find exports. The tricky part of this routine is that tree nodes that would normally be discarded without opening must not be exported.
      */
-    int toptree_visit(const int target, const GravTreeQuery& input, const GravTreeParams& priv)
+    MYCUDAFN int toptree_visit(const int target, const GravTreeQuery& input, const GravTreeParams& priv, data_index * const DataIndexTable, const size_t BunchSize)
     {
         //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
         /* Reset the exported particles for this target. */
-        NThisParticleExport = 0;
+        int64_t NThisParticleExport = 0;
         /*Tree-opening constants*/
         const double rcut = priv.Rcut;
         const double rcut2 = rcut * rcut;
@@ -376,22 +376,21 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
         const double * inpos = input.Pos;
 
         /* For a top tree walk we always start from the first element of the tree. */
-        int no = tree->firstnode;
-        int export_failed = 0;
+        int no = input.NodeList[0];
         while(no >= 0)
         {
             /* The tree always walks internal nodes*/
-            const struct NODE *nop = &tree->Nodes[no];
+            const NODE * const nop = &Nodes[no];
 
             double dx[3];
             for(int i = 0; i < 3; i++)
-                dx[i] = NEAREST(nop->mom.cofm[i] - inpos[i], tree->BoxSize);
+                dx[i] = NEAREST(nop->mom.cofm[i] - inpos[i], priv.BoxSize);
             const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
 
             /* Discard this node, move to sibling*/
-            if (shall_we_discard_node(nop->len, r2, nop->center, inpos, tree->BoxSize, rcut, rcut2) ||
+            if (shall_we_discard_node(nop->len, r2, nop->center, inpos, priv.BoxSize, rcut, rcut2) ||
             /* This node accelerates the particle directly, and is not opened, move to sibling.*/
-            !shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, tree->BoxSize, aold, priv.TreeUseBH, priv.BHOpeningAngle2) )
+            !shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, priv.BoxSize, aold, priv.TreeUseBH, priv.BHOpeningAngle2) )
             {
                 no = nop->sibling;
                 /* Don't add this node*/
@@ -401,9 +400,14 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
             /* A pseudo particle that would normally be opened should now be exported. */
             if(nop->f.ChildType == PSEUDO_NODE_TYPE) {
                 /* Export the pseudo particle*/
-                export_failed = export_particle(nop->s.suns[0], target);
-                if(export_failed != 0)
-                    break;
+                if(!DataIndexTable)
+                    NThisParticleExport = export_count(nop->s.suns[0], NThisParticleExport);
+                else {
+                    NThisParticleExport = export_particle(nop->s.suns[0], target, NThisParticleExport, DataIndexTable, BunchSize);
+                    /* Exit the loop as we cannot export more particles.*/
+                    if(NThisParticleExport < 0)
+                        break;
+                }
                 /* Move sideways*/
                 no = nop->sibling;
                 continue;
@@ -419,24 +423,13 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
             /* Open the toptree node. */
             no = nop->s.suns[0];
         }
+    #if defined DEBUG && not defined __CUDACC__
         if(NThisParticleExport > 1000)
             message(5, "%ld exports for particle %d! Odd.\n", NThisParticleExport, target);
-        /* If we filled up, we need to remove the partially evaluated last particle from the export list,
-        * save the partially evaluated chunk, and leave this loop.*/
-        if(export_failed != 0) {
-            //message(5, "Export buffer full for particle %d with %ld (%lu) exports\n", target, NThisParticleExport, Nexport);
-            /* Drop partial exports on the current particle, whose toptree will be re-evaluated*/
-            Nexport -= NThisParticleExport;
-            /* Check that the final export in the list is indeed from a different particle*/
-            if(NThisParticleExport > 0 && DataIndexTable[Nexport-1].Index >= target)
-                endrun(5, "Something screwed up in export queue: nexp %ld (local %ld) last %d < index %d\n", Nexport,
-                    NThisParticleExport, target, DataIndexTable[Nexport-1].Index);
-            /* Check that the earliest dropped export in the list is from the same particle*/
-            if(NThisParticleExport > 0 && DataIndexTable[Nexport].Index != target)
-                endrun(5, "Something screwed up in export queue: nexp %ld (local %ld) last %d != index %d\n", Nexport,
-                    NThisParticleExport, target, DataIndexTable[Nexport].Index);
-        }
-        return export_failed;
+    #endif
+        /* If we filled up, this partial toptree walk will be discarded and the toptree loop exited.*/
+        //message(5, "Export buffer full for particle %d with %ld (%lu) exports\n", target, NThisParticleExport, Nexport);
+        return NThisParticleExport;
     }
 };
 

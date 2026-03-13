@@ -1,12 +1,13 @@
 #ifndef _TREEWALK2_H_
 #define _TREEWALK2_H_
-
+/* This file contains the main header for the distributed treewalk.  */
 #include <cstdint>
 #include <string>
 #include <omp.h>
 #include <cmath>
 #include "localtreewalk2.h"
 #include "forcetree.h"
+#include "mpi.h"
 #include "walltime.h"
 #include "utils/mymalloc.h"
 #include "utils/endrun.h"
@@ -127,20 +128,10 @@ class CommBuffer
 {
     public:
     char * databuf;
-    int * rqst_task;
+    std::vector<int> rqst_task;
+    /* Needs a C-style flat memory array */
     MPI_Request * rdata_all;
-    int nrequest_all;
-    CommBuffer(const int NTask, const int alloc_high): databuf(NULL), nrequest_all(0)
-    {
-        if(alloc_high) {
-            rdata_all = ta_malloc2("requests", MPI_Request, NTask);
-            rqst_task = ta_malloc2("rqst", int, NTask);
-        }
-        else {
-            rdata_all = ta_malloc("requests", MPI_Request, NTask);
-            rqst_task = ta_malloc("rqst", int, NTask);
-        }
-    }
+    CommBuffer(): databuf(NULL), rdata_all(NULL) {}
     ~CommBuffer()
     {
         /* First wait until all comms are done */
@@ -149,10 +140,14 @@ class CommBuffer
             myfree(databuf);
             databuf = NULL;
         }
-        ta_free(rqst_task);
-        ta_free(rdata_all);
+        if(rdata_all)
+            myfree(rdata_all);
     }
-
+    /* Get the number of active requests. */
+    size_t nrequest(void) const
+    {
+        return rqst_task.size();
+    }
     /* Routine to send data to all tasks async. If receive is set, the routine receives data. The structure stores the requests.
      Empty tasks are skipped. Must call alloc_commbuffer on the buffer first and buffer->databuf must be set.*/
     void MPI_fill(int64_t *cnts, int64_t *displs, MPI_Datatype type, int receive, int tag, MPI_Comm comm)
@@ -163,31 +158,34 @@ class CommBuffer
         MPI_Comm_size(comm, &NTask);
         ptrdiff_t lb, elsize;
         MPI_Type_get_extent(type, &lb, &elsize);
-        int nrequests = 0;
 
-        int i;
-        /* Loop over all tasks, starting with the one just past this one*/
-        for(i = 1; i < NTask; i++)
+        /* Loop over all tasks, counting the number of requests.*/
+        for(int j = 1; j < NTask; j++)
         {
-            int target = (ThisTask + i) % NTask;
+            int target = (ThisTask + j) % NTask;
             if(cnts[target] == 0) continue;
-            rqst_task[nrequests] = target;
+            rqst_task.push_back(target);
+        }
+        rdata_all = (MPI_Request *) mymalloc("MPI_requests", sizeof(MPI_Request) * rqst_task.size());
+        /* Do Send/Recv over all non-trivial tasks*/
+        for(size_t i = 0; i < rqst_task.size(); i++)
+        {
+            int target = rqst_task[i];
             if(receive == COMM_RECV) {
                 MPI_Irecv(((char*) databuf) + elsize * displs[target], cnts[target],
-                    type, target, tag, comm, &rdata_all[nrequests++]);
+                    type, target, tag, comm, &rdata_all[i]);
             }
             else {
                 MPI_Isend(((char*) databuf) + elsize * displs[target], cnts[target],
-                    type, target, tag, comm, &rdata_all[nrequests++]);
+                    type, target, tag, comm, &rdata_all[i]);
             }
         }
-        nrequest_all = nrequests;
     }
 
     /* Waits for all the requests in the commbuffer to be complete*/
     void wait(void)
     {
-        MPI_Waitall(nrequest_all, rdata_all, MPI_STATUSES_IGNORE);
+        MPI_Waitall(rqst_task.size(), rdata_all, MPI_STATUSES_IGNORE);
     }
 };
 
@@ -430,8 +428,8 @@ private:
             Ndone = ev_ndone(WorkSetStart < WorkSetSize, comm);
             /* Send the exported particle data */
             /* exports is allocated first, then imports*/
-            CommBuffer exports(counts.NTask, 0);
-            CommBuffer imports(counts.NTask, 0);
+            CommBuffer exports;
+            CommBuffer imports;
             ev_send_recv_export_import(&counts, &exportlist, &exports, &imports, parts);
             tend = second();
             timecomp0 += timediff(tstart, tend);
@@ -445,9 +443,9 @@ private:
                 * checks each incoming task in turn and processes them as they arrive.*/
             tstart = second();
             /* Posts recvs to get the export results (which are sent in ev_secondary).*/
-            CommBuffer res_exports(counts.NTask, 1);
+            CommBuffer res_exports;
             ev_recv_export_result(&res_exports, &counts);
-            CommBuffer res_imports(counts.NTask, 1);
+            CommBuffer res_imports;
             ev_wait_secondary(&res_imports, &imports, &counts, parts);
             // report_memory_usage(ev_label);
             // Want to explicitly free the databuf early for this one so we free memory early.
@@ -504,7 +502,7 @@ private:
         }
     }
 
-    int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, const particle_data * const parts, ExportMemory * const exportlist)
+    int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, particle_data * const parts, ExportMemory * const exportlist)
     {
         int64_t currentIndex = WorkSetStart;
         int BufferFullFlag = 0;
@@ -514,7 +512,7 @@ private:
             /* Signals a full export buffer on this thread*/
             int BufferFull_thread = 0;
             const int tid = omp_get_thread_num();
-            LocalTopTreeWalkType lv(tree, exportlist->BunchSize, exportlist->ExportTable_thread[tid]);
+            LocalTopTreeWalkType lv(tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->lastnode);
 
             /* We schedule dynamically so that we have reduced imbalance.
                 * We do not use the openmp dynamic scheduling, but roll our own
@@ -553,7 +551,9 @@ private:
                     const int i = WorkSet ? WorkSet[k] : k;
                     /* Toptree never uses node list */
                     QueryType input(parts[i], NULL, tree->firstnode, priv);
-                    const int rt = lv.toptree_visit(i, input, priv);
+                    data_index * currentexport = exportlist->ExportTable_thread[tid] + exportlist->Nexport_thread[tid];
+                    int64_t curSize = exportlist->BunchSize - exportlist->Nexport_thread[tid];
+                    const int64_t rt = lv.toptree_visit(i, input, priv, currentexport, curSize);
                     /* If we filled up, we need to save the partially evaluated chunk, and leave this loop.*/
                     if(rt < 0) {
                         //message(5, "Export buffer full for particle %d chnk: %ld -> %ld on thread %d with %ld exports\n", i, chnk, end, tid, lv->NThisParticleExport);
@@ -565,9 +565,11 @@ private:
                         exportlist->QueueChunkEnd[tid] = end;
                         break;
                     }
+                    /* Only increment the counter if this particle walk succeeded. */
+                    else
+                        exportlist->Nexport_thread[tid] += rt;
                 }
             } while(chnk < WorkSetSize && BufferFull_thread == 0);
-            exportlist->Nexport_thread[tid] = lv.Nexport;
             BufferFullFlag += BufferFull_thread;
         }
 
@@ -613,15 +615,15 @@ private:
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(ResultType), MPI_BYTE, &type);
         MPI_Type_commit(&type);
-        int * complete_array = ta_malloc("completes", int, imports->nrequest_all);
+        res_imports->rdata_all = (MPI_Request *) mymalloc("Import Return Requests", sizeof(MPI_Request) * imports->nrequest());
+        int * complete_array = (int *) mymalloc("completes", imports->nrequest());
 
-        int tot_completed = 0;
         /* Test each request in turn until it completes*/
-        while(tot_completed < imports->nrequest_all) {
+        while(res_imports->nrequest() < imports->nrequest()) {
             int complete_cnt = MPI_UNDEFINED;
             /* Check for some completed requests: note that cleanup is performed if the requests are complete.
                 * There may be only 1 completed request, and we need to wait again until we have more.*/
-            MPI_Waitsome(imports->nrequest_all, imports->rdata_all, &complete_cnt, complete_array, MPI_STATUSES_IGNORE);
+            MPI_Waitsome(imports->nrequest(), imports->rdata_all, &complete_cnt, complete_array, MPI_STATUSES_IGNORE);
             /* This happens if all requests are MPI_REQUEST_NULL. It should never be hit*/
             if (complete_cnt == MPI_UNDEFINED)
                 break;
@@ -640,9 +642,8 @@ private:
                 * or it would be enabled by default.*/
                 static_cast<DerivedType *>(this)->ev_secondary((ResultType *) dataresultstart, (QueryType *) databufstart, nimports_task, parts);
                 /* Send the completed data back*/
-                res_imports->rqst_task[res_imports->nrequest_all] = task;
-                MPI_Isend(dataresultstart, nimports_task, type, task, 101923, counts->comm, &res_imports->rdata_all[res_imports->nrequest_all++]);
-                tot_completed++;
+                MPI_Isend(dataresultstart, nimports_task, type, task, 101923, counts->comm, &res_imports->rdata_all[res_imports->nrequest()]);
+                res_imports->rqst_task.push_back(task);
             }
         };
         myfree(complete_array);
@@ -664,14 +665,12 @@ private:
         imports->MPI_fill(counts->Import_count, counts->Import_offset, type, COMM_RECV, 101922, counts->comm);
 
         /* prepare particle data for export */
-        int64_t * real_send_count = ta_malloc("tmp_send_count", int64_t, counts->NTask);
+        int64_t * real_send_count = (int64_t *) mymalloc("tmp_send_count", sizeof(int64_t) * counts->NTask);
         memset(real_send_count, 0, sizeof(int64_t)*counts->NTask);
-        int64_t i;
         QueryType * export_queries = reinterpret_cast<QueryType*>(exports->databuf);
-        for(i = 0; i < exportlist->NThread; i++)
+        for(int64_t i = 0; i < exportlist->NThread; i++)
         {
-            size_t k;
-            for(k = 0; k < exportlist->Nexport_thread[i]; k++) {
+            for(size_t k = 0; k < exportlist->Nexport_thread[i]; k++) {
                 const int place = exportlist->ExportTable_thread[i][k].Index;
                 const int task = exportlist->ExportTable_thread[i][k].Task;
                 const int64_t bufpos = real_send_count[task] + counts->Export_offset[task];
@@ -682,9 +681,9 @@ private:
         }
     #ifdef DEBUG
     /* Checks!*/
-        for(i = 0; i < counts->NTask; i++)
+        for(int i = 0; i < counts->NTask; i++)
             if(real_send_count[i] != counts->Export_count[i])
-                endrun(6, "Inconsistent export to task %ld of %d: %ld expected %ld\n", i, counts->NTask, real_send_count[i], counts->Export_count[i]);
+                endrun(6, "Inconsistent export to task %d of %d: %ld expected %ld\n", i, counts->NTask, real_send_count[i], counts->Export_count[i]);
     #endif
         myfree(real_send_count);
         exports->MPI_fill(counts->Export_count, counts->Export_offset, type, COMM_SEND, 101922, counts->comm);
@@ -709,15 +708,13 @@ private:
 
     void ev_reduce_export_result(CommBuffer * exportbuf, const ImpExpCounts * const counts, const ExportMemory * const exportlist, struct particle_data * const parts)
     {
-        int64_t i;
         /* Notice that we build the dataindex table individually
             * on each thread, so we are ordered by particle and have memory locality.*/
-        int * real_recv_count = ta_malloc("tmp_recv_count", int, counts->NTask);
+        int * real_recv_count = (int *) mymalloc("tmp_recv_count", sizeof(int) * counts->NTask);
         memset(real_recv_count, 0, sizeof(int)*counts->NTask);
-        for(i = 0; i < exportlist->NThread; i++)
+        for(int64_t i = 0; i < exportlist->NThread; i++)
         {
-            size_t k;
-            for(k = 0; k < exportlist->Nexport_thread[i]; k++) {
+            for(size_t k = 0; k < exportlist->Nexport_thread[i]; k++) {
                 const int place = exportlist->ExportTable_thread[i][k].Index;
                 const int task = exportlist->ExportTable_thread[i][k].Task;
                 const int64_t bufpos = real_recv_count[task] + counts->Export_offset[task];
