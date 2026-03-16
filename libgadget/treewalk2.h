@@ -58,7 +58,7 @@ class ImpExpCounts
         /* Calculate the amount of data to send. */
         for(size_t k = 0; k < exports.Nexport; k++) {
 #ifdef DEBUG
-            if(exports.ExportTable[k].Task > NTask)
+            if(exports.ExportTable[k].Task < 0 || exports.ExportTable[k].Task > NTask)
                 endrun(5, "export count at %lu of %lu is %d > NTask: %d\n", k, exports.Nexport, exports.ExportTable[k].Task, NTask);
 #endif
             Export_count[exports.ExportTable[k].Task]++;
@@ -528,7 +528,8 @@ private:
                 const int i = WorkSet ? WorkSet[k] : k;
                 /* Toptree never uses node list */
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
-                exportcounts[i] = lv.toptree_visit(i, input, priv, NULL, 0);
+                /* Note index is into the WorkSet*/
+                exportcounts[k] = lv.toptree_visit(i, input, priv, NULL, 0);
             }
         }
         /* Parallel inclusive scan */
@@ -539,6 +540,7 @@ private:
     int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, particle_data * const parts, int * exportcounts, ExportMemory2 * const exportlist)
     {
         int64_t curSize = WorkSetSize;
+        exportlist->Nexport = exportcounts[curSize-1];
 
         int BunchSize = compute_bunchsize();
         Greater_than_BunchSize gtrbunch{BunchSize};
@@ -554,7 +556,6 @@ private:
         /* Note this is the sum including the current element. */
         exportlist->ExportTable = (data_index *) mymalloc("DataIndexTable", exportlist->Nexport * sizeof(data_index));
 
-
         /* Now we run toptree_visit again with the export offsets to make the export table.
          * Likely most particles have zero exports, so this will be somewhat faster than the first run. */
 
@@ -564,11 +565,14 @@ private:
 
             #pragma omp for
             for(int k = WorkSetStart; k < curSize; k++) {
+                int64_t curSize = exportcounts[k] - (k > 0) * exportcounts[k-1];
+                data_index * currentexport = exportlist->ExportTable;
+                if(k > 0)
+                    currentexport = &exportlist->ExportTable[exportcounts[k-1]];
                 const int i = WorkSet ? WorkSet[k] : k;
                 /* Toptree never uses node list */
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
-                data_index * currentexport = &exportlist->ExportTable[exportcounts[i]];
-                int64_t curSize = exportcounts[i] - (i > 0) * exportcounts[i-1];
+                /* Indexing into the WorkSet, not the particle.*/
                 lv.toptree_visit(i, input, priv, currentexport, curSize);
             }
         }
