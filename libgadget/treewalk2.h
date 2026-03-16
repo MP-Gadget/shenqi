@@ -539,13 +539,19 @@ private:
 
     int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, particle_data * const parts, int * exportcounts, ExportMemory2 * const exportlist)
     {
-        int64_t curSize = WorkSetSize;
-        exportlist->Nexport = exportcounts[curSize-1];
-
-        int BunchSize = compute_bunchsize();
+        /* Adjust the indices for the restart */
+        int64_t curSize = WorkSetSize - WorkSetStart;
+        exportcounts = exportcounts + WorkSetStart;
+        int64_t exportoffset = 0;
+        if(WorkSetStart > 0)
+            exportoffset = exportcounts[WorkSetStart];
+        /* Note that the exportcount is built on the first iteration
+         * and so the indices are off for the second one. */
+        exportlist->Nexport = exportcounts[curSize-1] - exportoffset;
+        int BunchSize = compute_bunchsize() + exportoffset;
         Greater_than_BunchSize gtrbunch{BunchSize};
-        auto iter = std::find_if(std::execution::par, exportcounts, exportcounts+WorkSetSize,gtrbunch);
-        if(iter != exportcounts+WorkSetSize) {
+        auto iter = std::find_if(std::execution::par, exportcounts, exportcounts+curSize,gtrbunch);
+        if(iter != exportcounts + curSize) {
             curSize = iter - exportcounts;
             if(curSize == 0)
                 endrun(5, "Not enough export space to make progress! lastsuc %ld\n", WorkSetStart);
@@ -565,15 +571,17 @@ private:
 
             #pragma omp for
             for(int k = WorkSetStart; k < curSize; k++) {
-                int64_t curSize = exportcounts[k] - (k > 0) * exportcounts[k-1];
+                int64_t nexport = exportcounts[k] - exportoffset;
                 data_index * currentexport = exportlist->ExportTable;
-                if(k > 0)
-                    currentexport = &exportlist->ExportTable[exportcounts[k-1]];
+                if(k > 0) {
+                    currentexport = &exportlist->ExportTable[exportcounts[k-1] - exportoffset];
+                    nexport = exportcounts[k] - exportcounts[k-1];
+                }
                 const int i = WorkSet ? WorkSet[k] : k;
                 /* Toptree never uses node list */
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
                 /* Indexing into the WorkSet, not the particle.*/
-                lv.toptree_visit(i, input, priv, currentexport, curSize);
+                lv.toptree_visit(i, input, priv, currentexport, nexport);
             }
         }
 
