@@ -277,8 +277,74 @@ public:
         /* Print some balance numbers*/
         report_memory_usage(ev_label);
 
-        /* Main loop that tries to walk toptree, then do primary and secondary evals. */
-        ev_process(WorkSet, WorkSetSize, BunchSize, parts, comm);
+        /* Number of times we filled up our export buffer*/
+        int Nexportfull = 0;
+        int Ndone = 0;
+        /* Start first iteration at the beginning*/
+        int64_t WorkSetStart = 0;
+        /* We count all exports before the main export loop. */
+        int * exportcounts = static_cast<DerivedType *>(this)->ev_count_exports(WorkSet, WorkSetSize, parts);
+
+        /* Main loop that copies into the export table, then does primary and secondary evals. */
+        do {
+            double tstart, tend;
+            tstart = second();
+
+            if(Nexportfull > 0)
+                message(0, "Toptree %s, iter %d. First particle %ld size %ld.\n", ev_label, Nexportfull, WorkSetStart, WorkSetSize);
+            ExportMemory2 exportlist;
+            /* First do the toptree and export particles for sending.*/
+            WorkSetStart = static_cast<DerivedType *>(this)->ev_toptree(WorkSet, WorkSetStart, WorkSetSize, parts, exportcounts, &exportlist);
+            /* All processes sync via alltoall.*/
+            ImpExpCounts counts(comm, exportlist);
+            NExportTargets = counts.NExportTargets;
+            Nexport_sum += counts.Nexport;
+            Ndone = ev_ndone(WorkSetStart < WorkSetSize, comm);
+            /* Send the exported particle data */
+            /* exports is allocated first, then imports*/
+            CommBuffer exports;
+            CommBuffer imports;
+            ev_send_recv_export_import(&counts, &exportlist, &exports, &imports, parts);
+            tend = second();
+            timecomp0 += timediff(tstart, tend);
+            /* Only do this on the first iteration, as we only need to do it once.*/
+            tstart = second();
+            if(Nexportfull == 0)
+                static_cast<DerivedType *>(this)->ev_primary(WorkSet, WorkSetSize, parts); /* do local particles and prepare export list */
+            tend = second();
+            timecomp1 += timediff(tstart, tend);
+            /* Do processing of received particles. We implement a queue that
+                * checks each incoming task in turn and processes them as they arrive.*/
+            tstart = second();
+            /* Posts recvs to get the export results (which are sent in ev_secondary).*/
+            CommBuffer res_exports;
+            ev_recv_export_result(&res_exports, &counts);
+            CommBuffer res_imports;
+            ev_wait_secondary(&res_imports, &imports, &counts, parts);
+            // report_memory_usage(ev_label);
+            // Want to explicitly free the databuf early for this one so we free memory early.
+            myfree(imports.databuf);
+            imports.databuf = NULL;
+            tend = second();
+            timecomp2 += timediff(tstart, tend);
+            /* Now clear the sent data buffer, waiting for the send to complete.
+                * This needs to be after the other end has called recv.*/
+            tstart = second();
+            res_exports.wait();
+            tend = second();
+            timewait1 += timediff(tstart, tend);
+            tstart = second();
+            ev_reduce_export_result(&res_exports, &counts, &exportlist, parts);
+            tend = second();
+            timecommsumm += timediff(tstart, tend);
+            /* Free export memory*/
+            Nexportfull++;
+            /* The destructors for the CommBuffers will fire at this point,
+            * which means there is an implicit wait() */
+        } while(Ndone < NTask);
+
+        /* GPU code needs to use cudaFree here. */
+        static_cast<DerivedType *>(this)->ev_free_exports(exportcounts);
 
         double tstart = second();
         static_cast<DerivedType *>(this)->ev_postprocess(WorkSet, WorkSetSize, parts);
@@ -411,80 +477,13 @@ private:
         */
     void ev_process(int * WorkSet, const int64_t WorkSetSize, const size_t BunchSize, particle_data * const parts, MPI_Comm comm)
     {
-        /* Number of times we filled up our export buffer*/
-        int Nexportfull = 0;
-        int Ndone = 0;
-        /* Start first iteration at the beginning*/
-        int64_t WorkSetStart = 0;
-        int NTask;
-        MPI_Comm_size(comm, &NTask);
-        /* We count all exports before the main export loop. */
-        int * exportcounts = static_cast<DerivedType *>(this)->ev_count_exports(WorkSet, WorkSetSize, parts);
-
-        do {
-            double tstart, tend;
-            tstart = second();
-
-            if(Nexportfull > 0)
-                message(0, "Toptree %s, iter %d. First particle %ld size %ld.\n", ev_label, Nexportfull, WorkSetStart, WorkSetSize);
-            ExportMemory2 exportlist;
-            /* First do the toptree and export particles for sending.*/
-            WorkSetStart = static_cast<DerivedType *>(this)->ev_toptree(WorkSet, WorkSetStart, WorkSetSize, parts, exportcounts, &exportlist);
-            /* All processes sync via alltoall.*/
-            ImpExpCounts counts(comm, exportlist);
-            NExportTargets = counts.NExportTargets;
-            Nexport_sum += counts.Nexport;
-            Ndone = ev_ndone(WorkSetStart < WorkSetSize, comm);
-            /* Send the exported particle data */
-            /* exports is allocated first, then imports*/
-            CommBuffer exports;
-            CommBuffer imports;
-            ev_send_recv_export_import(&counts, &exportlist, &exports, &imports, parts);
-            tend = second();
-            timecomp0 += timediff(tstart, tend);
-            /* Only do this on the first iteration, as we only need to do it once.*/
-            tstart = second();
-            if(Nexportfull == 0)
-                static_cast<DerivedType *>(this)->ev_primary(WorkSet, WorkSetSize, parts); /* do local particles and prepare export list */
-            tend = second();
-            timecomp1 += timediff(tstart, tend);
-            /* Do processing of received particles. We implement a queue that
-                * checks each incoming task in turn and processes them as they arrive.*/
-            tstart = second();
-            /* Posts recvs to get the export results (which are sent in ev_secondary).*/
-            CommBuffer res_exports;
-            ev_recv_export_result(&res_exports, &counts);
-            CommBuffer res_imports;
-            ev_wait_secondary(&res_imports, &imports, &counts, parts);
-            // report_memory_usage(ev_label);
-            // Want to explicitly free the databuf early for this one so we free memory early.
-            myfree(imports.databuf);
-            imports.databuf = NULL;
-            tend = second();
-            timecomp2 += timediff(tstart, tend);
-            /* Now clear the sent data buffer, waiting for the send to complete.
-                * This needs to be after the other end has called recv.*/
-            tstart = second();
-            res_exports.wait();
-            tend = second();
-            timewait1 += timediff(tstart, tend);
-            tstart = second();
-            ev_reduce_export_result(&res_exports, &counts, &exportlist, parts);
-            tend = second();
-            timecommsumm += timediff(tstart, tend);
-            /* Free export memory*/
-            Nexportfull++;
-            /* The destructors for the CommBuffers will fire at this point,
-            * which means there is an implicit wait() */
-        } while(Ndone < NTask);
-        /* GPU code needs to use cudaFree here. */
-        static_cast<DerivedType *>(this)->ev_free_exports(exportcounts);
     }
 
     void ev_free_exports(int * exportcounts)
     {
         myfree(exportcounts);
     }
+
     /* returns struct containing export counts */
     void ev_primary(int * WorkSet, const int64_t WorkSetSize, particle_data * const parts)
     {
