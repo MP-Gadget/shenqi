@@ -21,6 +21,7 @@ void
 grav_short_tree_cuda(const ActiveParticles * act, ForceTree * tree, GravTreeParams * priv, GravTreeOutput * output, particle_data * const parts, const size_t MaxExportBufferBytes, MPI_Comm comm)
 {
         GravTreeWalkGPU tw("GRAVTREE", tree, *priv, output);
-        tw.run_on_queue(act->ActiveParticle, act->NumActiveParticle, parts, comm, MaxExportBufferBytes);
+        tw.MaxExportBufferBytes = MaxExportBufferBytes;
+        tw.run_on_queue(act->ActiveParticle, act->NumActiveParticle, parts, comm);
         tw.print_stats("/Tree", comm);
 }

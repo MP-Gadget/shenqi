@@ -173,14 +173,6 @@ class HasWorkPredicate {
      }
  };
 
-struct Greater_than_BunchSize
-{
-    size_t BunchSize;
-    __device__ bool operator() (int i) const {
-        return i >= BunchSize;
-    }
-};
-
 template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType>
 class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType>
 {
@@ -192,6 +184,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
     using Base::tree;
     using Base::priv;
     using Base::output;
+    using Base::compute_bunchsize;
 
     /* Build the queue by calling the haswork function on each particle in the active_set.
      * Arguments:
@@ -223,15 +216,13 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         return end - *WorkSet;
     }
 
-    int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, particle_data * const particles, ExportMemory * const exportlist)
+    int * ev_count_exports(int * WorkSet, const int64_t WorkSetSize, particle_data * const parts)
     {
-        int64_t curSize = WorkSetSize - WorkSetStart;
         const int threadsPerBlock = 256;
-        const int blocks = (curSize + threadsPerBlock - 1) / threadsPerBlock;
-        int64_t currentIndex = WorkSetStart;
+        const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
 
         int * exportcounts;
-        cudaError_t err = cudaMalloc(&exportcounts, sizeof(int) * curSize);
+        cudaError_t err = cudaMalloc(&exportcounts, sizeof(int) * WorkSetSize);
         if(err != cudaSuccess)
             endrun(5, "Failed to allocate device memory for export counts: %s\n", cudaGetErrorString(err));
 
@@ -240,7 +231,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
          * TODO Avoid counting exports we haven't sent yet multiple times, save exportcounts.
          */
         count_toptree_exports<QueryType, LocalTopTreeWalkType, ParamType>
-        <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->firstnode, tree->lastnode, WorkSet + currentIndex, curSize, &priv, exportcounts);
+        <<<blocks, threadsPerBlock>>>(parts, tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->firstnode, tree->lastnode, WorkSet, WorkSetSize, &priv, exportcounts);
 
         /*  inclusive_scan is a partial sum:
          * it counts the total number of particle exports before and including the current point, so we know which
@@ -248,11 +239,27 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
          * Particle j has exports from exportcounts[j-1] to exportcounts[j]
          * Final element is Nexports */
         /* Only count exports that we have not yet sent. */
-        thrust::inclusive_scan(thrust::device, exportcounts, exportcounts+curSize, exportcounts);
+        thrust::inclusive_scan(thrust::device, exportcounts, exportcounts+WorkSetSize, exportcounts);
+        return exportcounts;
+    }
+
+    void ev_free_exports(int * exportcounts)
+    {
+        cudaFree(exportcounts);
+    }
+
+    int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, particle_data * const particles, int * exportcounts, ExportMemory2 * const exportlist)
+    {
+        int64_t curSize = WorkSetSize - WorkSetStart;
+        const int threadsPerBlock = 256;
+        const int blocks = (curSize + threadsPerBlock - 1) / threadsPerBlock;
+        int64_t currentIndex = WorkSetStart;
+
         /* Here we check whether our export buffer will fill up.
          * If the export buffer filled up, find the first place where it did.
          * First element where the exportcount is larger than the bunch size */
-        Greater_than_BunchSize gtrbunch{exportlist->BunchSize};
+        int BunchSize = compute_bunchsize();
+        Greater_than_BunchSize gtrbunch{BunchSize};
         bool BufferFull = false;
         auto iter = thrust::find_if(thrust::device, exportcounts, exportcounts+curSize,gtrbunch);
         if(iter != exportcounts+curSize) {
@@ -262,17 +269,17 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
             BufferFull = true;
         }
         /* Note this is the sum including the current element. */
-        cudaMemcpy(&exportlist->Nexport_thread[0], &exportcounts[curSize], sizeof(int), cudaMemcpyDeviceToHost);
-        exportlist->ExportTable_thread[0] = (data_index *) mymanagedmalloc("DataIndexTable", exportlist->Nexport_thread[0] * sizeof(data_index));
+        cudaMemcpy(&exportlist->Nexport, &exportcounts[curSize], sizeof(int), cudaMemcpyDeviceToHost);
+        exportlist->ExportTable = (data_index *) mymanagedmalloc("DataIndexTable", exportlist->Nexport * sizeof(data_index));
 
         if(BufferFull)
-            message(1, "Tree export buffer full with %lu exports (%lu Mbytes). First particle %ld new start: %ld size %ld.\n",
-                exportlist->Nexport_thread[0], exportlist->Nexport_thread[0]*sizeof(QueryType)/1024/1024, WorkSetStart + currentIndex, WorkSetStart + curSize, WorkSetSize);
+            message(1, "Tree export buffer full with %lu exports (%lu Mbytes). BunchSize %d. First particle %ld new start: %ld size %ld.\n",
+                exportlist->Nexport, exportlist->Nexport*sizeof(QueryType)/1024/1024, BunchSize, WorkSetStart + currentIndex, WorkSetStart + curSize, WorkSetSize);
 
         /* Now we run toptree_visit again with the export offsets to make the export table.
          * Likely most particles have zero exports, so this will be somewhat faster than the first run. */
         do_toptree_exports<QueryType, LocalTopTreeWalkType, ParamType>
-         <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->firstnode, tree->lastnode, WorkSet + currentIndex, curSize, &priv, exportcounts, exportlist->ExportTable_thread[0]);
+         <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->firstnode, tree->lastnode, WorkSet + currentIndex, curSize, &priv, exportcounts, exportlist->ExportTable);
 
         cudaError_t status = cudaDeviceSynchronize();
         if (status != cudaSuccess)
