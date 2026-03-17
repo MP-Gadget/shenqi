@@ -55,6 +55,6 @@ BOOST_AUTO_TEST_CASE(test_allocator_total)
 BOOST_AUTO_TEST_CASE(test_allocator_malloc)
 {
     Allocator A0;
-    allocator_malloc_init(&A0, "libc based", 4096 * 1024, 1);
+    allocator_malloc_init(&A0, "libc based", 0);
     test_allocator(&A0);
 }

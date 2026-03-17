@@ -49,6 +49,7 @@ static struct ClockTable Clocks;
 /*! This structure contains parameters local to the run module.*/
 static struct run_params
 {
+    int UseGPU;                 /* Should we use GPU acceleration */
     double SlotsIncreaseFactor; /* !< What percentage to increase the slot allocation by when requested*/
     int OutputDebugFields;      /* Flag whether to include a lot of debug output in snapshots*/
 
@@ -121,6 +122,7 @@ set_all_global_params(ParameterSet * ps)
         param_get_string2(ps, "OutputDir", All.OutputDir, sizeof(All.OutputDir));
         param_get_string2(ps, "FOFFileBase", All.FOFFileBase, sizeof(All.FOFFileBase));
 
+        All.UseGPU = param_get_int(ps, "UseGPU");
         All.CP.CMBTemperature = param_get_double(ps, "CMBTemperature");
         All.CP.RadiationOn = param_get_int(ps, "RadiationOn");
         All.CP.Omega0 = param_get_double(ps, "Omega0");
@@ -202,6 +204,9 @@ int find_last_snapshot(void)
 inttime_t
 begrun(const int RestartSnapNum, struct header_data * head)
 {
+    /*Initialize the memory manager*/
+    mymalloc_init(All.UseGPU);
+
     petapm_module_init(omp_get_max_threads());
     petaio_init();
     walltime_init(&Clocks);

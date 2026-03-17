@@ -76,6 +76,7 @@ allocator_init(Allocator * alloc, const char * name, const size_t request_size, 
     alloc->topcount = 0;
     alloc->top = alloc->size;
     alloc->bottom = 0;
+    alloc->UseGPU = 0;
 
     if(zero) {
         memset(alloc->base, 0, alloc->size);
@@ -85,9 +86,9 @@ allocator_init(Allocator * alloc, const char * name, const size_t request_size, 
 }
 
 int
-allocator_malloc_init(Allocator * alloc, const char * name, const size_t request_size, const int zero)
+allocator_malloc_init(Allocator * alloc, const char * name, const int UseGPU)
 {
-    /* max number of blocks supported; ignore request_size */
+    /* max number of blocks supported */
     size_t size = sizeof(struct BlockHeader) * MAXBLOCK;
 
     char * rawbase;
@@ -103,10 +104,10 @@ allocator_malloc_init(Allocator * alloc, const char * name, const size_t request
     alloc->topcount = 0;
     alloc->top = alloc->size;
     alloc->bottom = 0;
+    alloc->UseGPU = UseGPU;
 
-    if(zero) {
-        memset(alloc->base, 0, alloc->size);
-    }
+    /* Always zero the allocator blocks */
+    memset(alloc->base, 0, alloc->size);
 
     return 0;
 }
@@ -467,30 +468,15 @@ allocator_alloc_va_malloc(Allocator * alloc, const char * name, const size_t req
 
     char * cptr;
     /* prepend a copy of the header to the malloc block; allocator_free will use it*/
-    if(header->device == HOSTMEM) {
+    if(!alloc->UseGPU || header->device == HOSTMEM) {
         if(posix_memalign((void **) &cptr, ALIGNMENT, request_size + ALIGNMENT))
         endrun(1, "Failed malloc: %lu bytes for %s\n", request_size, header->name);
     }
 #ifdef USE_CUDA
     else if(header->device == MANAGEDMEM) {
         cudaError_t memerr = cudaMallocManaged((void **) &cptr, request_size + ALIGNMENT, cudaMemAttachGlobal);
-        if(memerr == cudaErrorMemoryAllocation || memerr == cudaErrorInvalidValue)
+        if(memerr != cudaSuccess)
             endrun(1, "Failed managed malloc: %lu bytes for %s\n", request_size, header->name);
-        else if(memerr != cudaSuccess) {
-            /* Likely this is because we are running on a system without an actual GPU.
-             * In this case continue with regular posix memory so that we can do development
-             * and run the tests on such a machine.*/
-            message(0, "CUDA malloc error: %s: %s\n",  cudaGetErrorName(memerr), cudaGetErrorString(memerr));
-            if(posix_memalign((void **) &cptr, ALIGNMENT, request_size + ALIGNMENT))
-                endrun(1, "Failed malloc: %lu bytes for %s\n", request_size, header->name);
-            /* Make clear this is now host memory*/
-            header->device = HOSTMEM;
-        }
-    }
-#else
-    else if(header->device == MANAGEDMEM) {
-        if(posix_memalign((void **) &cptr, ALIGNMENT, request_size + ALIGNMENT))
-            endrun(1, "Failed malloc: %lu bytes for %s\n", request_size, header->name);
     }
 #endif
     else {
@@ -532,22 +518,13 @@ allocator_realloc_int_malloc(Allocator * alloc, void * ptr, const size_t new_siz
 
     struct BlockHeader * header2;
 #ifdef USE_CUDA
-    if(header->device == MANAGEDMEM) {
+    if(alloc->UseGPU && header->device == MANAGEDMEM) {
         #ifdef DEBUG
         message(0, "Realloc managed memory (%s : %s) is expensive, consider avoiding it\n", header->name, header->annotation);
         #endif
         cudaError_t memerr = cudaMallocManaged(&header2, new_size + ALIGNMENT, cudaMemAttachGlobal);
-        if(memerr == cudaErrorMemoryAllocation || memerr == cudaErrorInvalidValue)
+        if(memerr != cudaSuccess)
             endrun(1, "Failed managed malloc: %lu bytes for %s\n", new_size+ALIGNMENT, header->name);
-        else if(memerr != cudaSuccess) {
-            /* Likely this is because we are running on a system without an actual GPU.
-             * In this case continue with regular posix memory so that we can do development
-             * and run the tests on such a machine.*/
-            message(0, "CUDA malloc error: %s: %s\n",  cudaGetErrorName(memerr), cudaGetErrorString(memerr));
-            if(posix_memalign((void **) &header2, ALIGNMENT, new_size + ALIGNMENT))
-                endrun(1, "Failed malloc: %lu bytes for %s\n", new_size, header->name);
-        }
-
         // Copy old data to the new block (don't forget the header)
         memcpy(header2, header, ALIGNMENT + (new_size < header->request_size ? new_size : header->request_size));
         // Free the old block

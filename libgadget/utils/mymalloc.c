@@ -41,28 +41,10 @@ tamalloc_init(void)
 }
 
 void
-mymalloc_init(double MaxMemSizePerNode)
+mymalloc_init(int UseGPU)
 {
-    /* Warning: this uses ta_malloc*/
-    size_t Nhost = cluster_get_num_hosts();
-
-    MPI_Comm comm = MPI_COMM_WORLD;
-
-    int NTask;
-
-    MPI_Comm_size(comm, &NTask);
-
-    double nodespercpu = (1.0 * Nhost) / (1.0 * NTask);
-    size_t n = 1.0 * MaxMemSizePerNode * nodespercpu * 1024. * 1024.;
-    message(0, "Nhost = %ld\n", Nhost);
-    message(0, "Reserving %td bytes per rank for MAIN memory allocator. \n", n);
-    if(n < 1)
-        endrun(2, "Mem too small! MB/node=%g, nodespercpu = %g NTask = %d\n", MaxMemSizePerNode, nodespercpu, NTask);
-
-
-    if (MPIU_Any(ALLOC_ENOMEMORY == allocator_malloc_init(A_MAIN, "MAIN", n, 1), MPI_COMM_WORLD)) {
-        endrun(0, "Insufficient memory for the MAIN allocator on at least one nodes."
-                  "Requestion %td bytes. Try reducing MaxMemSizePerNode. Also check the node health status.\n", n);
+    if (MPIU_Any(ALLOC_ENOMEMORY == allocator_malloc_init(A_MAIN, "MAIN", UseGPU), MPI_COMM_WORLD)) {
+        endrun(0, "Insufficient memory for the MAIN allocator on at least one nodes.\n");
     }
 }
 

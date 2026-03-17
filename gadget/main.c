@@ -109,13 +109,6 @@ int main(int argc, char **argv)
         endrun(0, "Need to give the snapshot number if FOF is selected for output\n");
     }
 
-    /*Initialize the memory manager*/
-    mymalloc_init(MaxMemSizePerNode);
-
-    /* Make sure memory has finished initialising on all ranks before doing more.
-     * This may improve stability */
-    MPI_Barrier(MPI_COMM_WORLD);
-
     init_endrun(ShowBacktrace);
 
     struct header_data head = {0};

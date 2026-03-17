@@ -41,7 +41,8 @@ int main(int argc, char **argv)
   read_parameterfile(argv[1], &All2, &ShowBacktrace, &MaxMemSizePerNode, &CP);
   All2.units = get_unitsystem(All2.units.UnitLength_in_cm, All2.units.UnitMass_in_g, All2.units.UnitVelocity_in_cm_per_s);
 
-  mymalloc_init(MaxMemSizePerNode);
+  //Do not use the GPU, nothing here is accelerated
+  mymalloc_init(0);
 
   init_endrun(ShowBacktrace);
 
