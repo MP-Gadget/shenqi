@@ -621,7 +621,7 @@ private:
         MPI_Type_contiguous(sizeof(ResultType), MPI_BYTE, &type);
         MPI_Type_commit(&type);
         res_imports->rdata_all = (MPI_Request *) mymalloc("Import Return Requests", sizeof(MPI_Request) * imports->nrequest());
-        int * complete_array = (int *) mymalloc("completes", imports->nrequest());
+        int * complete_array = (int *) mymalloc("completes", imports->nrequest() * sizeof(int));
 
         /* Test each request in turn until it completes*/
         while(res_imports->nrequest() < imports->nrequest()) {
