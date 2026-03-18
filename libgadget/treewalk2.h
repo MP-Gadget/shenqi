@@ -582,6 +582,9 @@ private:
                     currentexport = &exportlist->ExportTable[exportcounts[k-1] - exportoffset];
                     nexport = exportcounts[k] - exportcounts[k-1];
                 }
+                /* With no exports we can skip evaluating this particle */
+                if(nexport == 0)
+                    continue;
                 const int i = WorkSet ? WorkSet[k+WorkSetStart] : k + WorkSetStart;
                 /* Toptree never uses node list */
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
