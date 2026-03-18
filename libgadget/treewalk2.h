@@ -24,6 +24,11 @@ struct ExportMemory2 {
     size_t Nexport = 0;
     /* Pointer to a particle export table.*/
     data_index * ExportTable = NULL;
+    ~ExportMemory2()
+    {
+        if(ExportTable)
+            myfree(ExportTable);
+    }
 };
 
 /* This stores counts of the particles to be transferred.
@@ -337,10 +342,10 @@ public:
             ev_reduce_export_result(&res_exports, &counts, &exportlist, parts);
             tend = second();
             timecommsumm += timediff(tstart, tend);
-            /* Free export memory*/
             Nexportfull++;
             /* The destructors for the CommBuffers will fire at this point,
             * which means there is an implicit wait() */
+            /* Free export memory in destructor of exportlist.*/
         } while(Ndone < NTask);
 
         /* GPU code needs to use cudaFree here. */
