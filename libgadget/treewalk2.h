@@ -541,10 +541,10 @@ private:
     {
         /* Adjust the indices for the restart */
         int64_t curSize = WorkSetSize - WorkSetStart;
-        exportcounts = exportcounts + WorkSetStart;
         int64_t exportoffset = 0;
         if(WorkSetStart > 0)
-            exportoffset = exportcounts[WorkSetStart];
+            exportoffset = exportcounts[WorkSetStart-1];
+        exportcounts = exportcounts + WorkSetStart;
         /* Note that the exportcount is built on the first iteration
          * and so the indices are off for the second one. */
         exportlist->Nexport = exportcounts[curSize-1] - exportoffset;
@@ -555,7 +555,7 @@ private:
             curSize = iter - exportcounts;
             if(curSize == 0)
                 endrun(5, "Not enough export space to make progress! lastsuc %ld\n", WorkSetStart);
-            exportlist->Nexport = exportcounts[curSize-1];
+            exportlist->Nexport = exportcounts[curSize-1] - exportoffset;
             message(1, "Tree export buffer full with %lu exports (%lu Mbytes). BunchSize %d. First particle %ld new start: %ld size %ld.\n",
                 exportlist->Nexport, exportlist->Nexport*sizeof(QueryType)/1024/1024, BunchSize, WorkSetStart, WorkSetStart + curSize, WorkSetSize);
         }
@@ -570,14 +570,14 @@ private:
             LocalTopTreeWalkType lv(tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->lastnode);
 
             #pragma omp for
-            for(int k = WorkSetStart; k < curSize; k++) {
+            for(int k = 0; k < curSize; k++) {
                 int64_t nexport = exportcounts[k] - exportoffset;
                 data_index * currentexport = exportlist->ExportTable;
                 if(k > 0) {
                     currentexport = &exportlist->ExportTable[exportcounts[k-1] - exportoffset];
                     nexport = exportcounts[k] - exportcounts[k-1];
                 }
-                const int i = WorkSet ? WorkSet[k] : k;
+                const int i = WorkSet ? WorkSet[k+WorkSetStart] : k + WorkSetStart;
                 /* Toptree never uses node list */
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
                 /* Indexing into the WorkSet, not the particle.*/
