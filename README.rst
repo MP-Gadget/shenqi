@@ -130,6 +130,19 @@ In the end, we will have 2 binaries:
 
 2. MP-GenIC is the initial condition generator.
 
+Address Sanitizer
+----------------
+Memory errors are best debugged with the Address sanitizer. Compile with optimisations off, -DDEBUG on and -fsanitize=address.
+
+To run the address sanitizer under MPI, you must disable the OpenMPI binary patcher. This can be done with:
+
+.. code::
+    ompi_info --param patcher all 2>&1 | grep -i patcher
+
+and the output of that, which for current linux is 'overwrite' should be used as follows:
+
+mpirun --mca patcher \^overwrite -np X ./MP-Gadget paramfile.gadget
+
 Config Files
 ------------
 
