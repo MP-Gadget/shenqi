@@ -39,7 +39,7 @@ CFLAGS += "-DLOW_PRECISION=$(LOW_PRECISION)"
 #For tests
 TCFLAGS = $(CFLAGS) -DGADGET_TESTDATA_ROOT=\"$(GADGET_TESTDATA_ROOT)\"
 
-TBB_LIBS := $(shell echo "#include <tbb/tbb.h>\nint main(){}" | $(MPICC) -x c++ - -ltbb -o /dev/null 2>/dev/null && echo "-ltbb")
+TBB_LIBS := $(shell echo "int main(void){return 0;}" | $(MPICC) -x c++ - -ltbb -o /dev/null 2>/dev/null && echo "-ltbb")
 $(if $(TBB_LIBS),,$(warning TBB not found: building without TBB support))
 BUNDLEDLIBS = -lbigfile-mpi -lbigfile -lpfft_omp -lfftw3_mpi -lfftw3_omp -lfftw3 $(TBB_LIBS)
 LIBS  = -lm  $(BOOST_LIBS) $(GSL_LIBS) $(FITSIO_LIBS) $(CUDA_LIBS)
