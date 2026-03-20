@@ -547,7 +547,7 @@ private:
     {
         /* Adjust the indices for the restart */
         int64_t curSize = WorkSetSize - WorkSetStart;
-        int64_t exportoffset = 0;
+        int exportoffset = 0;
         if(WorkSetStart > 0)
             exportoffset = exportcounts[WorkSetStart-1];
         /* Handle the no work case explicitly */
