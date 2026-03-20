@@ -163,7 +163,8 @@ class CommBuffer
     /* Waits for all the requests in the commbuffer to be complete*/
     void wait(void)
     {
-        MPI_Waitall(rqst_task.size(), rdata_all, MPI_STATUSES_IGNORE);
+        if(rdata_all)
+            MPI_Waitall(rqst_task.size(), rdata_all, MPI_STATUSES_IGNORE);
     }
 };
 
@@ -549,6 +550,12 @@ private:
         int64_t exportoffset = 0;
         if(WorkSetStart > 0)
             exportoffset = exportcounts[WorkSetStart-1];
+        /* Handle the no work case explicitly */
+        if(curSize == 0) {
+            exportlist->Nexport = 0;
+            exportlist->ExportTable = (data_index *) mymalloc("DataIndexTable", sizeof(data_index));
+            return WorkSetStart;
+        }
         exportcounts = exportcounts + WorkSetStart;
         /* Note that the exportcount is built on the first iteration
          * and so the indices are off for the second one. */
