@@ -30,7 +30,12 @@ jobs:
           ~/depends/download
           ~/depends/src
           ~/depends/lib
-
+    - name: Cache apt packages
+      uses: actions/cache@v4
+      with:
+        path: /var/cache/apt/archives
+        key: apt-${{ runner.os }}-${{ hashFiles('.github/workflows/main.yaml') }}
+        restore-keys: apt-${{ runner.os }}-
     - name: Install apt packages
       run: |
         sudo apt update
