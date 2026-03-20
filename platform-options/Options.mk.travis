@@ -6,8 +6,8 @@ SHELL = /bin/bash
 
 NVCC = nvcc
 # virtual arch for compile-only, no real GPU needed
-#The compiler amx-tile option fixes an incompatibility between cuda 12.0.1 and gcc on ubuntu 14.04. Remove when the github runner updates.
-NVOPTIMIZE = -O3 -arch=sm_70 -Xcompiler -mno-amx-tile
+#The compiler amx-tile option fixes an incompatibility between cuda 12.0.1 and gcc 13 on ubuntu 14.04. Remove when the github runner updates.
+NVOPTIMIZE = -O3 -arch=sm_70 -ccbin g++-12 -Xcompiler -mno-amx-tile
 
 CUDA_INCL = -I/usr/local/cuda/include
 CUDA_LIBS = -L/usr/local/cuda/lib64 -lcudart
