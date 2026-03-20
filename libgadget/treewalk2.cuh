@@ -68,12 +68,14 @@ void do_toptree_exports(
     const int NTopLeaves,
     const int firstnode,
     const int lastnode,
+    const int WorkSetStart,
     const int * const WorkSet,
     const int64_t WorkSetSize,
     // by reference so the destructor does not run,
     // which means in managed memory, and with all sub-arrays in managed memory
     const ParamType * priv,
-    const int * exportoffsets,
+    const int * exportcounts,
+    const int exportoffset,
     data_index * ExportTable // This is the main export table output.
     )
 {
@@ -83,13 +85,21 @@ void do_toptree_exports(
 
     LocalTopTreeWalkType lv(Nodes, TopLeaves, NTopLeaves, lastnode);
 
-    const int i = WorkSet ? WorkSet[tid] : tid;
+    int64_t nexport = exportcounts[tid] - exportoffset;
+    data_index * currentexport = ExportTable;
+    if(tid > 0) {
+        currentexport = &ExportTable[exportcounts[tid-1] - exportoffset];
+        nexport = exportcounts[tid] - exportcounts[tid-1];
+    }
+    /* With no exports we can skip evaluating this particle */
+    if(nexport == 0)
+        return;
+    const int i = WorkSet ? WorkSet[tid+WorkSetStart] : tid + WorkSetStart;
     /* Toptree never uses node list */
     QueryType input(parts[i], NULL, firstnode, *priv);
-    int offset = (tid > 0) * exportoffsets[tid-1];
     /* This will save exports to the memory in ExportTable[exportoffsets[tid-1]].
      * We ignore return as it is the same as exportcounts. BunchSize is large as we arranged never to overflow.*/
-    lv.toptree_visit(i, input, *priv, &ExportTable[offset], 1<<29);
+    lv.toptree_visit(i, input, *priv, currentexport, nexport);
 };
 
 template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType, typename OutputType>
@@ -250,36 +260,51 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
 
     int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, particle_data * const particles, int * exportcounts, ExportMemory2 * const exportlist)
     {
-        int64_t curSize = WorkSetSize - WorkSetStart;
         const int threadsPerBlock = 256;
-        const int blocks = (curSize + threadsPerBlock - 1) / threadsPerBlock;
-        int64_t currentIndex = WorkSetStart;
-
+        /* Adjust the indices for the restart */
+        int64_t curSize = WorkSetSize - WorkSetStart;
+        int exportoffset = 0;
+        if(WorkSetStart > 0) {
+            cudaMemcpy(&exportoffset, &exportcounts[WorkSetStart-1], sizeof(int), cudaMemcpyDeviceToHost);
+        }
+        /* Handle the no work case explicitly */
+        if(curSize == 0) {
+            exportlist->Nexport = 0;
+            exportlist->ExportTable = (data_index *) mymalloc("DataIndexTable", sizeof(data_index));
+            return WorkSetStart;
+        }
+        exportcounts = exportcounts + WorkSetStart;
         /* Here we check whether our export buffer will fill up.
          * If the export buffer filled up, find the first place where it did.
          * First element where the exportcount is larger than the bunch size */
-        int BunchSize = compute_bunchsize();
+        int BunchSize = compute_bunchsize() + exportoffset;
         Greater_than_BunchSize gtrbunch{BunchSize};
+
         bool BufferFull = false;
         auto iter = thrust::find_if(thrust::device, exportcounts, exportcounts+curSize,gtrbunch);
-        if(iter != exportcounts+curSize) {
+        if(iter != exportcounts + curSize) {
             curSize = iter - exportcounts;
             if(curSize == 0)
-                endrun(5, "Not enough export space to make progress! lastsuc %ld\n", currentIndex);
+                endrun(5, "Not enough export space to make progress! lastsuc %ld\n", WorkSetStart);
             BufferFull = true;
         }
         /* Note this is the sum including the current element. */
-        cudaMemcpy(&exportlist->Nexport, &exportcounts[curSize], sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(&exportlist->Nexport, &exportcounts[curSize-1], sizeof(int), cudaMemcpyDeviceToHost);
+        /* Note that the exportcount is built on the first iteration
+         * and so the indices are off for the second one. */
+        exportlist->Nexport -= exportoffset;
         exportlist->ExportTable = (data_index *) mymanagedmalloc("DataIndexTable", exportlist->Nexport * sizeof(data_index));
 
         if(BufferFull)
             message(1, "Tree export buffer full with %lu exports (%lu Mbytes). BunchSize %d. First particle %ld new start: %ld size %ld.\n",
-                exportlist->Nexport, exportlist->Nexport*sizeof(QueryType)/1024/1024, BunchSize, WorkSetStart + currentIndex, WorkSetStart + curSize, WorkSetSize);
+                exportlist->Nexport, exportlist->Nexport*sizeof(QueryType)/1024/1024, BunchSize, WorkSetStart, WorkSetStart + curSize, WorkSetSize);
 
+        const int blocks = (curSize + threadsPerBlock - 1) / threadsPerBlock;
         /* Now we run toptree_visit again with the export offsets to make the export table.
          * Likely most particles have zero exports, so this will be somewhat faster than the first run. */
         do_toptree_exports<QueryType, LocalTopTreeWalkType, ParamType>
-         <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->firstnode, tree->lastnode, WorkSet + currentIndex, curSize, &priv, exportcounts, exportlist->ExportTable);
+         <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->firstnode, tree->lastnode,
+             WorkSetStart, WorkSet, curSize, &priv, exportcounts, exportoffset, exportlist->ExportTable);
 
         cudaError_t status = cudaDeviceSynchronize();
         if (status != cudaSuccess)
@@ -287,7 +312,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         // else
             // message(1, "Finished toptree. First particle %ld next start: %ld size %ld.\n", BufferFullFlag, WorkSetStart, currentIndex, WorkSetSize);
         /* Start again with the next chunk not yet evaluated*/
-        return currentIndex + curSize;
+        return WorkSetStart + curSize;
     }
 
     // Function to launch kernel (wrapper)
