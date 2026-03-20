@@ -27,7 +27,9 @@ ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
 endif
 
 OPTIONS = $(OPTIMIZE) $(OPT)
-NVOPTIONS = $(NVOPTIMIZE) $(OPT)
+#nvcc needs the location of mpi.h, although no MPI calls are made
+MPI_INCL = $(shell pkg-config --cflags ompi-c)
+NVOPTIONS = $(NVOPTIMIZE) $(OPT) $(MPI_INCL)
 GADGET_TESTDATA_ROOT = $(CURDIR)/../
 
 CFLAGS = $(OPTIONS) $(GSL_INCL) $(BOOST_INCL) $(FITSIO_INCL) $(CUDA_INCL)
