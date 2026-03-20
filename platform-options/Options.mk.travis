@@ -4,5 +4,11 @@ GSL_LIBS = -lgsl -lgslcblas
 AR=ar
 SHELL = /bin/bash
 
+NVCC = nvcc
+NVOPTIMIZE = -O3 -arch=sm_70   # virtual arch for compile-only, no real GPU needed
+
+CUDA_INCL = -I/usr/local/cuda/include
+CUDA_LIBS = -L/usr/local/cuda/lib64 -lcudart
+
 # on travis we run with debug mode
-OPT += -DDEBUG
+OPT += -DDEBUG -DUSE_CUDA
