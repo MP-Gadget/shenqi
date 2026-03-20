@@ -5,6 +5,9 @@
 #include <math.h>
 #include <unistd.h>
 #include <omp.h>
+#ifdef USE_CUDA
+#include <cuda_runtime.h>
+#endif
 
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
@@ -204,6 +207,18 @@ int find_last_snapshot(void)
 inttime_t
 begrun(const int RestartSnapNum, struct header_data * head)
 {
+    #ifdef USE_CUDA
+    /* Force CUDA context initialisation. This does nothing, but it ensures the address range is available
+        * and allows us to check for CUDA working.*/
+    if(All.UseGPU) {
+        cudaError_t err = cudaFree(0);
+        if(err != cudaSuccess) {
+            message(0, "WARNING: GPU acceleration was requested, but CUDA calls failed. Disabling CUDA. Error was: %s\n", cudaGetErrorString(err));
+            All.UseGPU = 0;
+        }
+    }
+    #endif
+
     /*Initialize the memory manager*/
     mymalloc_init(All.UseGPU);
 
