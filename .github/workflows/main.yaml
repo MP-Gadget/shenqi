@@ -38,8 +38,7 @@ jobs:
     - name: Install apt packages
       run: |
         sudo apt update
-        #The g++12 package fixes an incompatibility between CUDA 12.0.1 on ubuntu 24.04 and gcc 13. It can be removed when CUDA updates to 12.3 
-        sudo apt install -y build-essential libopenmpi-dev openmpi-bin libgsl-dev python3-configobj python3-numpy python3-h5py python3-scipy cython3 libboost-all-dev clang libtbb-dev nvidia-cuda-toolkit g++-12
+        sudo apt install -y build-essential libopenmpi-dev openmpi-bin libgsl-dev python3-configobj python3-numpy python3-h5py python3-scipy cython3 libboost-all-dev clang libtbb-dev nvidia-cuda-toolkit
         #For nbodykit
         sudo apt install -y python3-matplotlib python3-sympy python3-pandas python3-mpi4py python3-numexpr
     - name: Build
