@@ -381,8 +381,6 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     treeacc.UseGPU = 0;
     /* Reset to normal tree */
     int origUseBH = treeacc.TreeUseBH;
-    if(origUseBH > 1)
-        treeacc.TreeUseBH = 0;
     /* Compare the new and old gravity tree. */
     set_gravshort_treepar(treeacc);
     const double rho0 = CP->Omega0 * CP->RhoCrit;
@@ -397,8 +395,6 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     treeacc.TreeUseBH = origUseBH;
     set_gravshort_treepar_old(treeacc);
     grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
-    if(origUseBH > 1)
-        treeacc.TreeUseBH = 0;
     set_gravshort_treepar_old(treeacc);
     start = second();
     grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
