@@ -5,6 +5,9 @@
 #include <math.h>
 #include <unistd.h>
 #include <omp.h>
+#ifdef USE_CUDA
+#include <cuda_runtime.h>
+#endif
 
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
@@ -49,6 +52,7 @@ static struct ClockTable Clocks;
 /*! This structure contains parameters local to the run module.*/
 static struct run_params
 {
+    int UseGPU;                 /* Should we use GPU acceleration */
     double SlotsIncreaseFactor; /* !< What percentage to increase the slot allocation by when requested*/
     int OutputDebugFields;      /* Flag whether to include a lot of debug output in snapshots*/
 
@@ -121,6 +125,7 @@ set_all_global_params(ParameterSet * ps)
         param_get_string2(ps, "OutputDir", All.OutputDir, sizeof(All.OutputDir));
         param_get_string2(ps, "FOFFileBase", All.FOFFileBase, sizeof(All.FOFFileBase));
 
+        All.UseGPU = param_get_int(ps, "UseGPU");
         All.CP.CMBTemperature = param_get_double(ps, "CMBTemperature");
         All.CP.RadiationOn = param_get_int(ps, "RadiationOn");
         All.CP.Omega0 = param_get_double(ps, "Omega0");
@@ -202,6 +207,21 @@ int find_last_snapshot(void)
 inttime_t
 begrun(const int RestartSnapNum, struct header_data * head)
 {
+    #ifdef USE_CUDA
+    /* Force CUDA context initialisation. This does nothing, but it ensures the address range is available
+        * and allows us to check for CUDA working.*/
+    if(All.UseGPU) {
+        cudaError_t err = cudaFree(0);
+        if(err != cudaSuccess) {
+            message(0, "WARNING: GPU acceleration was requested, but CUDA calls failed. Disabling CUDA. Error was: %s\n", cudaGetErrorString(err));
+            All.UseGPU = 0;
+        }
+    }
+    #endif
+
+    /*Initialize the memory manager*/
+    mymalloc_init(All.UseGPU);
+
     petapm_module_init(omp_get_max_threads());
     petaio_init();
     walltime_init(&Clocks);
@@ -806,7 +826,7 @@ void
 runtests(const int RestartSnapNum, const inttime_t Ti_Current, const struct header_data * header)
 {
     run_gravity_test(RestartSnapNum, &All.CP, All.Asmth, All.Nmesh, Ti_Current, All.OutputDir, header);
-    run_consistency_test(RestartSnapNum, &All.CP, All.Asmth, All.Nmesh, Ti_Current, All.OutputDir, header);
+    run_consistency_test(RestartSnapNum, All.UseGPU, &All.CP, All.Asmth, All.Nmesh, Ti_Current, All.OutputDir, header);
 }
 
 void

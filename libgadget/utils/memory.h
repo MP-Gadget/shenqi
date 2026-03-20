@@ -30,13 +30,14 @@ struct Allocator {
     int refcount;
     int topcount;
     int use_malloc; /* only do the book keeping. delegate to libc malloc/free */
+    int UseGPU;
 };
 
 int
 allocator_init(Allocator * alloc, const char * name, const size_t size, const int zero);
 
 int
-allocator_malloc_init(Allocator * alloc, const char * name, const size_t size, const int zero);
+allocator_malloc_init(Allocator * alloc, const char * name, const int UseGPU);
 
 int
 allocator_destroy(Allocator * alloc);

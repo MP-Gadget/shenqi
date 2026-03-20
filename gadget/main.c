@@ -5,9 +5,6 @@
 #include <unistd.h>
 #include <math.h>
 #include <omp.h>
-#ifdef USE_CUDA
-#include <cuda_runtime.h>
-#endif
 
 #include <libgadget/slotsmanager.h>
 #include <libgadget/partmanager.h>
@@ -72,14 +69,6 @@ int main(int argc, char **argv)
         struct rlimit rlim = {0};
         setrlimit(RLIMIT_CORE, &rlim);
     }
-#ifdef USE_CUDA
-    /* Force CUDA context initialisation (and UVM virtual-address reservation)
-     * before any host posix_memalign call. This does nothing, but it ensures the address range is available
-     * and allows us to check for CUDA working.*/
-    cuda_error_t err = cudaFree(0);
-    if(err != cudaSuccess)
-        message(0, "CUDA calls fail: %s\n", cudaGetErrorString(err));
-#endif
     tamalloc_init();
 
     int ShowBacktrace;
@@ -108,13 +97,6 @@ int main(int argc, char **argv)
     if(RestartFlag == 3 && RestartSnapNum < 0) {
         endrun(0, "Need to give the snapshot number if FOF is selected for output\n");
     }
-
-    /*Initialize the memory manager*/
-    mymalloc_init(MaxMemSizePerNode);
-
-    /* Make sure memory has finished initialising on all ranks before doing more.
-     * This may improve stability */
-    MPI_Barrier(MPI_COMM_WORLD);
 
     init_endrun(ShowBacktrace);
 

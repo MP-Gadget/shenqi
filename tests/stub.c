@@ -26,8 +26,8 @@ _cmocka_run_group_tests_mpi(const char * name, const struct CMUnitTest tests[], 
     }
     /* allocate some memory for MAIN and TEMP */
 
-    allocator_malloc_init(A_MAIN, "MAIN", 650 * 1024 * 1024, 0, NULL);
-    allocator_malloc_init(A_TEMP, "TEMP", 8 * 1024 * 1024, 0, A_MAIN);
+    allocator_malloc_init(A_MAIN, "MAIN", 0);
+    allocator_malloc_init(A_TEMP, "TEMP", 0);
 
     message(0, "GADGET_TESTDATA_ROOT : %s\n", GADGET_TESTDATA_ROOT);
 

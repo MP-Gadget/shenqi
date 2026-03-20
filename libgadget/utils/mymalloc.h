@@ -2,13 +2,12 @@
 #define _MYMALLOC_H_
 
 #include "memory.h"
-#include "system.h"
 
 extern Allocator A_MAIN[1];
 extern Allocator A_TEMP[1];
 
 /* Initialize the main memory block*/
-void mymalloc_init(double MemoryMB);
+void mymalloc_init(int UseGPU);
 /* Initialize the small temporary memory block*/
 void tamalloc_init(void);
 void report_detailed_memory_usage(const char *label, const char * fmt, ...);

@@ -17,11 +17,10 @@ jobs:
       run:
         shell: bash -elo pipefail {0}
     steps:
-
     - name: Checkout source code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
     - name: Cache depends/
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         key: ${{ runner.os }}-build-${{ hashFiles('depends/Makefile', 'depends/install_pfft.sh') }}
         path: |
@@ -30,11 +29,16 @@ jobs:
           ~/depends/download
           ~/depends/src
           ~/depends/lib
-
+    - name: Cache apt packages
+      uses: actions/cache@v5
+      with:
+        path: /var/cache/apt/archives
+        key: apt-${{ runner.os }}-${{ hashFiles('.github/workflows/main.yaml') }}
+        restore-keys: apt-${{ runner.os }}-
     - name: Install apt packages
       run: |
         sudo apt update
-        sudo apt install -y build-essential libopenmpi-dev openmpi-bin libgsl-dev python3-configobj python3-numpy python3-h5py python3-scipy cython3 libboost-all-dev clang
+        sudo apt install -y build-essential libopenmpi-dev openmpi-bin libgsl-dev python3-configobj python3-numpy python3-h5py python3-scipy cython3 libboost-all-dev clang libtbb-dev nvidia-cuda-toolkit
         #For nbodykit
         sudo apt install -y python3-matplotlib python3-sympy python3-pandas python3-mpi4py python3-numexpr
     - name: Build
