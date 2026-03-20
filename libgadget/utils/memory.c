@@ -464,11 +464,14 @@ allocator_alloc_va_malloc(Allocator * alloc, const char * name, const size_t req
 
     vsnprintf(header->annotation, ANNOTLEN, fmt, va);
 
+    /* If we are not using GPUs, silently make all allocations in host memory. */
+    if(!alloc->UseGPU)
+       header->device = HOSTMEM;
     //message(5, "alloc %s MALLOC %s topcount %d refcount %d ptrdiff %ld\n", alloc->name, header->name, alloc->topcount, alloc->refcount, header - (struct BlockHeader*) alloc->base);
 
     char * cptr;
     /* prepend a copy of the header to the malloc block; allocator_free will use it*/
-    if(!alloc->UseGPU || header->device == HOSTMEM) {
+    if(header->device == HOSTMEM) {
         if(posix_memalign((void **) &cptr, ALIGNMENT, request_size + ALIGNMENT))
         endrun(1, "Failed malloc: %lu bytes for %s\n", request_size, header->name);
     }
@@ -518,7 +521,7 @@ allocator_realloc_int_malloc(Allocator * alloc, void * ptr, const size_t new_siz
 
     struct BlockHeader * header2;
 #ifdef USE_CUDA
-    if(alloc->UseGPU && header->device == MANAGEDMEM) {
+    if(header->device == MANAGEDMEM) {
         #ifdef DEBUG
         message(0, "Realloc managed memory (%s : %s) is expensive, consider avoiding it\n", header->name, header->annotation);
         #endif
