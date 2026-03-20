@@ -379,8 +379,8 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     struct gravshort_tree_params treeacc = get_gravshort_treepar();
     /* Turn GPU acceleration off. */
     treeacc.UseGPU = 0;
-    /* Reset to normal tree */
-    int origUseBH = treeacc.TreeUseBH;
+    /* Use the BH tree on the first iteration for consistency */
+    treeacc.TreeUseBH = 2;
     /* Compare the new and old gravity tree. */
     set_gravshort_treepar(treeacc);
     const double rho0 = CP->Omega0 * CP->RhoCrit;
@@ -392,10 +392,9 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     MPI_Barrier(MPI_COMM_WORLD);
     double newgrav = second() - start;
     copy_and_mean_accn(PairAccn);
-    treeacc.TreeUseBH = origUseBH;
+    treeacc.TreeUseBH = 2;
     set_gravshort_treepar_old(treeacc);
     grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
-    set_gravshort_treepar_old(treeacc);
     start = second();
     grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
     #pragma omp barrier
@@ -414,7 +413,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
         /* Compare the CPU and GPU gravity trees. */
         treeacc.UseGPU = 1;
         set_gravshort_treepar(treeacc);
-        treeacc.TreeUseBH = origUseBH;
+        treeacc.TreeUseBH = 2;
         grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
         /* Twice for force consistency*/
         start = second();
