@@ -254,10 +254,13 @@ class DensityQuery : public TreeWalkQueryBase<DensityPriv>
         double Vel[3];
         MyFloat Hsml;
         int Type;
+        DensityKernel kernel;
 
         MYCUDAFN DensityQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const DensityPriv& priv):
         TreeWalkQueryBase<DensityPriv>(particle, i_NodeList, firstnode, priv), Hsml(particle.Hsml), Type(particle.Type)
         {
+            density_kernel_init(&kernel, Hsml, priv.DensityKernelType);
+
             if(particle.Type != 0)
             {
                 Vel[0] = particle.Vel[0];
@@ -342,25 +345,12 @@ class DensityResult : public TreeWalkResultBase<DensityQuery, DensityOutput> {
 class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, DensityQuery, DensityResult, DensityPriv, NGB_TREEFIND_ASYMMETRIC, GASMASK>
 {
     public:
-        DensityKernel kernel;
-        double kernel_volume;
 
-        MYCUDAFN DensityLocalTreeWalk(const NODE * const Nodes, const DensityQuery& input): LocalNgbTreeWalk(Nodes, input)
-        {
-            density_kernel_init(&kernel, input.Hsml, DensityParams.DensityKernelType);
-            kernel_volume = density_kernel_volume(&kernel);
-            return;
-        }
-        /*
-        *  This function represents the core of the SPH density computation.
+        using LocalNgbTreeWalk::LocalNgbTreeWalk;
+        /* This function represents the core of the SPH density computation.
         *
         *  The neighbours of the particle in the Query are enumerated, and results
         *  are stored into the Result object.
-        *
-        *  Upon start-up we initialize the iterator with the density kernels used in
-        *  the computation. The assumption is the density kernels are slow to
-        *  initialize.
-        *
         */
         MYCUDAFN void ngbiter(const DensityQuery& input, const int other, DensityResult * output, const DensityPriv& priv, const struct particle_data * const parts)
         {
@@ -371,7 +361,7 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, Densit
             }
 
             /* We are too far away from the kernel */
-            if(r2 >= kernel.HH)
+            if(r2 >= input.kernel.HH)
                 return;
 
             /* For the BH we wish to exclude wind particles from the density,
@@ -379,12 +369,14 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, Densit
             if(input.Type == 5 && winds_is_particle_decoupled(other))
                 return;
 
+
             const double r = sqrt(r2);
-            const double u = r * kernel.Hinv;
-            const double wk = density_kernel_wk(&kernel, u);
+            const double u = r * input.kernel.Hinv;
+            const double wk = density_kernel_wk(&input.kernel, u);
+            const double kernel_volume = density_kernel_volume(&input.kernel);
             output->Ngb += wk * kernel_volume;
 
-            const double dwk = density_kernel_dwk(&kernel, u);
+            const double dwk = density_kernel_dwk(&input.kernel, u);
 
             const double mass_j = particle.Mass;
 
@@ -392,7 +384,7 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, Densit
 
             /* Hinv is here because O->DhsmlDensity is drho / dH.
             * nothing to worry here */
-            double density_dW = density_kernel_dW(&kernel, u, wk, dwk);
+            double density_dW = density_kernel_dW(&input.kernel, u, wk, dwk);
             output->DhsmlDensity += mass_j * density_dW;
 
             double EntVarPred;
