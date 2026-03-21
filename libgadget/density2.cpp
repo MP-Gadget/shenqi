@@ -119,7 +119,7 @@ class DensityTreeWalk: public TreeWalk<DensityTreeWalk, DensityQuery, DensityRes
  * neighbours.)
  */
 void
-density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTree * const tree)
+density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTree * const tree, bool UseGPU)
 {
     /* This ensures these classes are in managed memory and so accessible on the device. */
     DensityPriv * priv = (DensityPriv *) mymanagedmalloc("DensityPriv", sizeof(DensityPriv));
@@ -130,7 +130,7 @@ density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Blac
     walltime_measure("/SPH/Density/Init");
 
 #ifdef USE_CUDA
-    if(TreeParams.UseGPU) {
+    if(UseGPU) {
         density_cuda(act, tree, priv, output, PartManager->Base, update_hsml, MPI_COMM_WORLD);
     } else
 #endif
