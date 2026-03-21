@@ -123,9 +123,11 @@ class DensityOutput {
             density = SphP[parts[i].PI].Density;
         else if(parts[i].Type == 5)
             density = BhP[parts[i].PI].Density;
+#if defined DEBUG && not defined __CUDACC__
         if(density <= 0 && NumNgb[i] > 0) {
             endrun(12, "Particle %d type %d has bad density: %g\n", i, parts[i].Type, density);
         }
+#endif
         *DhsmlDens *= parts[i].Hsml / (NUMDIMS * density);
         *DhsmlDens = 1 / (1 + *DhsmlDens);
 
@@ -144,8 +146,10 @@ class DensityOutput {
                     EntPred = priv->EntVarPred[parts[i].PI];
                 else
                     EntPred = SPH_EntVarPred(parts[i], &priv->times);
+#if defined DEBUG && not defined __CUDACC__
                 if(EntPred <= 0 || SphP[parts[i].PI].EgyWtDensity <=0)
                     endrun(12, "Particle %d has bad predicted entropy: %g or EgyWtDensity: %g, Particle ID = %ld, pos %g %g %g, vel %g %g %g, mass = %g, density = %g, MaxSignalVel = %g, Entropy = %g, DtEntropy = %g \n", i, EntPred, SphP[parts[i].PI].EgyWtDensity, parts[i].ID, parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2], parts[i].Vel[0], parts[i].Vel[1], parts[i].Vel[2], parts[i].Mass, SphP[parts[i].PI].Density, SphP[parts[i].PI].MaxSignalVel, SphP[parts[i].PI].Entropy, SphP[parts[i].PI].DtEntropy);
+#endif
                 SphP[parts[i].PI].DhsmlEgyDensityFactor *= parts[i].Hsml/ (NUMDIMS * SphP[parts[i].PI].EgyWtDensity);
                 SphP[parts[i].PI].DhsmlEgyDensityFactor *= - (*DhsmlDens);
                 SphP[parts[i].PI].EgyWtDensity /= EntPred;
@@ -177,13 +181,14 @@ class DensityOutput {
         if(priv->BlackHoleOn && parts[i].Type == 5)
             desnumngb = priv->DesNumNgbBH;
 
+#if defined DEBUG && not defined __CUDACC__
         if(verbose)
         {
              message(1, "i=%d ID=%lu Hsml=%g Left=%g Right=%g Ngbs=%g (des %g) Right-Left=%g pos=(%g|%g|%g)\n",
                  i, parts[i].ID, parts[i].Hsml, Left[i], Right[i],
                  NumNgb[i], desnumngb, Right[i] - Left[i], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
         }
-
+#endif
         if(NumNgb[i] < (desnumngb - MaxNumNgbDeviation) ||
                 (NumNgb[i] > (desnumngb + MaxNumNgbDeviation)))
         {
@@ -192,9 +197,11 @@ class DensityOutput {
              * problems anyway, so warn also. */
             if((Right[i] - Left[i]) < 1.0e-5 * Right[i])
             {
+#if defined DEBUG && not defined __CUDACC__
                 /* If this happens probably the exchange is screwed up and all your particles have moved to (0,0,0)*/
                 message(1, "Very tight Hsml bounds for i=%d ID=%lu Hsml=%g Left=%g Right=%g Ngbs=%g (des %g) Right-Left=%g pos=(%g|%g|%g) \n",
                  i, parts[i].ID, parts[i].Hsml, Left[i], Right[i], NumNgb[i], desnumngb, Right[i] - Left[i], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
+#endif
                 parts[i].Hsml = Right[i];
                 return 1;
             }
@@ -211,9 +218,10 @@ class DensityOutput {
                 parts[i].Hsml = cbrt(0.5 * (pow(Left[i], 3) + pow(Right[i], 3)));
             else
             {
+#if defined DEBUG && not defined __CUDACC__
                 if(!(Right[i] < priv->BoxSize) && Left[i] == 0)
                     endrun(8188, "Cannot occur. Check for memory corruption: i=%d L = %g R = %g N=%g. Type %d, Pos %g %g %g hsml %g Box %g\n", i, Left[i], Right[i], NumNgb[i], parts[i].Type, parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2], parts[i].Hsml, priv->BoxSize);
-
+#endif
                 MyFloat DensFac = DhsmlDensityFactor[i];
                 double fac = 1.26;
                 if(NumNgb[i] > 0)
@@ -354,12 +362,6 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, Densit
         */
         MYCUDAFN void ngbiter(const DensityQuery& input, const int other, DensityResult * output, const DensityPriv& priv, const struct particle_data * const parts)
         {
-            const particle_data& particle = parts[other];
-            if(particle.Mass == 0) {
-                endrun(12, "Density found zero mass particle %d type %d id %ld pos %g %g %g\n",
-                    other, particle.Type, particle.ID, particle.Pos[0], particle.Pos[1], particle.Pos[2]);
-            }
-
             /* We are too far away from the kernel */
             if(r2 >= input.kernel.HH)
                 return;
@@ -369,7 +371,6 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, Densit
             if(input.Type == 5 && winds_is_particle_decoupled(other))
                 return;
 
-
             const double r = sqrt(r2);
             const double u = r * input.kernel.Hinv;
             const double wk = density_kernel_wk(&input.kernel, u);
@@ -378,6 +379,7 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, Densit
 
             const double dwk = density_kernel_dwk(&input.kernel, u);
 
+            const particle_data& particle = parts[other];
             const double mass_j = particle.Mass;
 
             output->Rho += (mass_j * wk);

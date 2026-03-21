@@ -240,8 +240,10 @@ public:
             /* ok, we need to open the node */
             no = current->s.suns[0];
         }
+#if defined DEBUG && not defined __CUDACC__
         if(NThisParticleExport > 1000)
             message(5, "%ld exports for particle %d! Odd.\n", NThisParticleExport, target);
+#endif
         /* If we filled up, this partial toptree walk will be discarded and the toptree loop exited.*/
         //message(5, "Export buffer full for particle %d with %ld (%lu) exports\n", target, NThisParticleExport, Nexport);
         return NThisParticleExport;
