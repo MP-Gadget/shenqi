@@ -19,8 +19,10 @@ struct density_params
     enum DensityKernelType DensityKernelType;  /* 0 for Cubic Spline,  (recmd NumNgb = 33)
                                1 for Quintic spline (recmd  NumNgb = 97) */
 
-    /*!< minimum allowed SPH smoothing length in units of SPH gravitational softening length */
+    /*!< minimum allowed SPH smoothing length in units of gravitational softening length */
     double MinGasHsmlFractional;
+    /* In internal units*/
+    double MinGasHsml;
 };
 
 /*Set/Get the parameters of the density module*/

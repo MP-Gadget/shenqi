@@ -46,6 +46,7 @@ set_density_params(ParameterSet * ps)
         DensityParams.MaxNumNgbDeviation = param_get_double(ps, "MaxNumNgbDeviation");
         DensityParams.DensityResolutionEta = param_get_double(ps, "DensityResolutionEta");
         DensityParams.MinGasHsmlFractional = param_get_double(ps, "MinGasHsmlFractional");
+        DensityParams.MinGasHsml = DensityParams.MinGasHsmlFractional * (FORCE_SOFTENING()/2.8);
 
         DensityKernel kernel;
         density_kernel_init(&kernel, 1.0, DensityParams.DensityKernelType);
