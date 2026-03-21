@@ -410,17 +410,7 @@ public:
             gthread.sizes[tid] = nqthrlocal;
         }
         /*Merge step for the queue.*/
-        size_t nqueue = gadget_compact_thread_arrays_managed(WorkSet, "Active Queue", &gthread);
-    #if 0
-        /* check the uniqueness of the active_set list. This is very slow. */
-        qsort_openmp(*WorkSet, nqueue, sizeof(int), cmpint);
-        for(i = 0; i < nqueue - 1; i ++) {
-            if(*WorkSet[i] == *WorkSet[i+1]) {
-                endrun(8829, "A few particles are twicely active.\n");
-            }
-        }
-    #endif
-        return nqueue;
+        return gadget_compact_thread_arrays_managed(WorkSet, "Active Queue", &gthread);
     }
 
     /* Print some counters for a completed treewalk*/

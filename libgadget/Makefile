@@ -46,20 +46,21 @@ GADGET_C_SRCS =  hci.c\
 	 fof.c fofpetaio.c petaio.c \
 	 domain.c exchange.c slotsmanager.c partmanager.c \
 	 blackhole.c bhinfo.c bhdynfric.c \
-	 timebinmgr.c \
 	 run.c drift.c stats.c \
 	 timestep.c init.c checkpoint.c \
-	 sfr_eff.c cooling.c cooling_rates.c cooling_uvfluc.c cooling_qso_lightup.c \
+	 sfr_eff.c cooling.c cooling_uvfluc.c \
 	 winds.c veldisp.c density.c metal_return.c \
-	 treewalk.c cosmology.c \
-	 gravshort-tree.c gravshort-pair.c hydra.c timefac.c \
+	 treewalk.c \
+	 gravshort-tree.c gravshort-pair.c hydra.c \
 	 gravpm.c powerspectrum.c \
 	 forcetree.c petapm.c gravity.c \
-	 densitykernel.c lightcone.c \
-	 runtests.c neutrinos_lra.c omega_nu_single.c config.c uvbg.c \
+	 densitykernel.c \
+	 runtests.c config.c uvbg.c \
 	 plane.c lenstools.c
 
-GADGET_CPP_SRCS = hydra2.cpp density2.cpp gravshort-tree2.cpp walltime.cpp
+GADGET_CPP_SRCS = hydra2.cpp density2.cpp gravshort-tree2.cpp walltime.cpp \
+cooling_rates.cpp cooling_qso_lightup.cpp cosmology.cpp neutrinos_lra.cpp omega_nu_single.cpp timefac.cpp timebinmgr.cpp lightcone.cpp
+
 GADGET_CUDA_SRCS = gravshortcuda.cu
 
 ifneq ($(findstring -DUSE_CUDA, $(OPT)),)

@@ -18,7 +18,7 @@ CUFFTMP_LIBS=-L/home1/apps/nvidia/Linux_aarch64/24.7/math_libs/lib64 -lcufftMp
 NVSHMEM_INCL=-I$(TACC_NVSHMEM_INC)
 NVSHMEM_LIBS=-L$(TACC_NVSHMEM_LIB) -lnvshmem_host
 
-OPTIMIZE =  -mp -g -Wall -fast
+OPTIMIZE =  -mp -O3 -g -Wall -fast -stdpar=multicore
 #This is a good non-optimized default for debugging
 #OPTIMIZE =  -mp -O0 -g -Wall
 
