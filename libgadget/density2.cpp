@@ -122,9 +122,9 @@ density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Blac
 {
     /* This ensures these classes are in managed memory and so accessible on the device. */
     DensityPriv * priv = (DensityPriv *) mymanagedmalloc("DensityPriv", sizeof(DensityPriv));
-    new (priv) DensityPriv(update_hsml, DoEgyDensity, BlackHoleOn, &times, tree->BoxSize, CP, act, PartManager);
+    new (priv) DensityPriv(DensityParams, update_hsml, DoEgyDensity, BlackHoleOn, &times, tree->BoxSize, CP, act, PartManager);
     DensityOutput * output = (DensityOutput *) mymanagedmalloc("DensityOutput", sizeof(DensityOutput));
-    new (output) DensityOutput(GradRho_mag, PartManager->NumPart, SlotsManager->info[0].size, tree->BoxSize);
+    new (output) DensityOutput(GradRho_mag, PartManager->NumPart, SlotsManager->info[0].size, tree->BoxSize, DensityParams.MaxNumNgbDeviation);
 
     walltime_measure("/SPH/Density/Init");
 

@@ -13,25 +13,27 @@ class DensityPriv : public ParamTypeBase {
     bool DoEgyDensity;
 
     DriftKickTimes times;
+    enum DensityKernelType DensityKernelType;  /* 0 for Cubic Spline,  (recmd NumNgb = 33)
+                               1 for Quintic spline (recmd  NumNgb = 97) */
+
     /*!< Desired number of SPH neighbours */
     double DesNumNgb;
+    double DesNumNgbBH;
     /*!< minimum allowed SPH smoothing length */
     double MinGasHsml;
-    /*!< Predicted entropy at current particle drift time for SPH computation*/
-    MyFloat * EntVarPred;
     /* For computing the predicted quantities dynamically during the treewalk.*/
     KickFactorData kf;
+    /*!< Predicted entropy at current particle drift time for SPH computation*/
+    MyFloat * EntVarPred;
 
-    DensityPriv(const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, DriftKickTimes * i_times, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const struct part_manager_type * const i_PartManager):
-    ParamTypeBase(i_PartManager->BoxSize),
-    update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), times(*i_times), kf(i_times, CP)
+    DensityPriv(const struct density_params DensityParams, const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, DriftKickTimes * i_times, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const struct part_manager_type * const i_PartManager):
+    ParamTypeBase(i_PartManager->BoxSize), update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), times(*i_times),
+    DensityKernelType(DensityParams.DensityKernelType), DesNumNgb(GetNumNgb(DensityKernelType)), DesNumNgbBH(DesNumNgb * DensityParams.BlackHoleNgbFactor),
+    MinGasHsml(DensityParams.MinGasHsmlFractional * (FORCE_SOFTENING()/2.8)), kf(i_times, CP), EntVarPred(NULL)
     {
         struct particle_data * parts = i_PartManager->Base;
-        DesNumNgb = GetNumNgb(DensityParams.DensityKernelType);
-        MinGasHsml = DensityParams.MinGasHsmlFractional * (FORCE_SOFTENING()/2.8);
 
         /* If all particles are active, easiest to compute all the predicted velocities immediately*/
-        EntVarPred = NULL;
         if(!act->ActiveParticle || act->NumActiveHydro > 0.1 * (SlotsManager->info[0].size + SlotsManager->info[5].size)) {
             EntVarPred = (MyFloat *) mymanagedmalloc("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
             #pragma omp parallel for
@@ -74,9 +76,11 @@ class DensityOutput {
      * If DensityIndependentSphOn = 1 then this is used to set DhsmlEgyDensityFactor.*/
     MyFloat * DhsmlDensityFactor;
     /* Whether to output extra debugging information during postprocess. */
+    double MaxNumNgbDeviation;
     bool verbose;
 
-    DensityOutput(const bool GradRho_mag, const int64_t NumPart, const int64_t NumGasSlots, const double BoxSize): verbose(0)
+    DensityOutput(const bool GradRho_mag, const int64_t NumPart, const int64_t NumGasSlots, const double BoxSize, const double MaxNgbDeviation):
+    MaxNumNgbDeviation(MaxNgbDeviation), verbose(false)
     {
         Left = (MyFloat *) mymanagedmalloc("DENS_PRIV->Left", NumPart * sizeof(MyFloat));
         Right = (MyFloat *) mymanagedmalloc("DENS_PRIV->Right", NumPart * sizeof(MyFloat));
@@ -171,7 +175,7 @@ class DensityOutput {
         double desnumngb = priv->DesNumNgb;
 
         if(priv->BlackHoleOn && parts[i].Type == 5)
-            desnumngb = desnumngb * DensityParams.BlackHoleNgbFactor;
+            desnumngb = priv->DesNumNgbBH;
 
         if(verbose)
         {
@@ -180,8 +184,8 @@ class DensityOutput {
                  NumNgb[i], desnumngb, Right[i] - Left[i], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
         }
 
-        if(NumNgb[i] < (desnumngb - DensityParams.MaxNumNgbDeviation) ||
-                (NumNgb[i] > (desnumngb + DensityParams.MaxNumNgbDeviation)))
+        if(NumNgb[i] < (desnumngb - MaxNumNgbDeviation) ||
+                (NumNgb[i] > (desnumngb + MaxNumNgbDeviation)))
         {
             /* This condition is here to prevent the density code looping forever if it encounters
              * multiple particles at the same position. If this happens you likely have worse
@@ -439,7 +443,7 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, Densit
 class DensityTopTreeWalk: public TopTreeWalk<DensityQuery, DensityPriv, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
 #ifdef USE_CUDA
-void density_cuda(const ActiveParticles * act, ForceTree * tree, DensityPriv * priv, DensityOutput * output, particle_data * const parts, int update_hsml, MPI_Comm comm);
+void density_cuda(const ActiveParticles * act, const ForceTree * tree, DensityPriv * priv, DensityOutput * output, particle_data * const parts, int update_hsml, MPI_Comm comm);
 #endif
 
 #endif
