@@ -54,7 +54,6 @@ set_density_params(ParameterSet * ps)
                     DensityParams.DensityResolutionEta, GetNumNgb(GetDensityKernelType()));
         /*These two look like black hole parameters but they are really neighbour finding parameters*/
         DensityParams.BlackHoleNgbFactor = param_get_double(ps, "BlackHoleNgbFactor");
-        DensityParams.BlackHoleMaxAccretionRadius = param_get_double(ps, "BlackHoleMaxAccretionRadius");
     }
     MPI_Bcast(&DensityParams, sizeof(struct density_params), MPI_BYTE, 0, MPI_COMM_WORLD);
 }

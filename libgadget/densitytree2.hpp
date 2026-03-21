@@ -227,13 +227,6 @@ class DensityOutput {
                 parts[i].Hsml *= fac;
             }
 
-            if(priv->BlackHoleOn && parts[i].Type == 5)
-                if(Left[i] > DensityParams.BlackHoleMaxAccretionRadius)
-                {
-                    parts[i].Hsml = DensityParams.BlackHoleMaxAccretionRadius;
-                    return 1;
-                }
-
             if(Right[i] < priv->MinGasHsml) {
                 parts[i].Hsml = priv->MinGasHsml;
                 return 1;
@@ -244,9 +237,6 @@ class DensityOutput {
         }
         else {
             /* We might have got here by serendipity, without bounding.*/
-            if(priv->BlackHoleOn && parts[i].Type == 5)
-                if(parts[i].Hsml > DensityParams.BlackHoleMaxAccretionRadius)
-                    parts[i].Hsml = DensityParams.BlackHoleMaxAccretionRadius;
             if(parts[i].Hsml < priv->MinGasHsml)
                 parts[i].Hsml = priv->MinGasHsml;
             return 1;
