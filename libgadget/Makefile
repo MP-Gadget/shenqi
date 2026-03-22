@@ -99,6 +99,9 @@ all: libgadget.a libgadget-utils.a
 .objs/test_cosmology: tests/test_cosmology.c .objs/cosmology.o .objs/timefac.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
+.objs/test_densitykernel: tests/test_densitykernel.cpp densitykernel.hpp
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+
 .objs/test_timebinmgr: tests/test_timebinmgr.c .objs/timebinmgr.o .objs/cosmology.o .objs/omega_nu_single.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
