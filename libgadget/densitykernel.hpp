@@ -33,7 +33,7 @@ public:
     DensityKrnl(const double i_H): H(i_H), Wknorm(sigma * pow(support / H, NUMDIMS))
     { }
 
-    static double desnumngb(const double eta) const
+    MYCUDAFN static double desnumngb(const double eta)
     {
         /* this returns the expected number of ngb in for given sph resolution
         * deseta */
@@ -41,22 +41,22 @@ public:
         return normcoeff * pow(support * eta, NUMDIMS);
     };
 
-    double volume(void) const
+    MYCUDAFN double volume(void) const
     {
         return normcoeff * pow(H, NUMDIMS);
     };
 
-    double dwk(double u) const
+    MYCUDAFN double dwk(const double u)
     {
         return Wknorm * support / H * static_cast<DerivedKernel * const>(this)->dwk_int(u * support);
     };
 
-    double wk(double u) const
+    MYCUDAFN double wk(const double u)
     {
         return Wknorm * static_cast<DerivedKernel * const>(this)->wk_int(u * support);
     };
 
-    double density_kernel_dW(const double u) const
+    MYCUDAFN double density_kernel_dW(const double u) const
     {
         return - (NUMDIMS * wk(u) / H + u * dwk(u));
     };
@@ -89,7 +89,7 @@ class CubicDensityKernel: public DensityKrnl<CubicDensityKernel, 2., cbsigma[NUM
 public:
     CubicDensityKernel(const double H): DensityKrnl(H) { }
 
-    double wk_int(double q) const {
+    MYCUDAFN double wk_int(double q) const {
         if(q < 1.0) {
             return 0.25 * pow(2 - q, 3) - pow(1 - q, 3);
         }
@@ -99,7 +99,7 @@ public:
         return 0.0;
     };
 
-    double dwk_int(double q) const {
+    MYCUDAFN double dwk_int(double q) const {
         if(q < 1.0) {
             return - 0.25 * 3 * pow(2 - q, 2) + 3 * pow(1 - q, 2);
         }
@@ -116,7 +116,7 @@ class QuarticDensityKernel: public DensityKrnl <QuarticDensityKernel, 2.5, quars
 public:
     QuarticDensityKernel(const double H): DensityKrnl(H) { }
 
-    double wk_int(const double q) const {
+    MYCUDAFN double wk_int(const double q) const {
         if(q < 0.5) {
             return pow(2.5 - q, 4) - 5 * pow(1.5 - q, 4) + 10 * pow(0.5 - q, 4);
         }
@@ -129,7 +129,7 @@ public:
         return 0.0;
     }
 
-    double dwk_int(const double q) const {
+    MYCUDAFN double dwk_int(const double q) const {
         if(q < 0.5) {
             return -4 * pow(2.5 - q, 3) + 20 * pow(1.5 - q, 3) - 40 * pow(0.5 - q, 3);
         }
@@ -149,7 +149,7 @@ class QuinticDensityKernel: public DensityKrnl<QuinticDensityKernel, 3., quinsig
 public:
     QuinticDensityKernel(const double H): DensityKrnl(H) { }
 
-    double wk_int(const double q) const {
+    MYCUDAFN double wk_int(const double q) const {
         if(q < 1.0) {
             return pow(3 - q, 5) - 6 * pow(2 - q, 5) + 15 * pow(1 - q, 5);
         }
@@ -162,7 +162,7 @@ public:
         return 0.0;
     }
 
-    double dwk_int(double q) {
+    MYCUDAFN double dwk_int(double q) {
         if(q < 1.0) {
             return -5 * pow(3 - q, 4) + 30 * pow(2 - q, 4)
                 - 75 * pow (1 - q, 4);
