@@ -169,11 +169,10 @@ density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Blac
 
     output->~DensityOutput();
     myfree(output);
-    priv->~DensityPriv();
-    myfree(priv);
 
     *EntVarPred = priv->EntVarPred;
-    /* collect some timing information */
+    priv->~DensityPriv();
+    myfree(priv);
 }
 
 /* Set the initial smoothing length for gas and BH*/
