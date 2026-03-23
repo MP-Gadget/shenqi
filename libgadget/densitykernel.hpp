@@ -177,7 +177,8 @@ public:
     }
 };
 
-MYCUDAFN double dot_product(const double v1[3], const double v2[3])
+/* static inline to avoid double-definitions*/
+MYCUDAFN static inline double dot_product(const double v1[3], const double v2[3])
 {
     double out = v1[0] * v2[0];
     out += v1[1] * v2[1];
@@ -185,7 +186,7 @@ MYCUDAFN double dot_product(const double v1[3], const double v2[3])
     return out;
 }
 
-MYCUDAFN void cross_product(const double v1[3], const double v2[3], double out[3])
+MYCUDAFN static inline void cross_product(const double v1[3], const double v2[3], double out[3])
 {
     out[0] = v1[1] * v2[2] - v1[2] * v2[1];
     out[1] = v1[2] * v2[0] - v1[0] * v2[2];
