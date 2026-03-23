@@ -86,12 +86,12 @@ static struct density_testdata setup_density(void)
     data.dp.MaxNumNgbDeviation = 0.5;
     data.dp.DensityKernelType = DENSITY_KERNEL_CUBIC_SPLINE;
     data.dp.MinGasHsmlFractional = 0.006;
+    data.dp.BlackHoleMaxAccretionRadius = 99999.;
     struct gravshort_tree_params tree_params = {0};
     tree_params.FractionalGravitySoftening = 1;
     set_gravshort_treepar(tree_params);
     gravshort_set_softenings(1);
-    data.dp.BlackHoleMaxAccretionRadius = 99999.;
-
+    data.dp.MinGasHsml = 0.006 * (FORCE_SOFTENING()/2.8);
     set_densitypar(data.dp);
     return data;
 }
