@@ -24,13 +24,13 @@ constexpr static double normcoeff = 2.0;
     DENSITY_KERNEL_QUARTIC_SPLINE = 4,
 };*/
 
-/* support is H / h, see Price 2011: arxiv 1012.1885*/
-template <typename DerivedKernel, double support, double sigma> class DensityKrnl
+/* support is 2 H / h (so it can be an integer), see Price 2011: arxiv 1012.1885*/
+template <typename DerivedKernel, int support> class DensityKrnl
 {
 public:
     double H;/* convert from r to u with 1 / H*/
 
-    DensityKrnl(const double i_H): H(i_H), Wknorm(sigma * pow(support / H, NUMDIMS))
+    MYCUDAFN DensityKrnl(const double i_H, const double sigma): H(i_H), Wknorm(sigma * pow(support /2. / H, NUMDIMS))
     { }
 
     MYCUDAFN static double desnumngb(const double eta)
@@ -38,7 +38,7 @@ public:
         /* this returns the expected number of ngb in for given sph resolution
         * deseta */
         /* See Price: arxiv 1012.1885. eq 12 */
-        return normcoeff * pow(support * eta, NUMDIMS);
+        return normcoeff * pow(support/2. * eta, NUMDIMS);
     };
 
     MYCUDAFN double volume(void) const
@@ -48,15 +48,15 @@ public:
 
     MYCUDAFN double dwk(const double u)
     {
-        return Wknorm * support / H * static_cast<DerivedKernel * const>(this)->dwk_int(u * support);
+        return Wknorm * support /2. / H * static_cast<DerivedKernel *>(this)->dwk_int(u * support/2.);
     };
 
     MYCUDAFN double wk(const double u)
     {
-        return Wknorm * static_cast<DerivedKernel * const>(this)->wk_int(u * support);
+        return Wknorm * static_cast<DerivedKernel *>(this)->wk_int(u * support/2.);
     };
 
-    MYCUDAFN double density_kernel_dW(const double u) const
+    MYCUDAFN double dW(const double u)
     {
         return - (NUMDIMS * wk(u) / H + u * dwk(u));
     };
@@ -85,9 +85,9 @@ protected:
  */
 constexpr double cbsigma[3] = {2 / 3., 10 / (7 * M_PI), 1 / M_PI};
 
-class CubicDensityKernel: public DensityKrnl<CubicDensityKernel, 2., cbsigma[NUMDIMS-1]> {
+class CubicDensityKernel: public DensityKrnl<CubicDensityKernel, 4> {
 public:
-    CubicDensityKernel(const double H): DensityKrnl(H) { }
+    MYCUDAFN CubicDensityKernel(const double H): DensityKrnl(H, cbsigma[NUMDIMS-1]) { }
 
     MYCUDAFN double wk_int(double q) const {
         if(q < 1.0) {
@@ -112,9 +112,9 @@ public:
 
 constexpr double quarsigma[3] = {1 / 24., 96 / (1199 * M_PI), 1 / (20 * M_PI)};
 
-class QuarticDensityKernel: public DensityKrnl <QuarticDensityKernel, 2.5, quarsigma[NUMDIMS-1]> {
+class QuarticDensityKernel: public DensityKrnl <QuarticDensityKernel, 5> {
 public:
-    QuarticDensityKernel(const double H): DensityKrnl(H) { }
+    MYCUDAFN QuarticDensityKernel(const double H): DensityKrnl(H, quarsigma[NUMDIMS-1]) { }
 
     MYCUDAFN double wk_int(const double q) const {
         if(q < 0.5) {
@@ -145,9 +145,9 @@ public:
 
 constexpr double quinsigma[3] = {1 / 120., 7 / (478 * M_PI), 1 / (120 * M_PI)};
 
-class QuinticDensityKernel: public DensityKrnl<QuinticDensityKernel, 3., quinsigma[NUMDIMS-1]> {
+class QuinticDensityKernel: public DensityKrnl<QuinticDensityKernel, 6> {
 public:
-    QuinticDensityKernel(const double H): DensityKrnl(H) { }
+    MYCUDAFN QuinticDensityKernel(const double H): DensityKrnl(H, quinsigma[NUMDIMS-1]) { }
 
     MYCUDAFN double wk_int(const double q) const {
         if(q < 1.0) {
@@ -177,22 +177,19 @@ public:
     }
 };
 
-static inline void cross_product(const double v1[3], const double v2[3], double out[3])
+MYCUDAFN double dot_product(const double v1[3], const double v2[3])
+{
+    double out = v1[0] * v2[0];
+    out += v1[1] * v2[1];
+    out += v1[2] * v2[2];
+    return out;
+}
+
+MYCUDAFN void cross_product(const double v1[3], const double v2[3], double out[3])
 {
     out[0] = v1[1] * v2[2] - v1[2] * v2[1];
     out[1] = v1[2] * v2[0] - v1[0] * v2[2];
     out[2] = v1[0] * v2[1] - v1[1] * v2[0];
 }
-
-/*auto
-density_kernel_init(double H, enum DensityKernelType type)
-{
-    if(type == DENSITY_KERNEL_CUBIC_SPLINE) {
-        return CubicDensityKernel(H);
-    } else if(type == DENSITY_KERNEL_QUINTIC_SPLINE) {
-        return QuarticDensityKernel(H);
-    }
-    return QuinticDensityKernel(H);
-}*/
 
 #endif
