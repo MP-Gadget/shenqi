@@ -5,8 +5,8 @@
 #include <math.h>
 #include <omp.h>
 
-#include "libgadget/localtreewalk2.h"
-#include "libgadget/partmanager.h"
+#include "localtreewalk2.h"
+#include "partmanager.h"
 #include "physconst.h"
 #include "walltime.h"
 #include "density2.h"
@@ -17,7 +17,6 @@
 #include "utils/mymalloc.h"
 #include "gravity.h"
 #include "winds.h"
-
 #include "densitytree2.hpp"
 
 static struct density_params DensityParams;
@@ -93,7 +92,17 @@ SPH_EntVarPred(const particle_data& particle, const DriftKickTimes * times)
         return EntVarPred;
 }
 
-class DensityTreeWalk: public TreeWalk<DensityTreeWalk, DensityQuery, DensityResult, DensityLocalTreeWalk, DensityTopTreeWalk, DensityPriv, DensityOutput> {
+class DensityTreeWalkCubic: public TreeWalk<DensityTreeWalkCubic, DensityQuery, DensityResult, DensityLocalTreeWalk<CubicDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
+    public:
+    using TreeWalk::TreeWalk;
+};
+
+class DensityTreeWalkQuartic: public TreeWalk<DensityTreeWalkQuartic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuarticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
+    public:
+    using TreeWalk::TreeWalk;
+};
+
+class DensityTreeWalkQuintic: public TreeWalk<DensityTreeWalkQuintic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuinticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
     public:
     using TreeWalk::TreeWalk;
 };
@@ -131,14 +140,21 @@ density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Blac
 
 #ifdef USE_CUDA
     if(UseGPU) {
-        density_cuda(act, tree, priv, output, PartManager->Base, update_hsml, MPI_COMM_WORLD);
+        density_cuda(act, tree, priv, output, PartManager->Base, update_hsml, DensityParams.DensityKernelType, MPI_COMM_WORLD);
     } else
 #endif
     {
-        DensityTreeWalk tw("DENSITY", tree, *priv, output);
-        /* Do the treewalk with looping for hsml*/
-        tw.do_hsml_loop(act->ActiveParticle, act->NumActiveParticle, update_hsml, PartManager->Base);
-        tw.print_stats("/SPH/Density", MPI_COMM_WORLD);
+        switch(DensityParams.DensityKernelType) {
+            case DENSITY_KERNEL_CUBIC_SPLINE:
+                do_density_walk<DensityTreeWalkCubic>(act, tree, priv, output, PartManager->Base, update_hsml, MPI_COMM_WORLD);
+                break;
+            case DENSITY_KERNEL_QUARTIC_SPLINE:
+                do_density_walk<DensityTreeWalkQuartic>(act, tree, priv, output, PartManager->Base, update_hsml, MPI_COMM_WORLD);
+                break;
+            default: //DENSITY_KERNEL_QUINTIC_SPLINE
+                do_density_walk<DensityTreeWalkQuintic>(act, tree, priv, output, PartManager->Base, update_hsml, MPI_COMM_WORLD);
+                break;
+        }
     }
 
     if(GradRho_mag) {

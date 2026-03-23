@@ -1,6 +1,7 @@
 #ifndef DENSITYTREE2_HPP
 #define DENSITYTREE2_HPP
 #include "density2.h"
+
 #include "localtreewalk2.h"
 #include "utils/mymalloc.h"
 #include "winds.h"
@@ -262,21 +263,17 @@ class DensityQuery : public TreeWalkQueryBase<DensityPriv>
         double Vel[3];
         MyFloat Hsml;
         int Type;
-        DensityKernel kernel;
 
         MYCUDAFN DensityQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const DensityPriv& priv):
         TreeWalkQueryBase<DensityPriv>(particle, i_NodeList, firstnode, priv), Hsml(particle.Hsml), Type(particle.Type)
         {
-            density_kernel_init(&kernel, Hsml, priv.DensityKernelType);
-
-            if(particle.Type != 0)
-            {
+            if(Type == 0)
+                priv.kf.SPH_VelPred(particle, Vel);
+            else {
                 Vel[0] = particle.Vel[0];
                 Vel[1] = particle.Vel[1];
                 Vel[2] = particle.Vel[2];
             }
-            else
-                priv.kf.SPH_VelPred(particle, Vel);
         };
 
         static MYCUDAFN bool haswork(const particle_data& particle)
@@ -350,11 +347,14 @@ class DensityResult : public TreeWalkResultBase<DensityQuery, DensityOutput> {
 /* Explicitly define the template specialisations and use the base constructors.
  * This is an asymmetric treewalk and defines the ngb iter function for the density.
  */
-class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, DensityQuery, DensityResult, DensityPriv, NGB_TREEFIND_ASYMMETRIC, GASMASK>
+template <typename DensityKernel>
+class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk<DensityKernel>, DensityQuery, DensityResult, DensityPriv, NGB_TREEFIND_ASYMMETRIC, GASMASK>
 {
     public:
+        DensityKernel kernel;
 
-        using LocalNgbTreeWalk::LocalNgbTreeWalk;
+        MYCUDAFN DensityLocalTreeWalk(const NODE * const Node, const DensityQuery& input): LocalNgbTreeWalk<DensityLocalTreeWalk<DensityKernel>, DensityQuery, DensityResult, DensityPriv, NGB_TREEFIND_ASYMMETRIC, GASMASK>(Node, input), kernel(input.Hsml) {}
+
         /* This function represents the core of the SPH density computation.
         *
         *  The neighbours of the particle in the Query are enumerated, and results
@@ -363,7 +363,7 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, Densit
         MYCUDAFN void ngbiter(const DensityQuery& input, const int other, DensityResult * output, const DensityPriv& priv, const struct particle_data * const parts)
         {
             /* We are too far away from the kernel */
-            if(r2 >= input.kernel.HH)
+            if(this->r2 >= kernel.H * kernel.H)
                 return;
 
             /* For the BH we wish to exclude wind particles from the density,
@@ -371,13 +371,13 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, Densit
             if(input.Type == 5 && winds_is_particle_decoupled(other))
                 return;
 
-            const double r = sqrt(r2);
-            const double u = r * input.kernel.Hinv;
-            const double wk = density_kernel_wk(&input.kernel, u);
-            const double kernel_volume = density_kernel_volume(&input.kernel);
+            const double r = sqrt(this->r2);
+            const double u = r / kernel.H;
+            const double wk = kernel.wk(u);
+            const double kernel_volume = kernel.volume();
             output->Ngb += wk * kernel_volume;
 
-            const double dwk = density_kernel_dwk(&input.kernel, u);
+            const double dwk = kernel.dwk(u);
 
             const particle_data& particle = parts[other];
             const double mass_j = particle.Mass;
@@ -386,7 +386,7 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, Densit
 
             /* Hinv is here because O->DhsmlDensity is drho / dH.
             * nothing to worry here */
-            double density_dW = density_kernel_dW(&input.kernel, u, wk, dwk);
+            double density_dW = kernel.dW(u);
             output->DhsmlDensity += mass_j * density_dW;
 
             double EntVarPred;
@@ -418,26 +418,35 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk, Densit
 
             double fac = mass_j * dwk / r;
             double dv[3];
-            double rot[3];
-            int d;
-            for(d = 0; d < 3; d ++) {
+            for(int d = 0; d < 3; d ++) {
                 dv[d] = input.Vel[d] - VelPred[d];
             }
-            output->Div += -fac * dotproduct(dist, dv);
+            output->Div += -fac * dot_product(this->dist, dv);
 
-            crossproduct(dv, dist, rot);
-            for(d = 0; d < 3; d ++) {
+            double rot[3];
+            cross_product(dv, this->dist, rot);
+
+            for(int d = 0; d < 3; d ++) {
                 output->Rot[d] += fac * rot[d];
             }
-            for (d = 0; d < 3; d ++)
-                output->GradRho[d] += fac * dist[d];
+            for (int d = 0; d < 3; d ++)
+                output->GradRho[d] += fac * this->dist[d];
         }
 };
 
 class DensityTopTreeWalk: public TopTreeWalk<DensityQuery, DensityPriv, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
+template <typename TreeWalkType>
+void do_density_walk(const ActiveParticles * act, const ForceTree * tree, DensityPriv * priv, DensityOutput * output, particle_data * const parts, int update_hsml, MPI_Comm comm)
+{
+    TreeWalkType tw("DENSITY", tree, *priv, output);
+    /* Do the treewalk with looping for hsml*/
+    tw.do_hsml_loop(act->ActiveParticle, act->NumActiveParticle, update_hsml, PartManager->Base);
+    tw.print_stats("/SPH/Density", MPI_COMM_WORLD);
+}
+
 #ifdef USE_CUDA
-void density_cuda(const ActiveParticles * act, const ForceTree * tree, DensityPriv * priv, DensityOutput * output, particle_data * const parts, int update_hsml, MPI_Comm comm);
+void density_cuda(const ActiveParticles * act, const ForceTree * tree, DensityPriv * priv, DensityOutput * output, particle_data * const parts, int update_hsml,  enum DensityKernelType DensityKernelType, MPI_Comm comm);
 #endif
 
 #endif

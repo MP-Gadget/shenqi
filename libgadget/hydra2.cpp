@@ -336,7 +336,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
             dv[d] = input.Vel[d] - VelPred[d];
         }
 
-        const double vdotr = dotproduct(dist, dv);
+        const double vdotr = dot_product(dist, dv);
         const double vdotr2 = vdotr + priv.hubble_a2 * r2;
 
         const double r = sqrt(r2);

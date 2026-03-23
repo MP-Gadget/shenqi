@@ -5,6 +5,7 @@
 #include "timestep.h"
 #include "timefac.h"
 #include "forcetree.h"
+#include "densitykernel.hpp"
 #include "densitykernel.h"
 
 struct density_params

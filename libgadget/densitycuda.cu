@@ -9,18 +9,36 @@
 #include "densitytree2.hpp"
 #include "treewalk2.cuh"
 
-class DensityTreeWalkGPU: public TreeWalk<DensityTreeWalkGPU, DensityQuery, DensityResult, DensityLocalTreeWalk, DensityTopTreeWalk, DensityPriv, DensityOutput> {
+class DensityTreeWalkGPUCubic: public TreeWalk<DensityTreeWalkGPUCubic, DensityQuery, DensityResult, DensityLocalTreeWalk<CubicDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
     public:
     using TreeWalk::TreeWalk;
 };
 
+class DensityTreeWalkGPUQuartic: public TreeWalk<DensityTreeWalkGPUQuartic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuarticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
+    public:
+    using TreeWalk::TreeWalk;
+};
+
+class DensityTreeWalkGPUQuintic: public TreeWalk<DensityTreeWalkGPUQuintic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuinticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
+    public:
+    using TreeWalk::TreeWalk;
+};
+
+
 /*! CUDA treewalk.
  */
 void
-density_cuda(const ActiveParticles * act, const ForceTree * tree, DensityPriv * priv, DensityOutput * output, particle_data * const parts, int update_hsml, MPI_Comm comm)
+density_cuda(const ActiveParticles * act, const ForceTree * tree, DensityPriv * priv, DensityOutput * output, particle_data * const parts, int update_hsml, enum DensityKernelType DensityKernelType, MPI_Comm comm)
 {
-    DensityTreeWalkGPU tw("DENSITY", tree, *priv, output);
-    /* Do the treewalk with looping for hsml*/
-    tw.do_hsml_loop(act->ActiveParticle, act->NumActiveParticle, update_hsml, parts);
-    tw.print_stats("/SPH/Density", comm);
+    switch(DensityKernelType) {
+        case DENSITY_KERNEL_CUBIC_SPLINE:
+            do_density_walk<DensityTreeWalkGPUCubic>(act, tree, priv, output, PartManager->Base, update_hsml, MPI_COMM_WORLD);
+            break;
+        case DENSITY_KERNEL_QUARTIC_SPLINE:
+            do_density_walk<DensityTreeWalkGPUQuartic>(act, tree, priv, output, PartManager->Base, update_hsml, MPI_COMM_WORLD);
+            break;
+        default: //DENSITY_KERNEL_QUINTIC_SPLINE
+            do_density_walk<DensityTreeWalkGPUQuintic>(act, tree, priv, output, PartManager->Base, update_hsml, MPI_COMM_WORLD);
+            break;
+    }
 }
