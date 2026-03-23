@@ -4,6 +4,7 @@
 #include "forcetree.h"
 #include "utils/paramset.h"
 #include "utils/system.h"
+#include "types.h"
 
 /*
  * Enumeration of the supported wind models.
@@ -41,7 +42,7 @@ void winds_subgrid(int * MaybeWind, int NumMaybeWind, const double Time, MyFloat
 int winds_are_subgrid(void);
 
 /*Tests whether a given particle has been made a wind particle and is hydrodynamically decoupled*/
-int winds_is_particle_decoupled(int i);
+MYCUDAFN int winds_is_particle_decoupled(int i);
 
 /* Set and evolve the hydro parameters for a decoupled wind particle.*/
 void winds_decoupled_hydro(int i, double atime);
