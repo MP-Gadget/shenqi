@@ -14,9 +14,6 @@ class DensityPriv : public ParamTypeBase {
     bool DoEgyDensity;
 
     DriftKickTimes times;
-    enum DensityKernelType DensityKernelType;  /* 0 for Cubic Spline,  (recmd NumNgb = 33)
-                               1 for Quintic spline (recmd  NumNgb = 97) */
-
     /*!< Desired number of SPH neighbours */
     double DesNumNgb;
     double DesNumNgbBH;
@@ -29,7 +26,7 @@ class DensityPriv : public ParamTypeBase {
 
     DensityPriv(const struct density_params DensityParams, const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, DriftKickTimes * i_times, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const struct part_manager_type * const i_PartManager):
     ParamTypeBase(i_PartManager->BoxSize), update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), times(*i_times),
-    DensityKernelType(DensityParams.DensityKernelType), DesNumNgb(GetNumNgb(DensityKernelType)), DesNumNgbBH(DesNumNgb * DensityParams.BlackHoleNgbFactor),
+    DesNumNgb(GetNumNgb(DensityParams.DensityKernelType)), DesNumNgbBH(DesNumNgb * DensityParams.BlackHoleNgbFactor),
     MinGasHsml(DensityParams.MinGasHsml), kf(i_times, CP), EntVarPred(NULL)
     {
         struct particle_data * parts = i_PartManager->Base;

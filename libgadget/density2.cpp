@@ -46,24 +46,24 @@ set_density_params(ParameterSet * ps)
         DensityParams.DensityResolutionEta = param_get_double(ps, "DensityResolutionEta");
         DensityParams.MinGasHsmlFractional = param_get_double(ps, "MinGasHsmlFractional");
         DensityParams.MinGasHsml = DensityParams.MinGasHsmlFractional * (FORCE_SOFTENING()/2.8);
-
-        DensityKernel kernel;
-        density_kernel_init(&kernel, 1.0, DensityParams.DensityKernelType);
-        message(1, "The Density Kernel type is %s\n", kernel.name);
-        message(1, "The Density resolution is %g * mean separation, or %g neighbours\n",
-                    DensityParams.DensityResolutionEta, GetNumNgb(GetDensityKernelType()));
-        /*These two look like black hole parameters but they are really neighbour finding parameters*/
         DensityParams.BlackHoleNgbFactor = param_get_double(ps, "BlackHoleNgbFactor");
     }
     MPI_Bcast(&DensityParams, sizeof(struct density_params), MPI_BYTE, 0, MPI_COMM_WORLD);
+    message(0, "The Density Kernel (type %d) resolution is %g * mean separation, or %g neighbours\n",
+        DensityParams.DensityKernelType, DensityParams.DensityResolutionEta, GetNumNgb(GetDensityKernelType()));
 }
 
 double
 GetNumNgb(enum DensityKernelType KernelType)
 {
-    DensityKernel kernel;
-    density_kernel_init(&kernel, 1.0, KernelType);
-    return density_kernel_desnumngb(&kernel, DensityParams.DensityResolutionEta);
+    double desnumngb;
+    if(KernelType == DENSITY_KERNEL_CUBIC_SPLINE)
+        desnumngb = CubicDensityKernel::desnumngb(DensityParams.DensityResolutionEta);
+    else if (KernelType == DENSITY_KERNEL_QUARTIC_SPLINE)
+        desnumngb = QuarticDensityKernel::desnumngb(DensityParams.DensityResolutionEta);
+    else
+        desnumngb = QuinticDensityKernel::desnumngb(DensityParams.DensityResolutionEta);
+    return desnumngb;
 }
 
 enum DensityKernelType
