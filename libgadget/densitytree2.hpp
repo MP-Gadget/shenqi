@@ -321,10 +321,8 @@ class DensityResult : public TreeWalkResultBase<DensityQuery, DensityOutput> {
                 }
 
                 /*Only used for density independent SPH*/
-                //if(priv.DoEgyDensity) {
-                    TREEWALK_REDUCE(output->SphParts[parts[place].PI].EgyWtDensity, EgyRho);
-                    TREEWALK_REDUCE(output->SphParts[parts[place].PI].DhsmlEgyDensityFactor, DhsmlEgyDensity);
-                //}
+                TREEWALK_REDUCE(output->SphParts[parts[place].PI].EgyWtDensity, EgyRho);
+                TREEWALK_REDUCE(output->SphParts[parts[place].PI].DhsmlEgyDensityFactor, DhsmlEgyDensity);
             }
             else if(parts[place].Type == 5)
             {
@@ -391,10 +389,8 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk<Density
             else
                 EntVarPred = SPH_EntVarPred(particle, sph_data, &priv.times);
 
-            if(priv.DoEgyDensity) {
-                output->EgyRho += mass_j * EntVarPred * wk;
-                output->DhsmlEgyDensity += mass_j * EntVarPred * density_dW;
-            }
+            output->EgyRho += mass_j * EntVarPred * wk;
+            output->DhsmlEgyDensity += mass_j * EntVarPred * density_dW;
 
             if(r <= 0)
                 return;
