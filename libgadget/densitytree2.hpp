@@ -23,13 +23,17 @@ class DensityPriv : public ParamTypeBase {
     KickFactorData kf;
     /*!< Predicted entropy at current particle drift time for SPH computation*/
     MyFloat * EntVarPred;
+    /* Pointers to the SPH particle data array.
+     * We only need SPH particle data because the tree contains the gas particles only.
+     * DensityOutput uses BhP as well.*/
+    sph_particle_data * SphParts;
 
-    DensityPriv(const struct density_params DensityParams, const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, DriftKickTimes * i_times, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const struct part_manager_type * const i_PartManager):
-    ParamTypeBase(i_PartManager->BoxSize), update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), times(*i_times),
+    DensityPriv(const struct density_params DensityParams, const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, DriftKickTimes * i_times, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const part_manager_type * const PartManager, slots_manager_type * SlotsManager):
+    ParamTypeBase(PartManager->BoxSize), update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), times(*i_times),
     DesNumNgb(GetNumNgb(DensityParams.DensityKernelType)), DesNumNgbBH(DesNumNgb * DensityParams.BlackHoleNgbFactor),
-    MinGasHsml(DensityParams.MinGasHsml), kf(i_times, CP), EntVarPred(NULL)
+    MinGasHsml(DensityParams.MinGasHsml), kf(i_times, CP), EntVarPred(NULL), SphParts(static_cast<sph_particle_data *>(SlotsManager->info[0].ptr))
     {
-        struct particle_data * parts = i_PartManager->Base;
+        struct particle_data * parts = PartManager->Base;
 
         /* If all particles are active, easiest to compute all the predicted velocities immediately*/
         if(!act->ActiveParticle || act->NumActiveHydro > 0.1 * (SlotsManager->info[0].size + SlotsManager->info[5].size)) {
@@ -76,18 +80,21 @@ class DensityOutput {
     /* Whether to output extra debugging information during postprocess. */
     double MaxNumNgbDeviation;
     bool verbose;
+    /* Pointers to the SPH and BH particle data arrays*/
+    sph_particle_data * SphParts;
+    bh_particle_data * BhParts;
 
-    DensityOutput(const bool GradRho_mag, const int64_t NumPart, const int64_t NumGasSlots, const double BoxSize, const double MaxNgbDeviation):
-    MaxNumNgbDeviation(MaxNgbDeviation), verbose(false)
+    DensityOutput(const bool GradRho_mag, const int64_t NumPart, const double BoxSize, const double MaxNgbDeviation, slots_manager_type * slotsmanager):
+    MaxNumNgbDeviation(MaxNgbDeviation), verbose(false), SphParts(static_cast<sph_particle_data *>(slotsmanager->info[0].ptr)), BhParts(static_cast<bh_particle_data *>(slotsmanager->info[5].ptr))
     {
         Left = (MyFloat *) mymanagedmalloc("DENS_PRIV->Left", NumPart * sizeof(MyFloat));
         Right = (MyFloat *) mymanagedmalloc("DENS_PRIV->Right", NumPart * sizeof(MyFloat));
         NumNgb = (MyFloat *) mymanagedmalloc("DENS_PRIV->NumNgb", NumPart * sizeof(MyFloat));
-        Rot = (MyFloat (*) [3]) mymanagedmalloc("DENS_PRIV->Rot", NumGasSlots * sizeof(Rot[0]));
+        Rot = (MyFloat (*) [3]) mymanagedmalloc("DENS_PRIV->Rot", slotsmanager->info[0].size * sizeof(Rot[0]));
         /* This one stores the gradient for h finding. The factor stored in SPHP->DhsmlEgyDensityFactor depends on whether PE SPH is enabled.*/
         DhsmlDensityFactor = (MyFloat *) mymanagedmalloc("DhsmlDensity", NumPart * sizeof(MyFloat));
         if(GradRho_mag)
-            GradRho = (MyFloat *) mymanagedmalloc("SPH_GradRho", sizeof(MyFloat) * 3 * NumGasSlots);
+            GradRho = (MyFloat *) mymanagedmalloc("SPH_GradRho", sizeof(MyFloat) * 3 * slotsmanager->info[0].size);
         else
             GradRho = NULL;
 
@@ -112,15 +119,15 @@ class DensityOutput {
     }
 
     MYCUDAFN int
-    postprocess(const int i, struct particle_data * const parts, const DensityPriv * priv)
+    postprocess(const int i, particle_data * const parts, const DensityPriv * priv)
     {
         int done = 0;
         MyFloat * DhsmlDens = &(DhsmlDensityFactor[i]);
         double density = -1;
         if(parts[i].Type == 0)
-            density = SphP[parts[i].PI].Density;
+            density = SphParts[parts[i].PI].Density;
         else if(parts[i].Type == 5)
-            density = BhP[parts[i].PI].Density;
+            density = BhParts[parts[i].PI].Density;
 #if defined DEBUG && not defined __CUDACC__
         if(density <= 0 && NumNgb[i] > 0) {
             endrun(12, "Particle %d type %d has bad density: %g\n", i, parts[i].Type, density);
@@ -143,28 +150,28 @@ class DensityOutput {
                 if(priv->EntVarPred)
                     EntPred = priv->EntVarPred[parts[i].PI];
                 else
-                    EntPred = SPH_EntVarPred(parts[i], &priv->times);
+                    EntPred = SPH_EntVarPred(parts[i], SphParts[parts[i].PI], &priv->times);
 #if defined DEBUG && not defined __CUDACC__
-                if(EntPred <= 0 || SphP[parts[i].PI].EgyWtDensity <=0)
-                    endrun(12, "Particle %d has bad predicted entropy: %g or EgyWtDensity: %g, Particle ID = %ld, pos %g %g %g, vel %g %g %g, mass = %g, density = %g, MaxSignalVel = %g, Entropy = %g, DtEntropy = %g \n", i, EntPred, SphP[parts[i].PI].EgyWtDensity, parts[i].ID, parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2], parts[i].Vel[0], parts[i].Vel[1], parts[i].Vel[2], parts[i].Mass, SphP[parts[i].PI].Density, SphP[parts[i].PI].MaxSignalVel, SphP[parts[i].PI].Entropy, SphP[parts[i].PI].DtEntropy);
+                if(EntPred <= 0 || SphParts[parts[i].PI].EgyWtDensity <=0)
+                    endrun(12, "Particle %d has bad predicted entropy: %g or EgyWtDensity: %g, Particle ID = %ld, pos %g %g %g, vel %g %g %g, mass = %g, density = %g, MaxSignalVel = %g, Entropy = %g, DtEntropy = %g \n", i, EntPred, SphParts[parts[i].PI].EgyWtDensity, parts[i].ID, parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2], parts[i].Vel[0], parts[i].Vel[1], parts[i].Vel[2], parts[i].Mass, SphParts[parts[i].PI].Density, SphParts[parts[i].PI].MaxSignalVel, SphParts[parts[i].PI].Entropy, SphParts[parts[i].PI].DtEntropy);
 #endif
-                SphP[parts[i].PI].DhsmlEgyDensityFactor *= parts[i].Hsml/ (NUMDIMS * SphP[parts[i].PI].EgyWtDensity);
-                SphP[parts[i].PI].DhsmlEgyDensityFactor *= - (*DhsmlDens);
-                SphP[parts[i].PI].EgyWtDensity /= EntPred;
+                SphParts[parts[i].PI].DhsmlEgyDensityFactor *= parts[i].Hsml/ (NUMDIMS * SphParts[parts[i].PI].EgyWtDensity);
+                SphParts[parts[i].PI].DhsmlEgyDensityFactor *= - (*DhsmlDens);
+                SphParts[parts[i].PI].EgyWtDensity /= EntPred;
             }
             else
-                SphP[parts[i].PI].DhsmlEgyDensityFactor = *DhsmlDens;
+                SphParts[parts[i].PI].DhsmlEgyDensityFactor = *DhsmlDens;
 
             MyFloat * Roti = Rot[PI];
-            SphP[parts[i].PI].CurlVel = sqrt(Roti[0] * Roti[0] + Roti[1] * Roti[1] + Roti[2] * Roti[2]) / SphP[parts[i].PI].Density;
+            SphParts[parts[i].PI].CurlVel = sqrt(Roti[0] * Roti[0] + Roti[1] * Roti[1] + Roti[2] * Roti[2]) / SphParts[parts[i].PI].Density;
 
-            SphP[parts[i].PI].DivVel /= SphP[parts[i].PI].Density;
-            parts[i].DtHsml = (1.0 / NUMDIMS) * SphP[parts[i].PI].DivVel * parts[i].Hsml;
+            SphParts[parts[i].PI].DivVel /= SphParts[parts[i].PI].Density;
+            parts[i].DtHsml = (1.0 / NUMDIMS) * SphParts[parts[i].PI].DivVel * parts[i].Hsml;
         }
         else if(parts[i].Type == 5)
         {
-            BhP[parts[i].PI].DivVel /= BhP[parts[i].PI].Density;
-            parts[i].DtHsml = (1.0 / NUMDIMS) * BhP[parts[i].PI].DivVel * parts[i].Hsml;
+            BhParts[parts[i].PI].DivVel /= BhParts[parts[i].PI].Density;
+            parts[i].DtHsml = (1.0 / NUMDIMS) * BhParts[parts[i].PI].DivVel * parts[i].Hsml;
         }
         return done;
     }
@@ -311,9 +318,9 @@ class DensityResult : public TreeWalkResultBase<DensityQuery, DensityOutput> {
 
             if(parts[place].Type == 0)
             {
-                TREEWALK_REDUCE(SphP[parts[place].PI].Density, Rho);
+                TREEWALK_REDUCE(output->SphParts[parts[place].PI].Density, Rho);
 
-                TREEWALK_REDUCE(SphP[parts[place].PI].DivVel, Div);
+                TREEWALK_REDUCE(output->SphParts[parts[place].PI].DivVel, Div);
                 int pi = parts[place].PI;
                 TREEWALK_REDUCE(output->Rot[pi][0], Rot[0]);
                 TREEWALK_REDUCE(output->Rot[pi][1], Rot[1]);
@@ -329,14 +336,14 @@ class DensityResult : public TreeWalkResultBase<DensityQuery, DensityOutput> {
 
                 /*Only used for density independent SPH*/
                 //if(priv.DoEgyDensity) {
-                    TREEWALK_REDUCE(SphP[parts[place].PI].EgyWtDensity, EgyRho);
-                    TREEWALK_REDUCE(SphP[parts[place].PI].DhsmlEgyDensityFactor, DhsmlEgyDensity);
+                    TREEWALK_REDUCE(output->SphParts[parts[place].PI].EgyWtDensity, EgyRho);
+                    TREEWALK_REDUCE(output->SphParts[parts[place].PI].DhsmlEgyDensityFactor, DhsmlEgyDensity);
                 //}
             }
             else if(parts[place].Type == 5)
             {
-                TREEWALK_REDUCE(BhP[parts[place].PI].Density, Rho);
-                TREEWALK_REDUCE(BhP[parts[place].PI].DivVel, Div);
+                TREEWALK_REDUCE(output->BhParts[parts[place].PI].Density, Rho);
+                TREEWALK_REDUCE(output->BhParts[parts[place].PI].DivVel, Div);
             }
         }
 
@@ -358,7 +365,7 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk<Density
         *  The neighbours of the particle in the Query are enumerated, and results
         *  are stored into the Result object.
         */
-        MYCUDAFN void ngbiter(const DensityQuery& input, const int other, DensityResult * output, const DensityPriv& priv, const struct particle_data * const parts)
+        MYCUDAFN void ngbiter(const DensityQuery& input, const int other, DensityResult * output, const DensityPriv& priv, const particle_data * const parts)
         {
             /* We are too far away from the kernel */
             if(this->r2 >= kernel.H * kernel.H)
