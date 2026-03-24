@@ -58,6 +58,9 @@ void check_hydroaccns(double * meanerr_tot, double * maxerr_tot, double * meanan
     {
         if(Part[i].IsGarbage || Part[i].Swallowed || Part[i].Type != 0)
             continue;
+        /* Zero HydroAccn*/
+        if(SphP[Part[i].PI].DelayTime > 0)
+            continue;
         double pairmag = 0, checkmag = 0, dotprod = 0;
         for(int k=0; k<3; k++) {
             pairmag += PairAccn[i][k]*PairAccn[i][k];
