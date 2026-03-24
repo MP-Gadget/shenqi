@@ -31,7 +31,7 @@ class DensityPriv : public ParamTypeBase {
     DensityPriv(const struct density_params DensityParams, const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, DriftKickTimes * i_times, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const part_manager_type * const PartManager, slots_manager_type * SlotsManager):
     ParamTypeBase(PartManager->BoxSize), update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), times(*i_times),
     DesNumNgb(GetNumNgb(DensityParams.DensityKernelType)), DesNumNgbBH(DesNumNgb * DensityParams.BlackHoleNgbFactor),
-    MinGasHsml(DensityParams.MinGasHsml), kf(i_times, CP), EntVarPred(NULL), SphParts(static_cast<sph_particle_data *>(SlotsManager->info[0].ptr))
+    MinGasHsml(DensityParams.MinGasHsml), kf(i_times, CP), EntVarPred(NULL), SphParts(reinterpret_cast<sph_particle_data *>(SlotsManager->info[0].ptr))
     {
         struct particle_data * parts = PartManager->Base;
 
@@ -85,7 +85,7 @@ class DensityOutput {
     bh_particle_data * BhParts;
 
     DensityOutput(const bool GradRho_mag, const int64_t NumPart, const double BoxSize, const double MaxNgbDeviation, slots_manager_type * slotsmanager):
-    MaxNumNgbDeviation(MaxNgbDeviation), verbose(false), SphParts(static_cast<sph_particle_data *>(slotsmanager->info[0].ptr)), BhParts(static_cast<bh_particle_data *>(slotsmanager->info[5].ptr))
+    MaxNumNgbDeviation(MaxNgbDeviation), verbose(false), SphParts(reinterpret_cast<sph_particle_data *>(slotsmanager->info[0].ptr)), BhParts(reinterpret_cast<bh_particle_data *>(slotsmanager->info[5].ptr))
     {
         Left = (MyFloat *) mymanagedmalloc("DENS_PRIV->Left", NumPart * sizeof(MyFloat));
         Right = (MyFloat *) mymanagedmalloc("DENS_PRIV->Right", NumPart * sizeof(MyFloat));
