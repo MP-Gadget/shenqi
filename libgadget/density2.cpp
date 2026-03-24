@@ -75,15 +75,14 @@ GetDensityKernelType(void)
 /* The evolved entropy at drift time: evolved dlog a.
  * Used to predict pressure and entropy for SPH */
 MYCUDAFN MyFloat
-SPH_EntVarPred(const particle_data& particle, const DriftKickTimes * times)
+SPH_EntVarPred(const particle_data& particle, const sph_particle_data& sph_part, const DriftKickTimes * times)
 {
         const int bin = particle.TimeBinHydro;
-        const int PI = particle.PI;
         const double dloga = dloga_from_dti(times->Ti_Current - times->Ti_kick[bin], times->Ti_Current);
-        double EntVarPred = SphP[PI].Entropy + SphP[PI].DtEntropy * dloga;
+        double EntVarPred = sph_part.Entropy + sph_part.DtEntropy * dloga;
         /*Entropy limiter for the predicted entropy: makes sure entropy stays positive. */
-        if(EntVarPred < 0.05*SphP[PI].Entropy)
-            EntVarPred = 0.05 * SphP[PI].Entropy;
+        if(EntVarPred < 0.05*sph_part.Entropy)
+            EntVarPred = 0.05 * sph_part.Entropy;
         /* Just in case*/
         if(EntVarPred <= 0)
             return 0;

@@ -82,14 +82,12 @@ class KickFactorData
      * For hydro forces.*/
     MYCUDAFN
     void
-    SPH_VelPred(const particle_data& particle, MyFloat * VelPred) const
+    SPH_VelPred(const particle_data& particle, const sph_particle_data& sph_data, MyFloat * VelPred) const
     {
-        int j;
-        const double * const HydroAccel = ((struct sph_particle_data *)SlotsManager->info[0].ptr)[particle.PI].HydroAccel;
         /* Notice that the kick time for gravity and hydro may be different! So the prediction is also different*/
-        for(j = 0; j < 3; j++) {
+        for(int j = 0; j < 3; j++) {
             VelPred[j] = particle.Vel[j] + gravkicks[particle.TimeBinGravity] * particle.FullTreeGravAccel[j]
-                + particle.GravPM[j] * FgravkickB + hydrokicks[particle.TimeBinHydro] * HydroAccel[j];
+                + particle.GravPM[j] * FgravkickB + hydrokicks[particle.TimeBinHydro] * sph_data.HydroAccel[j];
         }
     }
 
@@ -111,7 +109,7 @@ class KickFactorData
 /* The evolved entropy at drift time: evolved dlog a.
  * Used to predict pressure and entropy for SPH */
 MYCUDAFN
-MyFloat SPH_EntVarPred(const particle_data& particle, const DriftKickTimes * times);
+MyFloat SPH_EntVarPred(const particle_data& particle, const sph_particle_data& sph_part, const DriftKickTimes * times);
 
 /* Set the initial smoothing length for gas and BH. Used on first timestep in init()*/
 void set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSeparation, struct part_manager_type * const PartManager);

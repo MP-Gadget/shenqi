@@ -140,7 +140,8 @@ class HydroPriv : public ParamTypeBase {
 
 class HydroOutput {
     public:
-    MYCUDAFN void postprocess(const int i, struct particle_data * const parts, const HydroPriv * priv)
+
+    MYCUDAFN void postprocess(const int i, particle_data * const parts, const HydroPriv * priv)
     {
         if(parts[i].Type != 0)
             return;
@@ -170,11 +171,11 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     Hsml(particle.Hsml), Mass(particle.Mass), Density(SphP[particle.PI].Density), SPH_DhsmlDensityFactor(SphP[particle.PI].DhsmlEgyDensityFactor),
     dloga(get_dloga_for_bin(particle.TimeBinHydro, priv.times.Ti_Current))
     {
-        priv.kf.SPH_VelPred(particle, Vel);
+        priv.kf.SPH_VelPred(particle, SphP[particle.PI], Vel);
         if(priv.EntVarPred)
             EntVarPred = priv.EntVarPred[particle.PI];
         else
-            EntVarPred = SPH_EntVarPred(particle, &priv.times);
+            EntVarPred = SPH_EntVarPred(particle, SphP[particle.PI], &priv.times);
 
         const double eomdensity = SPH_EOMDensity(&SphP[particle.PI]);
         if(priv.PressurePred)
@@ -284,8 +285,10 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
         if(r2 <= 0 || !(r2 < kernel_i.HH || r2 < kernel_j.HH))
             return;
 
+        const sph_particle_data& sphp_j = SphP[parts[other].PI];
+
         MyFloat VelPred[3];
-        priv.kf.SPH_VelPred(parts[other], VelPred);
+        priv.kf.SPH_VelPred(parts[other], sphp_j, VelPred);
 
         double EntVarPred;
         if(priv.EntVarPred) {
@@ -297,20 +300,19 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
             * with minimal locking since nothing happens should we compute them twice.
             * Zero can be the special value since there should never be zero entropy.*/
             if(EntVarPred == 0) {
-                EntVarPred = SPH_EntVarPred(parts[other], &priv.times);
+                EntVarPred = SPH_EntVarPred(parts[other], sphp_j, &priv.times);
                 #pragma omp atomic write
                 priv.EntVarPred[Part[other].PI] = EntVarPred;
             }
         }
         else
-            EntVarPred = SPH_EntVarPred(parts[other], &priv.times);
+            EntVarPred = SPH_EntVarPred(parts[other], sphp_j, &priv.times);
 
         /* Predict densities. Note that for active timebins the density is up to date so SPH_DensityPred is just returns the current densities.
          * This improves on the technique used in Gadget-2 by being a linear prediction that does not become pathological in deep timebins.*/
         const int bin = parts[other].TimeBinHydro;
-        const sph_particle_data * const sphp_j = &SphP[parts[other].PI];
-        const double density_j = SPH_DensityPred(sphp_j->Density, sphp_j->DivVel, priv.drifts[bin]);
-        const double eomdensity = SPH_DensityPred(SPH_EOMDensity(sphp_j), sphp_j->DivVel, priv.drifts[bin]);;
+        const double density_j = SPH_DensityPred(sphp_j.Density, sphp_j.DivVel, priv.drifts[bin]);
+        const double eomdensity = SPH_DensityPred(SPH_EOMDensity(&sphp_j), sphp_j.DivVel, priv.drifts[bin]);;
 
         /* Compute pressure lazily*/
         double Pressure_j;
@@ -356,8 +358,8 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
                 output->MaxSignalVel = vsig;
 
             /* Note this uses the CurlVel of an inactive particle, which is not at the present drift time*/
-            const double f2 = fabs(sphp_j->DivVel) / (fabs(sphp_j->DivVel) +
-                    SPHP(other).CurlVel + 0.0001 * soundspeed_j / priv.fac_mu / Part[other].Hsml);
+            const double f2 = fabs(sphp_j.DivVel) / (fabs(sphp_j.DivVel) +
+                    sphp_j.CurlVel + 0.0001 * soundspeed_j / priv.fac_mu / parts[other].Hsml);
 
             /*Gadget-2 paper, eq. 14*/
             visc = 0.25 * HydroParams.ArtBulkViscConst * vsig * (-mu_ij) / rho_ij * (input.F1 + f2);
@@ -365,7 +367,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
             /* now make sure that viscous acceleration is not too large */
 
             /*XXX: why is this dloga ?*/
-            double dloga = 2 * DMAX(input.dloga, get_dloga_for_bin(Part[other].TimeBinHydro, priv.times.Ti_Current));
+            double dloga = 2 * DMAX(input.dloga, get_dloga_for_bin(parts[other].TimeBinHydro, priv.times.Ti_Current));
             if(dloga > 0 && (dwk_i + dwk_j) < 0)
             {
                 if((input.Mass + parts[other].Mass) > 0) {
@@ -401,7 +403,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
         /* grad-h corrections: enabled if DensityIndependentSphOn = 0, or DensityConstrastLimit >= 0 */
         /* Formulation derived from the Lagrangian */
         hfc += parts[other].Mass * (p_over_rho2_i*input.SPH_DhsmlDensityFactor * dwk_i * rr1
-                    + p_over_rho2_j*sphp_j->DhsmlEgyDensityFactor * dwk_j * rr2) / r;
+                    + p_over_rho2_j*sphp_j.DhsmlEgyDensityFactor * dwk_j * rr2) / r;
 
         for(int d = 0; d < 3; d ++)
             output->Acc[d] += (-hfc * dist[d]);
