@@ -113,10 +113,7 @@ class HydroPriv : public ParamTypeBase {
             /* Do it in slot order for memory locality*/
             #pragma omp parallel for
             for(int i = 0; i < SlotsManager->info[0].size; i++) {
-                if(EntVarPred[i] == 0)
-                    PressurePred[i] = 0;
-                else
-                    PressurePred[i] = PressurePredict(SPH_EOMDensity(&SphP[i]), EntVarPred[i]);
+                PressurePred[i] = PressurePredict(SPH_EOMDensity(&SphP[i]), EntVarPred[i]);
             }
         }
 
@@ -289,20 +286,8 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
         priv.kf.SPH_VelPred(particle, sphp_j, VelPred);
 
         double EntVarPred;
-        if(priv.EntVarPred) {
-            #pragma omp atomic read
+        if(priv.EntVarPred)
             EntVarPred = priv.EntVarPred[particle.PI];
-            /* Lazily compute the predicted quantities. We need to do this again here, even though we do it in density,
-            * because this treewalk is symmetric and that one is asymmetric. In density() hmax has not been computed
-            * yet so we cannot merge them. We can do this
-            * with minimal locking since nothing happens should we compute them twice.
-            * Zero can be the special value since there should never be zero entropy.*/
-            if(EntVarPred == 0) {
-                EntVarPred = SPH_EntVarPred(particle, sphp_j, &priv.times);
-                #pragma omp atomic write
-                priv.EntVarPred[particle.PI] = EntVarPred;
-            }
-        }
         else
             EntVarPred = SPH_EntVarPred(particle, sphp_j, &priv.times);
 
@@ -315,15 +300,8 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
         /* Compute pressure lazily*/
         double Pressure_j;
 
-        if(priv.PressurePred) {
-            #pragma omp atomic read
+        if(priv.PressurePred)
             Pressure_j = priv.PressurePred[particle.PI];
-            if(Pressure_j == 0) {
-                Pressure_j = PressurePredict(eomdensity, EntVarPred);
-                #pragma omp atomic write
-                priv.PressurePred[particle.PI] = Pressure_j;
-            }
-        }
         else
             Pressure_j = PressurePredict(eomdensity, EntVarPred);
 
