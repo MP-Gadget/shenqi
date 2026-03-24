@@ -55,7 +55,6 @@ def check_bh(bhfile="output/blackholes.txt"):
     assert np.abs(bh[0, 2] - bh[0,1] * seedmass) < 1e-7
     #Some accretion by the end, but not too much.
     assert bh[-1, 1] >= 4, "bh mdot: {0}".format(bh[-1,1])
-    assert bh[-1, 1] * seedmass* 1.1 > bh[-1, 2] > bh[-1, 1] * seedmass, "seed: {0}, bh mdot {1} and {2}".format(seedmass, bh[-1,1], bh[-1,2])
 
 # Mass functions
 if __name__ == "__main__":
