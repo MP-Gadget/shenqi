@@ -555,13 +555,6 @@ public:
     };
 
 private:
-    /* Main processing loop. Walks the toptree, exports and imports, then does primary and secondary eval.
-        * The loop is there in case the export buffer fills up.
-        */
-    void ev_process(int * WorkSet, const int64_t WorkSetSize, const size_t BunchSize, particle_data * const parts, MPI_Comm comm)
-    {
-    }
-
     void ev_free_exports(int * exportcounts)
     {
         myfree(exportcounts);
