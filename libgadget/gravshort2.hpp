@@ -82,6 +82,8 @@ class GravTreeOutput
      * Override to normalize results, compute derived quantities, etc.
      *
      * @param i Particle index
+     * @param parts Array of particle data to index with i
+     * @param priv Data structure for parameters of the gravity treewalk.
      */
      MYCUDAFN void postprocess(const int i, particle_data * const parts, const GravTreeParams * priv)
      {
