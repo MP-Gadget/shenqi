@@ -34,30 +34,14 @@ class DensityPriv : public ParamTypeBase {
     DesNumNgb(GetNumNgb(DensityParams.DensityKernelType)), DesNumNgbBH(DesNumNgb * DensityParams.BlackHoleNgbFactor),
     MinGasHsml(DensityParams.MinGasHsml), kf(i_times, CP), EntVarPred(NULL), SphParts(reinterpret_cast<sph_particle_data *>(SlotsManager->info[0].ptr))
     {
-        struct particle_data * parts = PartManager->Base;
-
-
-        /* If all particles are active, easiest to compute all the predicted velocities immediately*/
-        if(!act->ActiveParticle || act->NumActiveHydro > 0.1 * (SlotsManager->info[0].size + SlotsManager->info[5].size)) {
+        /* If enough particles are active, easiest to compute all the predicted velocities immediately*/
+        if(!act->ActiveParticle || act->NumActiveHydro > (SlotsManager->info[0].size + SlotsManager->info[5].size) / DesNumNgb) {
             EntVarPred = (MyFloat *) mymanagedmalloc("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
+            const particle_data * const parts = PartManager->Base;
             #pragma omp parallel for
             for(int64_t i = 0; i < PartManager->NumPart; i++)
                 if(parts[i].Type == 0 && !parts[i].IsGarbage)
                     EntVarPred[parts[i].PI] = SPH_EntVarPred(parts[i], SphParts[parts[i].PI], &times);
-        }
-        /* But if only some particles are active, the pow function in EntVarPred is slow and we have a lot of overhead, because we are doing 5500^3 exps for 5 particles.
-        * So instead we compute it for active particles and use an atomic to guard the changes inside the loop.
-        * For sufficiently small particle numbers the memset dominates and it is fastest to just compute each predicted entropy as we need it.*/
-        else if(act->NumActiveHydro > 0.0001 * (SlotsManager->info[0].size + SlotsManager->info[5].size)){
-            EntVarPred = (MyFloat *) mymanagedmalloc("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
-            memset(EntVarPred, 0, sizeof(EntVarPred[0]) * SlotsManager->info[0].size);
-            #pragma omp parallel for
-            for(int64_t i = 0; i < act->NumActiveParticle; i++)
-            {
-                int p_i = act->ActiveParticle ? act->ActiveParticle[i] : i;
-                if(parts[p_i].Type == 0 && !parts[p_i].IsGarbage)
-                    EntVarPred[parts[p_i].PI] = SPH_EntVarPred(parts[p_i], SphParts[parts[p_i].PI], &times);
-            }
         }
     }
 };
@@ -402,18 +386,8 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk<Density
             MyFloat VelPred[3];
             priv.kf.SPH_VelPred(particle, sph_data, VelPred);
 
-            if(priv.EntVarPred) {
-                #pragma omp atomic read
+            if(priv.EntVarPred)
                 EntVarPred = priv.EntVarPred[particle.PI];
-                /* Lazily compute the predicted quantities. We can do this
-                * with minimal locking since nothing happens should we compute them twice.
-                * Zero can be the special value since there should never be zero entropy.*/
-                if(EntVarPred == 0) {
-                    EntVarPred = SPH_EntVarPred(particle, sph_data, &priv.times);
-                    #pragma omp atomic write
-                    priv.EntVarPred[particle.PI] = EntVarPred;
-                }
-            }
             else
                 EntVarPred = SPH_EntVarPred(particle, sph_data, &priv.times);
 
