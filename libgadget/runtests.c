@@ -453,7 +453,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     start = second();
-    density(&Act, 0, 0, 1, times, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree);
+    density(&Act, 0, 1, 1, times, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree);
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     double newdens = second() - start;
@@ -469,7 +469,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     start = second();
-    density_old(&Act, 0, 0, 1, times, CP, &sph_predicted, GradRho, &gasTree);
+    density_old(&Act, 0, 1, 1, times, CP, &sph_predicted, GradRho, &gasTree);
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     double olddens = second() - start;
