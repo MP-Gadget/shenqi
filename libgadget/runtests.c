@@ -393,6 +393,8 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     const double rho0 = CP->Omega0 * CP->RhoCrit;
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
     /* Twice for force consistency*/
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     double start = second();
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
     #pragma omp barrier
@@ -402,6 +404,8 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     treeacc.TreeUseBH = 2;
     set_gravshort_treepar_old(treeacc);
     grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     start = second();
     grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
     #pragma omp barrier
@@ -446,6 +450,8 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     struct sph_pred_data sph_predicted = {0};
     force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK, OutputDir);
     /* computes GradRho with a treewalk. No hsml update as we are reading from a snapshot.*/
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     start = second();
     density(&Act, 0, 0, 1, times, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree);
     #pragma omp barrier
@@ -481,11 +487,15 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     double (* HydroAccn)[3] = (double (*) [3]) mymalloc2("HydroAccns", 3*sizeof(double) * PartManager->NumPart);
     /* Compare the new and old hydro force. */
     force_tree_calc_moments(&gasTree, ddecomp);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     start = second();
     hydro_force(&Act, header->TimeSnapshot, sph_predicted.EntVarPred, times,  CP, &gasTree);
     double newhydro = second() - start;
     copy_and_mean_hydroaccn(HydroAccn);
     set_hydropar_old(get_hydropar());
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     start = second();
     hydro_force_old(&Act, header->TimeSnapshot, &sph_predicted, times,  CP, &gasTree);
     #pragma omp barrier
