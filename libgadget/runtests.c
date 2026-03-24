@@ -52,10 +52,9 @@ double copy_and_mean_hydroaccn(double (* PairAccn)[3])
 void check_hydroaccns(double * meanerr_tot, double * maxerr_tot, double * meanangle_tot, double * maxangle_tot, double (*PairAccn)[3])
 {
     double meanerr = 0, maxerr = -1, meanangle = 0, maxangle = 0;
-    int i;
     /* This checks that the short-range force accuracy is being correctly estimated.*/
     #pragma omp parallel for reduction(+: meanerr) reduction(max:maxerr)
-    for(i = 0; i < PartManager->NumPart; i++)
+    for(int i = 0; i < PartManager->NumPart; i++)
     {
         if(Part[i].IsGarbage || Part[i].Swallowed || Part[i].Type != 0)
             continue;
@@ -491,6 +490,8 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     MPI_Barrier(MPI_COMM_WORLD);
     start = second();
     hydro_force(&Act, header->TimeSnapshot, sph_predicted.EntVarPred, times,  CP, &gasTree);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     double newhydro = second() - start;
     copy_and_mean_hydroaccn(HydroAccn);
     set_hydropar_old(get_hydropar());

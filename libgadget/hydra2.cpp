@@ -295,7 +295,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
          * This improves on the technique used in Gadget-2 by being a linear prediction that does not become pathological in deep timebins.*/
         const int bin = particle.TimeBinHydro;
         const double density_j = SPH_DensityPred(sphp_j.Density, sphp_j.DivVel, priv.drifts[bin]);
-        const double eomdensity = SPH_DensityPred(SPH_EOMDensity(&sphp_j), sphp_j.DivVel, priv.drifts[bin]);;
+        const double eomdensity = SPH_DensityPred(SPH_EOMDensity(&sphp_j), sphp_j.DivVel, priv.drifts[bin]);
 
         /* Compute pressure lazily*/
         double Pressure_j;
