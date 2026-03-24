@@ -31,15 +31,13 @@ void register_extra_blocks(struct IOTable * IOTable)
 
 double copy_and_mean_hydroaccn(double (* PairAccn)[3])
 {
-    int i;
     double meanacc = 0;
     #pragma omp parallel for reduction(+: meanacc)
-    for(i = 0; i < PartManager->NumPart; i++)
+    for(int i = 0; i < PartManager->NumPart; i++)
     {
         if(Part[i].IsGarbage || Part[i].Swallowed || Part[i].Type != 0)
             continue;
-        int k;
-        for(k=0; k<3; k++) {
+        for(int k=0; k<3; k++) {
             PairAccn[i][k] = SphP[Part[i].PI].HydroAccel[k];
             meanacc += fabs(PairAccn[i][k]);
         }
@@ -53,7 +51,7 @@ double copy_and_mean_hydroaccn(double (* PairAccn)[3])
 
 void check_hydroaccns(double * meanerr_tot, double * maxerr_tot, double * meanangle_tot, double * maxangle_tot, double (*PairAccn)[3])
 {
-    double meanerr=0, maxerr=-1, meanangle = 0, maxangle = 0;
+    double meanerr = 0, maxerr = -1, meanangle = 0, maxangle = 0;
     int i;
     /* This checks that the short-range force accuracy is being correctly estimated.*/
     #pragma omp parallel for reduction(+: meanerr) reduction(max:maxerr)
@@ -61,9 +59,8 @@ void check_hydroaccns(double * meanerr_tot, double * maxerr_tot, double * meanan
     {
         if(Part[i].IsGarbage || Part[i].Swallowed || Part[i].Type != 0)
             continue;
-        int k;
         double pairmag = 0, checkmag = 0, dotprod = 0;
-        for(k=0; k<3; k++) {
+        for(int k=0; k<3; k++) {
             pairmag += PairAccn[i][k]*PairAccn[i][k];
             double newaccel = SphP[Part[i].PI].HydroAccel[k];
             checkmag += newaccel * newaccel;
