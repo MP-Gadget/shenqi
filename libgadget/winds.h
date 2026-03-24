@@ -42,7 +42,15 @@ void winds_subgrid(int * MaybeWind, int NumMaybeWind, const double Time, MyFloat
 int winds_are_subgrid(void);
 
 /*Tests whether a given particle has been made a wind particle and is hydrodynamically decoupled*/
-MYCUDAFN int winds_is_particle_decoupled(int i);
+int winds_is_particle_decoupled(int i);
+
+/*Tests whether a given particle has been made a wind particle and is hydrodynamically decoupled.
+ * Version using only the sph slot, suitable for CUDA code.*/
+MYCUDAFN static inline int
+winds_is_particle_decoupled(const sph_particle_data * const sph_data)
+{
+    return (sph_data->DelayTime > 0);
+}
 
 /* Set and evolve the hydro parameters for a decoupled wind particle.*/
 void winds_decoupled_hydro(int i, double atime);

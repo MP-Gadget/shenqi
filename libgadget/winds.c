@@ -164,6 +164,8 @@ sfr_wind_feedback_ngbiter(TreeWalkQueryWind * I,
 /* Returns 1 if the winds ever decouple, 0 otherwise*/
 int winds_ever_decouple(void)
 {
+    if(!HAS(wind_params.WindModel, WIND_DECOUPLE_SPH))
+        return 0;
     if(wind_params.MaxWindFreeTravelTime > 0)
         return 1;
     else

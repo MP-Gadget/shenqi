@@ -333,8 +333,7 @@ class LocalNgbTreeWalk
 public:
     /* A pointer to the tree nodes to walk.*/
     const NODE * const Nodes;
-    double dist[3];
-    double r2;
+
     /* Constructor from treewalk */
     MYCUDAFN LocalNgbTreeWalk(const NODE * const Node, const QueryType& input):
      Nodes(Node)
@@ -406,7 +405,8 @@ public:
                         * Happens for wind treewalk for gas turned into stars on this timestep.*/
                         if(!((1<<parts[other].Type) & mask))
                             continue;
-                        ngbiter(input, other, output, priv, parts);
+                        /* Call ngbiter for the child class */
+                        static_cast<DerivedType*>(this)->ngbiter(input, parts[other], output, priv);
                         ninteractions++;
                     }
                     /* Move sideways*/
@@ -430,29 +430,22 @@ public:
     * Override when using ngbiter-based visits.
     *
     * @param input  Query data
+    * @param
     * @param output Result accumulator
     * @param iter   Neighbour iterator with distance info
     * @param lv     Thread-local walk state
     */
-    MYCUDAFN void ngbiter(const QueryType& input, const int other, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
-    {
-        const particle_data& particle = parts[other];
-        double symHsml = input.Hsml;
-        if constexpr(symmetric == NGB_TREEFIND_SYMMETRIC) {
-            symHsml = DMAX(particle.Hsml, input.Hsml);
-        }
+    MYCUDAFN void ngbiter(const QueryType& input, const particle_data& particle, ResultType * output, const ParamType& priv) {};
 
-        r2 = 0;
-        int d;
-        double h2 = symHsml * symHsml;
-        for(d = 0; d < 3; d ++) {
+    MYCUDAFN double get_distance(const QueryType& input, const particle_data& partother, const double BoxSize, double * dist)
+    {
+        double r2 = 0;
+        for(int d = 0; d < 3; d ++) {
             /* the distance vector points to 'other' */
-            dist[d] = NEAREST(input.Pos[d] - particle.Pos[d], priv.BoxSize);
+            dist[d] = NEAREST(input.Pos[d] - partother.Pos[d], BoxSize);
             r2 += dist[d] * dist[d];
-            if(r2 > h2) break;
         }
-        /* Call ngbiter for the child class */
-        static_cast<DerivedType*>(this)->ngbiter(input, other, output, priv, parts);
+        return r2;
     }
 };
 

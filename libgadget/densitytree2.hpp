@@ -12,6 +12,7 @@ class DensityPriv : public ParamTypeBase {
     /* Are there potentially black holes?*/
     bool BlackHoleOn;
     bool DoEgyDensity;
+    bool WindsDecouple;
 
     DriftKickTimes times;
     /*!< Desired number of SPH neighbours */
@@ -29,11 +30,12 @@ class DensityPriv : public ParamTypeBase {
     sph_particle_data * SphParts;
 
     DensityPriv(const struct density_params DensityParams, const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, DriftKickTimes * i_times, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const part_manager_type * const PartManager, slots_manager_type * SlotsManager):
-    ParamTypeBase(PartManager->BoxSize), update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), times(*i_times),
+    ParamTypeBase(PartManager->BoxSize), update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), WindsDecouple(winds_ever_decouple()),  times(*i_times),
     DesNumNgb(GetNumNgb(DensityParams.DensityKernelType)), DesNumNgbBH(DesNumNgb * DensityParams.BlackHoleNgbFactor),
     MinGasHsml(DensityParams.MinGasHsml), kf(i_times, CP), EntVarPred(NULL), SphParts(reinterpret_cast<sph_particle_data *>(SlotsManager->info[0].ptr))
     {
         struct particle_data * parts = PartManager->Base;
+
 
         /* If all particles are active, easiest to compute all the predicted velocities immediately*/
         if(!act->ActiveParticle || act->NumActiveHydro > 0.1 * (SlotsManager->info[0].size + SlotsManager->info[5].size)) {
@@ -365,18 +367,21 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk<Density
         *  The neighbours of the particle in the Query are enumerated, and results
         *  are stored into the Result object.
         */
-        MYCUDAFN void ngbiter(const DensityQuery& input, const int other, DensityResult * output, const DensityPriv& priv, const particle_data * const parts)
+        MYCUDAFN void ngbiter(const DensityQuery& input, const particle_data& particle, DensityResult * output, const DensityPriv& priv)
         {
+            double dist[3];
+            double r2 = this->get_distance(input, particle, priv.BoxSize, dist);
             /* We are too far away from the kernel */
-            if(this->r2 >= kernel.H * kernel.H)
+            if(r2 >= input.Hsml * input.Hsml)
                 return;
 
+            sph_particle_data& sph_data = priv.SphParts[particle.PI];
             /* For the BH we wish to exclude wind particles from the density,
              * because they are excluded from the accretion treewalk.*/
-            if(input.Type == 5 && winds_is_particle_decoupled(other))
+            if(priv.WindsDecouple && input.Type == 5 && winds_is_particle_decoupled(&sph_data))
                 return;
 
-            const double r = sqrt(this->r2);
+            const double r = sqrt(r2);
             const double u = r / kernel.H;
             const double wk = kernel.wk(u);
             const double kernel_volume = kernel.volume();
@@ -384,7 +389,6 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk<Density
 
             const double dwk = kernel.dwk(u);
 
-            const particle_data& particle = parts[other];
             const double mass_j = particle.Mass;
 
             output->Rho += (mass_j * wk);
@@ -394,7 +398,6 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk<Density
             double density_dW = kernel.dW(u);
             output->DhsmlDensity += mass_j * density_dW;
 
-            sph_particle_data& sph_data = priv.SphParts[particle.PI];
             double EntVarPred;
             MyFloat VelPred[3];
             priv.kf.SPH_VelPred(particle, sph_data, VelPred);
@@ -427,16 +430,16 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk<Density
             for(int d = 0; d < 3; d ++) {
                 dv[d] = input.Vel[d] - VelPred[d];
             }
-            output->Div += -fac * dot_product(this->dist, dv);
+            output->Div += -fac * dot_product(dist, dv);
 
             double rot[3];
-            cross_product(dv, this->dist, rot);
+            cross_product(dv, dist, rot);
 
             for(int d = 0; d < 3; d ++) {
                 output->Rot[d] += fac * rot[d];
             }
             for (int d = 0; d < 3; d ++)
-                output->GradRho[d] += fac * this->dist[d];
+                output->GradRho[d] += fac * dist[d];
         }
 };
 
