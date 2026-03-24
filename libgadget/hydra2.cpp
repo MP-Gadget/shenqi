@@ -367,11 +367,8 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
             if(HydroParams.DensityContrastLimit >= 0) {
                 rr1 = input.EgyRho / input.Density;
                 rr2 = eomdensity / density_j;
-                if(HydroParams.DensityContrastLimit > 0) {
-                    /* apply the limit if it is enabled > 0*/
-                    rr1 = DMIN(rr1, HydroParams.DensityContrastLimit);
-                    rr2 = DMIN(rr2, HydroParams.DensityContrastLimit);
-                }
+                rr1 = DMIN(rr1, HydroParams.DensityContrastLimit);
+                rr2 = DMIN(rr2, HydroParams.DensityContrastLimit);
             }
         }
 
