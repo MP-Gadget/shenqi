@@ -120,19 +120,13 @@ winds_is_particle_decoupled(int i)
 }
 
 void
-winds_decoupled_hydro(int i, double atime)
+winds_decoupled_hydro(sph_particle_data * sphp, const double atime)
 {
-    int k;
-    for(k = 0; k < 3; k++)
-        SPHP(i).HydroAccel[k] = 0;
-
-    SPHP(i).DtEntropy = 0;
-
     double windspeed = wind_params.WindSpeed * atime;
     const double fac_mu = pow(atime, 3 * (GAMMA - 1) / 2) / atime;
     windspeed *= fac_mu;
-    double hsml_c = cbrt(wind_params.WindFreeTravelDensThresh /SPHP(i).Density) * atime;
-    SPHP(i).MaxSignalVel = hsml_c * DMAX((2 * windspeed), SPHP(i).MaxSignalVel);
+    double hsml_c = cbrt(wind_params.WindFreeTravelDensThresh /sphp->Density) * atime;
+    sphp->MaxSignalVel = hsml_c * DMAX(2 * windspeed, sphp->MaxSignalVel);
 }
 
 static void wind_do_kick(int other, double vel, double therm, double atime, const RandTable * const rnd);

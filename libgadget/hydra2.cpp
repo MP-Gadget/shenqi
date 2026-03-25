@@ -154,11 +154,16 @@ class HydroOutput {
     {
         if(parts[i].Type != 0)
             return;
+        sph_particle_data * sphp = &SphParts[parts[i].PI];
         /* Translate energy change rate into entropy change rate */
-        SphParts[parts[i].PI].DtEntropy *= GAMMA_MINUS1 / (priv->hubble_a2 * pow(SphParts[parts[i].PI].Density, GAMMA_MINUS1));
+        SphParts[parts[i].PI].DtEntropy *= GAMMA_MINUS1 / (priv->hubble_a2 * pow(sphp->Density, GAMMA_MINUS1));
         /* if we have winds, we decouple particles briefly if delaytime>0 */
-        if(winds_is_particle_decoupled(&SphParts[parts[i].PI]))
-            winds_decoupled_hydro(i, priv->atime);
+        if(winds_is_particle_decoupled(sphp)) {
+            for(int k = 0; k < 3; k++)
+                sphp->HydroAccel[k] = 0;
+            sphp->DtEntropy = 0;
+            winds_decoupled_hydro(sphp, priv->atime);
+        }
     }
 };
 

@@ -52,8 +52,8 @@ winds_is_particle_decoupled(const sph_particle_data * const sph_data)
     return (sph_data->DelayTime > 0);
 }
 
-/* Set and evolve the hydro parameters for a decoupled wind particle.*/
-void winds_decoupled_hydro(int i, double atime);
+/* Sets the MaxSignalVel for a decoupled wind particle.*/
+void winds_decoupled_hydro(sph_particle_data * sphp, const double atime);
 
 /* Returns 1 if the winds ever decouple, 0 otherwise*/
 int winds_ever_decouple(void);

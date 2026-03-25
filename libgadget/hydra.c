@@ -494,7 +494,12 @@ hydro_postprocess(int i, TreeWalk * tw)
         /* if we have winds, we decouple particles briefly if delaytime>0 */
         if(winds_is_particle_decoupled(i))
         {
-            winds_decoupled_hydro(i, HYDRA_GET_PRIV(tw)->atime);
+            int k;
+            for(k = 0; k < 3; k++)
+                SPHP(i).HydroAccel[k] = 0;
+
+            SPHP(i).DtEntropy = 0;
+            winds_decoupled_hydro(&SPHP(i), HYDRA_GET_PRIV(tw)->atime);
         }
     }
 }
