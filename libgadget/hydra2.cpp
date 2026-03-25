@@ -108,7 +108,7 @@ class HydroPriv : public ParamTypeBase {
     ParamTypeBase(BoxSize), atime(i_atime), hubble(hubble_function(CP, atime)),
     EntVarPred(i_EntVarPred), fac_mu(pow(atime, 3 * (GAMMA - 1) / 2) / atime), fac_vsic_fix(hubble * pow(atime, 3 * GAMMA_MINUS1)),
     hubble_a2(hubble * atime * atime), times(*i_times), kf(i_times, CP),
-    ArtBulkViscConst(HydroParams.ArtBulkViscConst), DensityContrastLimit(HydroParams.DensityContrastLimit), DensityIndependentSphOn(HydroParams.DensityIndependentSphOn)
+    ArtBulkViscConst(HydroParams.ArtBulkViscConst), DensityContrastLimit(HydroParams.DensityContrastLimit), DensityIndependentSphOn(HydroParams.DensityIndependentSphOn),
     SphParts(reinterpret_cast<sph_particle_data *>(SlotsManager->info[0].ptr))
     {
         /* Cache the pressure for speed*/
