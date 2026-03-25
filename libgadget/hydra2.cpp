@@ -99,12 +99,15 @@ class HydroPriv : public ParamTypeBase {
     double drifts[TIMEBINS+1];
     double ArtBulkViscConst;
     double DensityContrastLimit;
+    /* Pointer to the SPH particle data array.*/
+    sph_particle_data * SphParts;
 
     HydroPriv(const double BoxSize, MyFloat * i_EntVarPred, const double i_atime, DriftKickTimes * const i_times, Cosmology * CP) :
     ParamTypeBase(BoxSize), atime(i_atime), hubble(hubble_function(CP, atime)),
     EntVarPred(i_EntVarPred), fac_mu(pow(atime, 3 * (GAMMA - 1) / 2) / atime), fac_vsic_fix(hubble * pow(atime, 3 * GAMMA_MINUS1)),
     hubble_a2(hubble * atime * atime), times(*i_times), kf(i_times, CP),
-    ArtBulkViscConst(HydroParams.ArtBulkViscConst), DensityContrastLimit(HydroParams.DensityContrastLimit)
+    ArtBulkViscConst(HydroParams.ArtBulkViscConst), DensityContrastLimit(HydroParams.DensityContrastLimit),
+    SphParts(reinterpret_cast<sph_particle_data *>(SlotsManager->info[0].ptr))
     {
         /* Cache the pressure for speed*/
         PressurePred = NULL;
@@ -116,7 +119,7 @@ class HydroPriv : public ParamTypeBase {
             /* Do it in slot order for memory locality*/
             #pragma omp parallel for
             for(int i = 0; i < SlotsManager->info[0].size; i++) {
-                PressurePred[i] = PressurePredict(SPH_EOMDensity(&SphP[i]), EntVarPred[i]);
+                PressurePred[i] = PressurePredict(SPH_EOMDensity(&SphParts[i]), EntVarPred[i]);
             }
         }
 
@@ -140,15 +143,19 @@ class HydroPriv : public ParamTypeBase {
 
 class HydroOutput {
     public:
+    /* Pointer to the SPH particle data array*/
+    sph_particle_data * SphParts;
+
+    HydroOutput(slots_manager_type * SlotsManager): SphParts(reinterpret_cast<sph_particle_data *>(SlotsManager->info[0].ptr)) {}
 
     MYCUDAFN void postprocess(const int i, particle_data * const parts, const HydroPriv * priv)
     {
         if(parts[i].Type != 0)
             return;
         /* Translate energy change rate into entropy change rate */
-        SphP[parts[i].PI].DtEntropy *= GAMMA_MINUS1 / (priv->hubble_a2 * pow(SphP[parts[i].PI].Density, GAMMA_MINUS1));
+        SphParts[parts[i].PI].DtEntropy *= GAMMA_MINUS1 / (priv->hubble_a2 * pow(SphParts[parts[i].PI].Density, GAMMA_MINUS1));
         /* if we have winds, we decouple particles briefly if delaytime>0 */
-        if(winds_is_particle_decoupled(i))
+        if(winds_is_particle_decoupled(&SphParts[parts[i].PI]))
             winds_decoupled_hydro(i, priv->atime);
     }
 };
@@ -167,25 +174,26 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     MyFloat SPH_DhsmlDensityFactor;
     MyFloat dloga;
     MYCUDAFN HydroQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const HydroPriv& priv):
-    TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), EgyRho(SphP[particle.PI].EgyWtDensity),
-    Hsml(particle.Hsml), Mass(particle.Mass), Density(SphP[particle.PI].Density), SPH_DhsmlDensityFactor(SphP[particle.PI].DhsmlEgyDensityFactor),
+    TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), EgyRho(priv.SphParts[particle.PI].EgyWtDensity),
+    Hsml(particle.Hsml), Mass(particle.Mass), Density(priv.SphParts[particle.PI].Density), SPH_DhsmlDensityFactor(priv.SphParts[particle.PI].DhsmlEgyDensityFactor),
     dloga(get_dloga_for_bin(particle.TimeBinHydro, priv.times.Ti_Current))
     {
-        priv.kf.SPH_VelPred(particle, SphP[particle.PI], Vel);
+        sph_particle_data& sphp_i = priv.SphParts[particle.PI];
+        priv.kf.SPH_VelPred(particle, sphp_i, Vel);
         if(priv.EntVarPred)
             EntVarPred = priv.EntVarPred[particle.PI];
         else
-            EntVarPred = SPH_EntVarPred(particle, SphP[particle.PI], &priv.times);
+            EntVarPred = SPH_EntVarPred(particle, sphp_i, &priv.times);
 
-        const double eomdensity_i = SPH_EOMDensity(&SphP[particle.PI]);
+        const double eomdensity_i = SPH_EOMDensity(&sphp_i);
         if(priv.PressurePred)
             Pressure = priv.PressurePred[particle.PI];
         else
             Pressure = PressurePredict(eomdensity_i, EntVarPred);
         /* calculation of F1 */
         const double soundspeed_i = sqrt(GAMMA * Pressure / eomdensity_i);
-        F1 = fabs(SphP[particle.PI].DivVel) /
-            (fabs(SphP[particle.PI].DivVel) + SphP[particle.PI].CurlVel +
+        F1 = fabs(sphp_i.DivVel) /
+            (fabs(sphp_i.DivVel) + sphp_i.CurlVel +
              0.0001 * soundspeed_i / Hsml / priv.fac_mu);
     };
 
@@ -211,7 +219,7 @@ class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
     MYCUDAFN void reduce(int place, const HydroOutput * output, struct particle_data * const parts)
     {
         TreeWalkResultBase::reduce<mode>(place, output, parts);
-        struct sph_particle_data * sphpart = &SphP[parts[place].PI];
+        struct sph_particle_data * sphpart = &output->SphParts[parts[place].PI];
         for(int k = 0; k < 3; k++)
             TREEWALK_REDUCE(sphpart->HydroAccel[k], Acc[k]);
 
@@ -277,7 +285,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
 
         /* Wind particles do not interact hydrodynamically: don't produce hydro acceleration
          * or change the signalvel.*/
-        const sph_particle_data& sphp_j = SphP[particle.PI];
+        const sph_particle_data& sphp_j = priv.SphParts[particle.PI];
 
         if(winds_is_particle_decoupled(&sphp_j))
             return;
@@ -425,7 +433,7 @@ hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPre
 
     walltime_measure("/SPH/Hydro/Init");
 
-    HydroOutput output;
+    HydroOutput output(SlotsManager);
 
     switch(GetDensityKernelType()) {
         case DENSITY_KERNEL_CUBIC_SPLINE:
