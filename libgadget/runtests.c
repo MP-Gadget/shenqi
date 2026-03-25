@@ -29,7 +29,7 @@ void register_extra_blocks(struct IOTable * IOTable)
     }
 }
 
-double copy_and_mean_hydroaccn(double (* PairAccn)[3])
+double copy_and_mean_hydroaccn(double (* PairAccn)[3], double * MaxSignalVel)
 {
     double meanacc = 0;
     #pragma omp parallel for reduction(+: meanacc)
@@ -39,6 +39,7 @@ double copy_and_mean_hydroaccn(double (* PairAccn)[3])
             continue;
         for(int k=0; k<3; k++) {
             PairAccn[i][k] = SphP[Part[i].PI].HydroAccel[k];
+            MaxSignalVel[i] = SphP[Part[i].PI].MaxSignalVel;
             meanacc += fabs(PairAccn[i][k]);
         }
     }
@@ -49,11 +50,11 @@ double copy_and_mean_hydroaccn(double (* PairAccn)[3])
     return meanacc;
 }
 
-void check_hydroaccns(double * meanerr_tot, double * maxerr_tot, double * meanangle_tot, double * maxangle_tot, double (*PairAccn)[3])
+void check_hydroaccns(double * meanerr_tot, double * maxerr_tot, double * meanangle_tot, double * maxangle_tot, double * meansignalerr_tot, double * maxsignalerr_tot, double (*PairAccn)[3], double * MaxSignalVel)
 {
-    double meanerr = 0, maxerr = -1, meanangle = 0, maxangle = 0;
+    double meanerr = 0, maxerr = -1, meanangle = 0, maxangle = 0, maxsignalerr = -1, meansignalerr = 0;
     /* This checks that the short-range force accuracy is being correctly estimated.*/
-    #pragma omp parallel for reduction(+: meanerr) reduction(max:maxerr)
+    #pragma omp parallel for reduction(+: meanerr, meanangle, meansignalerr) reduction(max:maxerr, maxangle, maxsignalerr)
     for(int i = 0; i < PartManager->NumPart; i++)
     {
         if(Part[i].IsGarbage || Part[i].Swallowed || Part[i].Type != 0)
@@ -77,6 +78,10 @@ void check_hydroaccns(double * meanerr_tot, double * maxerr_tot, double * meanan
             angle = fabs(acos(dotprod));
             meanangle += angle;
         }
+        double signalerr = (MaxSignalVel[i] / SphP[Part[i].PI].MaxSignalVel - 1);
+        meansignalerr += signalerr;
+        if(maxsignalerr < signalerr)
+            maxsignalerr = signalerr;
         if(maxangle < angle) {
             maxangle = angle;
             // message(0, "i %d type %d angle %g acc %g %g %g pair %g %g %g\n", i, Part[i].Type, angle, Part[i].GravPM[0] + Part[i].FullTreeGravAccel[0], Part[i].GravPM[1] + Part[i].FullTreeGravAccel[1], Part[i].GravPM[2] + Part[i].FullTreeGravAccel[2], PairAccn[i][0], PairAccn[i][1], PairAccn[i][2]);
@@ -89,12 +94,15 @@ void check_hydroaccns(double * meanerr_tot, double * maxerr_tot, double * meanan
     }
     MPI_Allreduce(&meanerr, meanerr_tot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     MPI_Allreduce(&maxerr, maxerr_tot, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+    MPI_Allreduce(&meansignalerr, meansignalerr_tot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&maxsignalerr, maxsignalerr_tot, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
     MPI_Allreduce(&meanangle, meanangle_tot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     MPI_Allreduce(&maxangle, maxangle_tot, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
     int64_t tot_npart;
     MPI_Allreduce(&PartManager->NumPart, &tot_npart, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     *meanerr_tot /= (tot_npart);
     *meanangle_tot /= (tot_npart);
+    *meansignalerr_tot /= (tot_npart);
 }
 
 double copy_and_mean_accn(double (* PairAccn)[3])
@@ -122,7 +130,7 @@ void check_accns(double * meanerr_tot, double * maxerr_tot, double * meanangle_t
     double meanerr=0, maxerr=-1, meanangle = 0, maxangle = 0;
     int i;
     /* This checks that the short-range force accuracy is being correctly estimated.*/
-    #pragma omp parallel for reduction(+: meanerr) reduction(max:maxerr)
+    #pragma omp parallel for reduction(+: meanerr, meanangle) reduction(max:maxerr, maxangle)
     for(i = 0; i < PartManager->NumPart; i++)
     {
         if(Part[i].IsGarbage || Part[i].Swallowed)
@@ -487,6 +495,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
 
     /* Check hydro code is the same */
     double (* HydroAccn)[3] = (double (*) [3]) mymalloc2("HydroAccns", 3*sizeof(double) * PartManager->NumPart);
+    double * MaxSignalVel = (double *) mymalloc2("MaxSignalVel", sizeof(double) * PartManager->NumPart);
     /* Compare the new and old hydro force. */
     force_tree_calc_moments(&gasTree, ddecomp);
     #pragma omp barrier
@@ -496,7 +505,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     double newhydro = second() - start;
-    copy_and_mean_hydroaccn(HydroAccn);
+    copy_and_mean_hydroaccn(HydroAccn, MaxSignalVel);
     set_hydropar_old(get_hydropar());
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
@@ -506,10 +515,11 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     MPI_Barrier(MPI_COMM_WORLD);
     double oldhydro = second() - start;
     /* This checks fully opened tree force against pair force*/
-    check_hydroaccns(&meanerr,&maxerr, &meanangle, &maxangle, HydroAccn);
-    message(0, "Hydro err, new vs old. max : %g mean: %g angle %g max angle %g time %g -> %g\n", maxerr, meanerr, meanangle, maxangle, oldhydro, newhydro);
+    double maxsignalerr, meansignalerr;
+    check_hydroaccns(&meanerr,&maxerr, &meanangle, &maxangle, &meansignalerr, &maxsignalerr, HydroAccn, MaxSignalVel);
+    message(0, "Hydro err, new vs old. max : %g mean: %g angle %g max angle %g maxvsig: max: %g mean %g time %g -> %g\n", maxerr, meanerr, meanangle, maxangle, meansignalerr, maxsignalerr, oldhydro, newhydro);
 
-    if(maxerr > 0.1)
+    if(maxerr > 1e-5)
         endrun(2, "New and old hydro tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
 
     myfree(HydroAccn);
