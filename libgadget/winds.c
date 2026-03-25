@@ -119,13 +119,25 @@ winds_is_particle_decoupled(int i)
     return 0;
 }
 
-void
-winds_decoupled_hydro(sph_particle_data * sphp, const double atime)
+double
+winds_get_speed(void)
 {
-    double windspeed = wind_params.WindSpeed * atime;
+    return wind_params.WindSpeed;
+}
+
+double
+winds_get_dens_thresh(void)
+{
+    return wind_params.WindFreeTravelDensThresh;
+}
+
+void
+winds_decoupled_hydro(sph_particle_data * sphp, const double atime, const double WindSpeed, const double WindFreeTravelDensThresh)
+{
+    double windspeed = WindSpeed * atime;
     const double fac_mu = pow(atime, 3 * (GAMMA - 1) / 2) / atime;
     windspeed *= fac_mu;
-    double hsml_c = cbrt(wind_params.WindFreeTravelDensThresh /sphp->Density) * atime;
+    double hsml_c = cbrt(WindFreeTravelDensThresh /sphp->Density) * atime;
     sphp->MaxSignalVel = hsml_c * DMAX(2 * windspeed, sphp->MaxSignalVel);
 }
 

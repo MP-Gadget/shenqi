@@ -26,6 +26,10 @@ void set_winds_params(ParameterSet * ps);
 /*Initialize the wind model from the SFR module*/
 void init_winds(double FactorSN, double EgySpecSN, double PhysDensThresh, double UnitTime_in_s);
 
+/* Get the wind speed and the wind density threshold*/
+double winds_get_speed(void);
+double winds_get_dens_thresh(void);
+
 /*Evolve a wind particle, reducing its DelayTime*/
 void winds_evolve(int i, double a3inv, double hubble);
 
@@ -53,7 +57,7 @@ winds_is_particle_decoupled(const sph_particle_data * const sph_data)
 }
 
 /* Sets the MaxSignalVel for a decoupled wind particle.*/
-void winds_decoupled_hydro(sph_particle_data * sphp, const double atime);
+MYCUDAFN void winds_decoupled_hydro(sph_particle_data * sphp, const double atime, const double WindSpeed, const double WindFreeTravelDensThresh);
 
 /* Returns 1 if the winds ever decouple, 0 otherwise*/
 int winds_ever_decouple(void);

@@ -98,9 +98,13 @@ class HydroPriv : public ParamTypeBase {
     double * PressurePred;
     KickFactorData kf;
     double drifts[TIMEBINS+1];
+    /* HydroParams*/
     double ArtBulkViscConst;
     double DensityContrastLimit;
     bool DensityIndependentSphOn;
+    /* Wind model parameters*/
+    double WindSpeed;
+    double WindFreeTravelDensThresh;
     /* Pointer to the SPH particle data array.*/
     sph_particle_data * SphParts;
 
@@ -109,6 +113,7 @@ class HydroPriv : public ParamTypeBase {
     EntVarPred(i_EntVarPred), fac_mu(pow(atime, 3 * (GAMMA - 1) / 2) / atime), fac_vsic_fix(hubble * pow(atime, 3 * GAMMA_MINUS1)),
     hubble_a2(hubble * atime * atime), times(*i_times), kf(i_times, CP),
     ArtBulkViscConst(HydroParams.ArtBulkViscConst), DensityContrastLimit(HydroParams.DensityContrastLimit), DensityIndependentSphOn(HydroParams.DensityIndependentSphOn),
+    WindSpeed(winds_get_speed()), WindFreeTravelDensThresh(winds_get_dens_thresh()),
     SphParts(reinterpret_cast<sph_particle_data *>(SlotsManager->info[0].ptr))
     {
         /* Cache the pressure for speed*/
@@ -162,7 +167,7 @@ class HydroOutput {
             for(int k = 0; k < 3; k++)
                 sphp->HydroAccel[k] = 0;
             sphp->DtEntropy = 0;
-            winds_decoupled_hydro(sphp, priv->atime);
+            winds_decoupled_hydro(sphp, priv->atime, priv->WindSpeed, priv->WindFreeTravelDensThresh);
         }
     }
 };

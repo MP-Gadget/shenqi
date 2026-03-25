@@ -499,7 +499,7 @@ hydro_postprocess(int i, TreeWalk * tw)
                 SPHP(i).HydroAccel[k] = 0;
 
             SPHP(i).DtEntropy = 0;
-            winds_decoupled_hydro(&SPHP(i), HYDRA_GET_PRIV(tw)->atime);
+            winds_decoupled_hydro(&SPHP(i), HYDRA_GET_PRIV(tw)->atime, winds_get_speed(), winds_get_dens_thresh());
         }
     }
 }
