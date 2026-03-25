@@ -60,10 +60,11 @@ int DensityIndependentSphOn(void)
 }
 
 /* Function to get the center of mass density and HSML correction factor for an SPH particle with index i.
- * Encodes the main difference between pressure-entropy SPH and regular SPH.*/
-static MYCUDAFN MyFloat SPH_EOMDensity(const struct sph_particle_data * const pi)
+ * Encodes the main difference between pressure-entropy SPH and regular SPH.
+ * This could be a template but that seems too much effort.*/
+static inline MYCUDAFN MyFloat SPH_EOMDensity(const struct sph_particle_data * const pi, const bool DensityIndependentSphOn)
 {
-    if(HydroParams.DensityIndependentSphOn)
+    if(DensityIndependentSphOn)
         return pi->EgyWtDensity;
     else
         return pi->Density;
@@ -99,6 +100,7 @@ class HydroPriv : public ParamTypeBase {
     double drifts[TIMEBINS+1];
     double ArtBulkViscConst;
     double DensityContrastLimit;
+    bool DensityIndependentSphOn;
     /* Pointer to the SPH particle data array.*/
     sph_particle_data * SphParts;
 
@@ -106,7 +108,7 @@ class HydroPriv : public ParamTypeBase {
     ParamTypeBase(BoxSize), atime(i_atime), hubble(hubble_function(CP, atime)),
     EntVarPred(i_EntVarPred), fac_mu(pow(atime, 3 * (GAMMA - 1) / 2) / atime), fac_vsic_fix(hubble * pow(atime, 3 * GAMMA_MINUS1)),
     hubble_a2(hubble * atime * atime), times(*i_times), kf(i_times, CP),
-    ArtBulkViscConst(HydroParams.ArtBulkViscConst), DensityContrastLimit(HydroParams.DensityContrastLimit),
+    ArtBulkViscConst(HydroParams.ArtBulkViscConst), DensityContrastLimit(HydroParams.DensityContrastLimit), DensityIndependentSphOn(HydroParams.DensityIndependentSphOn)
     SphParts(reinterpret_cast<sph_particle_data *>(SlotsManager->info[0].ptr))
     {
         /* Cache the pressure for speed*/
@@ -119,7 +121,7 @@ class HydroPriv : public ParamTypeBase {
             /* Do it in slot order for memory locality*/
             #pragma omp parallel for
             for(int i = 0; i < SlotsManager->info[0].size; i++) {
-                PressurePred[i] = PressurePredict(SPH_EOMDensity(&SphParts[i]), EntVarPred[i]);
+                PressurePred[i] = PressurePredict(SPH_EOMDensity(&SphParts[i], DensityIndependentSphOn), EntVarPred[i]);
             }
         }
 
@@ -162,8 +164,9 @@ class HydroOutput {
 
 class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     public:
-    /* These two are only used for DensityIndependentSphOn*/
+    /* This is set to Density if DensityIndependentSphOn is false*/
     MyFloat EgyRho;
+    /* Only used for DensityIndependentSphOn = 1*/
     MyFloat EntVarPred;
     double Vel[3];
     MyFloat Hsml;
@@ -179,13 +182,18 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     dloga(get_dloga_for_bin(particle.TimeBinHydro, priv.times.Ti_Current))
     {
         sph_particle_data& sphp_i = priv.SphParts[particle.PI];
+
+        if(priv.DensityIndependentSphOn)
+            EgyRho = sphp_i.EgyWtDensity;
+        else
+            EgyRho = sphp_i.Density;
         priv.kf.SPH_VelPred(particle, sphp_i, Vel);
         if(priv.EntVarPred)
             EntVarPred = priv.EntVarPred[particle.PI];
         else
             EntVarPred = SPH_EntVarPred(particle, sphp_i, &priv.times);
 
-        const double eomdensity_i = SPH_EOMDensity(&sphp_i);
+        const double eomdensity_i = SPH_EOMDensity(&sphp_i, priv.DensityIndependentSphOn);
         if(priv.PressurePred)
             Pressure = priv.PressurePred[particle.PI];
         else
@@ -212,6 +220,7 @@ class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
     MyFloat MaxSignalVel = 0;
     MYCUDAFN HydroResult(const HydroQuery query): TreeWalkResultBase(query), DtEntropy(0), MaxSignalVel(0)
     {
+        /* Note that if DensityIndependentSphOn is false, query.EgyRho is just Density*/
         MaxSignalVel = sqrt(GAMMA * query.Pressure / query.EgyRho);
     }
 
@@ -262,12 +271,10 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
 
     MYCUDAFN HydroLocalTreeWalk(const NODE * const Nodes, const HydroQuery& input): LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKernel>, HydroQuery, HydroResult, HydroPriv, NGB_TREEFIND_SYMMETRIC, GASMASK>(Nodes, input), kernel_i(input.Hsml)
     {
-        MyFloat densityest = input.EgyRho;
-        if(!HydroParams.DensityIndependentSphOn)
-            densityest = input.Density;
-        /* initialize variables before SPH loop is started */
-        soundspeed_i = sqrt(GAMMA * input.Pressure / densityest);
-        p_over_rho2_i = input.Pressure / (densityest * densityest);
+        /* initialize variables before SPH loop is started.
+         * Note that EgyRho is Density if DensityIndependentSphOn = 0 */
+        soundspeed_i = sqrt(GAMMA * input.Pressure / input.EgyRho);
+        p_over_rho2_i = input.Pressure / (input.EgyRho * input.EgyRho);
     }
 
     /*! This function is the 'core' of the SPH force computation. A target
@@ -307,7 +314,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
          * This improves on the technique used in Gadget-2 by being a linear prediction that does not become pathological in deep timebins.*/
         const int bin = particle.TimeBinHydro;
         const double density_j = SPH_DensityPred(sphp_j.Density, sphp_j.DivVel, priv.drifts[bin]);
-        const double eomdensity_j = SPH_DensityPred(SPH_EOMDensity(&sphp_j), sphp_j.DivVel, priv.drifts[bin]);
+        const double eomdensity_j = SPH_DensityPred(SPH_EOMDensity(&sphp_j, priv.DensityIndependentSphOn), sphp_j.DivVel, priv.drifts[bin]);
 
         /* Compute pressure lazily*/
         double Pressure_j;
@@ -367,7 +374,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
         double hfc = hfc_visc;
         double rr1 = 1, rr2 = 1;
 
-        if(HydroParams.DensityIndependentSphOn) {
+        if(priv.DensityIndependentSphOn) {
             /*This enables the grad-h corrections*/
             rr1 = 0, rr2 = 0;
             /* leading-order term */
