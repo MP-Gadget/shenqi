@@ -493,6 +493,22 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     if(maxerr > 1e-5)
         endrun(2, "New and old densities do not agree! maxerr %g\n", maxerr);
 
+#ifdef USE_CUDA
+    if(DoGPUTests) {
+        /* Compare the CPU and GPU density. */
+        start = second();
+        /* Final argument signals to use the GPU*/
+        density(&Act, 0, 1, 1, times, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree, true);
+        #pragma omp barrier
+        MPI_Barrier(MPI_COMM_WORLD);
+        double gpudens = second() - start;
+        check_density(&meanhserr, &maxhserr, &meandserr, &maxdserr, &meanedgserr, &maxedgserr, Density, Hsml, EgyWtDensity);
+        message(0, "Density CPU vs GPU. max : %g mean: %g hs %% err: max: %g mean: %g egywt: max %g mean %g time %g -> %g\n", maxdserr, meandserr, maxhserr, meanhserr, maxedgserr, meanedgserr, newdens, gpudens);
+        if(maxerr > 1e-5)
+            endrun(2, "CPU and GPU densities do not agree! maxerr %g\n", maxerr);
+    }
+#endif
+
     /* Check hydro code is the same */
     double (* HydroAccn)[3] = (double (*) [3]) mymalloc2("HydroAccns", 3*sizeof(double) * PartManager->NumPart);
     double * MaxSignalVel = (double *) mymalloc2("MaxSignalVel", sizeof(double) * PartManager->NumPart);
