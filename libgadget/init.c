@@ -10,6 +10,7 @@
 
 #include "forcetree.h"
 #include "density2.h"
+#include "density.h"
 
 #include "petaio.h"
 #include "domain.h"

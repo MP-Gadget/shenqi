@@ -239,20 +239,20 @@ SPH_DensityPred(MyFloat Density, MyFloat DivVel, double dtdrift)
 }
 
 /* This is a symmetric NGB treewalk for hydro forces. */
-class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery, HydroResult, HydroPriv, NGB_TREEFIND_SYMMETRIC, GASMASK>
+template <typename DensityKernel>
+class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKernel>, HydroQuery, HydroResult, HydroPriv, NGB_TREEFIND_SYMMETRIC, GASMASK>
 {
     public:
     double p_over_rho2_i;
     double soundspeed_i;
     DensityKernel kernel_i;
 
-    MYCUDAFN HydroLocalTreeWalk(const NODE * const Nodes, const HydroQuery& input): LocalNgbTreeWalk(Nodes, input)
+    MYCUDAFN HydroLocalTreeWalk(const NODE * const Nodes, const HydroQuery& input): LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKernel>, HydroQuery, HydroResult, HydroPriv, NGB_TREEFIND_SYMMETRIC, GASMASK>(Nodes, input), kernel_i(input.Hsml)
     {
         MyFloat densityest = input.EgyRho;
         if(!HydroParams.DensityIndependentSphOn)
             densityest = input.Density;
         /* initialize variables before SPH loop is started */
-        density_kernel_init(&kernel_i, input.Hsml, GetDensityKernelType());
         soundspeed_i = sqrt(GAMMA * input.Pressure / densityest);
         p_over_rho2_i = input.Pressure / (densityest * densityest);
     }
@@ -272,14 +272,13 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
         if(winds_is_particle_decoupled(&sphp_j))
             return;
 
-        DensityKernel kernel_j;
-        density_kernel_init(&kernel_j, particle.Hsml, GetDensityKernelType());
+        DensityKernel kernel_j(particle.Hsml);
 
         double dist[3];
-        double r2 = get_distance(input, particle, priv.BoxSize, dist);
+        double r2 = this->get_distance(input, particle, priv.BoxSize, dist);
 
         /* Check we are within the density kernel*/
-        if(r2 <= 0 || !(r2 < kernel_i.HH || r2 < kernel_j.HH))
+        if(r2 <= 0 || !(r2 < kernel_i.H * kernel_i.H || r2 < kernel_j.H * kernel_j.H))
             return;
 
         MyFloat VelPred[3];
@@ -317,8 +316,8 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
         const double vdotr2 = vdotr + priv.hubble_a2 * r2;
 
         const double r = sqrt(r2);
-        const double dwk_i = density_kernel_dwk(&kernel_i, r * kernel_i.Hinv);
-        const double dwk_j = density_kernel_dwk(&kernel_j, r * kernel_j.Hinv);
+        const double dwk_i = kernel_i.dwk(r / kernel_i.H);
+        const double dwk_j = kernel_j.dwk(r / kernel_j.H);
 
         double visc = 0;
 
@@ -385,10 +384,28 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk, HydroQuery
 
 class HydroTopTreeWalk: public TopTreeWalk<HydroQuery, HydroPriv, NGB_TREEFIND_SYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
-class HydroTreeWalk: public TreeWalk<HydroTreeWalk, HydroQuery, HydroResult, HydroLocalTreeWalk, HydroTopTreeWalk, HydroPriv, HydroOutput> {
+class HydroTreeWalkCubic: public TreeWalk<HydroTreeWalkCubic, HydroQuery, HydroResult, HydroLocalTreeWalk<CubicDensityKernel>, HydroTopTreeWalk, HydroPriv, HydroOutput> {
     public:
     using TreeWalk::TreeWalk;
 };
+
+class HydroTreeWalkQuartic: public TreeWalk<HydroTreeWalkQuartic, HydroQuery, HydroResult, HydroLocalTreeWalk<QuarticDensityKernel>, HydroTopTreeWalk, HydroPriv, HydroOutput> {
+    public:
+    using TreeWalk::TreeWalk;
+};
+
+class HydroTreeWalkQuintic: public TreeWalk<HydroTreeWalkQuintic, HydroQuery, HydroResult, HydroLocalTreeWalk<QuinticDensityKernel>, HydroTopTreeWalk, HydroPriv, HydroOutput> {
+    public:
+    using TreeWalk::TreeWalk;
+};
+
+template <typename TreeWalkType>
+void do_hydro_walk(const ActiveParticles * act, const ForceTree * tree, HydroPriv * priv, HydroOutput * output)
+{
+    TreeWalkType tw("HYDRO", tree, *priv, output);
+    tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, MPI_COMM_WORLD);
+    tw.print_stats("/SPH/Hydro", MPI_COMM_WORLD);
+}
 
 /*! This function is the driver routine for the calculation of hydrodynamical
  *  force and rate of change of entropy due to shock heating for all active
@@ -403,15 +420,23 @@ hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPre
     HydroPriv * priv = (HydroPriv *) mymanagedmalloc("GravTreeParams", sizeof(HydroPriv));
     new (priv) HydroPriv(tree->BoxSize, EntVarPred, atime, &times, CP);
 
-    HydroOutput output;
-    HydroTreeWalk tw("HYDRO", tree, *priv, &output);
-
     walltime_measure("/SPH/Hydro/Init");
 
-    tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, MPI_COMM_WORLD);
+    HydroOutput output;
+
+    switch(GetDensityKernelType()) {
+        case DENSITY_KERNEL_CUBIC_SPLINE:
+            do_hydro_walk<HydroTreeWalkCubic>(act, tree, priv, &output);
+            break;
+        case DENSITY_KERNEL_QUARTIC_SPLINE:
+            do_hydro_walk<HydroTreeWalkQuartic>(act, tree, priv, &output);
+            break;
+        default: //DENSITY_KERNEL_QUINTIC_SPLINE
+            do_hydro_walk<HydroTreeWalkQuintic>(act, tree, priv, &output);
+            break;
+    }
 
     priv->~HydroPriv();
     myfree(priv);
 
-    tw.print_stats("/SPH/Hydro", MPI_COMM_WORLD);
 }

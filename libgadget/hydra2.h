@@ -3,7 +3,7 @@
 
 #include "forcetree.h"
 #include "timestep.h"
-#include "density.h"
+#include "density2.h"
 #include "utils/paramset.h"
 
 /*Function to compute hydro accelerations and adiabatic entropy change*/
