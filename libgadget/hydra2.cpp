@@ -225,8 +225,10 @@ class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
 
         TREEWALK_REDUCE(sphpart->DtEntropy, DtEntropy);
 
+        /* Need TREEWALK_PRIMARY or sphpart->MaxSignalVel < MaxSignalVel*/
         if constexpr(mode == TREEWALK_PRIMARY)
-           if(sphpart->MaxSignalVel < MaxSignalVel)
+            sphpart->MaxSignalVel = MaxSignalVel;
+        else if(sphpart->MaxSignalVel < MaxSignalVel)
                sphpart->MaxSignalVel = MaxSignalVel;
     }
 };
