@@ -97,11 +97,14 @@ class HydroPriv : public ParamTypeBase {
     double * PressurePred;
     KickFactorData kf;
     double drifts[TIMEBINS+1];
+    double ArtBulkViscConst;
+    double DensityContrastLimit;
 
     HydroPriv(const double BoxSize, MyFloat * i_EntVarPred, const double i_atime, DriftKickTimes * const i_times, Cosmology * CP) :
     ParamTypeBase(BoxSize), atime(i_atime), hubble(hubble_function(CP, atime)),
     EntVarPred(i_EntVarPred), fac_mu(pow(atime, 3 * (GAMMA - 1) / 2) / atime), fac_vsic_fix(hubble * pow(atime, 3 * GAMMA_MINUS1)),
-    hubble_a2(hubble * atime * atime), times(*i_times), kf(i_times, CP)
+    hubble_a2(hubble * atime * atime), times(*i_times), kf(i_times, CP),
+    ArtBulkViscConst(HydroParams.ArtBulkViscConst), DensityContrastLimit(HydroParams.DensityContrastLimit)
     {
         /* Cache the pressure for speed*/
         PressurePred = NULL;
@@ -336,7 +339,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
                     sphp_j.CurlVel + 0.0001 * soundspeed_j / priv.fac_mu / particle.Hsml);
 
             /*Gadget-2 paper, eq. 14*/
-            visc = 0.25 * HydroParams.ArtBulkViscConst * vsig * (-mu_ij) / rho_ij * (input.F1 + f2);
+            visc = 0.25 * priv.ArtBulkViscConst * vsig * (-mu_ij) / rho_ij * (input.F1 + f2);
             /* .... end artificial viscosity evaluation */
             /* now make sure that viscous acceleration is not too large */
 
@@ -363,15 +366,15 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
                 dwk_j*p_over_rho2_j*input.EntVarPred/EntVarPred) / r;
 
             /* enable grad-h corrections only if contrastlimit is non negative */
-            if(HydroParams.DensityContrastLimit >= 0) {
+            if(priv.DensityContrastLimit >= 0) {
                 rr1 = input.EgyRho / input.Density;
                 rr2 = eomdensity / density_j;
-                rr1 = DMIN(rr1, HydroParams.DensityContrastLimit);
-                rr2 = DMIN(rr2, HydroParams.DensityContrastLimit);
+                rr1 = DMIN(rr1, priv.DensityContrastLimit);
+                rr2 = DMIN(rr2, priv.DensityContrastLimit);
             }
         }
 
-        /* grad-h corrections: enabled if DensityIndependentSphOn = 0, or DensityConstrastLimit >= 0 */
+        /* grad-h corrections: enabled if DensityIndependentSphOn = 0, or DensityContrastLimit >= 0 */
         /* Formulation derived from the Lagrangian */
         hfc += particle.Mass * (p_over_rho2_i*input.SPH_DhsmlDensityFactor * dwk_i * rr1
                     + p_over_rho2_j*sphp_j.DhsmlEgyDensityFactor * dwk_j * rr2) / r;
