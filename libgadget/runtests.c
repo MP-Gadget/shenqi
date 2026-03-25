@@ -478,7 +478,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
 
     double meanhserr, maxhserr, meandserr, maxdserr, maxedgserr, meanedgserr;
     check_density(&meanhserr, &maxhserr, &meandserr, &maxdserr, &meanedgserr, &maxedgserr, Density, Hsml, EgyWtDensity);
-    message(0, "Density %% err, new vs old tree. max : %g mean: %g hs %% err: max: %g mean: %g egywt: max %g mean %g time %g -> %g\n", maxdserr, meandserr, maxhserr, meanhserr, maxedgserr, meanedgserr, newdens, olddens);
+    message(0, "Density %% err, new vs old tree. max : %g mean: %g hs %% err: max: %g mean: %g egywt: max %g mean %g time %g -> %g\n", maxdserr, meandserr, maxhserr, meanhserr, maxedgserr, meanedgserr, olddens, newdens);
     myfree(EgyWtDensity);
     myfree(Hsml);
     myfree(Density);
