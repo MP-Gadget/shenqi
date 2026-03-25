@@ -155,7 +155,7 @@ class HydroOutput {
 
 class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     public:
-    /* These are only used for DensityIndependentSphOn*/
+    /* These two are only used for DensityIndependentSphOn*/
     MyFloat EgyRho;
     MyFloat EntVarPred;
     double Vel[3];
@@ -177,13 +177,13 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
         else
             EntVarPred = SPH_EntVarPred(particle, SphP[particle.PI], &priv.times);
 
-        const double eomdensity = SPH_EOMDensity(&SphP[particle.PI]);
+        const double eomdensity_i = SPH_EOMDensity(&SphP[particle.PI]);
         if(priv.PressurePred)
             Pressure = priv.PressurePred[particle.PI];
         else
-            Pressure = PressurePredict(eomdensity, EntVarPred);
+            Pressure = PressurePredict(eomdensity_i, EntVarPred);
         /* calculation of F1 */
-        const double soundspeed_i = sqrt(GAMMA * Pressure / eomdensity);
+        const double soundspeed_i = sqrt(GAMMA * Pressure / eomdensity_i);
         F1 = fabs(SphP[particle.PI].DivVel) /
             (fabs(SphP[particle.PI].DivVel) + SphP[particle.PI].CurlVel +
              0.0001 * soundspeed_i / Hsml / priv.fac_mu);
@@ -268,6 +268,13 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
      */
     MYCUDAFN void ngbiter(const HydroQuery& input, const particle_data& particle, HydroResult * output, const HydroPriv& priv)
     {
+        double dist[3];
+        double r2 = this->get_distance(input, particle, priv.BoxSize, dist);
+
+        /* Check we are within the density kernel*/
+        if(r2 <= 0 || !(r2 < input.Hsml * input.Hsml || r2 < particle.Hsml * particle.Hsml))
+            return;
+
         /* Wind particles do not interact hydrodynamically: don't produce hydro acceleration
          * or change the signalvel.*/
         const sph_particle_data& sphp_j = SphP[particle.PI];
@@ -276,13 +283,6 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
             return;
 
         DensityKernel kernel_j(particle.Hsml);
-
-        double dist[3];
-        double r2 = this->get_distance(input, particle, priv.BoxSize, dist);
-
-        /* Check we are within the density kernel*/
-        if(r2 <= 0 || !(r2 < kernel_i.H * kernel_i.H || r2 < kernel_j.H * kernel_j.H))
-            return;
 
         MyFloat VelPred[3];
         priv.kf.SPH_VelPred(particle, sphp_j, VelPred);
@@ -297,7 +297,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
          * This improves on the technique used in Gadget-2 by being a linear prediction that does not become pathological in deep timebins.*/
         const int bin = particle.TimeBinHydro;
         const double density_j = SPH_DensityPred(sphp_j.Density, sphp_j.DivVel, priv.drifts[bin]);
-        const double eomdensity = SPH_DensityPred(SPH_EOMDensity(&sphp_j), sphp_j.DivVel, priv.drifts[bin]);
+        const double eomdensity_j = SPH_DensityPred(SPH_EOMDensity(&sphp_j), sphp_j.DivVel, priv.drifts[bin]);
 
         /* Compute pressure lazily*/
         double Pressure_j;
@@ -305,10 +305,10 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
         if(priv.PressurePred)
             Pressure_j = priv.PressurePred[particle.PI];
         else
-            Pressure_j = PressurePredict(eomdensity, EntVarPred);
+            Pressure_j = PressurePredict(eomdensity_j, EntVarPred);
 
-        const double p_over_rho2_j = Pressure_j / (eomdensity * eomdensity);
-        const double soundspeed_j = sqrt(GAMMA * Pressure_j / eomdensity);
+        const double p_over_rho2_j = Pressure_j / (eomdensity_j * eomdensity_j);
+        const double soundspeed_j = sqrt(GAMMA * Pressure_j / eomdensity_j);
 
         double dv[3];
         for(int d = 0; d < 3; d++) {
@@ -368,7 +368,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
             /* enable grad-h corrections only if contrastlimit is non negative */
             if(priv.DensityContrastLimit >= 0) {
                 rr1 = input.EgyRho / input.Density;
-                rr2 = eomdensity / density_j;
+                rr2 = eomdensity_j / density_j;
                 rr1 = DMIN(rr1, priv.DensityContrastLimit);
                 rr2 = DMIN(rr2, priv.DensityContrastLimit);
             }
