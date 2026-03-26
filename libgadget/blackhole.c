@@ -213,7 +213,7 @@ blackholes_active(const ActiveParticles * act, int ** ActiveBlackHoles, int64_t 
 }
 
 /* Pointer to the global time bin manager. Hacky but will go away once we port to the C++ tree.*/
-TimeBinMgr * globalTimeBinMgr;
+static TimeBinMgr * globalTimeBinMgr;
 
 void
 blackhole(const ActiveParticles * act, double atime, Cosmology * CP, ForceTree * tree, DomainDecomp * ddecomp, DriftKickTimes * times, TimeBinMgr * timebinmgr, RandTable * rnd, const struct UnitSystem units, FILE * FdBlackHoles, FILE * FdBlackholeDetails, size_t * bhdetailswritten)

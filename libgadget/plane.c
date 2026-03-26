@@ -83,7 +83,7 @@ int set_plane_normals(ParameterSet* ps)
 
 /*Set the plane parameters*/
 void
-set_plane_params(ParameterSet * ps, const double BoxSize)
+set_plane_params(ParameterSet * ps)
 {
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
@@ -93,25 +93,10 @@ set_plane_params(ParameterSet * ps, const double BoxSize)
 
         // plane thickness in internal units (kpc/h)
         PlaneParams.Thickness = param_get_double(ps, "PlaneThickness");
-        if (PlaneParams.Thickness <= 0.0) {
-            message(0, "No positive thickness provided, the side length of the box, %g, will be used.\n", BoxSize);
-            PlaneParams.Thickness = BoxSize;
-        }
-
         // Plane normals
         set_plane_normals(ps);
-
         // Plane cut points
-        if (!param_get_string(ps, "PlaneCutPoints")) {
-            message(0, "No cut points provided, a set of default values will be set: (1/2 + i) * plane thickness (< box size, i = 0, 1, 2...)\n");
-            PlaneParams.CutPoints.resize((BoxSize / PlaneParams.Thickness));
-            for (size_t i = 0; i < PlaneParams.CutPoints.size(); i++) {
-                PlaneParams.CutPoints[i] = (.5 + i) * PlaneParams.Thickness;
-                message(0,"CutPoints[%lu] = %g\n", i, PlaneParams.CutPoints[i]);
-            }
-        }
-        else
-            PlaneParams.CutPoints = BuildOutputList(param_get_string(ps, "PlaneCutPoints"));
+        PlaneParams.CutPoints = BuildOutputList(param_get_string(ps, "PlaneCutPoints"));
     }
     // 1. Broadcast the POD members together
     MPI_Bcast(&PlaneParams, offsetof(struct plane_params, CutPoints), MPI_BYTE, 0, MPI_COMM_WORLD);
@@ -136,6 +121,19 @@ void write_plane(int snapnum, const double atime, Cosmology * CP, const char * O
 
     // plane parameters
     int plane_resolution = PlaneParams.Resolution;
+    if (PlaneParams.Thickness <= 0.0) {
+        message(0, "No positive thickness provided, the side length of the box, %g, will be used.\n", BoxSize);
+        PlaneParams.Thickness = BoxSize;
+    }
+
+    if (PlaneParams.CutPoints.size() == 0) {
+        message(0, "No cut points provided, a set of default values will be set: (1/2 + i) * plane thickness (< box size, i = 0, 1, 2...)\n");
+        PlaneParams.CutPoints.resize((BoxSize / PlaneParams.Thickness));
+        for (size_t i = 0; i < PlaneParams.CutPoints.size(); i++) {
+            PlaneParams.CutPoints[i] = (.5 + i) * PlaneParams.Thickness;
+            message(0,"CutPoints[%lu] = %g\n", i, PlaneParams.CutPoints[i]);
+        }
+    }
 
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);

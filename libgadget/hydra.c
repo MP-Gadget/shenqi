@@ -134,7 +134,7 @@ hydro_copy(int place, TreeWalkQueryHydro * input, TreeWalk * tw);
 static void
 hydro_reduce(int place, TreeWalkResultHydro * result, enum TreeWalkReduceMode mode, TreeWalk * tw);
 
-TimeBinMgr * globalTimeBinMgr;
+static TimeBinMgr * globalTimeBinMgr;
 
 /*! This function is the driver routine for the calculation of hydrodynamical
  *  force and rate of change of entropy due to shock heating for all active

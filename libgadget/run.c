@@ -523,7 +523,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
 
             /* Hydro half-kick after hydro force, as not done with the gravity.*/
             if(All.HierarchicalGravity)
-                apply_hydro_half_kick(&Act, &All.CP, &times, atime);
+                apply_hydro_half_kick(&Act, &All.CP, &times, &timebinmgr, atime);
         }
 
         /* The opening criterion for the gravtree
@@ -582,14 +582,14 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
              * Need a scale factor for velocity limiter.
              * For hierarchical gravity the short-range kick is done above.
              * Synchronises TiKick and TiDrift for the active particles. */
-            apply_half_kick(&Act, &All.CP, &times, atime);
+            apply_half_kick(&Act, &All.CP, &times, &timebinmgr, atime);
         }
 
         /* Sets Ti_Kick in the times structure.*/
         update_kick_times(&times);
 
         if(is_PM) {
-            apply_PM_half_kick(&All.CP, &times);
+            apply_PM_half_kick(&All.CP, &times, &timebinmgr);
         }
 
         /* get syncpoint variables for Excursion set (here) and snapshot saving (later) */
@@ -688,7 +688,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             }
             /**** radiative cooling and star formation *****/
             if(All.CoolingOn)
-                cooling_and_starformation(&Act, atime, timebinmgr.get_dloga_for_bin(times.mintimebin, times.Ti_Current), &gasTree, GravAccel, ddecomp, &All.CP, GradRho_mag, &rnd, fds.FdSfr);
+                cooling_and_starformation(&Act, atime, timebinmgr.get_dloga_for_bin(times.mintimebin, times.Ti_Current), &timebinmgr, &gasTree, GravAccel, ddecomp, &All.CP, GradRho_mag, &rnd, fds.FdSfr);
         }
         /* We don't need this timestep's tree anymore.*/
         force_tree_free(&gasTree);
@@ -781,10 +781,10 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         int badtimestep=0;
         if(!All.HierarchicalGravity) {
             const double asmth = pm.Asmth * PartManager->BoxSize / pm.Nmesh;
-            badtimestep = find_timesteps(&Act, &times, atime, All.FastParticleType, &All.CP, asmth, NumCurrentTiStep == 0);
+            badtimestep = find_timesteps(&Act, &times, &timebinmgr, atime, All.FastParticleType, &All.CP, asmth, NumCurrentTiStep == 0);
             /* Update velocity and ti_kick to the new step, with the newly computed step size. Unsyncs ti_kick and ti_drift.
              * Both hydro and gravity are kicked.*/
-            apply_half_kick(&Act, &All.CP, &times, atime);
+            apply_half_kick(&Act, &All.CP, &times, &timebinmgr, atime);
         } else {
             /* This finds the gravity timesteps, computes the gravitational forces
              * and kicks the particles on the gravitational timeline.
@@ -795,10 +795,10 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
                 badtimestep = hierarchical_gravity_and_timesteps(&Act, &pm, ddecomp, GravAccel, &times, &timebinmgr, atime, HybridNuTracer, All.FastParticleType, &All.CP, All.OutputDir);
             if(GasEnabled) {
                 /* Find hydro timesteps and apply the hydro kick, unsyncing the drift and kick times. */
-                badtimestep += find_hydro_timesteps(&Act, &times, atime, &All.CP, NumCurrentTiStep == 0);
+                badtimestep += find_hydro_timesteps(&Act, &times, &timebinmgr, atime, &All.CP, NumCurrentTiStep == 0);
                 /* If there is no hydro kick to do we still need to update the kick times.*/
                 if(!badtimestep)
-                    apply_hydro_half_kick(&Act, &All.CP, &times, atime);
+                    apply_hydro_half_kick(&Act, &All.CP, &times, &timebinmgr, atime);
             }
         }
         if(badtimestep) {
@@ -819,7 +819,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         update_kick_times(&times);
 
         if(is_PM) {
-            apply_PM_half_kick(&All.CP, &times);
+            apply_PM_half_kick(&All.CP, &times, &timebinmgr);
         }
 
         /* We can now free the active list: the new step have new active particles*/
@@ -836,7 +836,7 @@ void
 runtests(const int RestartSnapNum, const inttime_t Ti_Current, const struct header_data * header)
 {
     run_gravity_test(RestartSnapNum, &All.CP, All.Asmth, All.Nmesh, Ti_Current, All.OutputDir, header);
-    run_consistency_test(RestartSnapNum, All.UseGPU, &All.CP, All.Asmth, All.Nmesh, Ti_Current, All.OutputDir, header);
+    run_consistency_test(RestartSnapNum, All.UseGPU, &All.CP, All.Asmth, All.Nmesh, Ti_Current, &timebinmgr, All.OutputDir, header);
 }
 
 void
@@ -869,7 +869,7 @@ runfof(const int RestartSnapNum, const inttime_t Ti_Current, const struct header
         struct grav_accel_store gg = {0};
         /* Cooling is just for the star formation rate, so does not actually use the random table*/
         RandTable rnd = set_random_numbers(All.RandomSeed, RNDTABLE);
-        cooling_and_starformation(&Act, header->TimeSnapshot, 0, &Tree, gg, ddecomp, &All.CP, GradRho, &rnd, NULL);
+        cooling_and_starformation(&Act, header->TimeSnapshot, 0, &timebinmgr, &Tree, gg, ddecomp, &All.CP, GradRho, &rnd, NULL);
         free_random_numbers(&rnd);
 
         if(GradRho)

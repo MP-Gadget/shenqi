@@ -26,7 +26,7 @@ set_densitypar_old(struct density_params dp)
     DensityParams = dp;
 }
 
-TimeBinMgr * globalTimeBinMgr;
+static TimeBinMgr * globalTimeBinMgr;
 
 /* The evolved entropy at drift time: evolved dlog a.
  * Used to predict pressure and entropy for SPH */
