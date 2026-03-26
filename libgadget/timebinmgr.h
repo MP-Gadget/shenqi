@@ -36,19 +36,32 @@ struct SyncPoint
 double loga_from_ti(inttime_t ti);
 inttime_t ti_from_loga(double loga);
 
+/*Gets Dloga / ti for the current integer timeline.
+ * Valid up to the next snapshot, after which it will change*/
+double Dloga_interval_ti(inttime_t ti);
+
 /*Convert changes in loga to and from ti*/
 inttime_t dti_from_dloga(double loga, const inttime_t Ti_Current);
-double dloga_from_dti(inttime_t dti, const inttime_t Ti_Current);
+MYCUDAFN static inline double
+dloga_from_dti(inttime_t dti, const inttime_t Ti_Current)
+{
+    double Dloga = Dloga_interval_ti(Ti_Current);
+    int sign = 1;
+    if(dti < 0) {
+        dti = -dti;
+        sign = -1;
+    }
+    if((uint64_t) dti > TIMEBASE) {
+        dti = TIMEBASE;
+    }
+    return Dloga * dti * sign;
+}
 
 /*Get the dti from the timebin*/
 MYCUDAFN static inline inttime_t dti_from_timebin(int bin) {
     /*Casts to work around bug in intel compiler 18.0*/
     return bin > 0 ? (1Lu << (uint64_t) bin) : 0;
 }
-
-/*Gets Dloga / ti for the current integer timeline.
- * Valid up to the next snapshot, after which it will change*/
-double Dloga_interval_ti(inttime_t ti);
 
 /*Get dloga from a timebin*/
 MYCUDAFN static inline double

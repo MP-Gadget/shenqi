@@ -400,21 +400,6 @@ ti_from_loga(double loga)
     return ti;
 }
 
-double
-dloga_from_dti(inttime_t dti, const inttime_t Ti_Current)
-{
-    double Dloga = Dloga_interval_ti(Ti_Current);
-    int sign = 1;
-    if(dti < 0) {
-        dti = -dti;
-        sign = -1;
-    }
-    if((uint64_t) dti > TIMEBASE) {
-        endrun(1, "Requesting dti %ld larger than TIMEBASE %lu\n", sign*dti, TIMEBASE);
-    }
-    return Dloga * dti * sign;
-}
-
 inttime_t
 dti_from_dloga(double loga, const inttime_t Ti_Current)
 {
