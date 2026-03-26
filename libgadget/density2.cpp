@@ -1,13 +1,9 @@
 #include <mpi.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <math.h>
 #include <omp.h>
 
-#include "localtreewalk2.h"
 #include "partmanager.h"
-#include "physconst.h"
 #include "walltime.h"
 #include "density2.h"
 #include "treewalk2.h"
@@ -16,7 +12,6 @@
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
 #include "gravity.h"
-#include "winds.h"
 #include "densitytree2.hpp"
 
 static struct density_params DensityParams;
