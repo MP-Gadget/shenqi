@@ -81,7 +81,7 @@ init_kick_factor_data(struct kick_factor_data * kf, const DriftKickTimes * const
 {
     int i;
     /* Factor this out since all particles have the same PM kick time*/
-    kf->FgravkickB = get_exact_gravkick_factor(CP, times->PM_kick, times->Ti_Current);
+    kf->FgravkickB = globalTimeBinMgr->get_exact_gravkick_factor(times->PM_kick, times->Ti_Current);
     memset(kf->gravkicks, 0, sizeof(kf->gravkicks[0])*(TIMEBINS+1));
     memset(kf->hydrokicks, 0, sizeof(kf->hydrokicks[0])*(TIMEBINS+1));
     /* Compute the factors to move a current kick times velocity to the drift time velocity.
@@ -90,8 +90,8 @@ init_kick_factor_data(struct kick_factor_data * kf, const DriftKickTimes * const
     #pragma omp parallel for
     for(i = times->mintimebin; i <= TIMEBINS; i++)
     {
-        kf->gravkicks[i] = get_exact_gravkick_factor(CP, times->Ti_kick[i], times->Ti_Current);
-        kf->hydrokicks[i] = get_exact_hydrokick_factor(CP, times->Ti_kick[i], times->Ti_Current);
+        kf->gravkicks[i] = globalTimeBinMgr->get_exact_gravkick_factor(times->Ti_kick[i], times->Ti_Current);
+        kf->hydrokicks[i] = globalTimeBinMgr->get_exact_hydrokick_factor(times->Ti_kick[i], times->Ti_Current);
     }
 }
 

@@ -66,7 +66,7 @@ class HydroPriv : public ParamTypeBase {
     HydroPriv(const double BoxSize, MyFloat * i_EntVarPred, const double i_atime, DriftKickTimes * const times, TimeBinMgr * timebinmgr, Cosmology * CP, hydro_params HydroPar) :
     ParamTypeBase(BoxSize), atime(i_atime), hubble(hubble_function(CP, atime)),
     EntVarPred(i_EntVarPred), fac_mu(pow(atime, 3 * (GAMMA - 1) / 2) / atime), fac_vsic_fix(hubble * pow(atime, 3 * GAMMA_MINUS1)),
-    hubble_a2(hubble * atime * atime), kf(times, CP, timebinmgr),
+    hubble_a2(hubble * atime * atime), kf(times, timebinmgr),
     ArtBulkViscConst(HydroPar.ArtBulkViscConst), DensityContrastLimit(HydroPar.DensityContrastLimit), DensityIndependentSphOn(HydroPar.DensityIndependentSphOn),
     WindSpeed(winds_get_speed()), WindFreeTravelDensThresh(winds_get_dens_thresh()),
     SphParts(reinterpret_cast<sph_particle_data *>(SlotsManager->info[0].ptr))
@@ -93,7 +93,7 @@ class HydroPriv : public ParamTypeBase {
             /* For density: last active drift time is Ti_kick - 1/2 timestep as the kick time is half a timestep ahead.
             * For active particles no density drift is needed.*/
             if(!is_timebin_active(i, times->Ti_Current))
-                drifts[i] = get_exact_drift_factor(CP, times->Ti_lastactivedrift[i], times->Ti_Current);
+                drifts[i] = timebinmgr->get_exact_drift_factor(times->Ti_lastactivedrift[i], times->Ti_Current);
         }
     }
     ~HydroPriv()

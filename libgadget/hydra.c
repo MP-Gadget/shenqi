@@ -199,7 +199,7 @@ hydro_force_old(const ActiveParticles * act, const double atime, struct sph_pred
         /* For density: last active drift time is Ti_kick - 1/2 timestep as the kick time is half a timestep ahead.
          * For active particles no density drift is needed.*/
         if(!is_timebin_active(i, times.Ti_Current))
-            priv->drifts[i] = get_exact_drift_factor(CP, times.Ti_lastactivedrift[i], times.Ti_Current);
+            priv->drifts[i] = globalTimeBinMgr->get_exact_drift_factor(times.Ti_lastactivedrift[i], times.Ti_Current);
     }
 
     treewalk_run(tw, act->ActiveParticle, act->NumActiveParticle);

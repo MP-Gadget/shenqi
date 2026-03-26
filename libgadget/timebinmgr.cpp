@@ -43,7 +43,6 @@ std::vector<double> BuildOutputList(std::string outputliststr)
     /* Note TimeInit and TimeMax not yet initialised here*/
     std::istringstream ss(outputliststr);
     std::string token;
-    size_t count = 0;
     while (std::getline(ss, token, ',')) {
          std::string_view sv = token;
          if (!sv.empty() && sv.front() == '"')
@@ -79,7 +78,7 @@ void set_sync_params(ParameterSet * ps){
     }
 
     // 1. Broadcast the POD members together
-    MPI_Bcast(&Sync, offsetof(Sync, CutPoints), MPI_BYTE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&Sync, offsetof(sync_params, OutputListTimes), MPI_BYTE, 0, MPI_COMM_WORLD);
 
     // 2. Broadcast the vectors
     size_t len = Sync.OutputListTimes.size();
@@ -118,10 +117,8 @@ static double time_to_present(const double a, const Cosmology * const CP)
 /* For the tests*/
 void set_sync_params_test(int OutputListLength, double * OutputListTimes)
 {
-    int i;
-    Sync.OutputListLength = OutputListLength;
-    for(i = 0; i < OutputListLength; i++)
-        Sync.OutputListTimes[i] = OutputListTimes[i];
+    for(int i = 0; i < OutputListLength; i++)
+        Sync.OutputListTimes.push_back(OutputListTimes[i]);
 }
 
 /* This function compiles
@@ -138,6 +135,7 @@ void set_sync_params_test(int OutputListLength, double * OutputListTimes)
  **/
 TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_snapshot_until_time, bool SnapshotWithFOF)
 {
+    this->CP = CP;
     int64_t NSyncPointsAlloc = Sync.OutputListTimes.size() + Sync.PlaneOutputListTimes.size() + 2;
 
     /* Excursion set sync points ensure that the reionization excursion set model is run frequently*/
@@ -207,7 +205,7 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
     NSyncPoints++;
 
     /* we do an insertion sort here. A heap is faster but who cares the speed for this? */
-    for(int64_t i = 0; i < Sync.OutputListTimes.size(); i ++) {
+    for(size_t i = 0; i < Sync.OutputListTimes.size(); i ++) {
         // print outputlisttime and index
         // message(0, "outIdx: %d, outtime: %g, planeoutIdx: %d, planeouttime: %g.\n", outIdx, Sync.OutputListTimes[outIdx], planeoutIdx, Sync.PlaneOutputListTimes[planeoutIdx]);
         int64_t j = 0;
@@ -247,7 +245,7 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
     }
 
     /* Now insert the plane outputs*/
-    for(i = 0; i < Sync.PlaneOutputListLength; i ++) {
+    for(size_t i = 0; i < Sync.PlaneOutputListTimes.size(); i ++) {
         int64_t j = 0;
         double a = Sync.PlaneOutputListTimes[i];
         double loga = log(a);
@@ -278,7 +276,7 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
         SyncPoints[j].plane_snapnum = i;
     }
 
-    for(i = 0; i < NSyncPoints; i++) {
+    for(int i = 0; i < NSyncPoints; i++) {
         SyncPoints[i].ti = (i * 1L) << (TIMEBINS);
     }
     if(NSyncPoints > NSyncPointsAlloc)
@@ -288,6 +286,23 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
     /*for(i = 0; i < NSyncPoints; i++) {
         message(1,"Out: %g %ld\n", exp(SyncPoints[i].loga), SyncPoints[i].ti);
     }*/
+}
+
+/* Function to compute comoving distance using the adaptive integrator */
+double compute_comoving_distance(Cosmology * CP, double a0, double a1, const double UnitVelocity_in_cm_per_s)
+{
+    // relative error tolerance
+    // double epsrel = 1e-8;
+    /* Integrand for comoving distance */
+    auto comoving_distance_integ = [CP](double a) {
+        double h = hubble_function(CP, a);
+        return 1. / (h * a * a);
+    };
+
+    // Call the generic adaptive integration function
+    const double result = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(comoving_distance_integ, a0, a1);
+    // Convert the result using the provided units
+    return (LIGHTCGS / UnitVelocity_in_cm_per_s) * result;
 }
 
 inttime_t

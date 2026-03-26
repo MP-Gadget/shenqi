@@ -439,11 +439,12 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         }
 
         int extradomain = is_timebin_active(times.mintimebin + All.MaxDomainTimeBinDepth, times.Ti_Current);
+        const double ddrift = timebinmgr.get_exact_drift_factor(Ti_Last, times.Ti_Current);
         /* drift and ddecomp decomposition */
         /* at first step this is a noop */
         if(extradomain || is_PM) {
             /* Sync positions of all particles */
-            drift_all_particles(Ti_Last, times.Ti_Current, &All.CP, rel_random_shift);
+            drift_all_particles(Ti_Last, times.Ti_Current, ddrift, rel_random_shift);
             /* full decomposition rebuilds the domain, needs keys.*/
             domain_decompose_full(ddecomp, MPI_COMM_WORLD);
         } else {
@@ -455,7 +456,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             drift.CP = &All.CP;
             drift.ti0 = Ti_Last;
             drift.ti1 = times.Ti_Current;
-            int needfull = domain_maintain(ddecomp, &drift);
+            int needfull = domain_maintain(ddecomp, &drift, ddrift);
             if(needfull)
                 domain_decompose_full(ddecomp, MPI_COMM_WORLD);
         }
@@ -563,7 +564,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
                 /* We need to store a GravAccel for new star particles as well, so we need extra memory.*/
                 GravAccel.nstore = PartManager->NumPart + SlotsManager->info[0].size;
                 GravAccel.GravAccel = (MyFloat (*) [3]) mymanagedmalloc("GravAccel", GravAccel.nstore * sizeof(GravAccel.GravAccel[0]));
-                hierarchical_gravity_accelerations(&Act, &pm, ddecomp, GravAccel, &times, HybridNuTracer, &All.CP, All.OutputDir);
+                hierarchical_gravity_accelerations(&Act, &pm, ddecomp, GravAccel, &times, &timebinmgr, HybridNuTracer, &All.CP, All.OutputDir);
             }
             else if(All.TreeGravOn && totgravactive) {
                     ForceTree Tree = {0};
@@ -670,7 +671,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             }
 
             if(is_PM && All.CoolingOn)
-                winds_find_vel_disp(&Act, atime, hubble_function(&All.CP, atime), &All.CP, &times, ddecomp);
+                winds_find_vel_disp(&Act, atime, hubble_function(&All.CP, atime), &All.CP, &times, &timebinmgr, ddecomp);
             /* Note that the tree here may be freed, if we are not a gravity-active timestep,
              * or if we are a PM step.*/
             /* If we didn't build a tree for gravity, we need to build one in BH or in winds.
@@ -694,8 +695,9 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
 
         /* Compute the list of particles that cross a lightcone and write it to disc.
          * This should happen when kick and drift times are synchronised.*/
-        if(All.LightconeOn)
-            lightcone_compute(atime, PartManager, &All.CP, Ti_Last, Ti_Next, &rnd);
+        if(All.LightconeOn) {
+            lightcone_compute(atime, PartManager, ddrift, &rnd);
+        }
 
         /* Now done with random numbers*/
         if(rnd.Table)
@@ -740,7 +742,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
                  * to one processor than there is room for.*/
                 slots_gc_sorted(PartManager, SlotsManager);
                 /* Do a domain exchange*/
-                if(domain_maintain(ddecomp, NULL))
+                if(domain_maintain(ddecomp, NULL, 0))
                     endrun(0, "Domain exchange after FOF save particle did not complete!\n");
                 /* Not strictly necessary, but a good idea for performance*/
                 slots_gc_sorted(PartManager, SlotsManager);
@@ -790,7 +792,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
              * each timebin has a force done individually and we do not store the acceleration hierarchy.
              * This does mean we double the cost of the force evaluations.*/
             if(totgravactive)
-                badtimestep = hierarchical_gravity_and_timesteps(&Act, &pm, ddecomp, GravAccel, &times, atime, HybridNuTracer, All.FastParticleType, &All.CP, All.OutputDir);
+                badtimestep = hierarchical_gravity_and_timesteps(&Act, &pm, ddecomp, GravAccel, &times, &timebinmgr, atime, HybridNuTracer, All.FastParticleType, &All.CP, All.OutputDir);
             if(GasEnabled) {
                 /* Find hydro timesteps and apply the hydro kick, unsyncing the drift and kick times. */
                 badtimestep += find_hydro_timesteps(&Act, &times, atime, &All.CP, NumCurrentTiStep == 0);

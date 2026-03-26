@@ -60,11 +60,11 @@ class KickFactorData
 
     /* Initialise the grav and hydrokick arrays for the current kick times.*/
     MYCUDAFN
-    KickFactorData(const DriftKickTimes * const times, Cosmology * CP, TimeBinMgr * timebins)
+    KickFactorData(const DriftKickTimes * const times, TimeBinMgr * timebins)
     {
         int i;
         /* Factor this out since all particles have the same PM kick time*/
-        FgravkickB = get_exact_gravkick_factor(CP, times->PM_kick, times->Ti_Current);
+        FgravkickB = timebins->get_exact_gravkick_factor(times->PM_kick, times->Ti_Current);
         memset(gravkicks, 0, sizeof(gravkicks[0])*(TIMEBINS+1));
         memset(hydrokicks, 0, sizeof(hydrokicks[0])*(TIMEBINS+1));
         memset(dloga, 0, sizeof(dloga[0])*(TIMEBINS+1));
@@ -74,8 +74,8 @@ class KickFactorData
         #pragma omp parallel for
         for(i = times->mintimebin; i <= TIMEBINS; i++)
         {
-            gravkicks[i] = get_exact_gravkick_factor(CP, times->Ti_kick[i], times->Ti_Current);
-            hydrokicks[i] = get_exact_hydrokick_factor(CP, times->Ti_kick[i], times->Ti_Current);
+            gravkicks[i] = timebins->get_exact_gravkick_factor(times->Ti_kick[i], times->Ti_Current);
+            hydrokicks[i] = timebins->get_exact_hydrokick_factor(times->Ti_kick[i], times->Ti_Current);
             dloga[i] = timebins->dloga_from_dti(times->Ti_Current - times->Ti_kick[i], times->Ti_Current);
         }
     }

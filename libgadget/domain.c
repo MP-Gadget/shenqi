@@ -275,17 +275,13 @@ static inline int inside_topleaf(const int topleaf, const double Pos[3], const F
 
 /* This is a cut-down version of the domain decomposition that leaves the
  * domain grid intact, but exchanges the particles and rebuilds the tree */
-int domain_maintain(DomainDecomp * ddecomp, struct DriftData * drift)
+int domain_maintain(DomainDecomp * ddecomp, struct DriftData * drift, double ddrift)
 {
     message(0, "Attempting a domain exchange\n");
 
     /* Find drift factor*/
-    int i;
     /* Can't update the random shift without re-decomposing domain*/
     const double rel_random_shift[3] = {0};
-    double ddrift = 0;
-    if(drift)
-        ddrift = get_exact_drift_factor(drift->CP, drift->ti0, drift->ti1);
 
     /*Garbage particles are counted so we have an accurate memory estimate*/
     int ngarbage = 0;
@@ -299,7 +295,7 @@ int domain_maintain(DomainDecomp * ddecomp, struct DriftData * drift)
         const int tid = omp_get_thread_num();
         int * threx_local = gthread.srcs[tid];
     #pragma omp for schedule(static, gthread.schedsz) reduction(+: ngarbage)
-    for(i=0; i < PartManager->NumPart; i++) {
+    for(int i=0; i < PartManager->NumPart; i++) {
         if(drift) {
             real_drift_particle(&PartManager->Base[i], SlotsManager, ddrift, PartManager->BoxSize, rel_random_shift);
             PartManager->Base[i].Ti_drift = drift->ti1;

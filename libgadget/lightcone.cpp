@@ -161,11 +161,10 @@ static void update_replicas(double a, double BoxSize) {
 /* Compute a list of particles which crossed
  * the lightcone boundaries on this timestep and
  * write them to the lightcone file*/
-void lightcone_compute(const double a, const struct part_manager_type * const PartManager, Cosmology * CP, const inttime_t ti_curr, const inttime_t ti_next, const RandTable * const rnd)
+void lightcone_compute(const double a, const struct part_manager_type * const PartManager, const double ddrift, const RandTable * const rnd)
 {
     int i;
     lightcone_set_time(a, PartManager->BoxSize);
-    const double ddrift = get_exact_drift_factor(CP, ti_curr, ti_next);
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i++)
     {

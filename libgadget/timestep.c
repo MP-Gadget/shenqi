@@ -245,19 +245,19 @@ update_kick_times(DriftKickTimes * times)
 
 /* Apply the half-kick for the hierarchical gravity, which is a half-step forward and a half-step back for a higher timebin.*/
 void
-apply_hierarchical_grav_kick(const ActiveParticles * subact, Cosmology * CP, DriftKickTimes * times, MyFloat (* AccelStore)[3], int ti, int largest_active)
+apply_hierarchical_grav_kick(const ActiveParticles * subact, Cosmology * CP, DriftKickTimes * times, TimeBinMgr * timebinmgr, MyFloat (* AccelStore)[3], int ti, int largest_active)
 {
     int i;
     /* Now we do the gravity kicks using each half-step acceleration.*/
     inttime_t dti = dti_from_timebin(ti);
     /* Compute kick factors for occupied bins*/
     /* Go forwards a halfstep for the current bin*/
-    double gravkick = get_exact_gravkick_factor(CP, times->Ti_kick[ti], times->Ti_kick[ti] + dti/2);
+    double gravkick = timebinmgr->get_exact_gravkick_factor(times->Ti_kick[ti], times->Ti_kick[ti] + dti/2);
     /* Go backwards a halfstep for the timestep above this one*/;
     inttime_t lowerdti = 0;
     if(ti < largest_active) {
         lowerdti = dti_from_timebin(ti+1);
-        const double lowerkick = get_exact_gravkick_factor(CP, times->Ti_kick[ti+1], times->Ti_kick[ti+1] + lowerdti/2);
+        const double lowerkick = timebinmgr->get_exact_gravkick_factor(times->Ti_kick[ti+1], times->Ti_kick[ti+1] + lowerdti/2);
         gravkick -= lowerkick;
     }
 
@@ -421,7 +421,7 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
     times->maxtimebin = largest_active;
     walltime_measure("/Timeline/HierGrav/Init");
     /* Do the kick for the topmost bin using GravAccel in the particle struct.*/
-    apply_hierarchical_grav_kick(subact, CP, times, StoredGravAccel.GravAccel, largest_active, largest_active);
+    apply_hierarchical_grav_kick(subact, CP, times, timebinmgr, StoredGravAccel.GravAccel, largest_active, largest_active);
     if(StoredGravAccel.GravAccel)
         myfree(StoredGravAccel.GravAccel);
 
@@ -473,7 +473,7 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
             }
         }
         /* Do the half-kicks*/
-        apply_hierarchical_grav_kick(subact, CP, times, GravAccel, ti, largest_active);
+        apply_hierarchical_grav_kick(subact, CP, times, timebinmgr, GravAccel, ti, largest_active);
         myfree(GravAccel);
 
         memcpy(lastact, subact, sizeof(ActiveParticles));
@@ -488,7 +488,7 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
 /* Computes short-range gravitational forces at the second half of the step and
  * does the gravitational half-step kicks. Stores the longest timestep in StoredGravAccel.
  * If this is NULL, uses FullTreeGravAccel.*/
-int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, int HybridNuGrav, Cosmology * CP, const char * EmergencyOutputDir)
+int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, TimeBinMgr * timebinmgr, int HybridNuGrav, Cosmology * CP, const char * EmergencyOutputDir)
 {
     const double rho0 = CP->Omega0 * 3 * CP->Hubble * CP->Hubble / (8 * M_PI * CP->GravInternal);
     /* Find the longest active timebin.*/
@@ -521,7 +521,7 @@ int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm,
 
     /* We need to do the kick here based on the acceleration at the current level,
         * because we will over-write the acceleration*/
-    apply_hierarchical_grav_kick(firstact, CP, times, StoredGravAccel.GravAccel, ti, largest_active);
+    apply_hierarchical_grav_kick(firstact, CP, times, timebinmgr, StoredGravAccel.GravAccel, ti, largest_active);
 
     ActiveParticles lastact[1];
     memcpy(lastact, firstact, sizeof(ActiveParticles));
@@ -560,7 +560,7 @@ int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm,
             tmpGA = StoredGravAccel.GravAccel;
         /* We need to do the kick here based on the acceleration at the current level,
          * because we will over-write the acceleration*/
-        apply_hierarchical_grav_kick(&subact, CP, times, tmpGA, ti, largest_active);
+        apply_hierarchical_grav_kick(&subact, CP, times, timebinmgr, tmpGA, ti, largest_active);
 
         memcpy(lastact, &subact, sizeof(ActiveParticles));
     }
@@ -858,8 +858,8 @@ apply_half_kick(const ActiveParticles * act, Cosmology * CP, DriftKickTimes * ti
         /* do the kick for half a step*/
         inttime_t newkick = times->Ti_kick[bin] + dti_from_timebin(bin)/2;
         /* Compute kick factors for occupied bins*/
-        gravkick[bin] = get_exact_gravkick_factor(CP, times->Ti_kick[bin], newkick);
-        hydrokick[bin] = get_exact_hydrokick_factor(CP, times->Ti_kick[bin], newkick);
+        gravkick[bin] = timebinmgr->get_exact_gravkick_factor(times->Ti_kick[bin], newkick);
+        hydrokick[bin] = timebinmgr->get_exact_hydrokick_factor(times->Ti_kick[bin], newkick);
     }
     //    message(0, "drift %ld bin %d kick: %ld\n", times->Ti_Current, bin, times->Ti_kick[bin]);
     /* Now assign new timesteps and kick */
@@ -914,8 +914,8 @@ apply_hydro_half_kick(const ActiveParticles * act, Cosmology * CP, DriftKickTime
         /* do the kick for half a step*/
         inttime_t newkick = times->Ti_kick[bin] + dti_from_timebin(bin)/2;
         /* Compute kick factors for occupied bins*/
-        gravkick[bin] = get_exact_gravkick_factor(CP, times->Ti_kick[bin], newkick);
-        hydrokick[bin] = get_exact_hydrokick_factor(CP, times->Ti_kick[bin], newkick);
+        gravkick[bin] = timebinmgr->get_exact_gravkick_factor(times->Ti_kick[bin], newkick);
+        hydrokick[bin] = timebinmgr->get_exact_hydrokick_factor(times->Ti_kick[bin], newkick);
     }
     //    message(0, "drift %d bin %d kick: %d\n", times->Ti_Current, bin, times->Ti_kick[bin]);
     /* Now assign new timesteps and kick */
@@ -943,14 +943,14 @@ apply_hydro_half_kick(const ActiveParticles * act, Cosmology * CP, DriftKickTime
     walltime_measure("/Timeline/HalfKick/Short");
 }
 void
-apply_PM_half_kick(Cosmology * CP, DriftKickTimes * times)
+apply_PM_half_kick(Cosmology * CP, DriftKickTimes * times, TimeBinMgr * timebinmgr)
 {
     /*Always do a PM half-kick, because this should be called just after a PM step*/
     const inttime_t tistart = times->PM_kick;
     const inttime_t tiend =  tistart + times->PM_length / 2;
     /* Do long-range kick */
     int i;
-    const double Fgravkick = get_exact_gravkick_factor(CP, tistart, tiend);
+    const double Fgravkick = timebinmgr->get_exact_gravkick_factor(tistart, tiend);
 
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i++)

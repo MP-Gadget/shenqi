@@ -19,6 +19,9 @@
 #include "types.h"
 #include "utils/paramset.h"
 #include "cosmology.h"
+#include "physconst.h"
+#include <functional>
+#include <boost/math/quadrature/gauss_kronrod.hpp>
 
 typedef struct SyncPoint SyncPoint;
 
@@ -43,12 +46,13 @@ MYCUDAFN static inline inttime_t dti_from_timebin(int bin) {
 /*! table with desired sync points. All forces and phase space variables are synchonized to the same order. */
 class TimeBinMgr {
     public:
+    Cosmology * CP;
     SyncPoint * SyncPoints;
     int64_t NSyncPoints;    /* number of times stored in table of desired sync points */
 
     TimeBinMgr (Cosmology * CP, double TimeIC, double TimeMax, double no_snapshot_until_time, bool SnapshotWithFOF);
 
-    TimeBinMgr (): SyncPoints(NULL), NSyncPoints(0) {};
+    TimeBinMgr (): CP(NULL), SyncPoints(NULL), NSyncPoints(0) {};
 
     /*! this function returns the next output time that is in the future of
     *  ti_curr; if none is find it return NULL, indication the run shall terminate.
@@ -147,6 +151,42 @@ class TimeBinMgr {
         return exp(loga_from_ti(Ti_Current));
     }
 
+    /*Get the exact drift factor*/
+    double get_exact_drift_factor(inttime_t ti0, inttime_t ti1)
+    {
+        Cosmology *CP = this->CP;
+        // Define the integrand as a lambda function, for the drift table.
+        auto drift_integ = [CP](const double a) {
+            double h = hubble_function(CP, a);
+            return 1 / (h * a * a * a);
+        };
+        return get_exact_factor(ti0, ti1, drift_integ);
+    }
+
+    /*Get the exact drift factor*/
+    double get_exact_gravkick_factor(inttime_t ti0, inttime_t ti1)
+    {
+        Cosmology *CP = this->CP;
+        /* Integrand for the gravkick table*/
+        auto gravkick_integ = [CP](const double a) {
+            double h = hubble_function(CP, a);
+            return 1 / (h * a * a);
+        };
+        return get_exact_factor(ti0, ti1, gravkick_integ);
+    }
+
+    double get_exact_hydrokick_factor(inttime_t ti0, inttime_t ti1)
+    {
+        Cosmology *CP = this->CP;
+        /* Integrand for the hydrokick table.
+        * Note this is the same function as drift.*/
+        auto hydrokick_integ = [CP](const double a) {
+            double h = hubble_function(CP, a);
+            return 1 / (h * pow(a, 3 * GAMMA_MINUS1) * a);
+        };
+        return get_exact_factor(ti0, ti1, hydrokick_integ);
+    }
+
     private:
     /* Each integer time stores in the first 10 bits the snapshot number.
     * Then the rest of the bits are the standard integer timeline,
@@ -155,8 +195,7 @@ class TimeBinMgr {
 
     /*Gets Dloga / ti for the current integer timeline.
     * Valid up to the next snapshot, after which it will change*/
-    double
-    Dloga_interval_ti(inttime_t ti)
+    MYCUDAFN double Dloga_interval_ti(inttime_t ti)
     {
         /* FIXME: This uses the bit tricks because it has to be fast
         * -- till we clean up the calls to loga_from_ti; then we can avoid bit tricks. */
@@ -170,7 +209,23 @@ class TimeBinMgr {
         double lastoutput = SyncPoints[lastsnap].loga;
         return (SyncPoints[lastsnap+1].loga - lastoutput)/TIMEBASE;
     }
+
+    // Function to compute a factor using Gauss-Kronrod adaptive integration
+    double get_exact_factor(const inttime_t t0, const inttime_t t1, const std::function<double(double)> func)
+    {
+        if (t0 == t1)
+            return 0;
+
+        // Calculate the scale factors
+        const double a0 = std::exp(loga_from_ti(t0));
+        const double a1 = std::exp(loga_from_ti(t1));
+        // Gauss-Kronrod integration for smooth functions. Boost uses by default the machine precision for accuracy and a max depth of 15.
+        return boost::math::quadrature::gauss_kronrod<double, 61>::integrate(func, a0, a1);
+    }
 };
+
+/* Function to compute comoving distance using the adaptive integrator */
+double compute_comoving_distance(Cosmology * CP, double a0, double a1, const double UnitVelocity_in_cm_per_s);
 
 /* Enforce that an integer timestep is a power
  * of two subdivision of TIMEBASE, rounding down

@@ -105,9 +105,9 @@ set_plane_params(ParameterSet * ps, const double BoxSize)
         if (!param_get_string(ps, "PlaneCutPoints")) {
             message(0, "No cut points provided, a set of default values will be set: (1/2 + i) * plane thickness (< box size, i = 0, 1, 2...)\n");
             PlaneParams.CutPoints.resize((BoxSize / PlaneParams.Thickness));
-            for (int i = 0; i < PlaneParams.CutPoints.size(); i++) {
+            for (size_t i = 0; i < PlaneParams.CutPoints.size(); i++) {
                 PlaneParams.CutPoints[i] = (.5 + i) * PlaneParams.Thickness;
-                message(0,"CutPoints[%d] = %g\n", i, PlaneParams.CutPoints[i]);
+                message(0,"CutPoints[%lu] = %g\n", i, PlaneParams.CutPoints[i]);
             }
         }
         else

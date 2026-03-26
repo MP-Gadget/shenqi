@@ -80,16 +80,14 @@ void real_drift_particle(struct particle_data * pp, struct slots_manager_type * 
 }
 
 /* Update all particles to the current time, shifting them by a random vector.*/
-void drift_all_particles(inttime_t ti0, inttime_t ti1, Cosmology * CP, const double random_shift[3])
+void drift_all_particles(inttime_t ti0, inttime_t ti1, const double ddrift, const double random_shift[3])
 {
-    int i;
     if(ti1 < ti0) {
         endrun(12, "Trying to reverse time: ti0=%ld ti1=%ld\n", ti0, ti1);
     }
-    const double ddrift = get_exact_drift_factor(CP, ti0, ti1);
 
 #pragma omp parallel for
-    for(i = 0; i < PartManager->NumPart; i++) {
+    for(int i = 0; i < PartManager->NumPart; i++) {
 #ifdef DEBUG
         if(PartManager->Base[i].Ti_drift != ti0)
             endrun(10, "Drift time mismatch: (ids = %ld %ld) %ld != %ld\n",PartManager->Base[0].ID, PartManager->Base[i].ID, ti0,  PartManager->Base[i].Ti_drift);
