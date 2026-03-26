@@ -131,16 +131,6 @@ winds_get_dens_thresh(void)
     return wind_params.WindFreeTravelDensThresh;
 }
 
-void
-winds_decoupled_hydro(sph_particle_data * sphp, const double atime, const double WindSpeed, const double WindFreeTravelDensThresh)
-{
-    double windspeed = WindSpeed * atime;
-    const double fac_mu = pow(atime, 3 * (GAMMA - 1) / 2) / atime;
-    windspeed *= fac_mu;
-    double hsml_c = cbrt(WindFreeTravelDensThresh /sphp->Density) * atime;
-    sphp->MaxSignalVel = hsml_c * DMAX(2 * windspeed, sphp->MaxSignalVel);
-}
-
 static void wind_do_kick(int other, double vel, double therm, double atime, const RandTable * const rnd);
 
 static int

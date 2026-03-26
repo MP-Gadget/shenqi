@@ -5,7 +5,7 @@
 #include "utils/paramset.h"
 #include "utils/system.h"
 #include "types.h"
-
+#include "physconst.h"
 /*
  * Enumeration of the supported wind models.
  * Wind models may be combined.
@@ -57,7 +57,15 @@ winds_is_particle_decoupled(const sph_particle_data * const sph_data)
 }
 
 /* Sets the MaxSignalVel for a decoupled wind particle.*/
-MYCUDAFN void winds_decoupled_hydro(sph_particle_data * sphp, const double atime, const double WindSpeed, const double WindFreeTravelDensThresh);
+MYCUDAFN static inline void
+winds_decoupled_hydro(sph_particle_data * sphp, const double atime, const double WindSpeed, const double WindFreeTravelDensThresh)
+{
+    double windspeed = WindSpeed * atime;
+    const double fac_mu = pow(atime, 3 * (GAMMA - 1) / 2) / atime;
+    windspeed *= fac_mu;
+    double hsml_c = cbrt(WindFreeTravelDensThresh /sphp->Density) * atime;
+    sphp->MaxSignalVel = hsml_c * DMAX(2 * windspeed, sphp->MaxSignalVel);
+}
 
 /* Returns 1 if the winds ever decouple, 0 otherwise*/
 int winds_ever_decouple(void);
