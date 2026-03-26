@@ -9,19 +9,19 @@
 #include "densitytree2.hpp"
 #include "treewalk2.cuh"
 
-class DensityTreeWalkGPUCubic: public TreeWalk<DensityTreeWalkGPUCubic, DensityQuery, DensityResult, DensityLocalTreeWalk<CubicDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
+class DensityTreeWalkGPUCubic: public TreeWalkGPU<DensityTreeWalkGPUCubic, DensityQuery, DensityResult, DensityLocalTreeWalk<CubicDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
     public:
-    using TreeWalk::TreeWalk;
+    using TreeWalkGPU::TreeWalkGPU;
 };
 
-class DensityTreeWalkGPUQuartic: public TreeWalk<DensityTreeWalkGPUQuartic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuarticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
+class DensityTreeWalkGPUQuartic: public TreeWalkGPU<DensityTreeWalkGPUQuartic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuarticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
     public:
-    using TreeWalk::TreeWalk;
+    using TreeWalkGPU::TreeWalkGPU;
 };
 
-class DensityTreeWalkGPUQuintic: public TreeWalk<DensityTreeWalkGPUQuintic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuinticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
+class DensityTreeWalkGPUQuintic: public TreeWalkGPU<DensityTreeWalkGPUQuintic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuinticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
     public:
-    using TreeWalk::TreeWalk;
+    using TreeWalkGPU::TreeWalkGPU;
 };
 
 
