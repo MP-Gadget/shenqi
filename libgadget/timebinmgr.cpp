@@ -2,39 +2,28 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+#include <vector>
+#include <sstream>
 #include <boost/math/quadrature/gauss_kronrod.hpp>
 
 #include "timebinmgr.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
-#include "utils/string.h"
 #include "utils/openmpsort.h"
 
 #include "cosmology.h"
 
 #define MAXTIMES 1024
-/*! table with desired sync points. All forces and phase space variables are synchonized to the same order. */
-static SyncPoint * SyncPoints;
-static int64_t NSyncPoints;    /* number of times stored in table of desired sync points */
+
 static struct sync_params
 {
-    int64_t OutputListLength;
-    double OutputListTimes[MAXTIMES];
-
-    int64_t PlaneOutputListLength;
-    double PlaneOutputListTimes[MAXTIMES];
-
-    int ExcursionSetReionOn;
     double ExcursionSetZStart;
     double ExcursionSetZStop;
     double UVBGTimestep;
-
+    int ExcursionSetReionOn;
+    std::vector<double> OutputListTimes;
+    std::vector<double> PlaneOutputListTimes;
 } Sync;
-
-int cmp_double(const void * a, const void * b)
-{
-    return ( *(double*)a - *(double*)b );
-}
 
 /*! This function parses a string containing a comma-separated list of variables,
  *  each of which is interpreted as a double.
@@ -45,50 +34,33 @@ int cmp_double(const void * a, const void * b)
  *  We sort the input after reading it, so that the initial list need not be sorted.
  *  This function could be repurposed for reading generic arrays in future.
  */
-int BuildOutputList(ParameterSet* ps, const char* name, double * outputlist, int64_t * outputlistlength, int64_t maxlength)
+std::vector<double> BuildOutputList(std::string outputliststr)
 {
-    char * outputliststr = param_get_string(ps, name);
-    if(!outputliststr) {
-        *outputlistlength = 0;
-        return 0;
+    std::vector<double> outputlist;
+    if(outputliststr.empty()) {
+        return outputlist;
     }
-    char * strtmp = fastpm_strdup(outputliststr);
-    char * token;
-    int64_t count;
-
     /* Note TimeInit and TimeMax not yet initialised here*/
+    std::istringstream ss(outputliststr);
+    std::string token;
+    size_t count = 0;
+    while (std::getline(ss, token, ',')) {
+         std::string_view sv = token;
+         if (!sv.empty() && sv.front() == '"')
+             sv.remove_prefix(1);
 
-    /*First parse the string to get the number of outputs*/
-    for(count=0, token=strtok(strtmp,","); token; count++, token=strtok(NULL, ","))
-    {}
-/*     message(1, "Found %ld times in output list.\n", count); */
-    myfree(strtmp);
-    if(count > maxlength) {
-        message(1, "Too many entries (%ld) in the OutputList, can take no more than %lu.\n", count, maxlength);
-        return 1;
-    }
-
-    *outputlistlength = count;
-
-    /*Now read in the values*/
-    for(count=0,token=strtok(outputliststr,","); count < *outputlistlength && token; count++, token=strtok(NULL,","))
-    {
-        /* Skip a leading quote if one exists.
-         * Extra characters are ignored by atof, so
-         * no need to skip matching char.*/
-        if(token[0] == '"')
-            token+=1;
-
-        double a = atof(token);
-
-        if(a < 0.0) {
-            endrun(1, "Requesting a negative output scaling factor a = %g\n", a);
+        double a;
+        try {
+            a = std::stod(std::string(sv));
+        } catch(const std::exception & e) {
+              endrun(1, "Could not parse '%s' in OutputList: %s\n", token.c_str(), e.what());
         }
-        outputlist[count] = a;
-/*         message(1, "Output at: %g\n", Sync.OutputListTimes[count]); */
+        if (a < 0.0)
+            endrun(1, "Requesting a negative output scaling factor a = %g\n", a);
+        outputlist.push_back(a);
     }
-
-    return 0;
+    std::sort(outputlist.begin(), outputlist.end());
+    return outputlist;
 }
 
 //set the other sync params we can't get using the action
@@ -101,11 +73,23 @@ void set_sync_params(ParameterSet * ps){
         Sync.ExcursionSetZStart = param_get_double(ps,"ExcursionSetZStart");
         Sync.ExcursionSetZStop = param_get_double(ps,"ExcursionSetZStop");
         Sync.UVBGTimestep = param_get_double(ps,"UVBGTimestep");
-        BuildOutputList(ps, "OutputList", Sync.OutputListTimes, &Sync.OutputListLength, MAXTIMES);
-        BuildOutputList(ps, "PlaneOutputList", Sync.PlaneOutputListTimes, &Sync.PlaneOutputListLength, MAXTIMES);
+
+        Sync.OutputListTimes = BuildOutputList(param_get_string(ps, "OutputList"));
+        Sync.PlaneOutputListTimes = BuildOutputList(param_get_string(ps, "PlaneOutputList"));
     }
 
-    MPI_Bcast(&Sync, sizeof(struct sync_params), MPI_BYTE, 0, MPI_COMM_WORLD);
+    // 1. Broadcast the POD members together
+    MPI_Bcast(&Sync, offsetof(Sync, CutPoints), MPI_BYTE, 0, MPI_COMM_WORLD);
+
+    // 2. Broadcast the vectors
+    size_t len = Sync.OutputListTimes.size();
+    MPI_Bcast(&len, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
+    Sync.OutputListTimes.resize(len);
+    MPI_Bcast(Sync.OutputListTimes.data(), len, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    len = Sync.PlaneOutputListTimes.size();
+    MPI_Bcast(&len, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
+    Sync.PlaneOutputListTimes.resize(len);
+    MPI_Bcast(Sync.PlaneOutputListTimes.data(), len, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     return;
 }
 
@@ -182,7 +166,6 @@ setup_sync_points(Cosmology * CP, double TimeIC, double TimeMax, double no_snaps
         }
     }
     //z=20 to z=4 is ~150 syncpoints at 10 Myr spaces
-    //
     SyncPoints = (SyncPoint *) mymalloc("SyncPoints", sizeof(SyncPoint) * NSyncPointsAlloc);
 
     /* Set up first and last entry to SyncPoints; TODO we can insert many more! */
@@ -225,15 +208,15 @@ setup_sync_points(Cosmology * CP, double TimeIC, double TimeMax, double no_snaps
 
     SyncPoints[NSyncPoints].a = TimeMax;
     SyncPoints[NSyncPoints].loga = log(TimeMax);
-    SyncPoints[NSyncPoints].write_snapshot = 1;
-    SyncPoints[NSyncPoints].calc_uvbg = 0;
-    SyncPoints[NSyncPoints].write_fof = 1;
-    SyncPoints[NSyncPoints].write_plane = 0;
+    SyncPoints[NSyncPoints].write_snapshot = true;
+    SyncPoints[NSyncPoints].calc_uvbg = false;
+    SyncPoints[NSyncPoints].write_fof = true;
+    SyncPoints[NSyncPoints].write_plane = false;
     SyncPoints[NSyncPoints].plane_snapnum = -1;
     NSyncPoints++;
 
     /* we do an insertion sort here. A heap is faster but who cares the speed for this? */
-    for(i = 0; i < Sync.OutputListLength; i ++) {
+    for(int64_t i = 0; i < Sync.OutputListTimes.size(); i ++) {
         // print outputlisttime and index
         // message(0, "outIdx: %d, outtime: %g, planeoutIdx: %d, planeouttime: %g.\n", outIdx, Sync.OutputListTimes[outIdx], planeoutIdx, Sync.PlaneOutputListTimes[planeoutIdx]);
         int64_t j = 0;

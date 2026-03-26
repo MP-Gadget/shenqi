@@ -1,5 +1,7 @@
 #ifndef TIMEBINMGR_H
 #define TIMEBINMGR_H
+
+#include <string>
 /* This file manages the integer timeline,
  * and converts from integers ti to double loga.*/
 
@@ -92,7 +94,7 @@ inttime_t out_from_ti(inttime_t ti);
  *  We sort the input after reading it, so that the initial list need not be sorted.
  *  This function could be repurposed for reading generic arrays in future.
  */
-int BuildOutputList(ParameterSet* ps, const char* name, double * outputlist, int64_t * outputlistlength, int64_t maxlength);
+int64_t BuildOutputList(std::string outputliststr, double * outputlist, int64_t maxlength);
 
 void set_sync_params_test(int OutputListLength, double * OutputListTimes);
 void set_sync_params(ParameterSet * ps);
