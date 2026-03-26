@@ -606,7 +606,7 @@ private:
                 /* Toptree never uses node list */
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
                 /* Note index is into the WorkSet*/
-                exportcounts[k] = lv.toptree_visit(i, input, priv, NULL, 0);
+                exportcounts[k] = lv.template toptree_visit<TOPTREE_COUNT>(i, input, priv, NULL, 0);
             }
         }
         /* Parallel inclusive scan */
@@ -667,7 +667,7 @@ private:
                 /* Toptree never uses node list */
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
                 /* Indexing into the WorkSet, not the particle.*/
-                lv.toptree_visit(i, input, priv, currentexport, nexport);
+                lv.template toptree_visit<TOPTREE_EXPORT>(i, input, priv, currentexport, nexport);
             }
         }
 

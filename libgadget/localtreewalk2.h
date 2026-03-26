@@ -54,6 +54,14 @@ enum TreeWalkReduceMode {
     TREEWALK_TOPTREE,
 };
 
+/* This enum specifies which mode the toptree walk is in.
+ * TOPTREE_COUNT counts the number of exports, without writing to memory.
+ * TOPTREE_EXPORT writes the export memory at a known-sized buffer.*/
+enum TopTreeMode {
+    TOPTREE_COUNT,
+    TOPTREE_EXPORT,
+};
+
 /* Should be subclassed to contain the treewalk parameters specific to each treewalk.
  * Used to be called XX_GET_PRIV(tw)->priv.
  */
@@ -199,6 +207,7 @@ public:
      * @param output Result accumulator
      * @return the number of nodes used in the dataindex table on success, -1 if export buffer is full
      */
+    template <enum TopTreeMode mode>
     MYCUDAFN int toptree_visit(const int target, const QueryType& input, const ParamType& priv, data_index * const DataIndexTable, const size_t BunchSize)
     {
         //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
@@ -220,7 +229,7 @@ public:
             }
             if(current->f.ChildType == PSEUDO_NODE_TYPE) {
                 /* Export the pseudo particle*/
-                if(!DataIndexTable)
+                if constexpr(mode == TOPTREE_COUNT)
                     NThisParticleExport = export_count(current->s.suns[0], NThisParticleExport);
                 else {
                     NThisParticleExport = export_particle(current->s.suns[0], target, NThisParticleExport, DataIndexTable, BunchSize);
