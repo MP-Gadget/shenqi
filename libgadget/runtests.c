@@ -255,7 +255,6 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
     DriftKickTimes times = init_driftkicktime(Ti_Current);
     /* All particles are active*/
     ActiveParticles Act = init_empty_active_particles(PartManager);
-    build_active_particles(&Act, &times, 0, header->TimeSnapshot, PartManager);
 
     gravpm_force(pm, ddecomp, CP, header->TimeSnapshot, header->UnitLength_in_cm, OutputDir, header->TimeIC);
 
@@ -365,7 +364,7 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
 
 /* Compute accelerations using two different routines, check they give the same answer. */
 void
-run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const double Asmth, const int Nmesh, const inttime_t Ti_Current, const char * OutputDir, const struct header_data * header)
+run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const double Asmth, const int Nmesh, const inttime_t Ti_Current, TimeBinMgr * timebinmgr, const char * OutputDir, const struct header_data * header)
 {
     DomainDecomp ddecomp[1] = {0};
     domain_decompose_full(ddecomp, MPI_COMM_WORLD);
@@ -386,7 +385,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     DriftKickTimes times = init_driftkicktime(Ti_Current);
     /* All particles are active*/
     ActiveParticles Act = init_empty_active_particles(PartManager);
-    build_active_particles(&Act, &times, 0, header->TimeSnapshot, PartManager);
+    build_active_particles(&Act, &times, timebinmgr, 0, header->TimeSnapshot, PartManager);
 
     gravpm_force(pm, ddecomp, CP, header->TimeSnapshot, header->UnitLength_in_cm, OutputDir, header->TimeIC);
 
@@ -463,7 +462,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     start = second();
-    density(&Act, 0, 1, 1, times, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree);
+    density(&Act, 0, 1, 1, times, timebinmgr, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree);
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     double newdens = second() - start;
@@ -479,7 +478,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     start = second();
-    density_old(&Act, 0, 1, 1, times, CP, &sph_predicted, GradRho, &gasTree);
+    density_old(&Act, 0, 1, 1, times, timebinmgr, CP, &sph_predicted, GradRho, &gasTree);
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     double olddens = second() - start;
@@ -498,7 +497,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
         /* Compare the CPU and GPU density. */
         start = second();
         /* Final argument signals to use the GPU*/
-        density(&Act, 0, 1, 1, times, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree, true);
+        density(&Act, 0, 1, 1, times, timebinmgr, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree, true);
         #pragma omp barrier
         MPI_Barrier(MPI_COMM_WORLD);
         double gpudens = second() - start;
@@ -517,7 +516,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     start = second();
-    hydro_force(&Act, header->TimeSnapshot, sph_predicted.EntVarPred, times,  CP, &gasTree);
+    hydro_force(&Act, header->TimeSnapshot, sph_predicted.EntVarPred, times, timebinmgr,  CP, &gasTree);
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     double newhydro = second() - start;
@@ -526,7 +525,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     start = second();
-    hydro_force_old(&Act, header->TimeSnapshot, &sph_predicted, times,  CP, &gasTree);
+    hydro_force_old(&Act, header->TimeSnapshot, &sph_predicted, times, timebinmgr, CP, &gasTree);
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     double oldhydro = second() - start;

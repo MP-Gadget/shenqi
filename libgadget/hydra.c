@@ -134,18 +134,20 @@ hydro_copy(int place, TreeWalkQueryHydro * input, TreeWalk * tw);
 static void
 hydro_reduce(int place, TreeWalkResultHydro * result, enum TreeWalkReduceMode mode, TreeWalk * tw);
 
+TimeBinMgr * globalTimeBinMgr;
+
 /*! This function is the driver routine for the calculation of hydrodynamical
  *  force and rate of change of entropy due to shock heating for all active
  *  particles .
  */
 void
-hydro_force_old(const ActiveParticles * act, const double atime, struct sph_pred_data * SPH_predicted, const DriftKickTimes times,  Cosmology * CP, const ForceTree * const tree)
+hydro_force_old(const ActiveParticles * act, const double atime, struct sph_pred_data * SPH_predicted, const DriftKickTimes times,  TimeBinMgr * timebinmgr, Cosmology * CP, const ForceTree * const tree)
 {
     int i;
     TreeWalk tw[1] = {{0}};
 
     struct HydraPriv priv[1];
-
+    globalTimeBinMgr = timebinmgr;
     tw->ev_label = "HYDRO";
     tw->visit = (TreeWalkVisitFunction) treewalk_visit_ngbiter;
     tw->ngbiter = (TreeWalkNgbIterFunction) hydro_ngbiter;
@@ -245,7 +247,7 @@ hydro_copy(int place, TreeWalkQueryHydro * input, TreeWalk * tw)
         input->Pressure = HYDRA_GET_PRIV(tw)->PressurePred[Part[place].PI];
     else
         input->Pressure = PressurePred(eomdensity, input->EntVarPred);
-    input->dloga = get_dloga_for_bin(Part[place].TimeBinHydro, HYDRA_GET_PRIV(tw)->times->Ti_Current);
+    input->dloga = globalTimeBinMgr->get_dloga_for_bin(Part[place].TimeBinHydro, HYDRA_GET_PRIV(tw)->times->Ti_Current);
     /* calculation of F1 */
     soundspeed_i = sqrt(GAMMA * input->Pressure / eomdensity);
     input->F1 = fabs(SPHP(place).DivVel) /
@@ -432,7 +434,7 @@ hydro_ngbiter(
         /* now make sure that viscous acceleration is not too large */
 
         /*XXX: why is this dloga ?*/
-        double dloga = 2 * DMAX(I->dloga, get_dloga_for_bin(Part[other].TimeBinHydro, HYDRA_GET_PRIV(lv->tw)->times->Ti_Current));
+        double dloga = 2 * DMAX(I->dloga, globalTimeBinMgr->get_dloga_for_bin(Part[other].TimeBinHydro, HYDRA_GET_PRIV(lv->tw)->times->Ti_Current));
         if(dloga > 0 && (dwk_i + dwk_j) < 0)
         {
             if((I->Mass + Part[other].Mass) > 0) {

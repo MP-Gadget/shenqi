@@ -42,12 +42,10 @@ typedef struct ActiveParticles
  * No heap memory is allocated.*/
 ActiveParticles init_empty_active_particles(struct part_manager_type * PartManager);
 /* Build a list of active particles from the particle manager, allocating memory for the active particle list.*/
-void build_active_particles(ActiveParticles * act, const DriftKickTimes * const times, const int NumCurrentTiStep, const double Time, const struct part_manager_type * const PartManager);
+void build_active_particles(ActiveParticles * act, const DriftKickTimes * const times, TimeBinMgr * timebinmgr, const int NumCurrentTiStep, const double Time, const struct part_manager_type * const PartManager);
 
 /* Free the active particle list if necessary*/
 void free_active_particles(ActiveParticles * act);
-/* Get the current scale factor*/
-double get_atime(const inttime_t Ti_Current);
 
 /* This function assigns new short-range timesteps to particles.
  * It will also advance the PM timestep and set the new timestep length.
@@ -73,8 +71,6 @@ void apply_PM_half_kick(Cosmology * CP, DriftKickTimes * times);
 int is_timebin_active(int i, inttime_t current);
 
 inttime_t find_next_kick(inttime_t Ti_Current, int minTimeBin);
-
-inttime_t init_timebins(double TimeInit);
 
 /* Update the table of active bin drift times */
 void update_lastactive_drift(DriftKickTimes * times);

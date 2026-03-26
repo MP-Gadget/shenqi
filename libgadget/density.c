@@ -26,6 +26,8 @@ set_densitypar_old(struct density_params dp)
     DensityParams = dp;
 }
 
+TimeBinMgr * globalTimeBinMgr;
+
 /* The evolved entropy at drift time: evolved dlog a.
  * Used to predict pressure and entropy for SPH */
 MyFloat
@@ -33,7 +35,7 @@ SPH_EntVarPred(const int p_i, const DriftKickTimes * times)
 {
         const int bin = Part[p_i].TimeBinHydro;
         const int PI = Part[p_i].PI;
-        const double dloga = dloga_from_dti(times->Ti_Current - times->Ti_kick[bin], times->Ti_Current);
+        const double dloga = globalTimeBinMgr->dloga_from_dti(times->Ti_Current - times->Ti_kick[bin], times->Ti_Current);
         double EntVarPred = SphP[PI].Entropy + SphP[PI].DtEntropy * dloga;
         /*Entropy limiter for the predicted entropy: makes sure entropy stays positive. */
         if(EntVarPred < 0.05*SphP[PI].Entropy)
@@ -194,7 +196,7 @@ static void density_copy(int place, TreeWalkQueryDensity * I, TreeWalk * tw);
  * neighbours.)
  */
 void
-density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, Cosmology * CP, struct sph_pred_data * SPH_predicted, MyFloat * GradRho_mag, const ForceTree * const tree)
+density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, TimeBinMgr * timebinmgr, Cosmology * CP, struct sph_pred_data * SPH_predicted, MyFloat * GradRho_mag, const ForceTree * const tree)
 {
     TreeWalk tw[1] = {{0}};
     struct DensityPriv priv[1];
@@ -213,6 +215,7 @@ density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int 
     tw->priv = priv;
     tw->tree = tree;
 
+    globalTimeBinMgr = timebinmgr;
     DENSITY_GET_PRIV(tw)->Left = (MyFloat *) mymalloc("DENS_PRIV->Left", PartManager->NumPart * sizeof(MyFloat));
     DENSITY_GET_PRIV(tw)->Right = (MyFloat *) mymalloc("DENS_PRIV->Right", PartManager->NumPart * sizeof(MyFloat));
     DENSITY_GET_PRIV(tw)->NumNgb = (MyFloat *) mymalloc("DENS_PRIV->NumNgb", PartManager->NumPart * sizeof(MyFloat));

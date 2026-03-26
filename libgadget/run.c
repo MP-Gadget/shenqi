@@ -42,6 +42,7 @@
 #include "plane.h"
 
 static struct ClockTable Clocks;
+static TimeBinMgr timebinmgr;
 /* Size of table full of random numbers generated each timestep.*/
 #define  RNDTABLE 32768
 
@@ -278,20 +279,27 @@ begrun(const int RestartSnapNum, struct header_data * head)
     if(head->TimeSnapshot > All.TimeMax)
         All.TimeMax = head->TimeSnapshot;
 
-    init_timeline(&All.CP, RestartSnapNum, All.TimeMax, head, All.SnapshotWithFOF);
+    timebinmgr = init_timeline(&All.CP, RestartSnapNum, All.TimeMax, head, All.SnapshotWithFOF);
+
+    /*Initialise the integer timeline*/
+    inttime_t ti_init = timebinmgr.ti_from_loga(log(head->TimeSnapshot));
+    /*Enforce Ti_Current is initially even*/
+    if(ti_init % 2 == 1)
+        ti_init++;
+    message(0, "Initial TimeStep at TimeInit %g Ti_Current = %ld \n", head->TimeSnapshot, ti_init);
 
     /* Get the nk and do allocation. */
     if(All.CP.MassiveNuLinRespOn)
         init_neutrinos_lra(head->neutrinonk, head->TimeIC, All.TimeMax, All.CP.Omega0, &All.CP.ONu, All.CP.UnitTime_in_s, CM_PER_MPC);
 
-    /* ... read initial model and initialise the times*/
-    inttime_t ti_init = init(RestartSnapNum, All.OutputDir, head, &All.CP);
+    /* ... read initial particle state*/
+    init(RestartSnapNum, All.OutputDir, head, &All.CP, ti_init);
 
     if(RestartSnapNum < 0) {
         DomainDecomp ddecomp[1] = {0};
         domain_decompose_full(ddecomp, MPI_COMM_WORLD); /* do initial domain decomposition (gives equal numbers of particles) so density() is safe*/
         /* On first run, generate smoothing lengths and set initial entropies based on CMB temperature*/
-        setup_smoothinglengths(RestartSnapNum, ddecomp, &All.CP, All.BlackHoleOn, get_MinEgySpec(), units.UnitInternalEnergy_in_cgs, ti_init, head->TimeSnapshot, head->NTotalInit[0]);
+        setup_smoothinglengths(RestartSnapNum, ddecomp, &All.CP, All.BlackHoleOn, get_MinEgySpec(), units.UnitInternalEnergy_in_cgs, ti_init, &timebinmgr, head->TimeSnapshot, head->NTotalInit[0]);
         domain_free(ddecomp);
     }
     else
@@ -371,7 +379,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
 
     DriftKickTimes times = init_driftkicktime(ti_init);
 
-    double atime = get_atime(times.Ti_Current);
+    double atime = timebinmgr.get_atime(times.Ti_Current);
 
     while(1) /* main loop */
     {
@@ -387,7 +395,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         times.Ti_Current = Ti_Next;
 
         /*Convert back to floating point time*/
-        double newatime = get_atime(times.Ti_Current);
+        double newatime = timebinmgr.get_atime(times.Ti_Current);
         if(newatime < atime)
             endrun(1, "Negative timestep: %g New Time: %g Old time %g!\n", newatime - atime, newatime, atime);
         atime = newatime;
@@ -397,8 +405,8 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         SyncPoint * next_sync; /* if we are out of planned sync points, terminate */
         SyncPoint * planned_sync; /* NULL; if the step is not a planned sync point. */
 
-        next_sync = find_next_sync_point(times.Ti_Current);
-        planned_sync = find_current_sync_point(times.Ti_Current);
+        next_sync = timebinmgr.find_next_sync_point(times.Ti_Current);
+        planned_sync = timebinmgr.find_current_sync_point(times.Ti_Current);
 
         HCIAction action[1];
 
@@ -457,7 +465,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         update_lastactive_drift(&times);
 
         ActiveParticles Act = init_empty_active_particles(PartManager);
-        build_active_particles(&Act, &times, NumCurrentTiStep, atime, PartManager);
+        build_active_particles(&Act, &times, &timebinmgr, NumCurrentTiStep, atime, PartManager);
 
         /* Are the particle neutrinos gravitating this timestep?
          * If so we need to add them to the tree.*/
@@ -487,7 +495,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             /*Predicted SPH data.*/
             struct sph_pred_data sph_predicted = {0};
             if(All.DensityOn)
-                density(&Act, 1, DensityIndependentSphOn(), All.BlackHoleOn, times, &All.CP, &(sph_predicted.EntVarPred), GradRho_mag, &gasTree, All.UseGPU);  /* computes density, and pressure */
+                density(&Act, 1, DensityIndependentSphOn(), All.BlackHoleOn, times, &timebinmgr, &All.CP, &(sph_predicted.EntVarPred), GradRho_mag, &gasTree, All.UseGPU);  /* computes density, and pressure */
 
             /* adds hydrodynamical accelerations and computes du/dt  */
             if(All.HydroOn) {
@@ -504,7 +512,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
                  * he has never encountered a simulation where this matters in practice, probably because
                  * it would only be important in very dissipative environments where the SPH noise is fairly large
                  * and there is no opportunity for errors to build up.*/
-                hydro_force(&Act, atime, sph_predicted.EntVarPred, times, &All.CP, &gasTree, All.UseGPU);
+                hydro_force(&Act, atime, sph_predicted.EntVarPred, times, &timebinmgr, &All.CP, &gasTree, All.UseGPU);
             }
             /* Scratch data cannot be used checkpoint because FOF does an exchange.*/
             slots_free_sph_pred_data(&sph_predicted);
@@ -675,11 +683,11 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             if(All.BlackHoleOn) {
                 /*Get a new BH details file if the current one is too large.*/
                 rotate_bhdetails_file(&fds, All.OutputDir, RestartSnapNum);
-                blackhole(&Act, atime, &All.CP, &gasTree, ddecomp, &times, &rnd, units, fds.FdBlackHoles, fds.FdBlackholeDetails, &fds.TotalBHDetailsBytesWritten);
+                blackhole(&Act, atime, &All.CP, &gasTree, ddecomp, &times, &timebinmgr, &rnd, units, fds.FdBlackHoles, fds.FdBlackholeDetails, &fds.TotalBHDetailsBytesWritten);
             }
             /**** radiative cooling and star formation *****/
             if(All.CoolingOn)
-                cooling_and_starformation(&Act, atime, get_dloga_for_bin(times.mintimebin, times.Ti_Current), &gasTree, GravAccel, ddecomp, &All.CP, GradRho_mag, &rnd, fds.FdSfr);
+                cooling_and_starformation(&Act, atime, timebinmgr.get_dloga_for_bin(times.mintimebin, times.Ti_Current), &gasTree, GravAccel, ddecomp, &All.CP, GradRho_mag, &rnd, fds.FdSfr);
         }
         /* We don't need this timestep's tree anymore.*/
         force_tree_free(&gasTree);
@@ -851,7 +859,7 @@ runfof(const int RestartSnapNum, const inttime_t Ti_Current, const struct header
             struct sph_pred_data sph_predicted = {0};
             force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK, All.OutputDir);
             /* computes GradRho with a treewalk. No hsml update as we are reading from a snapshot.*/
-            density(&Act, 0, 0, All.BlackHoleOn, times, &All.CP, &(sph_predicted.EntVarPred), GradRho, &gasTree, All.UseGPU);
+            density(&Act, 0, 0, All.BlackHoleOn, times, &timebinmgr, &All.CP, &(sph_predicted.EntVarPred), GradRho, &gasTree, All.UseGPU);
             force_tree_free(&gasTree);
             slots_free_sph_pred_data(&sph_predicted);
         }

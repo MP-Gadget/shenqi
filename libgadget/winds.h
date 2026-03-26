@@ -31,7 +31,7 @@ double winds_get_speed(void);
 double winds_get_dens_thresh(void);
 
 /*Evolve a wind particle, reducing its DelayTime*/
-void winds_evolve(int i, double a3inv, double hubble);
+void winds_evolve(int i, double a3inv, double hubble, TimeBinMgr * timebinmgr);
 
 /*do the treewalk for the wind model*/
 void winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time, RandTable * rnd, ForceTree * tree, DomainDecomp * ddecomp);

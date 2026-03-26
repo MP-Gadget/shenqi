@@ -370,7 +370,7 @@ winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time,
 
 /*Evolve a wind particle, reducing its DelayTime*/
 void
-winds_evolve(int i, double a3inv, double hubble)
+winds_evolve(int i, double a3inv, double hubble, TimeBinMgr * timebinmgr)
 {
     /*Remove a wind particle from the delay mode if the (physical) density has dropped sufficiently.*/
     if(SPHP(i).DelayTime > 0 && SPHP(i).Density * a3inv < wind_params.WindFreeTravelDensThresh) {
@@ -381,7 +381,7 @@ winds_evolve(int i, double a3inv, double hubble)
         /* Enforce the maximum in case of restarts*/
         if(SPHP(i).DelayTime > wind_params.MaxWindFreeTravelTime)
             SPHP(i).DelayTime = wind_params.MaxWindFreeTravelTime;
-        const double dloga = get_dloga_for_bin(Part[i].TimeBinHydro, Part[i].Ti_drift);
+        const double dloga = timebinmgr->get_dloga_for_bin(Part[i].TimeBinHydro, Part[i].Ti_drift);
         /*  the proper time duration of the step */
         const double dtime = dloga / hubble;
         SPHP(i).DelayTime = fmax(SPHP(i).DelayTime - dtime, 0);

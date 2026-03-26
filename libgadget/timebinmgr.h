@@ -48,6 +48,8 @@ class TimeBinMgr {
 
     TimeBinMgr (Cosmology * CP, double TimeIC, double TimeMax, double no_snapshot_until_time, bool SnapshotWithFOF);
 
+    TimeBinMgr (): SyncPoints(NULL), NSyncPoints(0) {};
+
     /*! this function returns the next output time that is in the future of
     *  ti_curr; if none is find it return NULL, indication the run shall terminate.
     */
@@ -78,7 +80,7 @@ class TimeBinMgr {
     }
 
     /*Convert an integer to and from loga*/
-    double
+    MYCUDAFN double
     loga_from_ti(inttime_t ti)
     {
         inttime_t lastsnap = ti >> TIMEBINS;
@@ -91,7 +93,7 @@ class TimeBinMgr {
         return last + dti * logDTime;
     }
 
-    inttime_t
+    MYCUDAFN inttime_t
     ti_from_loga(double loga)
     {
         inttime_t i, ti;
@@ -111,7 +113,7 @@ class TimeBinMgr {
     }
 
     /*Convert changes in loga to and from ti*/
-    inttime_t
+    MYCUDAFN inttime_t
     dti_from_dloga(double loga, const inttime_t Ti_Current)
     {
         inttime_t ti = ti_from_loga(loga_from_ti(Ti_Current));
@@ -137,6 +139,12 @@ class TimeBinMgr {
     {
         double logDTime = Dloga_interval_ti(Ti_Current);
         return dti_from_timebin(timebin) * logDTime;
+    }
+
+    /* Get the current scale factor*/
+    MYCUDAFN double
+    get_atime(const inttime_t Ti_Current) {
+        return exp(loga_from_ti(Ti_Current));
     }
 
     private:

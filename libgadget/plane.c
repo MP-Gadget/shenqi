@@ -111,10 +111,10 @@ set_plane_params(ParameterSet * ps, const double BoxSize)
             }
         }
         else
-            PlaneParams.CutPoints = BuildOutputList(params_get_string(ps, "PlaneCutPoints"));
+            PlaneParams.CutPoints = BuildOutputList(param_get_string(ps, "PlaneCutPoints"));
     }
     // 1. Broadcast the POD members together
-    MPI_Bcast(&PlaneParams, offsetof(PlaneParams, CutPoints), MPI_BYTE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&PlaneParams, offsetof(struct plane_params, CutPoints), MPI_BYTE, 0, MPI_COMM_WORLD);
 
     // 2. Broadcast the vector
     size_t len = PlaneParams.CutPoints.size();
@@ -152,7 +152,7 @@ void write_plane(int snapnum, const double atime, Cosmology * CP, const char * O
     message(0, "Comoving distance: %g\n", comoving_distance);
 
     /* loop over cut points and normal directions to generate lensing potential planes */
-    for (int i = 0; i < PlaneParams.CutPoints.size(); i++) {
+    for (size_t i = 0; i < PlaneParams.CutPoints.size(); i++) {
         for (int j = 0; j < PlaneParams.NormalsLength; j++) {
             message(0, "Computing for cut point %g and normal %d\n", PlaneParams.CutPoints[i], PlaneParams.Normals[j]);
 

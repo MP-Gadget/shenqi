@@ -212,8 +212,11 @@ blackholes_active(const ActiveParticles * act, int ** ActiveBlackHoles, int64_t 
     return totbh;
 }
 
+/* Pointer to the global time bin manager. Hacky but will go away once we port to the C++ tree.*/
+TimeBinMgr * globalTimeBinMgr;
+
 void
-blackhole(const ActiveParticles * act, double atime, Cosmology * CP, ForceTree * tree, DomainDecomp * ddecomp, DriftKickTimes * times, RandTable * rnd, const struct UnitSystem units, FILE * FdBlackHoles, FILE * FdBlackholeDetails, size_t * bhdetailswritten)
+blackhole(const ActiveParticles * act, double atime, Cosmology * CP, ForceTree * tree, DomainDecomp * ddecomp, DriftKickTimes * times, TimeBinMgr * timebinmgr, RandTable * rnd, const struct UnitSystem units, FILE * FdBlackHoles, FILE * FdBlackholeDetails, size_t * bhdetailswritten)
 {
     /* Do nothing if no black holes*/
     int64_t totbh;
@@ -230,6 +233,7 @@ blackhole(const ActiveParticles * act, double atime, Cosmology * CP, ForceTree *
         return;
     }
 
+    globalTimeBinMgr = timebinmgr;
     /* Types used in treewalks:
      * accretion uses: gas + black holes (to flag mergers).
      * feedback uses: gas + black holes (to flag mergers).
@@ -409,7 +413,7 @@ blackhole_accretion_postprocess(int i, TreeWalk * tw)
     }
     BHP(i).Mdot = mdot;
 
-    double dtime = get_dloga_for_bin(Part[i].TimeBinHydro, Part[i].Ti_drift) / BH_GET_PRIV(tw)->hubble;
+    double dtime = globalTimeBinMgr->get_dloga_for_bin(Part[i].TimeBinHydro, Part[i].Ti_drift) / BH_GET_PRIV(tw)->hubble;
 
     BHP(i).Mass += BHP(i).Mdot * dtime;
 
@@ -920,7 +924,7 @@ blackhole_feedback_copy(int i, TreeWalkQueryBHFeedback * I, TreeWalk * tw)
     I->FeedbackWeightSum = BH_GET_PRIV(tw)->BH_FeedbackWeightSum[PI];
     I->FdbkChannel = 0; /* thermal feedback mode */
 
-    double dtime = get_dloga_for_bin(Part[i].TimeBinHydro, Part[i].Ti_drift) / BH_GET_PRIV(tw)->hubble;
+    double dtime = globalTimeBinMgr->get_dloga_for_bin(Part[i].TimeBinHydro, Part[i].Ti_drift) / BH_GET_PRIV(tw)->hubble;
 
     I->FeedbackEnergy = blackhole_params.BlackHoleFeedbackFactor * 0.1 * BHP(i).Mdot * dtime *
                 pow(LIGHTCGS / BH_GET_PRIV(tw)->units.UnitVelocity_in_cm_per_s, 2);
