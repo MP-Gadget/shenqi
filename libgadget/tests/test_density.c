@@ -23,6 +23,7 @@ struct density_testdata
     struct sph_pred_data sph_pred;
     DomainDecomp ddecomp;
     struct density_params dp;
+    TimeBinMgr timebinmgr;
 };
 
 /*Make a simple trivial domain for all data on a single processor*/
@@ -60,7 +61,7 @@ static struct density_testdata setup_density(void)
 {
     struct density_testdata data = {0};
     /* Needed so the integer timeline works*/
-    setup_sync_points(NULL,0.01, 0.1, 0.0, 0);
+    data.timebinmgr = TimeBinMgr(NULL,0.01, 0.1, 0.0, false);
 
     /*Reserve space for the slots*/
     slots_init(0.01 * PartManager->MaxPart, SlotsManager);
@@ -166,7 +167,7 @@ static void do_density_test(struct density_testdata * data, const int numpart, d
 
     /* Rebuild without moments to check it works*/
     force_tree_rebuild_mask(&tree, &ddecomp, GASMASK, NULL);
-    density(&act, 1, 0, 0, kick, &CP, &(data->sph_pred.EntVarPred), NULL, &tree);
+    density(&act, 1, 0, 0, kick, &data->timebinmgr, &CP, &(data->sph_pred.EntVarPred), NULL, &tree);
     end = MPI_Wtime();
     double ms = (end - start)*1000;
     message(0, "Found densities in %.3g ms\n", ms);
@@ -191,7 +192,7 @@ static void do_density_test(struct density_testdata * data, const int numpart, d
 
     start = MPI_Wtime();
     /*Find the density*/
-    density(&act, 1, 0, 0, kick, &CP, &(data->sph_pred.EntVarPred), NULL, &tree);
+    density(&act, 1, 0, 0, kick, &data->timebinmgr, &CP, &(data->sph_pred.EntVarPred), NULL, &tree);
     end = MPI_Wtime();
     slots_free_sph_pred_data(&data->sph_pred);
 
