@@ -40,13 +40,22 @@ inttime_t ti_from_loga(double loga);
 inttime_t dti_from_dloga(double loga, const inttime_t Ti_Current);
 double dloga_from_dti(inttime_t dti, const inttime_t Ti_Current);
 
-/*Get dloga from a timebin*/
-double get_dloga_for_bin(int timebin, const inttime_t Ti_Current);
-
 /*Get the dti from the timebin*/
-static inline inttime_t dti_from_timebin(int bin) {
+MYCUDAFN static inline inttime_t dti_from_timebin(int bin) {
     /*Casts to work around bug in intel compiler 18.0*/
     return bin > 0 ? (1Lu << (uint64_t) bin) : 0;
+}
+
+/*Gets Dloga / ti for the current integer timeline.
+ * Valid up to the next snapshot, after which it will change*/
+double Dloga_interval_ti(inttime_t ti);
+
+/*Get dloga from a timebin*/
+MYCUDAFN static inline double
+get_dloga_for_bin(int timebin, const inttime_t Ti_Current)
+{
+    double logDTime = Dloga_interval_ti(Ti_Current);
+    return dti_from_timebin(timebin) * logDTime;
 }
 
 /* Enforce that an integer timestep is a power

@@ -11,8 +11,6 @@
 #include "utils/openmpsort.h"
 
 #include "cosmology.h"
-#include "plane.h"
-#include "timefac.h"
 
 #define MAXTIMES 1024
 /*! table with desired sync points. All forces and phase space variables are synchonized to the same order. */
@@ -354,7 +352,7 @@ find_current_sync_point(inttime_t ti)
 
 /*Gets Dloga / ti for the current integer timeline.
  * Valid up to the next snapshot, after which it will change*/
-static double
+double
 Dloga_interval_ti(inttime_t ti)
 {
     /* FIXME: This uses the bit tricks because it has to be fast
@@ -423,13 +421,6 @@ dti_from_dloga(double loga, const inttime_t Ti_Current)
     inttime_t ti = ti_from_loga(loga_from_ti(Ti_Current));
     inttime_t tip = ti_from_loga(loga+loga_from_ti(Ti_Current));
     return tip - ti;
-}
-
-double
-get_dloga_for_bin(int timebin, const inttime_t Ti_Current)
-{
-    double logDTime = Dloga_interval_ti(Ti_Current);
-    return dti_from_timebin(timebin) * logDTime;
 }
 
 inttime_t
