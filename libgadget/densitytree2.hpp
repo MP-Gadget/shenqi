@@ -15,7 +15,6 @@ class DensityPriv : public ParamTypeBase {
     bool DoEgyDensity;
     bool WindsDecouple;
 
-    DriftKickTimes times;
     /*!< Desired number of SPH neighbours */
     double DesNumNgb;
     double DesNumNgbBH;
@@ -30,10 +29,10 @@ class DensityPriv : public ParamTypeBase {
      * DensityOutput uses BhP as well.*/
     sph_particle_data * SphParts;
 
-    DensityPriv(const struct density_params DensityParams, const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, DriftKickTimes * i_times, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const part_manager_type * const PartManager, slots_manager_type * SlotsManager):
-    ParamTypeBase(PartManager->BoxSize), update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), WindsDecouple(winds_ever_decouple()),  times(*i_times),
+    DensityPriv(const struct density_params DensityParams, const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, DriftKickTimes * times, TimeBinMgr * timebinmgr, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const part_manager_type * const PartManager, slots_manager_type * SlotsManager):
+    ParamTypeBase(PartManager->BoxSize), update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), WindsDecouple(winds_ever_decouple()),
     DesNumNgb(GetNumNgb(DensityParams.DensityKernelType)), DesNumNgbBH(DesNumNgb * DensityParams.BlackHoleNgbFactor),
-    MinGasHsml(DensityParams.MinGasHsml), kf(i_times, CP), EntVarPred(NULL), SphParts(reinterpret_cast<sph_particle_data *>(SlotsManager->info[0].ptr))
+    MinGasHsml(DensityParams.MinGasHsml), kf(times, CP, timebinmgr), EntVarPred(NULL), SphParts(reinterpret_cast<sph_particle_data *>(SlotsManager->info[0].ptr))
     {
         /* If enough particles are active, easiest to compute all the predicted velocities immediately*/
         if(!act->ActiveParticle || act->NumActiveHydro > (SlotsManager->info[0].size + SlotsManager->info[5].size) / DesNumNgb) {
@@ -42,7 +41,7 @@ class DensityPriv : public ParamTypeBase {
             #pragma omp parallel for
             for(int64_t i = 0; i < PartManager->NumPart; i++)
                 if(parts[i].Type == 0 && !parts[i].IsGarbage)
-                    EntVarPred[parts[i].PI] = SPH_EntVarPred(parts[i], SphParts[parts[i].PI], &times);
+                    EntVarPred[parts[i].PI] = kf.SPH_EntVarPred(parts[i], SphParts[parts[i].PI]);
         }
     }
 };
@@ -137,7 +136,7 @@ class DensityOutput {
                 if(priv->EntVarPred)
                     EntPred = priv->EntVarPred[parts[i].PI];
                 else
-                    EntPred = SPH_EntVarPred(parts[i], SphParts[parts[i].PI], &priv->times);
+                    EntPred = priv->kf.SPH_EntVarPred(parts[i], SphParts[parts[i].PI]);
 #if defined DEBUG && not defined __CUDACC__
                 if(EntPred <= 0 || SphParts[parts[i].PI].EgyWtDensity <=0)
                     endrun(12, "Particle %d has bad predicted entropy: %g or EgyWtDensity: %g, Particle ID = %ld, pos %g %g %g, vel %g %g %g, mass = %g, density = %g, MaxSignalVel = %g, Entropy = %g, DtEntropy = %g \n", i, EntPred, SphParts[parts[i].PI].EgyWtDensity, parts[i].ID, parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2], parts[i].Vel[0], parts[i].Vel[1], parts[i].Vel[2], parts[i].Mass, SphParts[parts[i].PI].Density, SphParts[parts[i].PI].MaxSignalVel, SphParts[parts[i].PI].Entropy, SphParts[parts[i].PI].DtEntropy);
@@ -388,7 +387,7 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk<Density
             if(priv.EntVarPred)
                 EntVarPred = priv.EntVarPred[particle.PI];
             else
-                EntVarPred = SPH_EntVarPred(particle, sph_data, &priv.times);
+                EntVarPred = priv->kf.SPH_EntVarPred(particle, sph_data);
 
             output->EgyRho += mass_j * EntVarPred * wk;
             output->DhsmlEgyDensity += mass_j * EntVarPred * density_dW;

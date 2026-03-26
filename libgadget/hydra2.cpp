@@ -80,7 +80,7 @@ hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPre
         endrun(5, "Hydro called before hmax computed\n");
 
     HydroPriv * priv = (HydroPriv *) mymanagedmalloc("GravTreeParams", sizeof(HydroPriv));
-    new (priv) HydroPriv(tree->BoxSize, EntVarPred, atime, &times, CP, HydroParams);
+    new (priv) HydroPriv(tree->BoxSize, EntVarPred, atime, &times, timebinmgr, CP, HydroParams);
 
     walltime_measure("/SPH/Hydro/Init");
 

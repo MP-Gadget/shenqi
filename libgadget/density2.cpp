@@ -103,11 +103,11 @@ class DensityTreeWalkQuintic: public TreeWalk<DensityTreeWalkQuintic, DensityQue
  * neighbours.)
  */
 void
-density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTree * const tree, bool UseGPU)
+density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, TimeBinMgr * timebinmgr, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTree * const tree, bool UseGPU)
 {
     /* This ensures these classes are in managed memory and so accessible on the device. */
     DensityPriv * priv = (DensityPriv *) mymanagedmalloc("DensityPriv", sizeof(DensityPriv));
-    new (priv) DensityPriv(DensityParams, update_hsml, DoEgyDensity, BlackHoleOn, &times, tree->BoxSize, CP, act, PartManager, SlotsManager);
+    new (priv) DensityPriv(DensityParams, update_hsml, DoEgyDensity, BlackHoleOn, &times, timebinmgr, tree->BoxSize, CP, act, PartManager, SlotsManager);
     DensityOutput * output = (DensityOutput *) mymanagedmalloc("DensityOutput", sizeof(DensityOutput));
     new (output) DensityOutput(GradRho_mag, PartManager->NumPart, tree->BoxSize, DensityParams.MaxNumNgbDeviation, SlotsManager);
 
