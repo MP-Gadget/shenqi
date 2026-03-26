@@ -88,12 +88,12 @@ class HydroPriv : public ParamTypeBase {
         /* Initialize some time factors*/
         memset(drifts, 0, sizeof(drifts[0])*(TIMEBINS+1));
         #pragma omp parallel for
-        for(int i = times.mintimebin; i <= TIMEBINS; i++)
+        for(int i = times->mintimebin; i <= TIMEBINS; i++)
         {
             /* For density: last active drift time is Ti_kick - 1/2 timestep as the kick time is half a timestep ahead.
             * For active particles no density drift is needed.*/
-            if(!is_timebin_active(i, times.Ti_Current))
-                drifts[i] = get_exact_drift_factor(CP, times.Ti_lastactivedrift[i], times.Ti_Current);
+            if(!is_timebin_active(i, times->Ti_Current))
+                drifts[i] = get_exact_drift_factor(CP, times->Ti_lastactivedrift[i], times->Ti_Current);
         }
     }
     ~HydroPriv()
@@ -143,7 +143,7 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     int TimeBinHydro;
     MYCUDAFN HydroQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const HydroPriv& priv):
     TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), EgyRho(priv.SphParts[particle.PI].EgyWtDensity),
-    Hsml(particle.Hsml), Mass(particle.Mass), Density(priv.SphParts[particle.PI].Density), SPH_DhsmlDensityFactor(priv.SphParts[particle.PI].DhsmlEgyDensityFactor), TimeBinHydro(particle.TimebinHydro)
+    Hsml(particle.Hsml), Mass(particle.Mass), Density(priv.SphParts[particle.PI].Density), SPH_DhsmlDensityFactor(priv.SphParts[particle.PI].DhsmlEgyDensityFactor), TimeBinHydro(particle.TimeBinHydro)
     {
         sph_particle_data& sphp_i = priv.SphParts[particle.PI];
 
@@ -155,7 +155,7 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
         if(priv.EntVarPred)
             EntVarPred = priv.EntVarPred[particle.PI];
         else
-            EntVarPred = priv->kf.SPH_EntVarPred(particle, sphp_i);
+            EntVarPred = priv.kf.SPH_EntVarPred(particle, sphp_i);
 
         const double eomdensity_i = SPH_EOMDensity(&sphp_i, priv.DensityIndependentSphOn);
         if(priv.PressurePred)
@@ -272,7 +272,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
         if(priv.EntVarPred)
             EntVarPred = priv.EntVarPred[particle.PI];
         else
-            EntVarPred = priv->kf.SPH_EntVarPred(particle, sphp_j);
+            EntVarPred = priv.kf.SPH_EntVarPred(particle, sphp_j);
 
         /* Predict densities. Note that for active timebins the density is up to date so SPH_DensityPred is just returns the current densities.
          * This improves on the technique used in Gadget-2 by being a linear prediction that does not become pathological in deep timebins.*/
@@ -325,7 +325,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
             /* now make sure that viscous acceleration is not too large */
 
             /*XXX: why is this dloga ?*/
-            double dloga = 2 * fmax(priv->kf.dloga[input.TimeBinHydro], priv->kf.dloga[particle.TimeBinHydro]));
+            double dloga = 2 * fmax(priv.kf.dloga[input.TimeBinHydro], priv.kf.dloga[particle.TimeBinHydro]);
             if(dloga > 0 && (dwk_i + dwk_j) < 0)
             {
                 if((input.Mass + particle.Mass) > 0) {

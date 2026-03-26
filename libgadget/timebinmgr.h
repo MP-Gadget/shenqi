@@ -187,7 +187,7 @@ inttime_t round_down_power_of_two(inttime_t ti);
  *  We sort the input after reading it, so that the initial list need not be sorted.
  *  This function could be repurposed for reading generic arrays in future.
  */
-int64_t BuildOutputList(std::string outputliststr);
+std::vector<double> BuildOutputList(std::string outputliststr);
 
 void set_sync_params_test(int OutputListLength, double * OutputListTimes);
 void set_sync_params(ParameterSet * ps);

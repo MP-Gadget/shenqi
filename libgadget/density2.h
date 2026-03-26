@@ -111,7 +111,7 @@ class KickFactorData
     /* The evolved entropy at drift time: evolved dlog a.
     * Used to predict pressure and entropy for SPH */
     MYCUDAFN MyFloat
-    SPH_EntVarPred(const particle_data& particle, const sph_particle_data& sph_part)
+    SPH_EntVarPred(const particle_data& particle, const sph_particle_data& sph_part) const
     {
             double EntVarPred = sph_part.Entropy + sph_part.DtEntropy * dloga[particle.TimeBinHydro];
             /*Entropy limiter for the predicted entropy: makes sure entropy stays positive. */

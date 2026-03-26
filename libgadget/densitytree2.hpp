@@ -387,7 +387,7 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk<Density
             if(priv.EntVarPred)
                 EntVarPred = priv.EntVarPred[particle.PI];
             else
-                EntVarPred = priv->kf.SPH_EntVarPred(particle, sph_data);
+                EntVarPred = priv.kf.SPH_EntVarPred(particle, sph_data);
 
             output->EgyRho += mass_j * EntVarPred * wk;
             output->DhsmlEgyDensity += mass_j * EntVarPred * density_dW;

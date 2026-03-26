@@ -74,7 +74,7 @@ class HydroTreeWalkQuintic: public TreeWalk<HydroTreeWalkQuintic, HydroQuery, Hy
  *  particles .
  */
 void
-hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPred, DriftKickTimes& times,  Cosmology * CP, const ForceTree * const tree, bool UseGPU)
+hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPred, DriftKickTimes& times, TimeBinMgr * timebinmgr, Cosmology * CP, const ForceTree * const tree, bool UseGPU)
 {
     if(!tree->hmax_computed_flag)
         endrun(5, "Hydro called before hmax computed\n");
