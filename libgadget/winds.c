@@ -384,7 +384,7 @@ winds_evolve(int i, double a3inv, double hubble)
         const double dloga = get_dloga_for_bin(Part[i].TimeBinHydro, Part[i].Ti_drift);
         /*  the proper time duration of the step */
         const double dtime = dloga / hubble;
-        SPHP(i).DelayTime = DMAX(SPHP(i).DelayTime - dtime, 0);
+        SPHP(i).DelayTime = fmax(SPHP(i).DelayTime - dtime, 0);
     }
 }
 

@@ -326,11 +326,11 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
             /* now make sure that viscous acceleration is not too large */
 
             /*XXX: why is this dloga ?*/
-            double dloga = 2 * DMAX(input.dloga, get_dloga_for_bin(particle.TimeBinHydro, priv.times.Ti_Current));
+            double dloga = 2 * fmax(input.dloga, get_dloga_for_bin(particle.TimeBinHydro, priv.times.Ti_Current));
             if(dloga > 0 && (dwk_i + dwk_j) < 0)
             {
                 if((input.Mass + particle.Mass) > 0) {
-                    visc = DMIN(visc, 0.5 * priv.fac_vsic_fix * vdotr2 /
+                    visc = fmin(visc, 0.5 * priv.fac_vsic_fix * vdotr2 /
                             (0.5 * (input.Mass + particle.Mass) * (dwk_i + dwk_j) * r * dloga));
                 }
             }
@@ -351,8 +351,8 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
             if(priv.DensityContrastLimit >= 0) {
                 rr1 = input.EgyRho / input.Density;
                 rr2 = eomdensity_j / density_j;
-                rr1 = DMIN(rr1, priv.DensityContrastLimit);
-                rr2 = DMIN(rr2, priv.DensityContrastLimit);
+                rr1 = fmin(rr1, priv.DensityContrastLimit);
+                rr2 = fmin(rr2, priv.DensityContrastLimit);
             }
         }
 

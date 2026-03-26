@@ -64,7 +64,7 @@ winds_decoupled_hydro(sph_particle_data * sphp, const double atime, const double
     const double fac_mu = pow(atime, 3 * (GAMMA - 1) / 2) / atime;
     windspeed *= fac_mu;
     double hsml_c = cbrt(WindFreeTravelDensThresh /sphp->Density) * atime;
-    sphp->MaxSignalVel = hsml_c * DMAX(2 * windspeed, sphp->MaxSignalVel);
+    sphp->MaxSignalVel = hsml_c * fmax(2 * windspeed, sphp->MaxSignalVel);
 }
 
 /* Returns 1 if the winds ever decouple, 0 otherwise*/

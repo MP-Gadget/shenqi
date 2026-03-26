@@ -157,7 +157,7 @@ cull_node(const double * const Pos, const double BoxSize, const MyFloat Hsml, co
 {
     double dist;
     if constexpr (symmetric == NGB_TREEFIND_SYMMETRIC) {
-        dist = DMAX(current->mom.hmax, Hsml) + 0.5 * current->len;
+        dist = fmax(current->mom.hmax, Hsml) + 0.5 * current->len;
     } else {
         dist = Hsml + 0.5 * current->len;
     }
