@@ -504,7 +504,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
                  * he has never encountered a simulation where this matters in practice, probably because
                  * it would only be important in very dissipative environments where the SPH noise is fairly large
                  * and there is no opportunity for errors to build up.*/
-                hydro_force(&Act, atime, sph_predicted.EntVarPred, times, &All.CP, &gasTree);
+                hydro_force(&Act, atime, sph_predicted.EntVarPred, times, &All.CP, &gasTree, All.UseGPU);
             }
             /* Scratch data cannot be used checkpoint because FOF does an exchange.*/
             slots_free_sph_pred_data(&sph_predicted);

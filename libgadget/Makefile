@@ -61,7 +61,7 @@ GADGET_C_SRCS =  hci.c\
 GADGET_CPP_SRCS = hydra2.cpp density2.cpp gravshort-tree2.cpp walltime.cpp \
 cooling_rates.cpp cooling_qso_lightup.cpp cosmology.cpp neutrinos_lra.cpp omega_nu_single.cpp timefac.cpp timebinmgr.cpp lightcone.cpp
 
-GADGET_CUDA_SRCS = gravshortcuda.cu densitycuda.cu
+GADGET_CUDA_SRCS = gravshortcuda.cu densitycuda.cu hydracuda.cu
 
 ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
 GADGET_OBJS := $(addsuffix .o,$(basename $(GADGET_C_SRCS))) $(addsuffix .o,$(basename $(GADGET_CPP_SRCS))) $(addsuffix .o,$(basename $(GADGET_CUDA_SRCS)))
