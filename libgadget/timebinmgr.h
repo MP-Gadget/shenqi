@@ -77,29 +77,6 @@ class TimeBinMgr {
         return NULL;
     }
 
-    /* Each integer time stores in the first 10 bits the snapshot number.
-    * Then the rest of the bits are the standard integer timeline,
-    * which should be a power-of-two hierarchy. We use this bit trick to speed up
-    * the dloga look up. But the additional math makes this quite fragile. */
-
-    /*Gets Dloga / ti for the current integer timeline.
-    * Valid up to the next snapshot, after which it will change*/
-    double
-    Dloga_interval_ti(inttime_t ti)
-    {
-        /* FIXME: This uses the bit tricks because it has to be fast
-        * -- till we clean up the calls to loga_from_ti; then we can avoid bit tricks. */
-
-        inttime_t lastsnap = ti >> TIMEBINS;
-
-        if(lastsnap >= NSyncPoints - 1) {
-            /* stop advancing loga after the last sync point. */
-            return 0;
-        }
-        double lastoutput = SyncPoints[lastsnap].loga;
-        return (SyncPoints[lastsnap+1].loga - lastoutput)/TIMEBASE;
-    }
-
     /*Convert an integer to and from loga*/
     double
     loga_from_ti(inttime_t ti)
@@ -162,6 +139,29 @@ class TimeBinMgr {
         return dti_from_timebin(timebin) * logDTime;
     }
 
+    private:
+    /* Each integer time stores in the first 10 bits the snapshot number.
+    * Then the rest of the bits are the standard integer timeline,
+    * which should be a power-of-two hierarchy. We use this bit trick to speed up
+    * the dloga look up. But the additional math makes this quite fragile. */
+
+    /*Gets Dloga / ti for the current integer timeline.
+    * Valid up to the next snapshot, after which it will change*/
+    double
+    Dloga_interval_ti(inttime_t ti)
+    {
+        /* FIXME: This uses the bit tricks because it has to be fast
+        * -- till we clean up the calls to loga_from_ti; then we can avoid bit tricks. */
+
+        inttime_t lastsnap = ti >> TIMEBINS;
+
+        if(lastsnap >= NSyncPoints - 1) {
+            /* stop advancing loga after the last sync point. */
+            return 0;
+        }
+        double lastoutput = SyncPoints[lastsnap].loga;
+        return (SyncPoints[lastsnap+1].loga - lastoutput)/TIMEBASE;
+    }
 };
 
 /* Enforce that an integer timestep is a power
@@ -179,7 +179,7 @@ inttime_t round_down_power_of_two(inttime_t ti);
  *  We sort the input after reading it, so that the initial list need not be sorted.
  *  This function could be repurposed for reading generic arrays in future.
  */
-int64_t BuildOutputList(std::string outputliststr, double * outputlist, int64_t maxlength);
+int64_t BuildOutputList(std::string outputliststr);
 
 void set_sync_params_test(int OutputListLength, double * OutputListTimes);
 void set_sync_params(ParameterSet * ps);

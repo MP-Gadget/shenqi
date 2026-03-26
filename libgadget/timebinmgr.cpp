@@ -136,7 +136,7 @@ void set_sync_params_test(int OutputListLength, double * OutputListTimes)
  * TimeIC and TimeMax are used to ensure restarting from snapshot obtains exactly identical
  * integer stamps.
  **/
-TimeBinMgr::TimeBinMgr (Cosmology * CP, double TimeIC, double TimeMax, double no_snapshot_until_time, bool SnapshotWithFOF)
+TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_snapshot_until_time, bool SnapshotWithFOF)
 {
     int64_t NSyncPointsAlloc = Sync.OutputListTimes.size() + Sync.PlaneOutputListTimes.size() + 2;
 
