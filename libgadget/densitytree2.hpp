@@ -5,6 +5,7 @@
 #include "localtreewalk2.h"
 #include "utils/mymalloc.h"
 #include "winds.h"
+#include "densitykernel.hpp"
 
 class DensityPriv : public ParamTypeBase {
     public:

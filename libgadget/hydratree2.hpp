@@ -13,6 +13,7 @@
 #include "winds.h"
 #include "utils/mymalloc.h"
 #include "hydra2.h"
+#include "densitykernel.hpp"
 
 /* Function to get the center of mass density and HSML correction factor for an SPH particle with index i.
  * Encodes the main difference between pressure-entropy SPH and regular SPH.
@@ -211,7 +212,7 @@ class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
  * The Density in the SPHP struct is evaluated at the last time
  * the particle was active. Good for both EgyWtDensity and Density,
  * cube of the change in Hsml in drift.c. */
-MYCUDAFN double
+MYCUDAFN static inline double
 SPH_DensityPred(MyFloat Density, MyFloat DivVel, double dtdrift)
 {
     /* Note minus sign!*/

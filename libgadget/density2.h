@@ -124,7 +124,7 @@ SPH_EntVarPred(const particle_data& particle, const sph_particle_data& sph_part,
         EntVarPred = exp(1./GAMMA * log(EntVarPred));
 //         EntVarPred = pow(EntVarPred, 1/GAMMA);
         return EntVarPred;
-}
+};
 
 /* Set the initial smoothing length for gas and BH. Used on first timestep in init()*/
 void set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSeparation, struct part_manager_type * const PartManager);
