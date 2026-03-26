@@ -11,13 +11,11 @@
 #include "physconst.h"
 #include "timebinmgr.h"
 #include "domain.h"
-#include "timefac.h"
 #include "cosmology.h"
 #include "slotsmanager.h"
 #include "partmanager.h"
 #include "walltime.h"
 #include "timestep.h"
-#include "timefac.h"
 #include "gravity.h"
 
 /*! \file timestep.c

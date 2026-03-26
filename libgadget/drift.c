@@ -3,7 +3,6 @@
 #include "drift.h"
 #include "bhdynfric.h"
 #include "walltime.h"
-#include "timefac.h"
 #include "utils/endrun.h"
 
 /* Drifts an individual particle to time ti1, by a drift factor ddrift.

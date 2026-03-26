@@ -4,7 +4,6 @@
 #include "partmanager.h"
 #include "cosmology.h"
 #include "timestep.h"
-#include "timefac.h"
 #include "forcetree.h"
 #include "densitykernel.h"
 #include "physconst.h"

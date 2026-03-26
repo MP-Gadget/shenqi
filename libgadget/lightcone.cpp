@@ -10,7 +10,6 @@
 
 #include "utils/endrun.h"
 #include "utils/system.h"
-#include "timefac.h"
 #include "partmanager.h"
 #include "cosmology.h"
 #include "physconst.h"

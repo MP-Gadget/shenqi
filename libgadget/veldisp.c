@@ -4,7 +4,6 @@
 #include "treewalk.h"
 #include "walltime.h"
 #include "sfr_eff.h"
-#include "timefac.h"
 #include "density.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"

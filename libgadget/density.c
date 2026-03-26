@@ -9,7 +9,6 @@
 #include "walltime.h"
 #include "density.h"
 #include "treewalk.h"
-#include "timefac.h"
 #include "slotsmanager.h"
 #include "timestep.h"
 #include "utils/endrun.h"

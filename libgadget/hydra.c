@@ -9,7 +9,6 @@
 #include "slotsmanager.h"
 #include "treewalk.h"
 #include "density.h"
-#include "timefac.h"
 #include "hydra.h"
 #include "winds.h"
 #include "utils/endrun.h"

@@ -9,7 +9,6 @@
 #include "treewalk2.h"
 #include "timebinmgr.h"
 #include "density2.h"
-#include "timefac.h"
 #include "winds.h"
 #include "utils/mymalloc.h"
 #include "hydra2.h"
