@@ -136,18 +136,9 @@ void set_sync_params_test(int OutputListLength, double * OutputListTimes)
  * TimeIC and TimeMax are used to ensure restarting from snapshot obtains exactly identical
  * integer stamps.
  **/
-void
-setup_sync_points(Cosmology * CP, double TimeIC, double TimeMax, double no_snapshot_until_time, int SnapshotWithFOF)
+TimeBinMgr::TimeBinMgr (Cosmology * CP, double TimeIC, double TimeMax, double no_snapshot_until_time, bool SnapshotWithFOF)
 {
-    int64_t i;
-
-    qsort_openmp(Sync.OutputListTimes, Sync.OutputListLength, sizeof(double), cmp_double);
-    qsort_openmp(Sync.PlaneOutputListTimes, Sync.PlaneOutputListLength, sizeof(double), cmp_double);
-
-    if(NSyncPoints > 0)
-        myfree(SyncPoints);
-
-    int64_t NSyncPointsAlloc = Sync.OutputListLength + Sync.PlaneOutputListLength + 2;
+    int64_t NSyncPointsAlloc = Sync.OutputListTimes.size() + Sync.PlaneOutputListTimes.size() + 2;
 
     /* Excursion set sync points ensure that the reionization excursion set model is run frequently*/
     const double ExcursionSet_delta_a = 0.0001;
@@ -173,10 +164,10 @@ setup_sync_points(Cosmology * CP, double TimeIC, double TimeMax, double no_snaps
 
     SyncPoints[0].a = TimeIC;
     SyncPoints[0].loga = log(TimeIC);
-    SyncPoints[0].write_snapshot = 0; /* by default no output here. */
-    SyncPoints[0].write_fof = 0;
-    SyncPoints[0].calc_uvbg = 0;
-    SyncPoints[0].write_plane = 0;
+    SyncPoints[0].write_snapshot = false; /* by default no output here. */
+    SyncPoints[0].write_fof = false;
+    SyncPoints[0].calc_uvbg = false;
+    SyncPoints[0].write_plane = false;
     SyncPoints[0].plane_snapnum = -1;
     NSyncPoints = 1;
 
@@ -297,98 +288,6 @@ setup_sync_points(Cosmology * CP, double TimeIC, double TimeMax, double no_snaps
     /*for(i = 0; i < NSyncPoints; i++) {
         message(1,"Out: %g %ld\n", exp(SyncPoints[i].loga), SyncPoints[i].ti);
     }*/
-}
-
-/*! this function returns the next output time that is in the future of
- *  ti_curr; if none is find it return NULL, indication the run shall terminate.
- */
-SyncPoint *
-find_next_sync_point(inttime_t ti)
-{
-    int64_t i;
-    for(i = 0; i < NSyncPoints; i ++) {
-        if(SyncPoints[i].ti > ti) {
-            return &SyncPoints[i];
-        }
-    }
-    return NULL;
-}
-
-/* This function finds if ti is a sync point; if so returns the sync point;
- * otherwise, NULL. We check if we shall write a snapshot with this. */
-SyncPoint *
-find_current_sync_point(inttime_t ti)
-{
-    int64_t i;
-    for(i = 0; i < NSyncPoints; i ++) {
-        if(SyncPoints[i].ti == ti) {
-            return &SyncPoints[i];
-        }
-    }
-    return NULL;
-}
-
-/* Each integer time stores in the first 10 bits the snapshot number.
- * Then the rest of the bits are the standard integer timeline,
- * which should be a power-of-two hierarchy. We use this bit trick to speed up
- * the dloga look up. But the additional math makes this quite fragile. */
-
-/*Gets Dloga / ti for the current integer timeline.
- * Valid up to the next snapshot, after which it will change*/
-double
-Dloga_interval_ti(inttime_t ti)
-{
-    /* FIXME: This uses the bit tricks because it has to be fast
-     * -- till we clean up the calls to loga_from_ti; then we can avoid bit tricks. */
-
-    inttime_t lastsnap = ti >> TIMEBINS;
-
-    if(lastsnap >= NSyncPoints - 1) {
-        /* stop advancing loga after the last sync point. */
-        return 0;
-    }
-    double lastoutput = SyncPoints[lastsnap].loga;
-    return (SyncPoints[lastsnap+1].loga - lastoutput)/TIMEBASE;
-}
-
-double
-loga_from_ti(inttime_t ti)
-{
-    inttime_t lastsnap = ti >> TIMEBINS;
-    if(lastsnap > NSyncPoints) {
-        endrun(1, "Requesting snap %ld, from ti %ld, beyond last sync point %ld\n", lastsnap, ti, NSyncPoints);
-    }
-    double last = SyncPoints[lastsnap].loga;
-    inttime_t dti = ti & (TIMEBASE - 1);
-    double logDTime = Dloga_interval_ti(ti);
-    return last + dti * logDTime;
-}
-
-inttime_t
-ti_from_loga(double loga)
-{
-    inttime_t i, ti;
-    /* First syncpoint is simulation start*/
-    for(i = 1; i < NSyncPoints - 1; i++)
-    {
-        if(SyncPoints[i].loga > loga)
-            break;
-    }
-    /*If loop didn't trigger, i == All.NSyncPointTimes-1*/
-    double logDTime = (SyncPoints[i].loga - SyncPoints[i-1].loga)/TIMEBASE;
-    ti = (i-1) << TIMEBINS;
-    /* Note this means if we overrun the end of the timeline,
-     * we still get something reasonable*/
-    ti += (loga - SyncPoints[i-1].loga)/logDTime;
-    return ti;
-}
-
-inttime_t
-dti_from_dloga(double loga, const inttime_t Ti_Current)
-{
-    inttime_t ti = ti_from_loga(loga_from_ti(Ti_Current));
-    inttime_t tip = ti_from_loga(loga+loga_from_ti(Ti_Current));
-    return tip - ti;
 }
 
 inttime_t
