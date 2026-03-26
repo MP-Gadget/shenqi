@@ -1,12 +1,13 @@
 #ifndef DENSITY2_H
 #define DENSITY2_H
+#include <math.h>
 #include "partmanager.h"
 #include "cosmology.h"
 #include "timestep.h"
 #include "timefac.h"
 #include "forcetree.h"
-#include "densitykernel.hpp"
 #include "densitykernel.h"
+#include "physconst.h"
 
 struct density_params
 {
@@ -108,8 +109,22 @@ class KickFactorData
 
 /* The evolved entropy at drift time: evolved dlog a.
  * Used to predict pressure and entropy for SPH */
-MYCUDAFN
-MyFloat SPH_EntVarPred(const particle_data& particle, const sph_particle_data& sph_part, const DriftKickTimes * times);
+MYCUDAFN static inline MyFloat
+SPH_EntVarPred(const particle_data& particle, const sph_particle_data& sph_part, const DriftKickTimes * times)
+{
+        const int bin = particle.TimeBinHydro;
+        const double dloga = dloga_from_dti(times->Ti_Current - times->Ti_kick[bin], times->Ti_Current);
+        double EntVarPred = sph_part.Entropy + sph_part.DtEntropy * dloga;
+        /*Entropy limiter for the predicted entropy: makes sure entropy stays positive. */
+        if(EntVarPred < 0.05*sph_part.Entropy)
+            EntVarPred = 0.05 * sph_part.Entropy;
+        /* Just in case*/
+        if(EntVarPred <= 0)
+            return 0;
+        EntVarPred = exp(1./GAMMA * log(EntVarPred));
+//         EntVarPred = pow(EntVarPred, 1/GAMMA);
+        return EntVarPred;
+}
 
 /* Set the initial smoothing length for gas and BH. Used on first timestep in init()*/
 void set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSeparation, struct part_manager_type * const PartManager);

@@ -67,25 +67,6 @@ GetDensityKernelType(void)
     return DensityParams.DensityKernelType;
 }
 
-/* The evolved entropy at drift time: evolved dlog a.
- * Used to predict pressure and entropy for SPH */
-MYCUDAFN MyFloat
-SPH_EntVarPred(const particle_data& particle, const sph_particle_data& sph_part, const DriftKickTimes * times)
-{
-        const int bin = particle.TimeBinHydro;
-        const double dloga = dloga_from_dti(times->Ti_Current - times->Ti_kick[bin], times->Ti_Current);
-        double EntVarPred = sph_part.Entropy + sph_part.DtEntropy * dloga;
-        /*Entropy limiter for the predicted entropy: makes sure entropy stays positive. */
-        if(EntVarPred < 0.05*sph_part.Entropy)
-            EntVarPred = 0.05 * sph_part.Entropy;
-        /* Just in case*/
-        if(EntVarPred <= 0)
-            return 0;
-        EntVarPred = exp(1./GAMMA * log(EntVarPred));
-//         EntVarPred = pow(EntVarPred, 1/GAMMA);
-        return EntVarPred;
-}
-
 class DensityTreeWalkCubic: public TreeWalk<DensityTreeWalkCubic, DensityQuery, DensityResult, DensityLocalTreeWalk<CubicDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
     public:
     using TreeWalk::TreeWalk;
