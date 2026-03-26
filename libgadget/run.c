@@ -564,14 +564,14 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
                 /* We need to store a GravAccel for new star particles as well, so we need extra memory.*/
                 GravAccel.nstore = PartManager->NumPart + SlotsManager->info[0].size;
                 GravAccel.GravAccel = (MyFloat (*) [3]) mymanagedmalloc("GravAccel", GravAccel.nstore * sizeof(GravAccel.GravAccel[0]));
-                hierarchical_gravity_accelerations(&Act, &pm, ddecomp, GravAccel, &times, &timebinmgr, HybridNuTracer, &All.CP, All.OutputDir);
+                hierarchical_gravity_accelerations(&Act, &pm, ddecomp, GravAccel, &times, &timebinmgr, HybridNuTracer, &All.CP, All.OutputDir, All.UseGPU);
             }
             else if(All.TreeGravOn && totgravactive) {
                     ForceTree Tree = {0};
                     /* Do a short range pairwise only step if desired*/
                     const double rho0 = All.CP.Omega0 * 3 * All.CP.Hubble * All.CP.Hubble / (8 * M_PI * All.CP.GravInternal);
                     force_tree_full(&Tree, ddecomp, HybridNuTracer, All.OutputDir);
-                    grav_short_tree(&Act, &pm, &Tree, NULL, rho0, times.Ti_Current);
+                    grav_short_tree(&Act, &pm, &Tree, NULL, rho0, times.Ti_Current, All.UseGPU);
                     force_tree_free(&Tree);
             }
         }
@@ -792,7 +792,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
              * each timebin has a force done individually and we do not store the acceleration hierarchy.
              * This does mean we double the cost of the force evaluations.*/
             if(totgravactive)
-                badtimestep = hierarchical_gravity_and_timesteps(&Act, &pm, ddecomp, GravAccel, &times, &timebinmgr, atime, HybridNuTracer, All.FastParticleType, &All.CP, All.OutputDir);
+                badtimestep = hierarchical_gravity_and_timesteps(&Act, &pm, ddecomp, GravAccel, &times, &timebinmgr, atime, HybridNuTracer, All.FastParticleType, &All.CP, All.OutputDir, All.UseGPU);
             if(GasEnabled) {
                 /* Find hydro timesteps and apply the hydro kick, unsyncing the drift and kick times. */
                 badtimestep += find_hydro_timesteps(&Act, &times, &timebinmgr, atime, &All.CP, NumCurrentTiStep == 0);

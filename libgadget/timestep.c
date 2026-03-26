@@ -286,13 +286,13 @@ apply_hierarchical_grav_kick(const ActiveParticles * subact, Cosmology * CP, Dri
 
 /* Build a tree and use it to compute the gravitational accelerations*/
 void
-grav_short_tree_build_tree(const ActiveParticles * subact, PetaPM * pm, DomainDecomp * ddecomp, MyFloat (* AccelStore)[3], inttime_t Ti_Current, const double rho0, int HybridNuGrav, const char * EmergencyOutputDir)
+grav_short_tree_build_tree(const ActiveParticles * subact, PetaPM * pm, DomainDecomp * ddecomp, MyFloat (* AccelStore)[3], inttime_t Ti_Current, const double rho0, int HybridNuGrav, const char * EmergencyOutputDir, bool UseGPU)
 {
     /* Tree with only particle timesteps below this value*/
     ForceTree Tree = {0};
     /* No Father array here*/
     force_tree_active_moments(&Tree, ddecomp, subact, HybridNuGrav, 0, EmergencyOutputDir);
-    grav_short_tree(subact, pm, &Tree, AccelStore, rho0, Ti_Current);
+    grav_short_tree(subact, pm, &Tree, AccelStore, rho0, Ti_Current, UseGPU);
     force_tree_free(&Tree);
 }
 
@@ -301,7 +301,7 @@ grav_short_tree_build_tree(const ActiveParticles * subact, PetaPM * pm, DomainDe
  * and does the gravitational half-step kicks. Uses the accelerations in StoredGravAccel
  * for the longest timestep if available, otherwise uses FullTreeGravAccel, */
 int
-hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, TimeBinMgr * timebinmgr, const double atime, int HybridNuGrav, int FastParticleType, Cosmology * CP, const char * EmergencyOutputDir)
+hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, TimeBinMgr * timebinmgr, const double atime, int HybridNuGrav, int FastParticleType, Cosmology * CP, const char * EmergencyOutputDir, bool UseGPU)
 {
     /*Update the PM timestep size */
     const int isPM = is_PM_timestep(times);
@@ -449,7 +449,7 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
          * Need all particles as the index in the tree is the particle index. */
         MyFloat (*GravAccel)[3] = (MyFloat (*) [3]) mymanagedmalloc("GravAccel", PartManager->NumPart * sizeof(GravAccel[0]));
         /* Do the accelerations and build the tree*/
-        grav_short_tree_build_tree(subact, pm, ddecomp, GravAccel, times->Ti_Current, rho0, HybridNuGrav, EmergencyOutputDir);
+        grav_short_tree_build_tree(subact, pm, ddecomp, GravAccel, times->Ti_Current, rho0, HybridNuGrav, EmergencyOutputDir, UseGPU);
 
         /* We need to compute the new timestep here based on the acceleration at the current level,
          * because we will over-write the acceleration*/
@@ -486,7 +486,7 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
 /* Computes short-range gravitational forces at the second half of the step and
  * does the gravitational half-step kicks. Stores the longest timestep in StoredGravAccel.
  * If this is NULL, uses FullTreeGravAccel.*/
-int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, TimeBinMgr * timebinmgr, int HybridNuGrav, Cosmology * CP, const char * EmergencyOutputDir)
+int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, TimeBinMgr * timebinmgr, int HybridNuGrav, Cosmology * CP, const char * EmergencyOutputDir, bool UseGPU)
 {
     const double rho0 = CP->Omega0 * 3 * CP->Hubble * CP->Hubble / (8 * M_PI * CP->GravInternal);
     /* Find the longest active timebin.*/
@@ -515,7 +515,7 @@ int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm,
     /* Tree with moments but only particle timesteps below this value.
      * Done for all currently active gravitational particles.
      * Stores acceleration in Part[i].GravAccel.*/
-    grav_short_tree_build_tree(firstact, pm, ddecomp, StoredGravAccel.GravAccel, times->Ti_Current, rho0, HybridNuGrav, EmergencyOutputDir);
+    grav_short_tree_build_tree(firstact, pm, ddecomp, StoredGravAccel.GravAccel, times->Ti_Current, rho0, HybridNuGrav, EmergencyOutputDir, UseGPU);
 
     /* We need to do the kick here based on the acceleration at the current level,
         * because we will over-write the acceleration*/
@@ -545,7 +545,7 @@ int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm,
             /* Allocate memory for the accelerations so we don't over-write the acceleration from the longest timestep*/
             GravAccel = (MyFloat (*) [3]) mymanagedmalloc("GravAccel", PartManager->NumPart * sizeof(GravAccel[0]));
             /* Tree with moments but only particle timesteps below this value*/
-            grav_short_tree_build_tree(&subact, pm, ddecomp, GravAccel, times->Ti_Current, rho0, HybridNuGrav, EmergencyOutputDir);
+            grav_short_tree_build_tree(&subact, pm, ddecomp, GravAccel, times->Ti_Current, rho0, HybridNuGrav, EmergencyOutputDir, UseGPU);
         }
 
         report_memory_usage("GRAVITY-SHORT");

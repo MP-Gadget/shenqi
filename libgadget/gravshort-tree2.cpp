@@ -117,7 +117,6 @@ set_gravshort_tree_params(ParameterSet * ps)
         TreeParams.ShortRangeForceWindowType = (enum ShortRangeForceWindowType) param_get_enum(ps, "ShortRangeForceWindowType");
         /* This size is the maximum allowed without the MPI library breaking.*/
         TreeParams.MaxExportBufferBytes = 3584*1024*1024L;
-        TreeParams.UseGPU = param_get_int(ps, "UseGPU");
     }
     MPI_Bcast(&TreeParams, sizeof(struct gravshort_tree_params), MPI_BYTE, 0, MPI_COMM_WORLD);
 }
@@ -139,7 +138,7 @@ class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResul
  * only true on PM steps where all particles are active.
  */
 void
-grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current)
+grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool UseGPU)
 {
     GravShortTable gravtab(TreeParams.ShortRangeForceWindowType, pm->Asmth);
     GravTreeParams * priv = (GravTreeParams *) mymanagedmalloc("GravTreeParams", sizeof(GravTreeParams));
@@ -150,7 +149,7 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFl
 
     /* Do the treewalk! Run directly on the active list as we want to use all particles. */
     #ifdef USE_CUDA
-    if(TreeParams.UseGPU) {
+    if(UseGPU) {
         grav_short_tree_cuda(act, tree, priv, output, PartManager->Base, TreeParams.MaxExportBufferBytes, MPI_COMM_WORLD);
     } else
     #endif
