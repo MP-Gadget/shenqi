@@ -534,6 +534,22 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     if(maxerr > 1e-5)
         endrun(2, "New and old hydro tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
 
+#ifdef USE_CUDA
+    if(DoGPUTests) {
+        /* Compare the CPU and GPU density. */
+        start = second();
+        /* Final argument signals to use the GPU*/
+        hydro_force(&Act, header->TimeSnapshot, sph_predicted.EntVarPred, times, timebinmgr,  CP, &gasTree, true);
+        #pragma omp barrier
+        MPI_Barrier(MPI_COMM_WORLD);
+        double gpuhydro = second() - start;
+        check_hydroaccns(&meanerr,&maxerr, &meanangle, &maxangle, &meansignalerr, &maxsignalerr, HydroAccn, MaxSignalVel);
+        message(0, "Hydro err, new vs old. max : %g mean: %g angle %g max angle %g maxvsig: max: %g mean %g time %g -> %g\n", maxerr, meanerr, meanangle, maxangle, meansignalerr, maxsignalerr, newhydro, gpuhydro);
+        if(maxerr > 1e-5)
+            endrun(2, "CPU and GPU hydro forces do not agree! maxerr %g\n", maxerr);
+    }
+#endif
+
     myfree(HydroAccn);
     slots_free_sph_pred_data(&sph_predicted);
 
