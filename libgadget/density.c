@@ -76,11 +76,11 @@ DM_VelPred(int i, MyFloat * VelPred, const struct kick_factor_data * kf)
 
 /* Initialise the grav and hydrokick arrays for the current kick times.*/
 void
-init_kick_factor_data(struct kick_factor_data * kf, const DriftKickTimes * const times, Cosmology * CP)
+init_kick_factor_data(struct kick_factor_data * kf, const DriftKickTimes * const times, TimeBinMgr * timebinmgr, Cosmology * CP)
 {
     int i;
     /* Factor this out since all particles have the same PM kick time*/
-    kf->FgravkickB = globalTimeBinMgr->get_exact_gravkick_factor(times->PM_kick, times->Ti_Current);
+    kf->FgravkickB = timebinmgr->get_exact_gravkick_factor(times->PM_kick, times->Ti_Current);
     memset(kf->gravkicks, 0, sizeof(kf->gravkicks[0])*(TIMEBINS+1));
     memset(kf->hydrokicks, 0, sizeof(kf->hydrokicks[0])*(TIMEBINS+1));
     /* Compute the factors to move a current kick times velocity to the drift time velocity.
@@ -89,8 +89,8 @@ init_kick_factor_data(struct kick_factor_data * kf, const DriftKickTimes * const
     #pragma omp parallel for
     for(i = times->mintimebin; i <= TIMEBINS; i++)
     {
-        kf->gravkicks[i] = globalTimeBinMgr->get_exact_gravkick_factor(times->Ti_kick[i], times->Ti_Current);
-        kf->hydrokicks[i] = globalTimeBinMgr->get_exact_hydrokick_factor(times->Ti_kick[i], times->Ti_Current);
+        kf->gravkicks[i] = timebinmgr->get_exact_gravkick_factor(times->Ti_kick[i], times->Ti_Current);
+        kf->hydrokicks[i] = timebinmgr->get_exact_hydrokick_factor(times->Ti_kick[i], times->Ti_Current);
     }
 }
 
@@ -247,7 +247,7 @@ density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int 
         DENSITY_GET_PRIV(tw)->Left[p_i] = 0;
     }
 
-    init_kick_factor_data(&priv->kf, &times, CP);
+    init_kick_factor_data(&priv->kf, &times, timebinmgr, CP);
     priv->times = &times;
 
     /* If all particles are active, easiest to compute all the predicted velocities immediately*/

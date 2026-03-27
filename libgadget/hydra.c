@@ -190,7 +190,7 @@ hydro_force_old(const ActiveParticles * act, const double atime, struct sph_pred
     HYDRA_GET_PRIV(tw)->atime = atime;
     HYDRA_GET_PRIV(tw)->hubble_a2 = hubble * atime * atime;
     priv->times = &times;
-    init_kick_factor_data(&priv->kf, &times, CP);
+    init_kick_factor_data(&priv->kf, &times, timebinmgr, CP);
     memset(priv->drifts, 0, sizeof(priv->drifts[0])*(TIMEBINS+1));
     #pragma omp parallel for
     for(i = times.mintimebin; i <= TIMEBINS; i++)

@@ -242,7 +242,7 @@ blackhole(const ActiveParticles * act, double atime, Cosmology * CP, ForceTree *
         endrun(5, "Blackhole called with bad tree allocated %d mask %d want %d\n", tree->tree_allocated_flag, tree->mask, GASMASK | BHMASK);
 
     struct kick_factor_data kf;
-    init_kick_factor_data(&kf, times, CP);
+    init_kick_factor_data(&kf, times, timebinmgr, CP);
 
     /*************************************************************************/
     /*  Dynamical Friction Treewalk */

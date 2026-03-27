@@ -412,7 +412,7 @@ winds_find_vel_disp(const ActiveParticles * act, const double Time, const double
     if(totvdisp > 0 || totbh > 0) {
         force_tree_rebuild_mask(tree, ddecomp, DMMASK, NULL);
         tw->haswork = NULL;
-        init_kick_factor_data(&priv->kf, times, CP);
+        init_kick_factor_data(&priv->kf, times, timebinmgr, CP);
     }
 
     /* Compute the black hole velocity dispersions if needed*/
