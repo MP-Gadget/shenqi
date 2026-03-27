@@ -101,15 +101,6 @@ static inline int atomic_fetch_and_add(int * ptr, int value) {
     }
     return k;
 }
-static inline int atomic_add_and_fetch(int * ptr, int value) {
-    int k;
-#pragma omp atomic capture
-    {
-      (*ptr)+=value;
-      k = (*ptr);
-    }
-    return k;
-}
 
 void MPIU_Trace(MPI_Comm comm, int where, const char * fmt, ...);
 void MPIU_Tracev(MPI_Comm comm, int where, int error, const char * fmt, va_list va);
