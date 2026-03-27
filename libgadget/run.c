@@ -40,6 +40,7 @@
 #include "veldisp.h"
 #include "physconst.h"
 #include "plane.h"
+#include "sfr_eff.h"
 
 static struct ClockTable Clocks;
 static TimeBinMgr timebinmgr;
@@ -294,6 +295,8 @@ begrun(const int RestartSnapNum, struct header_data * head)
 
     /* ... read initial particle state*/
     init(RestartSnapNum, All.OutputDir, head, &All.CP, ti_init);
+
+    set_io_sfr_helper(&timebinmgr);
 
     if(RestartSnapNum < 0) {
         DomainDecomp ddecomp[1] = {0};

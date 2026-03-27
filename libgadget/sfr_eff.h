@@ -54,4 +54,7 @@ double get_MinEgySpec(void);
 /* Returns the density threshold for star formation in comoving units*/
 double sfr_density_threshold(const double atime);
 
+/* This is necessary for the IO helpers in case cooling_and_starformation is not called. */
+void set_io_sfr_helper(TimeBinMgr * timebinmgr);
+
 #endif
