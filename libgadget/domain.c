@@ -74,6 +74,12 @@ struct local_particle_data
 {
     peano_t Key;
     int64_t Cost;
+    bool operator<(const struct local_particle_data& pb) const
+    {
+        if(Key < pb.Key)
+            return true;
+        return false;
+    }
 };
 
 /*This is a helper for the tests*/
@@ -564,19 +570,19 @@ struct topleaf_extdata {
     int Task;        /** The task that receives the node */
     int topnode;     /** The node */
     int64_t cost;    /** cost value, can be either number of calculations or number of particles. */
-};
 
-static bool
-topleaf_ext_order_by_task_and_key(const struct topleaf_extdata& p1, const struct topleaf_extdata& p2)
-{
-    if(p1.Task < p2.Task)
-        return true;
-    if(p1.Task > p2.Task)
+    /* Order by task and Key*/
+    bool operator< (const struct topleaf_extdata& p2) const
+    {
+        if(Task < p2.Task)
+            return true;
+        if(Task > p2.Task)
+            return false;
+        if(Key < p2.Key)
+            return true;
         return false;
-    if(p1.Key < p2.Key)
-        return true;
-    return false;
-}
+    }
+};
 
 static bool
 topleaf_ext_order_by_key(const struct topleaf_extdata& p1, const struct topleaf_extdata& p2)
@@ -621,9 +627,9 @@ domain_assign_topleaves_balanced(DomainDecomp * ddecomp, int64_t * cost, const i
     }
 
     /* make sure TopLeaves are sorted by Key for locality of segments -
-     * likely not necessary be cause when this function
+     * likely not necessary because when this function
      * is called it is already true */
-    std::sort(std::execution::par_unseq, TopLeafExt, TopLeafExt + ddecomp->NTopLeaves, topleaf_ext_order_by_key);
+    //std::sort(std::execution::par_unseq, TopLeafExt, TopLeafExt + ddecomp->NTopLeaves, topleaf_ext_order_by_key);
 
     int64_t totalcost = 0;
     #pragma omp parallel for reduction(+ : totalcost)
@@ -728,7 +734,7 @@ domain_assign_topleaves_balanced(DomainDecomp * ddecomp, int64_t * cost, const i
     }
 
     /* lets rearrange the TopLeafExt by task, such that we can build the Tasks table */
-    std::sort(std::execution::par_unseq, TopLeafExt, TopLeafExt + ddecomp->NTopLeaves, topleaf_ext_order_by_task_and_key);
+    std::sort(std::execution::par_unseq, TopLeafExt, TopLeafExt + ddecomp->NTopLeaves);
     for(i = 0; i < ddecomp->NTopLeaves; i ++) {
         ddecomp->TopNodes[TopLeafExt[i].topnode].Leaf = i;
         ddecomp->TopLeaves[i].Task = TopLeafExt[i].Task;
@@ -956,14 +962,6 @@ domain_toptree_truncate(
 }
 
 
-static bool
-order_by_key(const struct local_particle_data& pa, const struct local_particle_data& pb)
-{
-    if(pa.Key < pb.Key)
-        return true;
-    return false;
-}
-
 static void
 mp_order_by_key(const void * data, void * radix, void * arg)
 {
@@ -1032,7 +1030,7 @@ domain_check_for_local_refine_subsample(
         }
 
         /* First sort to ensure spatially 'even' subsamples and remove garbage.*/
-        std::sort(std::execution::par_unseq, LPfull, LPfull + PartManager->NumPart, order_by_key);
+        std::sort(std::execution::par_unseq, LPfull, LPfull + PartManager->NumPart);
 
         Nsample = (PartManager->NumPart - garbage) / policy->SubSampleDistance;
         if(Nsample == 0 && PartManager->NumPart > garbage) Nsample = 1;
@@ -1060,7 +1058,7 @@ domain_check_for_local_refine_subsample(
     if(domain_params.DomainUseGlobalSorting) {
         mpsort_mpi(LP, Nsample, sizeof(struct local_particle_data), mp_order_by_key, sizeof(peano_t), NULL, DomainComm);
     } else {
-        std::sort(std::execution::par_unseq, LP, LP + Nsample, order_by_key);
+        std::sort(std::execution::par_unseq, LP, LP + Nsample);
     }
 
     walltime_measure("/Domain/DetermineTopTree/Sort");
