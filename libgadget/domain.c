@@ -6,6 +6,8 @@
 #include <math.h>
 #include <stdint.h>
 #include <omp.h>
+#include <algorithm>
+#include <execution>
 
 #include "domain.h"
 #include "forcetree.h"
@@ -564,29 +566,25 @@ struct topleaf_extdata {
     int64_t cost;    /** cost value, can be either number of calculations or number of particles. */
 };
 
-static int
-topleaf_ext_order_by_task_and_key(const void * c1, const void * c2)
+static bool
+topleaf_ext_order_by_task_and_key(const struct topleaf_extdata& p1, const struct topleaf_extdata& p2)
 {
-    const struct topleaf_extdata * p1 = (const struct topleaf_extdata *) c1;
-    const struct topleaf_extdata * p2 = (const struct topleaf_extdata *) c2;
-    if(p1->Task < p2->Task) return -1;
-    if(p1->Task > p2->Task) return 1;
-    if(p1->Key < p2->Key) return -1;
-    if(p1->Key > p2->Key) return 1;
-    return 0;
+    if(p1.Task < p2.Task)
+        return true;
+    if(p1.Task > p2.Task)
+        return false;
+    if(p1.Key < p2.Key)
+        return true;
+    return false;
 }
 
-static int
-topleaf_ext_order_by_key(const void * c1, const void * c2)
+static bool
+topleaf_ext_order_by_key(const struct topleaf_extdata& p1, const struct topleaf_extdata& p2)
 {
-    const struct topleaf_extdata * p1 = (const struct topleaf_extdata *) c1;
-    const struct topleaf_extdata * p2 = (const struct topleaf_extdata *) c2;
-    if(p1->Key < p2->Key) return -1;
-    if(p1->Key > p2->Key) return 1;
-    return 0;
+    if(p1.Key < p2.Key)
+        return true;
+    return false;
 }
-
-
 /**
  * This function assigns TopLeaves to Segments, trying to ensure uniform cost
  * by assigning TopLeaves (contiguously) until a Segment has a desired size.
@@ -625,7 +623,7 @@ domain_assign_topleaves_balanced(DomainDecomp * ddecomp, int64_t * cost, const i
     /* make sure TopLeaves are sorted by Key for locality of segments -
      * likely not necessary be cause when this function
      * is called it is already true */
-    qsort_openmp(TopLeafExt, ddecomp->NTopLeaves, sizeof(TopLeafExt[0]), topleaf_ext_order_by_key);
+    std::sort(std::execution::par_unseq, TopLeafExt, TopLeafExt + ddecomp->NTopLeaves, topleaf_ext_order_by_key);
 
     int64_t totalcost = 0;
     #pragma omp parallel for reduction(+ : totalcost)
@@ -730,7 +728,7 @@ domain_assign_topleaves_balanced(DomainDecomp * ddecomp, int64_t * cost, const i
     }
 
     /* lets rearrange the TopLeafExt by task, such that we can build the Tasks table */
-    qsort_openmp(TopLeafExt, ddecomp->NTopLeaves, sizeof(TopLeafExt[0]), topleaf_ext_order_by_task_and_key);
+    std::sort(std::execution::par_unseq, TopLeafExt, TopLeafExt + ddecomp->NTopLeaves, topleaf_ext_order_by_task_and_key);
     for(i = 0; i < ddecomp->NTopLeaves; i ++) {
         ddecomp->TopNodes[TopLeafExt[i].topnode].Leaf = i;
         ddecomp->TopLeaves[i].Task = TopLeafExt[i].Task;
@@ -958,18 +956,12 @@ domain_toptree_truncate(
 }
 
 
-static int
-order_by_key(const void *a, const void *b)
+static bool
+order_by_key(const struct local_particle_data& pa, const struct local_particle_data& pb)
 {
-    const struct local_particle_data * pa  = (const struct local_particle_data *) a;
-    const struct local_particle_data * pb  = (const struct local_particle_data *) b;
-    if(pa->Key < pb->Key)
-        return -1;
-
-    if(pa->Key > pb->Key)
-        return +1;
-
-    return 0;
+    if(pa.Key < pb.Key)
+        return true;
+    return false;
 }
 
 static void
@@ -1040,7 +1032,8 @@ domain_check_for_local_refine_subsample(
         }
 
         /* First sort to ensure spatially 'even' subsamples and remove garbage.*/
-        qsort_openmp(LPfull, PartManager->NumPart, sizeof(struct local_particle_data), order_by_key);
+        std::sort(std::execution::par_unseq, LPfull, LPfull + PartManager->NumPart, order_by_key);
+
         Nsample = (PartManager->NumPart - garbage) / policy->SubSampleDistance;
         if(Nsample == 0 && PartManager->NumPart > garbage) Nsample = 1;
 
@@ -1067,7 +1060,7 @@ domain_check_for_local_refine_subsample(
     if(domain_params.DomainUseGlobalSorting) {
         mpsort_mpi(LP, Nsample, sizeof(struct local_particle_data), mp_order_by_key, sizeof(peano_t), NULL, DomainComm);
     } else {
-        qsort_openmp(LP, Nsample, sizeof(struct local_particle_data), order_by_key);
+        std::sort(std::execution::par_unseq, LP, LP + Nsample, order_by_key);
     }
 
     walltime_measure("/Domain/DetermineTopTree/Sort");
