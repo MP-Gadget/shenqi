@@ -46,7 +46,7 @@ setup_particles(int64_t NType[6])
     int i;
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i ++) {
-        PartManager->Base[i].ID = i + PartManager->NumPart * ThisTask;
+        PartManager->Base[i].ID = (i+1) + PartManager->NumPart * ThisTask;
     }
 
     slots_setup_id(PartManager, SlotsManager);

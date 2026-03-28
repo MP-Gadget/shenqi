@@ -42,7 +42,7 @@ setup_particles(int NumPart, double BoxSize)
     int i;
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i ++) {
-        PartManager->Base[i].ID = i + PartManager->NumPart * ThisTask;
+        PartManager->Base[i].ID = (i+1) + PartManager->NumPart * ThisTask;
         /* DM only*/
         PartManager->Base[i].Type = 1;
         PartManager->Base[i].Mass = 1;

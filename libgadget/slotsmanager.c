@@ -621,11 +621,12 @@ slots_check_id_consistency(struct part_manager_type * pman, struct slots_manager
             continue;
 
         int PI = pman->Base[i].PI;
-        if(PI >= info.size) {
-            endrun(1, "slot PI consistency failed2\n");
+        if(PI >= info.size || PI < 0) {
+            endrun(1, "slot PI consistency failed: PI %d size %ld\n", PI, info.size);
         }
-        if(BASESLOT_PI(PI, type, sman)->ID != pman->Base[i].ID) {
-            endrun(1, "slot id consistency failed2: i=%ld PI=%d type = %d P.ID = %ld SLOT.ID=%ld\n",i, PI, pman->Base[i].Type, pman->Base[i].ID, BASESLOT_PI(PI, type, sman)->ID);
+        /* Enforce that IDs are non-zero as many corruptions manifest in zero ID.*/
+        if(BASESLOT_PI(PI, type, sman)->ID != pman->Base[i].ID || pman->Base[i].ID <= 0) {
+            endrun(1, "slot id consistency failed: i=%ld PI=%d type = %d P.ID = %ld SLOT.ID=%ld\n",i, PI, pman->Base[i].Type, pman->Base[i].ID, BASESLOT_PI(PI, type, sman)->ID);
         }
         used[type] ++;
     }
