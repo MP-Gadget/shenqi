@@ -440,7 +440,7 @@ public:
         MPI_Reduce(&NExportTargets, &o_NExportTargets, 1, MPI_INT64, MPI_SUM, 0, comm);
         message(0, "%s: min %u max %u average exports: %g avg target ranks: %g\n",
             ev_label, o_minNinteractions, o_maxNinteractions, ((double) Nexport)/ NTask, ((double) o_NExportTargets)/ NTask);
-        message(0, "%s: top: %g prim: %g sec: %g wait: %g other: %g\n", ev_label, timecomp0, timecomp1, timecomp2, timewait1, timecomp3+ timecommsumm);
+        message(0, "%s: top: %g prim: %g sec: %g wait: %g postproc: %g reduce: %g\n", ev_label, timecomp0, timecomp1, timecomp2, timewait1, timecomp3, timecommsumm);
     }
 
     /* 7/9/24: The code segfaults if the send/recv buffer is larger than 4GB in size.

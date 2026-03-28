@@ -544,7 +544,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
         MPI_Barrier(MPI_COMM_WORLD);
         double gpuhydro = second() - start;
         check_hydroaccns(&meanerr,&maxerr, &meanangle, &maxangle, &meansignalerr, &maxsignalerr, HydroAccn, MaxSignalVel);
-        message(0, "Hydro err, new vs old. max : %g mean: %g angle %g max angle %g maxvsig: max: %g mean %g time %g -> %g\n", maxerr, meanerr, meanangle, maxangle, meansignalerr, maxsignalerr, newhydro, gpuhydro);
+        message(0, "Hydro err, CPU vs GPU. max : %g mean: %g angle %g max angle %g maxvsig: max: %g mean %g time %g -> %g\n", maxerr, meanerr, meanangle, maxangle, meansignalerr, maxsignalerr, newhydro, gpuhydro);
         if(maxerr > 1e-5)
             endrun(2, "CPU and GPU hydro forces do not agree! maxerr %g\n", maxerr);
     }
