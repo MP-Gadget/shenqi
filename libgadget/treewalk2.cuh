@@ -54,7 +54,7 @@ __global__ void count_toptree_exports(
     const int i = WorkSet ? WorkSet[tid] : tid;
     /* Toptree never uses node list */
     QueryType input(parts[i], NULL, firstnode, *priv);
-    const int rt = lv.toptree_visit(i, input, *priv, NULL, 0);
+    const int rt = lv.template toptree_visit<TOPTREE_COUNT>(i, input, *priv, NULL, 0);
     exportcounts[tid] = rt;
 }
 
@@ -99,7 +99,7 @@ void do_toptree_exports(
     QueryType input(parts[i], NULL, firstnode, *priv);
     /* This will save exports to the memory in ExportTable[exportoffsets[tid-1]].
      * We ignore return as it is the same as exportcounts. BunchSize is large as we arranged never to overflow.*/
-    lv.toptree_visit(i, input, *priv, currentexport, nexport);
+    lv.template toptree_visit<TOPTREE_EXPORT>(i, input, *priv, currentexport, nexport);
 };
 
 template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType, typename OutputType>

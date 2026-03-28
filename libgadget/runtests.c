@@ -29,18 +29,17 @@ void register_extra_blocks(struct IOTable * IOTable)
     }
 }
 
-double copy_and_mean_hydroaccn(double (* PairAccn)[3])
+double copy_and_mean_hydroaccn(double (* PairAccn)[3], double * MaxSignalVel)
 {
-    int i;
     double meanacc = 0;
     #pragma omp parallel for reduction(+: meanacc)
-    for(i = 0; i < PartManager->NumPart; i++)
+    for(int i = 0; i < PartManager->NumPart; i++)
     {
         if(Part[i].IsGarbage || Part[i].Swallowed || Part[i].Type != 0)
             continue;
-        int k;
-        for(k=0; k<3; k++) {
+        for(int k=0; k<3; k++) {
             PairAccn[i][k] = SphP[Part[i].PI].HydroAccel[k];
+            MaxSignalVel[i] = SphP[Part[i].PI].MaxSignalVel;
             meanacc += fabs(PairAccn[i][k]);
         }
     }
@@ -51,19 +50,20 @@ double copy_and_mean_hydroaccn(double (* PairAccn)[3])
     return meanacc;
 }
 
-void check_hydroaccns(double * meanerr_tot, double * maxerr_tot, double * meanangle_tot, double * maxangle_tot, double (*PairAccn)[3])
+void check_hydroaccns(double * meanerr_tot, double * maxerr_tot, double * meanangle_tot, double * maxangle_tot, double * meansignalerr_tot, double * maxsignalerr_tot, double (*PairAccn)[3], double * MaxSignalVel)
 {
-    double meanerr=0, maxerr=-1, meanangle = 0, maxangle = 0;
-    int i;
+    double meanerr = 0, maxerr = -1, meanangle = 0, maxangle = 0, maxsignalerr = -1, meansignalerr = 0;
     /* This checks that the short-range force accuracy is being correctly estimated.*/
-    #pragma omp parallel for reduction(+: meanerr) reduction(max:maxerr)
-    for(i = 0; i < PartManager->NumPart; i++)
+    #pragma omp parallel for reduction(+: meanerr, meanangle, meansignalerr) reduction(max:maxerr, maxangle, maxsignalerr)
+    for(int i = 0; i < PartManager->NumPart; i++)
     {
         if(Part[i].IsGarbage || Part[i].Swallowed || Part[i].Type != 0)
             continue;
-        int k;
+        /* Zero HydroAccn*/
+        if(SphP[Part[i].PI].DelayTime > 0)
+            continue;
         double pairmag = 0, checkmag = 0, dotprod = 0;
-        for(k=0; k<3; k++) {
+        for(int k=0; k<3; k++) {
             pairmag += PairAccn[i][k]*PairAccn[i][k];
             double newaccel = SphP[Part[i].PI].HydroAccel[k];
             checkmag += newaccel * newaccel;
@@ -78,6 +78,10 @@ void check_hydroaccns(double * meanerr_tot, double * maxerr_tot, double * meanan
             angle = fabs(acos(dotprod));
             meanangle += angle;
         }
+        double signalerr = (MaxSignalVel[i] / SphP[Part[i].PI].MaxSignalVel - 1);
+        meansignalerr += signalerr;
+        if(maxsignalerr < signalerr)
+            maxsignalerr = signalerr;
         if(maxangle < angle) {
             maxangle = angle;
             // message(0, "i %d type %d angle %g acc %g %g %g pair %g %g %g\n", i, Part[i].Type, angle, Part[i].GravPM[0] + Part[i].FullTreeGravAccel[0], Part[i].GravPM[1] + Part[i].FullTreeGravAccel[1], Part[i].GravPM[2] + Part[i].FullTreeGravAccel[2], PairAccn[i][0], PairAccn[i][1], PairAccn[i][2]);
@@ -90,12 +94,15 @@ void check_hydroaccns(double * meanerr_tot, double * maxerr_tot, double * meanan
     }
     MPI_Allreduce(&meanerr, meanerr_tot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     MPI_Allreduce(&maxerr, maxerr_tot, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+    MPI_Allreduce(&meansignalerr, meansignalerr_tot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&maxsignalerr, maxsignalerr_tot, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
     MPI_Allreduce(&meanangle, meanangle_tot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     MPI_Allreduce(&maxangle, maxangle_tot, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
     int64_t tot_npart;
     MPI_Allreduce(&PartManager->NumPart, &tot_npart, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     *meanerr_tot /= (tot_npart);
     *meanangle_tot /= (tot_npart);
+    *meansignalerr_tot /= (tot_npart);
 }
 
 double copy_and_mean_accn(double (* PairAccn)[3])
@@ -123,7 +130,7 @@ void check_accns(double * meanerr_tot, double * maxerr_tot, double * meanangle_t
     double meanerr=0, maxerr=-1, meanangle = 0, maxangle = 0;
     int i;
     /* This checks that the short-range force accuracy is being correctly estimated.*/
-    #pragma omp parallel for reduction(+: meanerr) reduction(max:maxerr)
+    #pragma omp parallel for reduction(+: meanerr, meanangle) reduction(max:maxerr, maxangle)
     for(i = 0; i < PartManager->NumPart; i++)
     {
         if(Part[i].IsGarbage || Part[i].Swallowed)
@@ -164,7 +171,7 @@ void check_accns(double * meanerr_tot, double * maxerr_tot, double * meanangle_t
     *meanangle_tot /= (tot_npart);
 }
 
-double copy_density(double * Density, double * Hsml)
+double copy_density(double * Density, double * Hsml, double * EgyWtDensity)
 {
     double meanacc = 0;
     #pragma omp parallel for reduction(+: meanacc)
@@ -173,6 +180,7 @@ double copy_density(double * Density, double * Hsml)
         if(Part[i].IsGarbage || Part[i].Swallowed || (Part[i].Type != 0 && Part[i].Type != 5))
             continue;
         Density[i] = SphP[Part[i].PI].Density;
+        EgyWtDensity[i] = SphP[Part[i].PI].EgyWtDensity;
         Hsml[i] = Part[i].Hsml;
         meanacc += Density[i];
     }
@@ -183,9 +191,9 @@ double copy_density(double * Density, double * Hsml)
     return meanacc;
 }
 
-void check_density(double * meanhserr_tot, double * maxhserr_tot, double * meandserr_tot, double * maxdserr_tot, double * Density, double * Hsml)
+void check_density(double * meanhserr_tot, double * maxhserr_tot, double * meandserr_tot, double * maxdserr_tot, double * meanegdserr_tot, double * maxegdserr_tot, double * Density, double * Hsml, double * EgyWtDensity)
 {
-    double meanhserr=0, maxhserr=-1, meandserr = 0, maxdserr = -1;
+    double meanhserr=0, maxhserr=-1, meandserr = 0, maxdserr = -1, maxegdserr = -1, meanegdserr = 0;
     int i;
     /* This checks that the short-range force accuracy is being correctly estimated.*/
     #pragma omp parallel for reduction(+: meanhserr) reduction(max:maxhserr)  reduction(+: meandserr) reduction(max:maxdserr)
@@ -194,12 +202,18 @@ void check_density(double * meanhserr_tot, double * maxhserr_tot, double * meand
         if(Part[i].IsGarbage || Part[i].Swallowed || (Part[i].Type != 0 && Part[i].Type != 5))
             continue;
         double densityerr = Density[i] / SphP[Part[i].PI].Density - 1;
+        double egydensityerr = EgyWtDensity[i] / SphP[Part[i].PI].EgyWtDensity - 1;
         double hsmlerr = Hsml[i] / Part[i].Hsml - 1;
         meandserr += densityerr;
         meanhserr += hsmlerr;
+        meanegdserr += egydensityerr;
         if(maxdserr < densityerr) {
             // message(0, "i %d type %d err %g acc %g %g %g pair %g %g %g\n", i, Part[i].Type, err, Part[i].GravPM[0] + Part[i].FullTreeGravAccel[0], Part[i].GravPM[1] + Part[i].FullTreeGravAccel[1], Part[i].GravPM[2] + Part[i].FullTreeGravAccel[2], PairAccn[i][0], PairAccn[i][1], PairAccn[i][2]);
             maxdserr = densityerr;
+        }
+        if(maxegdserr < egydensityerr) {
+            // message(0, "i %d type %d err %g acc %g %g %g pair %g %g %g\n", i, Part[i].Type, err, Part[i].GravPM[0] + Part[i].FullTreeGravAccel[0], Part[i].GravPM[1] + Part[i].FullTreeGravAccel[1], Part[i].GravPM[2] + Part[i].FullTreeGravAccel[2], PairAccn[i][0], PairAccn[i][1], PairAccn[i][2]);
+            maxegdserr = egydensityerr;
         }
         if(maxhserr < hsmlerr) {
             // message(0, "i %d type %d err %g acc %g %g %g pair %g %g %g\n", i, Part[i].Type, err, Part[i].GravPM[0] + Part[i].FullTreeGravAccel[0], Part[i].GravPM[1] + Part[i].FullTreeGravAccel[1], Part[i].GravPM[2] + Part[i].FullTreeGravAccel[2], PairAccn[i][0], PairAccn[i][1], PairAccn[i][2]);
@@ -210,10 +224,13 @@ void check_density(double * meanhserr_tot, double * maxhserr_tot, double * meand
     MPI_Allreduce(&maxhserr, maxhserr_tot, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
     MPI_Allreduce(&meandserr, meandserr_tot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     MPI_Allreduce(&maxdserr, maxdserr_tot, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+    MPI_Allreduce(&meanegdserr, meanegdserr_tot, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&maxegdserr, maxegdserr_tot, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
     int64_t tot_npart;
     MPI_Allreduce(&PartManager->NumPart, &tot_npart, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     *meandserr_tot /= (tot_npart);
     *meanhserr_tot /= (tot_npart);
+    *meanegdserr_tot /= (tot_npart);
 }
 
 void
@@ -238,7 +255,6 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
     DriftKickTimes times = init_driftkicktime(Ti_Current);
     /* All particles are active*/
     ActiveParticles Act = init_empty_active_particles(PartManager);
-    build_active_particles(&Act, &times, 0, header->TimeSnapshot, PartManager);
 
     gravpm_force(pm, ddecomp, CP, header->TimeSnapshot, header->UnitLength_in_cm, OutputDir, header->TimeIC);
 
@@ -348,7 +364,7 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
 
 /* Compute accelerations using two different routines, check they give the same answer. */
 void
-run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const double Asmth, const int Nmesh, const inttime_t Ti_Current, const char * OutputDir, const struct header_data * header)
+run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const double Asmth, const int Nmesh, const inttime_t Ti_Current, TimeBinMgr * timebinmgr, const char * OutputDir, const struct header_data * header)
 {
     DomainDecomp ddecomp[1] = {0};
     domain_decompose_full(ddecomp, MPI_COMM_WORLD);
@@ -369,7 +385,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     DriftKickTimes times = init_driftkicktime(Ti_Current);
     /* All particles are active*/
     ActiveParticles Act = init_empty_active_particles(PartManager);
-    build_active_particles(&Act, &times, 0, header->TimeSnapshot, PartManager);
+    build_active_particles(&Act, &times, timebinmgr, 0, header->TimeSnapshot, PartManager);
 
     gravpm_force(pm, ddecomp, CP, header->TimeSnapshot, header->UnitLength_in_cm, OutputDir, header->TimeIC);
 
@@ -377,17 +393,17 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     force_tree_full(&Tree, ddecomp, 0, OutputDir);
 
     struct gravshort_tree_params treeacc = get_gravshort_treepar();
-    /* Turn GPU acceleration off. */
-    treeacc.UseGPU = 0;
     /* Use the BH tree on the first iteration for consistency */
     treeacc.TreeUseBH = 2;
     /* Compare the new and old gravity tree. */
     set_gravshort_treepar(treeacc);
     const double rho0 = CP->Omega0 * CP->RhoCrit;
-    grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current, false);
     /* Twice for force consistency*/
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     double start = second();
-    grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current, false);
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     double newgrav = second() - start;
@@ -395,6 +411,8 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     treeacc.TreeUseBH = 2;
     set_gravshort_treepar_old(treeacc);
     grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     start = second();
     grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
     #pragma omp barrier
@@ -405,26 +423,25 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     check_accns(&meanerr,&maxerr, &meanangle, &maxangle, PairAccn);
     message(0, "Grav tree new vs old. max : %g mean: %g angle %g max angle %g forcetol: %g time: %g->%g\n", maxerr, meanerr, meanangle, maxangle, treeacc.ErrTolForceAcc, oldgrav, newgrav);
 
-    if(maxerr > 0.1)
-        endrun(2, "New and old tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
+    if(maxerr > 1e-5)
+        endrun(2, "New and old tree forces do not agree! maxerr %g!\n", maxerr);
 
 #ifdef USE_CUDA
     if(DoGPUTests) {
         /* Compare the CPU and GPU gravity trees. */
-        treeacc.UseGPU = 1;
-        set_gravshort_treepar(treeacc);
         treeacc.TreeUseBH = 2;
-        grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+        set_gravshort_treepar(treeacc);
+        grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current, true);
         /* Twice for force consistency*/
         start = second();
-        grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
+        grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current, true);
         #pragma omp barrier
         MPI_Barrier(MPI_COMM_WORLD);
         double gpugrav = second() - start;
         check_accns(&meanerr,&maxerr, &meanangle, &maxangle, PairAccn);
         message(0, "Grav tree CPU vs GPU. max : %g mean: %g angle %g max angle %g forcetol: %g time: %g->%g\n", maxerr, meanerr, meanangle, maxangle, treeacc.ErrTolForceAcc, newgrav, gpugrav);
-        if(maxerr > 0.1)
-            endrun(2, "CPU and GPU tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
+        if(maxerr > 1e-5)
+            endrun(2, "CPU and GPU tree forces do not agree! maxerr %g\n", maxerr);
     }
 #endif
     force_tree_free(&Tree);
@@ -439,8 +456,10 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     struct sph_pred_data sph_predicted = {0};
     force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK, OutputDir);
     /* computes GradRho with a treewalk. No hsml update as we are reading from a snapshot.*/
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     start = second();
-    density(&Act, 0, 0, 1, times, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree);
+    density(&Act, 0, 1, 1, times, timebinmgr, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree);
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     double newdens = second() - start;
@@ -448,46 +467,92 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     sph_predicted.EntVarPred = NULL;
     double * Density = (double *) mymalloc2("Density", sizeof(double) * PartManager->NumPart);
     double * Hsml = (double *) mymalloc2("Hsml", sizeof(double) * PartManager->NumPart);
-    copy_density(Density, Hsml);
+    double * EgyWtDensity = (double *) mymalloc2("EgyWtDensity", sizeof(double) * PartManager->NumPart);
+    copy_density(Density, Hsml, EgyWtDensity);
 
     struct density_params dp = get_densitypar();
     set_densitypar_old(dp);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     start = second();
-    density_old(&Act, 0, 0, 1, times, CP, &sph_predicted, GradRho, &gasTree);
+    density_old(&Act, 0, 1, 1, times, timebinmgr, CP, &sph_predicted, GradRho, &gasTree);
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     double olddens = second() - start;
 
-    slots_free_sph_pred_data(&sph_predicted);
+    double meanhserr, maxhserr, meandserr, maxdserr, maxedgserr, meanedgserr;
+    check_density(&meanhserr, &maxhserr, &meandserr, &maxdserr, &meanedgserr, &maxedgserr, Density, Hsml, EgyWtDensity);
+    message(0, "Density %% err, new vs old tree. max : %g mean: %g hs %% err: max: %g mean: %g egywt: max %g mean %g time %g -> %g\n", maxdserr, meandserr, maxhserr, meanhserr, maxedgserr, meanedgserr, olddens, newdens);
+    if(maxerr > 1e-5)
+        endrun(2, "New and old densities do not agree! maxerr %g\n", maxerr);
 
-    double meanhserr, maxhserr, meandserr, maxdserr;
-    check_density(&meanhserr, &maxhserr, &meandserr, &maxdserr, Density, Hsml);
-    message(0, "Density %% err, new vs old tree. max : %g mean: %g hs %% err: max: %g mean: %g time %g -> %g\n", maxdserr, meandserr, maxhserr, meanhserr, newdens, olddens);
+#ifdef USE_CUDA
+    if(DoGPUTests) {
+        /* Compare the CPU and GPU density. */
+        start = second();
+        /* Final argument signals to use the GPU*/
+        density(&Act, 0, 1, 1, times, timebinmgr, CP, &(sph_predicted.EntVarPred), GradRho, &gasTree, true);
+        #pragma omp barrier
+        MPI_Barrier(MPI_COMM_WORLD);
+        double gpudens = second() - start;
+        check_density(&meanhserr, &maxhserr, &meandserr, &maxdserr, &meanedgserr, &maxedgserr, Density, Hsml, EgyWtDensity);
+        message(0, "Density CPU vs GPU. max : %g mean: %g hs %% err: max: %g mean: %g egywt: max %g mean %g time %g -> %g\n", maxdserr, meandserr, maxhserr, meanhserr, maxedgserr, meanedgserr, newdens, gpudens);
+        if(maxerr > 1e-5)
+            endrun(2, "CPU and GPU densities do not agree! maxerr %g\n", maxerr);
+    }
+#endif
+    myfree(EgyWtDensity);
     myfree(Hsml);
     myfree(Density);
 
     /* Check hydro code is the same */
     double (* HydroAccn)[3] = (double (*) [3]) mymalloc2("HydroAccns", 3*sizeof(double) * PartManager->NumPart);
+    double * MaxSignalVel = (double *) mymalloc2("MaxSignalVel", sizeof(double) * PartManager->NumPart);
     /* Compare the new and old hydro force. */
     force_tree_calc_moments(&gasTree, ddecomp);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     start = second();
-    hydro_force(&Act, header->TimeSnapshot, sph_predicted.EntVarPred, times,  CP, &gasTree);
+    hydro_force(&Act, header->TimeSnapshot, sph_predicted.EntVarPred, times, timebinmgr,  CP, &gasTree);
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     double newhydro = second() - start;
-    copy_and_mean_hydroaccn(HydroAccn);
+    copy_and_mean_hydroaccn(HydroAccn, MaxSignalVel);
     set_hydropar_old(get_hydropar());
+    #pragma omp barrier
+    MPI_Barrier(MPI_COMM_WORLD);
     start = second();
-    hydro_force_old(&Act, header->TimeSnapshot, &sph_predicted, times,  CP, &gasTree);
+    hydro_force_old(&Act, header->TimeSnapshot, &sph_predicted, times, timebinmgr, CP, &gasTree);
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
     double oldhydro = second() - start;
     /* This checks fully opened tree force against pair force*/
-    check_hydroaccns(&meanerr,&maxerr, &meanangle, &maxangle, HydroAccn);
-    message(0, "Hydro err, new vs old. max : %g mean: %g angle %g max angle %g time %g -> %g\n", maxerr, meanerr, meanangle, maxangle, oldhydro, newhydro);
+    double maxsignalerr, meansignalerr;
+    check_hydroaccns(&meanerr,&maxerr, &meanangle, &maxangle, &meansignalerr, &maxsignalerr, HydroAccn, MaxSignalVel);
+    message(0, "Hydro err, new vs old. max : %g mean: %g angle %g max angle %g maxvsig: max: %g mean %g time %g -> %g\n", maxerr, meanerr, meanangle, maxangle, meansignalerr, maxsignalerr, oldhydro, newhydro);
 
-    if(maxerr > 0.1)
+    if(maxerr > 1e-5)
         endrun(2, "New and old hydro tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
 
+#ifdef USE_CUDA
+    if(DoGPUTests) {
+        /* Compare the CPU and GPU density. */
+        start = second();
+        /* Final argument signals to use the GPU*/
+        hydro_force(&Act, header->TimeSnapshot, sph_predicted.EntVarPred, times, timebinmgr,  CP, &gasTree, true);
+        #pragma omp barrier
+        MPI_Barrier(MPI_COMM_WORLD);
+        double gpuhydro = second() - start;
+        check_hydroaccns(&meanerr,&maxerr, &meanangle, &maxangle, &meansignalerr, &maxsignalerr, HydroAccn, MaxSignalVel);
+        message(0, "Hydro err, CPU vs GPU. max : %g mean: %g angle %g max angle %g maxvsig: max: %g mean %g time %g -> %g\n", maxerr, meanerr, meanangle, maxangle, meansignalerr, maxsignalerr, newhydro, gpuhydro);
+        if(maxerr > 1e-5)
+            endrun(2, "CPU and GPU hydro forces do not agree! maxerr %g\n", maxerr);
+    }
+#endif
+
     myfree(HydroAccn);
+    slots_free_sph_pred_data(&sph_predicted);
+
     force_tree_free(&gasTree);
     myfree(GradRho);
 

@@ -267,7 +267,7 @@ public:
      * WorkSetSize: length of the active set
      * particle_data parts: list of particles to use
      */
-    void run_on_queue(int * WorkSet, int64_t WorkSetSize, particle_data * const parts, MPI_Comm comm)
+    void run_on_queue(int * WorkSet, int64_t WorkSetSize, particle_data * const parts, MPI_Comm comm, bool postprocess=true)
     {
         LocalTreeWalkType::validate_tree(tree);
         Nexport_sum = 0;
@@ -352,10 +352,12 @@ public:
         /* GPU code needs to use cudaFree here. */
         static_cast<DerivedType *>(this)->ev_free_exports(exportcounts);
 
-        double tstart = second();
-        static_cast<DerivedType *>(this)->ev_postprocess(WorkSet, WorkSetSize, parts);
-        double tend = second();
-        timecomp3 += timediff(tstart, tend);
+        if(postprocess) {
+            double tstart = second();
+            static_cast<DerivedType *>(this)->ev_postprocess(WorkSet, WorkSetSize, parts);
+            double tend = second();
+            timecomp3 += timediff(tstart, tend);
+        }
     }
 
     void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const parts)
@@ -438,6 +440,7 @@ public:
         MPI_Reduce(&NExportTargets, &o_NExportTargets, 1, MPI_INT64, MPI_SUM, 0, comm);
         message(0, "%s: min %u max %u average exports: %g avg target ranks: %g\n",
             ev_label, o_minNinteractions, o_maxNinteractions, ((double) Nexport)/ NTask, ((double) o_NExportTargets)/ NTask);
+        message(0, "%s: top: %g prim: %g sec: %g wait: %g postproc: %g reduce: %g\n", ev_label, timecomp0, timecomp1, timecomp2, timewait1, timecomp3, timecommsumm);
     }
 
     /* 7/9/24: The code segfaults if the send/recv buffer is larger than 4GB in size.
@@ -467,14 +470,92 @@ public:
         return BunchSize;
     }
 
-private:
-    /* Main processing loop. Walks the toptree, exports and imports, then does primary and secondary eval.
-        * The loop is there in case the export buffer fills up.
-        */
-    void ev_process(int * WorkSet, const int64_t WorkSetSize, const size_t BunchSize, particle_data * const parts, MPI_Comm comm)
+        /* This function does treewalk_run in a loop, allocating a queue to allow some particles to be redone.
+    * This loop is used primarily in density estimation.*/
+    void do_hsml_loop(int * queue, int64_t queuesize, const int update_hsml, particle_data * parts)
     {
-    }
+        double maxnumngb = 0;
+        double minnumngb = 1e60;
 
+        /* Build the first queue */
+        double tstart = second();
+        int * ReDoQueue = NULL;
+        int64_t size = build_queue(&ReDoQueue, queue, queuesize, parts);
+        double tend = second();
+        this->timecomp3 += timediff(tstart, tend);
+        /* Number of times the outer loop was run. */
+        int Niteration = 0;
+        /* we will repeat the whole thing for those particles where we didn't find enough neighbours */
+        do {
+            /* The RedoQueue needs enough memory to store every workset particle on every thread, because
+            * we cannot guarantee that the sph particles are evenly spread across threads!*/
+            int * CurQueue = ReDoQueue;
+            /* The ReDoQueue swaps between high and low allocations so we can have two allocated alternately*/
+            gadget_thread_arrays loop = gadget_setup_thread_arrays("ReDoQueue", 0, size);
+
+            /* ev_postprocess is not done in run_on_queue, instead, done in this loop*/
+            run_on_queue(CurQueue, size, parts, MPI_COMM_WORLD, false);
+
+            tstart = second();
+            output->verbose = (Niteration >= MAXITER - 5);
+            /* Check which particles we need to repeat for. */
+            #pragma omp parallel for reduction(max: maxnumngb) reduction(min: minnumngb)
+            for(int i = 0; i < size; i ++) {
+                const int tid = omp_get_thread_num();
+                const int p_i = CurQueue ? CurQueue[i] : i;
+                if(maxnumngb < output->NumNgb[p_i])
+                    maxnumngb = output->NumNgb[p_i];
+                if(minnumngb > output->NumNgb[p_i])
+                    minnumngb = output->NumNgb[p_i];
+                int done = output->postprocess(p_i, parts, &priv);
+                if(!done) {
+                    /* More work needed: add this particle to the redo queue*/
+                    loop.srcs[tid][loop.sizes[tid]] = p_i;
+                    loop.sizes[tid] ++;
+                    if(loop.sizes[tid] > loop.total_size)
+                        endrun(5, "Particle %ld on thread %d exceeded allocated size of redo queue %ld\n", loop.sizes[tid], tid, loop.total_size);
+                }
+                /* If we are done repeating, update the hmax in the parent node,
+                * if that type is in the tree.*/
+                if(done && (tree->mask & (1<<parts[p_i].Type)))
+                    update_tree_hmax_father(tree, p_i, parts[p_i].Pos, parts[p_i].Hsml);
+            }
+            tend = second();
+            timecomp3 += timediff(tstart, tend);
+
+            Niteration++;
+
+            /* Now done with the current queue*/
+            myfree(CurQueue);
+
+            size = gadget_compact_thread_arrays(&ReDoQueue, &loop);
+            /* We can stop if we are not updating hsml or if we are done.*/
+            if(!update_hsml || !MPIU_Any(size > 0, MPI_COMM_WORLD)) {
+                myfree(ReDoQueue);
+                break;
+            }
+
+            double minngb, maxngb;
+            MPI_Reduce(&maxnumngb, &maxngb, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+            MPI_Reduce(&minnumngb, &minngb, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
+            message(0, "Max ngb=%g, min ngb=%g\n", maxngb, minngb);
+
+            /*Shrink memory*/
+            ReDoQueue = (int *) myrealloc(ReDoQueue, sizeof(int) * size);
+    #ifdef DEBUG
+            if(size < 10 && Niteration > 20 ) {
+                int pp = ReDoQueue[0];
+                message(1, "Remaining i=%d, t %d, pos %g %g %g, hsml: %g\n", pp, parts[pp].Type, parts[pp].Pos[0], parts[pp].Pos[1], parts[pp].Pos[2], parts[pp].Hsml);
+            }
+    #endif
+
+            if(size > 0 && Niteration > MAXITER) {
+                endrun(1155, "failed to converge density for %ld particles\n", size);
+            }
+        } while(1);
+    };
+
+private:
     void ev_free_exports(int * exportcounts)
     {
         myfree(exportcounts);
@@ -525,7 +606,7 @@ private:
                 /* Toptree never uses node list */
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
                 /* Note index is into the WorkSet*/
-                exportcounts[k] = lv.toptree_visit(i, input, priv, NULL, 0);
+                exportcounts[k] = lv.template toptree_visit<TOPTREE_COUNT>(i, input, priv, NULL, 0);
             }
         }
         /* Parallel inclusive scan */
@@ -586,7 +667,7 @@ private:
                 /* Toptree never uses node list */
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
                 /* Indexing into the WorkSet, not the particle.*/
-                lv.toptree_visit(i, input, priv, currentexport, nexport);
+                lv.template toptree_visit<TOPTREE_EXPORT>(i, input, priv, currentexport, nexport);
             }
         }
 
@@ -738,110 +819,6 @@ private:
         return ndone;
     }
 };
-
-/* This calls the run() method repeatedly in a loop, redoing particles for density/hsml estimation.*/
-template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType>
-class LoopedTreeWalk: public TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType> {
-    protected:
-    using Base = TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType>;
-    using Base::build_queue;
-    using Base::run_on_queue;
-    using Base::output;
-    using Base::priv;
-    using Base::tree;
-
-    public:
-        using Base::TreeWalk;
-        using Base::timecomp3;
-
-    /* Done in the loop */
-    void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const parts) {};
-
-    /* This function does treewalk_run in a loop, allocating a queue to allow some particles to be redone.
-    * This loop is used primarily in density estimation.*/
-    void do_hsml_loop(int * queue, int64_t queuesize, const int update_hsml, particle_data * parts)
-    {
-        double maxnumngb = 0;
-        double minnumngb = 1e60;
-
-        /* Build the first queue */
-        double tstart = second();
-        int * ReDoQueue = NULL;
-        int64_t size = build_queue(&ReDoQueue, queue, queuesize, parts);
-        double tend = second();
-        this->timecomp3 += timediff(tstart, tend);
-        /* Number of times the outer loop was run. */
-        int Niteration = 0;
-        /* we will repeat the whole thing for those particles where we didn't find enough neighbours */
-        do {
-            /* The RedoQueue needs enough memory to store every workset particle on every thread, because
-            * we cannot guarantee that the sph particles are evenly spread across threads!*/
-            int * CurQueue = ReDoQueue;
-            /* The ReDoQueue swaps between high and low allocations so we can have two allocated alternately*/
-            gadget_thread_arrays loop = gadget_setup_thread_arrays("ReDoQueue", 0, size);
-
-            run_on_queue(CurQueue, size, parts, MPI_COMM_WORLD);
-
-            tstart = second();
-            output->verbose = (Niteration >= MAXITER - 5);
-            /* Check which particles we need to repeat for. */
-            #pragma omp parallel for reduction(max: maxnumngb) reduction(min: minnumngb)
-            for(int i = 0; i < size; i ++) {
-                const int tid = omp_get_thread_num();
-                const int p_i = CurQueue ? CurQueue[i] : i;
-                if(maxnumngb < output->NumNgb[p_i])
-                    maxnumngb = output->NumNgb[p_i];
-                if(minnumngb > output->NumNgb[p_i])
-                    minnumngb = output->NumNgb[p_i];
-                int done = output->postprocess(p_i, parts, &priv);
-                if(!done) {
-                    /* More work needed: add this particle to the redo queue*/
-                    loop.srcs[tid][loop.sizes[tid]] = p_i;
-                    loop.sizes[tid] ++;
-                    if(loop.sizes[tid] > loop.total_size)
-                        endrun(5, "Particle %ld on thread %d exceeded allocated size of redo queue %ld\n", loop.sizes[tid], tid, loop.total_size);
-                }
-                /* If we are done repeating, update the hmax in the parent node,
-                * if that type is in the tree.*/
-                if(done && (tree->mask & (1<<parts[p_i].Type)))
-                    update_tree_hmax_father(tree, p_i, parts[p_i].Pos, parts[p_i].Hsml);
-            }
-            tend = second();
-            timecomp3 += timediff(tstart, tend);
-
-            Niteration++;
-
-            /* Now done with the current queue*/
-            myfree(CurQueue);
-
-            size = gadget_compact_thread_arrays(&ReDoQueue, &loop);
-            /* We can stop if we are not updating hsml or if we are done.*/
-            if(!update_hsml || !MPIU_Any(size > 0, MPI_COMM_WORLD)) {
-                myfree(ReDoQueue);
-                break;
-            }
-
-            double minngb, maxngb;
-            MPI_Reduce(&maxnumngb, &maxngb, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-            MPI_Reduce(&minnumngb, &minngb, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
-            message(0, "Max ngb=%g, min ngb=%g\n", maxngb, minngb);
-
-            /*Shrink memory*/
-            ReDoQueue = (int *) myrealloc(ReDoQueue, sizeof(int) * size);
-    #ifdef DEBUG
-            if(size < 10 && Niteration > 20 ) {
-                int pp = ReDoQueue[0];
-                message(1, "Remaining i=%d, t %d, pos %g %g %g, hsml: %g\n", pp, parts[pp].Type, parts[pp].Pos[0], parts[pp].Pos[1], parts[pp].Pos[2], parts[pp].Hsml);
-            }
-    #endif
-
-            if(size > 0 && Niteration > MAXITER) {
-                endrun(1155, "failed to converge density for %ld particles\n", size);
-            }
-        } while(1);
-    };
-};
-
 
 /* This function find the closest index in the multi-evaluation list of hsml and numNgb, update left and right bound, and return the new hsml */
 double ngb_narrow_down(double *right, double *left, const double *radius, const double *numNgb, int maxcmpt, int desnumngb, int *closeidx, double BoxSize);

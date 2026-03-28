@@ -3,7 +3,6 @@
 #include "booststub.h"
 #include <libgadget/omega_nu_single.h>
 #include <libgadget/physconst.h>
-#include <libgadget/timefac.h>
 #include <boost/math/quadrature/gauss_kronrod.hpp>
 
 #define  T_CMB0      2.7255	/* present-day CMB temperature, from Fixsen 2009 */

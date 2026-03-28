@@ -16,7 +16,6 @@ TESTED = cooling \
 	slotsmanager \
 	powerspectrum \
 	forcetree \
-	timefac \
 	timebinmgr \
 	neutrinos_lra \
 	omega_nu_single \
@@ -59,9 +58,9 @@ GADGET_C_SRCS =  hci.c\
 	 plane.c lenstools.c
 
 GADGET_CPP_SRCS = hydra2.cpp density2.cpp gravshort-tree2.cpp walltime.cpp \
-cooling_rates.cpp cooling_qso_lightup.cpp cosmology.cpp neutrinos_lra.cpp omega_nu_single.cpp timefac.cpp timebinmgr.cpp lightcone.cpp
+cooling_rates.cpp cooling_qso_lightup.cpp cosmology.cpp neutrinos_lra.cpp omega_nu_single.cpp timebinmgr.cpp lightcone.cpp
 
-GADGET_CUDA_SRCS = gravshortcuda.cu
+GADGET_CUDA_SRCS = gravshortcuda.cu densitycuda.cu hydracuda.cu
 
 ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
 GADGET_OBJS := $(addsuffix .o,$(basename $(GADGET_C_SRCS))) $(addsuffix .o,$(basename $(GADGET_CPP_SRCS))) $(addsuffix .o,$(basename $(GADGET_CUDA_SRCS)))
@@ -96,8 +95,11 @@ all: libgadget.a libgadget-utils.a
 .objs/test_%: tests/test_%.c .objs/%.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_cosmology: tests/test_cosmology.c .objs/cosmology.o .objs/timefac.o libgadget-utils.a
+.objs/test_cosmology: tests/test_cosmology.c .objs/cosmology.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+
+.objs/test_densitykernel: tests/test_densitykernel.cpp densitykernel.hpp
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_timebinmgr: tests/test_timebinmgr.c .objs/timebinmgr.o .objs/cosmology.o .objs/omega_nu_single.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@

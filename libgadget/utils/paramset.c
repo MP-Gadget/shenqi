@@ -346,6 +346,8 @@ param_get_string(ParameterSet * ps, const char * name)
     ParameterSchema * p = param_get_schema(ps, name);
     if (param_is_nil(ps, name)) {
         message(0, "Accessing an undefined parameter `%s`.\n", p->name);
+        char empty[1] = {'\0'};
+        return fastpm_strdup(empty);
     }
     return ps->value[p->index].s;
 }
