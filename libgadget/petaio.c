@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <omp.h>
+#include <algorithm>
 
 #include <bigfile-mpi.h>
 
@@ -937,21 +938,16 @@ static void STGeneration(int i, unsigned char * out, void * baseptr, void * sman
     part[i].Generation = *out;
 }
 
-static int order_by_type(const void *a, const void *b)
+/* Function implementing Operator < */
+static bool order_by_type(const IOTableEntry& pa, const IOTableEntry& pb)
 {
-    const struct IOTableEntry * pa  = (const struct IOTableEntry *) a;
-    const struct IOTableEntry * pb  = (const struct IOTableEntry *) b;
-
-    if(pa->ptype < pb->ptype)
-        return -1;
-    if(pa->ptype > pb->ptype)
-        return +1;
-    if(pa->zorder < pb->zorder)
-        return -1;
-    if(pa->zorder > pb->zorder)
-        return 1;
-
-    return 0;
+    if(pa.ptype < pb.ptype)
+        return true;
+    if(pa.ptype > pb.ptype)
+        return false;
+    if(pa.zorder < pb.zorder)
+        return true;
+    return false;
 }
 
 void register_io_blocks(struct IOTable * IOTable, int WriteGroupID, int MetalReturnOn)
@@ -1054,7 +1050,7 @@ void register_io_blocks(struct IOTable * IOTable, int WriteGroupID, int MetalRet
     /* end excursion set*/
 
     /*Sort IO blocks so similar types are together; then ordered by the sequence they are declared. */
-    qsort_openmp(IOTable->ent, IOTable->used, sizeof(struct IOTableEntry), order_by_type);
+    std::sort(IOTable->ent, IOTable->ent + IOTable->used, order_by_type);
 }
 
 /* Add extra debug blocks to the output*/
@@ -1096,7 +1092,7 @@ void register_debug_io_blocks(struct IOTable * IOTable)
     IO_REG_WRONLY(StarVelDisp,       "f4", 1, 4, IOTable);
 
     /*Sort IO blocks so similar types are together; then ordered by the sequence they are declared. */
-    qsort_openmp(IOTable->ent, IOTable->used, sizeof(struct IOTableEntry), order_by_type);
+    std::sort(IOTable->ent, IOTable->ent + IOTable->used, order_by_type);
 }
 
 void destroy_io_blocks(struct IOTable * IOTable) {
