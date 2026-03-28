@@ -247,7 +247,6 @@ static int slot_cmp_reverse_link(const void * b1in, const void * b2in) {
 static int
 slots_gc_mark(const struct part_manager_type * pman, const struct slots_manager_type * sman)
 {
-    int64_t i;
     if(!(sman->info[0].enabled ||
        sman->info[1].enabled ||
        sman->info[2].enabled ||
@@ -257,15 +256,14 @@ slots_gc_mark(const struct part_manager_type * pman, const struct slots_manager_
         return 0;
 
 #ifdef DEBUG
-    int ptype;
     /*Initially set all reverse links to an obviously invalid value*/
-    for(ptype = 0; ptype < 6; ptype++)
+    for(int ptype = 0; ptype < 6; ptype++)
     {
         struct slot_info info = sman->info[ptype];
         if(!info.enabled)
             continue;
         #pragma omp parallel for
-        for(i = 0; i < info.size; i++) {
+        for(int64_t i = 0; i < info.size; i++) {
             struct particle_data_ext * sdata = (struct particle_data_ext * )(info.ptr + info.elsize * i);
             sdata->ReverseLink = pman->MaxPart + 100;
         }
@@ -273,7 +271,7 @@ slots_gc_mark(const struct part_manager_type * pman, const struct slots_manager_
 #endif
 
 #pragma omp parallel for
-    for(i = 0; i < pman->NumPart; i++) {
+    for(int64_t i = 0; i < pman->NumPart; i++) {
         struct slot_info info = sman->info[pman->Base[i].Type];
         if(!info.enabled)
             continue;
@@ -430,13 +428,12 @@ order_by_type_and_key(const void *a, const void *b)
 void
 slots_gc_sorted(struct part_manager_type * pman, struct slots_manager_type * sman)
 {
-    int ptype, i;
     /* Resort the particles such that those of the same type and key are close by.
      * The locality is broken by the exchange. */
     int64_t garbage=0;
     struct PeanoOrder * peanokeys = (struct PeanoOrder *)mymalloc("Keydata", pman->NumPart * sizeof(struct PeanoOrder));
     #pragma omp parallel for reduction(+: garbage)
-    for(i = 0; i < pman->NumPart; i++) {
+    for(int64_t i = 0; i < pman->NumPart; i++) {
         peanokeys[i].Key = PEANO(pman->Base[i].Pos, pman->BoxSize);
         peanokeys[i].TypeKey = pman->Base[i].Type;
         if(pman->Base[i].IsGarbage) {
@@ -449,7 +446,7 @@ slots_gc_sorted(struct part_manager_type * pman, struct slots_manager_type * sma
     /* Sort the keys*/
     qsort_openmp(peanokeys, pman->NumPart, sizeof(struct PeanoOrder), order_by_type_and_key);
     /* Now sort the base with a cycle leader permutation algorithm, like qsort.*/
-    for(i = 0; i < pman->NumPart; i++) {
+    for(int64_t i = 0; i < pman->NumPart; i++) {
         int k = peanokeys[i].Pindex;
         /* This element already in the right place*/
         if(k == i)
@@ -472,14 +469,17 @@ slots_gc_sorted(struct part_manager_type * pman, struct slots_manager_type * sma
         pman->Base[j] = tmp_p;
     }
     // message(1, "garbage %ld\n", garbage);
+
+    myfree(peanokeys);
+    /*Set up ReverseLink, marking all garbage particles with a bad slot.
+     * Do this before we compact the base particle table so any
+     * garbage slots are marked as well. Not really necessary as they
+     * are also marked in slots_mark_garbage().*/
+    slots_gc_mark(pman, sman);
     /*Remove garbage particles*/
     pman->NumPart -= garbage;
 
-    myfree(peanokeys);
-    /*Set up ReverseLink*/
-    slots_gc_mark(pman, sman);
-
-    for(ptype = 0; ptype < 6; ptype++) {
+    for(int ptype = 0; ptype < 6; ptype++) {
         if(!SLOTS_ENABLED(ptype, sman))
             continue;
         /* sort the used ones
