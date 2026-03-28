@@ -1,4 +1,6 @@
 #include <string.h>
+#include <algorithm>
+#include <execution>
 #include "slotsmanager.h"
 #include "partmanager.h"
 
@@ -244,6 +246,12 @@ static int slot_cmp_reverse_link(const void * b1in, const void * b2in) {
     return (b1->ReverseLink > b2->ReverseLink) - (b1->ReverseLink < b2->ReverseLink);
 }
 
+/* bool slot_cmp_reverse_link(const particle_data_ext& a, const particle_data_ext& b) {
+    if(a.ReverseLink  < b.ReverseLink)
+        return true;
+    return false;
+}*/
+
 static int
 slots_gc_mark(const struct part_manager_type * pman, const struct slots_manager_type * sman)
 {
@@ -401,25 +409,19 @@ struct PeanoOrder
     peano_t Key;
     int TypeKey;
     int Pindex;
+
+    bool operator<(const PeanoOrder& other) const
+    {
+        /* Note garbage types have their values set to something large here*/
+        if(TypeKey < other.TypeKey)
+            return true;
+        if(TypeKey > other.TypeKey)
+            return false;
+        if(Key < other.Key)
+            return true;
+        return false;
+    }
 };
-
-static int
-order_by_type_and_key(const void *a, const void *b)
-{
-    const struct PeanoOrder * pa  = (const struct PeanoOrder *) a;
-    const struct PeanoOrder * pb  = (const struct PeanoOrder *) b;
-    /* Note garbage types have their values set to something large here*/
-    if(pa->TypeKey < pb->TypeKey)
-        return -1;
-    if(pa->TypeKey > pb->TypeKey)
-        return +1;
-    if(pa->Key < pb->Key)
-        return -1;
-    if(pa->Key > pb->Key)
-        return +1;
-
-    return 0;
-}
 
 /* Sort the particles and their slots by type and peano order.
  * This does a gc by sorting the Garbage to the end of the array and then trimming.
@@ -444,7 +446,7 @@ slots_gc_sorted(struct part_manager_type * pman, struct slots_manager_type * sma
         peanokeys[i].Pindex = i;
     }
     /* Sort the keys*/
-    qsort_openmp(peanokeys, pman->NumPart, sizeof(struct PeanoOrder), order_by_type_and_key);
+    std::sort(std::execution::par_unseq, peanokeys, peanokeys + pman->NumPart);
     /* Now sort the base with a cycle leader permutation algorithm, like qsort.*/
     for(int64_t i = 0; i < pman->NumPart; i++) {
         int k = peanokeys[i].Pindex;
