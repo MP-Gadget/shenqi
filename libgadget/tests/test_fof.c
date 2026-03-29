@@ -10,8 +10,6 @@
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_real_distribution.hpp>
 
-#define qsort_openmp qsort
-
 #include <libgadget/fof.h>
 #include <libgadget/walltime.h>
 #include <libgadget/domain.h>
