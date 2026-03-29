@@ -503,25 +503,14 @@ slots_gc_sorted(struct part_manager_type * pman, struct slots_manager_type * sma
 size_t
 slots_reserve(int where, int64_t atleast[6], struct slots_manager_type * sman)
 {
-    int64_t newMaxSlots[6];
-    int ptype;
+    int64_t newMaxSlots[6] = {0};
     int good = 1;
 
-    if(sman->Base == NULL) {
-        /* Allocate the particle tables in managed memory. This is heavy-weight, since the particle tables are most of the memory on the CPU.
-         * However, the treewalk currently needs to read the particles, so we have no other option (for now). */
-        sman->Base = (char*) mymanagedmalloc("SlotsBase", sizeof(struct sph_particle_data));
-        /* This is so the ptr is never null! Avoid undefined behaviour. */
-        for(ptype = 5; ptype >= 0; ptype--) {
-            sman->info[ptype].ptr = sman->Base;
-        }
-    }
-
+    size_t total_bytes = 0;
     int64_t add = sman->increase;
     if (add < 8192) add = 8192;
 
-    /* FIXME: allow shrinking; need to tweak the memmove later. */
-    for(ptype = 0; ptype < 6; ptype ++) {
+    for(int ptype = 0; ptype < 6; ptype ++) {
         newMaxSlots[ptype] = sman->info[ptype].maxsize;
         if(!SLOTS_ENABLED(ptype, sman)) continue;
         /* if current empty slots is less than half of add, need to grow */
@@ -529,48 +518,36 @@ slots_reserve(int where, int64_t atleast[6], struct slots_manager_type * sman)
             newMaxSlots[ptype] = atleast[ptype] + add;
             good = 0;
         }
+        total_bytes += sman->info[ptype].elsize * newMaxSlots[ptype];
     }
 
-    size_t total_bytes = 0;
-    size_t offsets[6];
-    size_t bytes[6] = {0};
-
-    for(ptype = 0; ptype < 6; ptype++) {
-        offsets[ptype] = total_bytes;
-        bytes[ptype] = sman->info[ptype].elsize * newMaxSlots[ptype];
-        total_bytes += bytes[ptype];
-    }
     /* no need to grow, already have enough */
     if (good) {
         return total_bytes;
     }
-    char * newSlotsBase = (char *) myrealloc(sman->Base, total_bytes);
 
     /* realloc may move the base pointer.
      * Thus we need to also move the slots pointers before doing the memmove. If we are using our own
      * memory allocator the base address never moves, so this is unnecessary (but we do it anyway).*/
-    for(ptype = 0; ptype < 6; ptype++) {
-        sman->info[ptype].ptr = sman->info[ptype].ptr - sman->Base + newSlotsBase;
+    for(int ptype = 0; ptype < 6; ptype++) {
+        /* Allocate the particle tables in managed memory. This is heavy-weight, since the particle tables are most of the memory on the CPU.
+         * However, the treewalk currently needs to read the particles, so we have no other option (for now). */
+        if(!SLOTS_ENABLED(ptype, sman))
+            continue;
+        char * oldptr = sman->info[ptype].ptr;
+        sman->info[ptype].ptr = (char *) mymanagedmalloc("SlotType", sman->info[ptype].elsize * newMaxSlots[ptype]);
+        sman->info[ptype].maxsize = newMaxSlots[ptype];
+
+        /* This is expensive!*/
+        if(oldptr) {
+            memmove(sman->info[ptype].ptr, oldptr, sman->info[ptype].elsize * sman->info[ptype].size);
+            myfree(oldptr);
+        }
     }
 
     message(where, "SLOTS: Reserved %g MB for %ld sph, %ld stars and %ld BHs (disabled: %ld %ld %ld)\n", total_bytes / (1024.0 * 1024.0),
             newMaxSlots[0], newMaxSlots[4], newMaxSlots[5], newMaxSlots[1], newMaxSlots[2], newMaxSlots[3]);
 
-    /* move the last block first since we are only increasing sizes, moving items forward.
-     * No need to move the 0 block, since it is already moved to newSlotsBase in realloc.*/
-    for(ptype = 5; ptype > 0; ptype--) {
-        if(!SLOTS_ENABLED(ptype, sman)) continue;
-        memmove(newSlotsBase + offsets[ptype],
-            sman->info[ptype].ptr,
-            sman->info[ptype].elsize * sman->info[ptype].size);
-    }
-
-    sman->Base = newSlotsBase;
-
-    for(ptype = 0; ptype < 6; ptype++) {
-        sman->info[ptype].ptr = newSlotsBase + offsets[ptype];
-        sman->info[ptype].maxsize = newMaxSlots[ptype];
-    }
     return total_bytes;
 }
 
@@ -592,8 +569,13 @@ slots_set_enabled(int ptype, size_t elsize, struct slots_manager_type * sman)
 void
 slots_free(struct slots_manager_type * sman)
 {
-    myfree(sman->Base);
-    sman->Base = NULL;
+    for(int i = 0; i < 6; i++) {
+        if(!SLOTS_ENABLED(i, sman))
+            continue;
+        if(sman->info[i].ptr)
+            myfree(sman->info[i].ptr);
+        sman->info[i].ptr = NULL;
+    }
 }
 
 /* mark the i-th base particle as a garbage. */

@@ -130,7 +130,6 @@ struct sph_particle_data
 
 extern struct slots_manager_type {
     struct slot_info info[6];
-    char * Base; /* memory ptr that holds of all slots */
     double increase; /* Percentage amount to increase
                       * slot reservation by when requested.*/
 } SlotsManager[1];
