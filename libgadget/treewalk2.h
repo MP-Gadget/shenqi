@@ -15,6 +15,8 @@
 #include <numeric>
 /* For the parallel execution policy.*/
 #include <execution>
+#include <algorithm>
+#include <boost/iterator/counting_iterator.hpp>
 
 #define MAXITER 400
 
@@ -174,6 +176,16 @@ struct Greater_than_BunchSize
     MYCUDAFN bool operator() (int i) const {
         return i >= BunchSize;
     }
+};
+
+
+template <typename QueryType>
+class HasWorkPredicate {
+public:
+     const particle_data * parts;
+     MYCUDAFN bool operator()(int i) const {
+         return QueryType::haswork(parts[i]);
+     }
 };
 
 /**
@@ -382,37 +394,23 @@ public:
             return size;
         }
 
-        /*We want a lockless algorithm which preserves the ordering of the particle list.*/
-        gadget_thread_arrays gthread = gadget_setup_thread_arrays("ActiveQueue", 0, size);
-        /* We enforce schedule static to ensure that each thread executes on contiguous particles.
-         * Note static enforces the monotonic modifier but on OpenMP 5.0 nonmonotonic is the default.
-         * static also ensures that no single thread gets more than tsize elements.*/
-        #pragma omp parallel
-        {
-            size_t i;
-            const int tid = omp_get_thread_num();
-            size_t nqthrlocal = 0;
-            int *thrqlocal = gthread.srcs[tid];
-            #pragma omp for schedule(static, gthread.schedsz)
-            for(i=0; i < size; i++)
-            {
-                /*Use raw particle number if active_set is null, otherwise use active_set*/
-                const int p_i = active_set ? active_set[i] : (int) i;
-                const particle_data& pp = Parts[p_i];
-
-                if(!QueryType::haswork(pp))
-                    continue;
-        #ifdef DEBUG
-                if(nqthrlocal >= gthread.total_size)
-                    endrun(5, "tid = %d nqthr = %ld, tsize = %ld size = %ld, Nthread = %d i = %ld\n", tid, nqthrlocal, gthread.total_size, size, omp_get_num_threads(), i);
-        #endif
-                thrqlocal[nqthrlocal] = p_i;
-                nqthrlocal++;
-            }
-            gthread.sizes[tid] = nqthrlocal;
+        *WorkSet = (int *) mymanagedmalloc("ActiveQueue", size * sizeof(int));
+        HasWorkPredicate<QueryType> haswork{Parts};
+        /* This is a standard stream compaction algorithm. It evaluates the haswork function
+         * for every particle in the active set, stores the results in an array of flags, counts the non-zero flags,
+         * and then scatters each particle integer to the right index in the final array. All is parallelized. */
+        if(active_set) {
+            auto end = std::copy_if(std::execution::par,
+                active_set, active_set + size, *WorkSet, haswork);
+            return end - *WorkSet;
         }
-        /*Merge step for the queue.*/
-        return gadget_compact_thread_arrays_managed(WorkSet, "Active Queue", &gthread);
+        else { // Need to handle this separately
+            auto end = std::copy_if(std::execution::par,
+                boost::counting_iterator<int>(0),   // input: indices 0..size-1
+                boost::counting_iterator<int>(size),
+                *WorkSet, haswork);
+            return end - *WorkSet;
+        }
     }
 
     /* Print some counters for a completed treewalk*/

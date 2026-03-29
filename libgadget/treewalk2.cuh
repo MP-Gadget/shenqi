@@ -173,16 +173,6 @@ void treewalk_postprocess_kernel(
     output->postprocess(p_i, parts, priv);
 }
 
-template <typename QueryType>
-class HasWorkPredicate {
-     const particle_data * parts;
-     const int * active_set;
-     MYCUDAFN bool operator()(int i) const {
-         int p_i = active_set ? active_set[i] : i;
-         return QueryType::haswork(p_i, parts);
-     }
- };
-
 template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType>
 class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType>
 {
@@ -213,17 +203,22 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         if(err != cudaSuccess)
             endrun(5, "Failed to allocate device memory for active set: %s\n", cudaGetErrorString(err));
 
-        HasWorkPredicate<QueryType> functor{parts, active_set};
+        HasWorkPredicate<QueryType> haswork{parts};
         /* This is a standard stream compaction algorithm. It evaluates the haswork function
          * for every particle, stores the results in an array of flags, counts the non-zero flags,
          * and then scatters each particle integer to the right index in the final array. All is parallelized. */
-        auto end = thrust::copy_if(
-            thrust::device,
-            thrust::make_counting_iterator(0),   // input: indices 0..size-1
-            thrust::make_counting_iterator((int)size),
-            *WorkSet, functor);
-
-        return end - *WorkSet;
+        if(active_set) {
+            auto end = thrust::copy_if(thrust::device,
+                active_set, active_set + size, *WorkSet, haswork);
+            return end - *WorkSet;
+        }
+        else { // Need to handle this separately
+            auto end = thrust::copy_if(thrust::device,
+                thrust::make_counting_iterator<int>(0),   // input: indices 0..size-1
+                thrust::make_counting_iterator<int>(size),
+                *WorkSet, haswork);
+            return end - *WorkSet;
+        }
     }
 
     int * ev_count_exports(int * WorkSet, const int64_t WorkSetSize, particle_data * const parts)
