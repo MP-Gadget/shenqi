@@ -4,6 +4,9 @@
 #include <string.h>
 #include <math.h>
 #include <omp.h>
+#include <execution>
+#include <algorithm>
+#include <boost/iterator/counting_iterator.hpp>
 
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
@@ -1272,16 +1275,35 @@ inttime_t find_next_kick(inttime_t Ti_Current, int minTimeBin)
     return Ti_Current + dti_from_timebin(minTimeBin);
 }
 
+class ActivePredicate {
+public:
+     const particle_data * parts;
+     inttime_t Ti_Current;
+     MYCUDAFN bool operator()(int i) const {
+        if(parts[i].IsGarbage || parts[i].Swallowed)
+            return false;
+        bool grav_active = is_timebin_active(parts[i].TimeBinGravity, Ti_Current);
+        if (grav_active)
+             return true;
+        /* For now build active particles with either hydro or gravity active*/
+        const int hydro_particle = parts[i].Type == 0 || parts[i].Type == 5;
+        bool hydro_active = hydro_particle && is_timebin_active(parts[i].TimeBinHydro, Ti_Current);
+        if (hydro_active)
+             return true;
+         return false;
+     }
+};
+
+
 static void print_timebin_statistics(const DriftKickTimes * const times, TimeBinMgr * timebinmgr, const int NumCurrentTiStep, int * TimeBinCountType, const double Time, const int64_t ActiveGravityCount);
 
 /* mark the bins that will be active before the next kick*/
 void
 build_active_particles(ActiveParticles * act, const DriftKickTimes * const times, TimeBinMgr * timebinmgr, const int NumCurrentTiStep, const double Time, const struct part_manager_type * const PartManager)
 {
-    int i;
-
     int * TimeBinCountType = (int *) mymalloc("TimeBinCountType", sizeof(int) * 6*(TIMEBINS+1));
     memset(TimeBinCountType, 0, 6 * (TIMEBINS+1) * sizeof(int));
+    act->MaxActiveParticle = PartManager->MaxPart;
 
     /*We know all particles are active on a PM timestep*/
     if(is_PM_timestep(times)) {
@@ -1291,7 +1313,7 @@ build_active_particles(ActiveParticles * act, const DriftKickTimes * const times
         act->Particles = PartManager->Base;
         act->NumActiveHydro = SlotsManager->info[0].size + SlotsManager->info[5].size;
         #pragma omp parallel for reduction(+: TimeBinCountType[: 6 * (TIMEBINS+1)])
-        for(i = 0; i < PartManager->NumPart; i++)
+        for(int i = 0; i < PartManager->NumPart; i++)
         {
             if(PartManager->Base[i].IsGarbage || PartManager->Base[i].Swallowed)
                 continue;
@@ -1304,68 +1326,41 @@ build_active_particles(ActiveParticles * act, const DriftKickTimes * const times
         }
     }
     else {
-        /*We want a lockless algorithm which preserves the ordering of the particle list.*/
-        gadget_thread_arrays gthread = gadget_setup_thread_arrays("ActiveParticle", 0, PartManager->NumPart);
-
-        /* We enforce schedule static to imply monotonic, ensure that each thread executes on contiguous particles
-        * and ensure no thread gets more than narr particles.*/
+        act->ActiveParticle = (int *) mymanagedmalloc("ActiveParticle", PartManager->MaxPart * sizeof(int));
+        ActivePredicate pred{PartManager->Base, times->Ti_Current};
+        auto end = std::copy_if(std::execution::par,
+            boost::counting_iterator<int>(0),   // input: indices 0..size-1
+            boost::counting_iterator<int>(PartManager->NumPart),
+            act->ActiveParticle, pred);
+        act->NumActiveParticle = end - act->ActiveParticle;
+        act->Particles = PartManager->Base;
+        /* Need to count the active list for this.*/
         int64_t nactivegrav = 0;
         int64_t nactivehydro = 0;
-        #pragma omp parallel
+        #pragma omp parallel for reduction(+: TimeBinCountType[: 6 * (TIMEBINS+1)]) reduction(+: nactivegrav), reduction(+: nactivehydro)
+        for(int i = 0; i < act->NumActiveParticle; i++)
         {
-            const int tid = omp_get_thread_num();
-            size_t nthreadlocal = 0;
-            int * activepartthread = gthread.srcs[tid];
-            #pragma omp for schedule(static, gthread.schedsz) reduction(+: nactivegrav) reduction(+: nactivehydro) reduction(+: TimeBinCountType[: 6 * (TIMEBINS+1)])
-            for(i = 0; i < PartManager->NumPart; i++)
-            {
-                const int bin_hydro = PartManager->Base[i].TimeBinHydro;
-                const int bin_gravity = PartManager->Base[i].TimeBinGravity;
-                if(PartManager->Base[i].IsGarbage || PartManager->Base[i].Swallowed)
-                    continue;
-                const int type = PartManager->Base[i].Type;
-                /* For now build active particles with either hydro or gravity active*/
-                const int hydro_particle = type == 0 || type == 5;
-                /* All particles must have been synced in drift. */
-#ifdef DEBUG
-                if (PartManager->Base[i].Ti_drift != times->Ti_Current) {
-                    endrun(5, "Particle %d type %d has drift time %lx not ti_current %lx!",i, type, PartManager->Base[i].Ti_drift, times->Ti_Current);
-                }
-#endif
-                /* Make sure we only add hydro particles: the DM can have hydro bin 0
-                * and we don't want to add it to the active list.*/
-                const int hydro_active = hydro_particle && is_timebin_active(bin_hydro, times->Ti_Current);
-                const int gravity_active = is_timebin_active(bin_gravity, times->Ti_Current);
-                if(gravity_active)
-                    nactivegrav++;
-                if((hydro_active || gravity_active)) {
-                    /* Store this particle in the ActiveSet for this thread*/
-                    activepartthread[nthreadlocal] = i;
-                    nthreadlocal++;
-    #ifdef DEBUG
-                    if(nthreadlocal > gthread.total_size)
-                        endrun(2, "Not enough thread storage (%ld) for %ld active particles\n", gthread.total_size, nthreadlocal);
-    #endif
-                    nactivehydro++;
-                }
-                /* Account gas and BHs to their hydro bin and other particles to their gravity bin*/
-                int bin = bin_gravity;
-                if(hydro_particle)
-                    bin = bin_hydro;
-                TimeBinCountType[(TIMEBINS + 1) * type + bin] ++;
+            const int pi = act->ActiveParticle[i];
+            /* This is here for the PM step where ActiveParticle is NULL*/
+            if(PartManager->Base[pi].IsGarbage || PartManager->Base[pi].Swallowed)
+                continue;
+            /* Account gas and BHs to their hydro bin and other particles to their gravity bin*/
+            int bin = PartManager->Base[pi].TimeBinGravity;
+            if(is_timebin_active(bin, times->Ti_Current)) {
+                nactivegrav++;
             }
-            gthread.sizes[tid] = nthreadlocal;
+            const int type = PartManager->Base[pi].Type;
+            /* Any hydro particle on the active list is automatically hydro active*/
+            if(type == 0 || type == 5) {
+                bin = PartManager->Base[pi].TimeBinHydro;
+                nactivehydro ++;
+            }
+            TimeBinCountType[(TIMEBINS + 1) * type + bin] ++;
         }
-        /*Now we want a merge step for the ActiveParticle list.*/
-        act->NumActiveParticle = gadget_compact_thread_arrays_managed(&act->ActiveParticle, "ActiveParticle", &gthread);
-        act->NumActiveGravity = nactivegrav;
         act->NumActiveHydro = nactivehydro;
-        act->Particles = PartManager->Base;
-        /* Shrink the ActiveParticle array. We still need extra space for star formation,
-         * but we do not need space for the known-inactive particles*/
-        act->ActiveParticle = (int *) myrealloc(act->ActiveParticle, sizeof(int)*(act->NumActiveParticle + PartManager->MaxPart - PartManager->NumPart));
-        act->MaxActiveParticle = act->NumActiveParticle + PartManager->MaxPart - PartManager->NumPart;
+        act->NumActiveGravity = nactivegrav;
     }
+
     walltime_measure("/Timeline/Active");
 
     /*Print statistics for this time bin*/
