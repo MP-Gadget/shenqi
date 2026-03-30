@@ -108,7 +108,7 @@ static void print_bad_timebin(const double dloga, const inttime_t dti, const int
 
 /* Hierarchical gravity functions*/
 /* Build a sublist of particles gravitationally active and smaller than a timebin*/
-ActiveParticles build_active_sublist(const ActiveParticles * act, const int maxtimebin, const inttime_t Ti_Current);
+ActiveParticles build_active_sublist(const ActiveParticles * act, int maxtimebin, const inttime_t Ti_Current);
 
 /* Get the current PM (global) timestep.*/
 static inttime_t get_PM_timestep_ti(const DriftKickTimes * const times, TimeBinMgr * timebinmgr, const double atime, const Cosmology * CP, const int FastParticleType, const double asmth);
@@ -1294,7 +1294,6 @@ public:
      }
 };
 
-
 static void print_timebin_statistics(const DriftKickTimes * const times, TimeBinMgr * timebinmgr, const int NumCurrentTiStep, int * TimeBinCountType, const double Time, const int64_t ActiveGravityCount);
 
 /* mark the bins that will be active before the next kick*/
@@ -1369,46 +1368,45 @@ build_active_particles(ActiveParticles * act, const DriftKickTimes * const times
     return;
 }
 
+class SubActivePredicate {
+public:
+     const particle_data * parts;
+     inttime_t Ti_Current;
+     int maxtimebin;
+     MYCUDAFN bool operator()(int pi) const {
+        const int bin_gravity = parts[pi].TimeBinGravity;
+        if(parts[pi].IsGarbage || parts[pi].Swallowed)
+            return false;
+        if(bin_gravity > maxtimebin)
+            return false;
+        /* Just to be safe: maxtimebin should normally satisfy this*/
+        if(!is_timebin_active(bin_gravity, Ti_Current))
+            return false;
+         return true;
+     }
+};
+
 /* Build a sublist of particles, selected from the currently active particles,
  * which are gravitationally active and have a gravity timebin no larger than ti.*/
 ActiveParticles
-build_active_sublist(const ActiveParticles * act, const int maxtimebin, const inttime_t Ti_Current)
+build_active_sublist(const ActiveParticles * act, int maxtimebin, const inttime_t Ti_Current)
 {
-    int i;
-
     ActiveParticles sub_act[1] = {0};
-    /*We want a lockless algorithm which preserves the ordering of the particle list.*/
-    gadget_thread_arrays gthread = gadget_setup_thread_arrays("SubActiveParticle", 0, act->NumActiveParticle);
-//     message(0, "Building sublist containing particles up to bin %d\n", maxtimebin);
-
-    /* We enforce schedule static to imply monotonic, ensure that each thread executes on contiguous particles
-     * and ensure no thread gets more than narr particles.*/
-#pragma omp parallel
-    {
-        const int tid = omp_get_thread_num();
-        /* Local stack variables to avoid sharing a cache line across threads*/
-        size_t nactivethread=0;
-        int *activepartthread = gthread.srcs[tid];
-        #pragma omp for schedule(static, gthread.schedsz)
-        for(i = 0; i < act->NumActiveParticle; i++)
-        {
-            const int pi = get_active_particle(act, i);
-            const int bin_gravity = act->Particles[pi].TimeBinGravity;
-            if(act->Particles[pi].IsGarbage || act->Particles[pi].Swallowed)
-                continue;
-            if(bin_gravity > maxtimebin)
-                continue;
-            /* Just to be safe: maxtimebin should normally satisfy this*/
-            if(!is_timebin_active(bin_gravity, Ti_Current))
-                continue;
-            /* Store this particle in the ActiveSet for this thread*/
-            activepartthread[nactivethread] = pi;
-            nactivethread++;
-        }
-        gthread.sizes[tid] = nactivethread;
+    sub_act->ActiveParticle = (int *) mymanagedmalloc("SubActiveParticle", act->NumActiveParticle * sizeof(int));
+    //     message(0, "Building sublist containing particles up to bin %d\n", maxtimebin);
+    const SubActivePredicate pred{act->Particles, Ti_Current, maxtimebin};
+    if(act->ActiveParticle) {
+        auto end = std::copy_if(std::execution::par, act->ActiveParticle,  act->ActiveParticle + act->NumActiveParticle,
+            sub_act->ActiveParticle, pred);
+        sub_act->NumActiveParticle = end - sub_act->ActiveParticle;
     }
-    /*Now we want a merge step for the ActiveParticle list.*/
-    sub_act->NumActiveParticle = gadget_compact_thread_arrays_managed(&sub_act->ActiveParticle, "SubActiveParticle", &gthread);
+    else {
+        auto end = std::copy_if(std::execution::par,
+        boost::counting_iterator<int>(0),   // input: indices 0..size-1
+        boost::counting_iterator<int>(act->NumActiveParticle),
+        sub_act->ActiveParticle, pred);
+        sub_act->NumActiveParticle = end - sub_act->ActiveParticle;
+    }
     sub_act->NumActiveGravity = sub_act->NumActiveParticle;
     sub_act->MaxActiveParticle = sub_act->NumActiveParticle;
     sub_act->Particles = act->Particles;
