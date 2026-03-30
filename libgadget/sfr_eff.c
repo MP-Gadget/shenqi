@@ -131,8 +131,18 @@ static double get_sfr_factor_due_to_h2(int i, MyFloat * GradRho_mag, const doubl
 static double get_starformation_rate_full(int i, MyFloat * GradRho, struct sfr_eeqos_data sfr_data, const double atime, const double a3inv, const double hubble, const double GravInternal);
 static double get_egyeff(double redshift, double dens, struct UVBG * uvbg);
 static double find_star_mass(int i, const double avg_baryon_mass);
-/*Get enough memory for new star slots. This may be excessively slow! Don't do it too often.*/
-static int * sfr_reserve_slots(ActiveParticles * act, int * NewStars, int NumNewStar, ForceTree * tt);
+/* Get enough memory for new star slots.*/
+static void
+sfr_reserve_slots(int NumNewStar)
+{
+        message(1, "Need %ld star slots, more than %ld available. Try increasing SlotsIncreaseFactor on restart.\n", SlotsManager->info[4].size, SlotsManager->info[4].maxsize);
+        /*Now we can extend the slots! */
+        int64_t atleast[6];
+        for(int i = 0; i < 6; i++)
+            atleast[i] = SlotsManager->info[i].maxsize;
+        atleast[4] += NumNewStar;
+        slots_reserve(1, atleast, SlotsManager);
+}
 
 /* Convert entropy to internal energy*/
 static double entropy_to_u(const double density, const double a3inv)
@@ -313,13 +323,9 @@ cooling_and_starformation(ActiveParticles * act, double Time, double dloga, Time
 
     /*Get some empty slots for the stars*/
     int firststarslot = SlotsManager->info[4].size;
-    /* We ran out of slots! We must be forming a lot of stars.
-     * There are things in the way of extending the slot list, so we have to move them.
-     * The code in sfr_reserve_slots is not elegant, but I cannot think of a better way.*/
+    /* We ran out of slots! We must be forming a lot of stars.*/
     if(sfr_params.StarformationOn && (SlotsManager->info[4].size + NumNewStar >= SlotsManager->info[4].maxsize)) {
-        if(NewParents)
-            NewParents = (int *) myrealloc(NewParents, sizeof(int) * NumNewStar);
-        NewStars = sfr_reserve_slots(act, NewStars, NumNewStar, tree);
+        sfr_reserve_slots(NumNewStar);
     }
     SlotsManager->info[4].size += NumNewStar;
 
@@ -400,73 +406,6 @@ cooling_and_starformation(ActiveParticles * act, double Time, double dloga, Time
     if(sfr_params.WindOn && !winds_are_subgrid())
         winds_and_feedback(NewStars, NumNewStar, Time, rnd, tree, ddecomp);
     myfree(NewStars);
-}
-
-/* Get enough memory for new star slots. This may be excessively slow! Don't do it too often.
- * It is also not elegant, but I couldn't think of a better way. May be fragile and need updating
- * if memory allocation patterns change. */
-static int *
-sfr_reserve_slots(ActiveParticles * act, int * NewStars, int NumNewStar, ForceTree * tree)
-{
-        /* SlotsManager is below Nodes and ActiveParticleList,
-         * so we need to move them out of the way before we extend Nodes.
-         * This is quite slow, but need not be collective and is faster than a tree rebuild.
-         * Try not to do this too often.*/
-        message(1, "Need %ld star slots, more than %ld available. Try increasing SlotsIncreaseFactor on restart.\n", SlotsManager->info[4].size, SlotsManager->info[4].maxsize);
-        /*Move the NewStar array to upper memory*/
-        int * new_star_tmp = NULL;
-        if(NewStars) {
-            new_star_tmp = (int *) mymalloc2("newstartmp", NumNewStar*sizeof(int));
-            memmove(new_star_tmp, NewStars, NumNewStar * sizeof(int));
-            myfree(NewStars);
-        }
-        /*Move the tree to upper memory*/
-        struct NODE * nodes_base_tmp=NULL;
-        int *Father_tmp=NULL;
-        int *ActiveParticle_tmp=NULL;
-        if(force_tree_allocated(tree)) {
-            nodes_base_tmp = (struct NODE *) mymalloc2("nodesbasetmp", tree->numnodes * sizeof(struct NODE));
-            memmove(nodes_base_tmp, tree->Nodes_base, tree->numnodes * sizeof(struct NODE));
-            myfree(tree->Nodes_base);
-            Father_tmp = (int *) mymalloc2("Father_tmp", PartManager->MaxPart * sizeof(int));
-            memmove(Father_tmp, tree->Father, PartManager->MaxPart * sizeof(int));
-            myfree(tree->Father);
-        }
-        if(act->ActiveParticle) {
-            ActiveParticle_tmp = (int *) mymalloc2("ActiveParticle_tmp", act->NumActiveParticle * sizeof(int));
-            memmove(ActiveParticle_tmp, act->ActiveParticle, act->NumActiveParticle * sizeof(int));
-            myfree(act->ActiveParticle);
-        }
-        /*Now we can extend the slots! */
-        int64_t atleast[6];
-        int64_t i;
-        for(i = 0; i < 6; i++)
-            atleast[i] = SlotsManager->info[i].maxsize;
-        atleast[4] += NumNewStar;
-        slots_reserve(1, atleast, SlotsManager);
-
-        /*And now we need our memory back in the right place*/
-        if(ActiveParticle_tmp) {
-            act->ActiveParticle = (int *) mymalloc("ActiveParticle", sizeof(int)*(act->NumActiveParticle + PartManager->MaxPart - PartManager->NumPart));
-            memmove(act->ActiveParticle, ActiveParticle_tmp, act->NumActiveParticle * sizeof(int));
-            myfree(ActiveParticle_tmp);
-        }
-        if(force_tree_allocated(tree)) {
-            tree->Father = (int *) mymalloc("Father", PartManager->MaxPart * sizeof(int));
-            memmove(tree->Father, Father_tmp, PartManager->MaxPart * sizeof(int));
-            myfree(Father_tmp);
-            tree->Nodes_base = (struct NODE *) mymalloc("Nodes_base", tree->numnodes * sizeof(struct NODE));
-            memmove(tree->Nodes_base, nodes_base_tmp, tree->numnodes * sizeof(struct NODE));
-            myfree(nodes_base_tmp);
-            /*Don't forget to update the Node pointer as well as Node_base!*/
-            tree->Nodes = tree->Nodes_base - tree->firstnode;
-        }
-        if(new_star_tmp) {
-            NewStars = (int *) mymalloc("NewStars", NumNewStar*sizeof(int));
-            memmove(NewStars, new_star_tmp, NumNewStar * sizeof(int));
-            myfree(new_star_tmp);
-        }
-        return NewStars;
 }
 
 static void
