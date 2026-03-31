@@ -393,24 +393,16 @@ public:
             *WorkSet = (int *) mymanagedmalloc("ActiveQueue", sizeof(int));
             return size;
         }
+        if(!active_set)
+            endrun(0, "active_set is null in build_queue, which should not happen\n");
 
         *WorkSet = (int *) mymanagedmalloc("ActiveQueue", size * sizeof(int));
         HasWorkPredicate<QueryType> haswork{Parts};
         /* This is a standard stream compaction algorithm. It evaluates the haswork function
          * for every particle in the active set, stores the results in an array of flags, counts the non-zero flags,
          * and then scatters each particle integer to the right index in the final array. All is parallelized. */
-        if(active_set) {
-            auto end = std::copy_if(std::execution::par,
-                active_set, active_set + size, *WorkSet, haswork);
-            return end - *WorkSet;
-        }
-        else { // Need to handle this separately
-            auto end = std::copy_if(std::execution::par,
-                boost::counting_iterator<int>(0),   // input: indices 0..size-1
-                boost::counting_iterator<int>(size),
-                *WorkSet, haswork);
-            return end - *WorkSet;
-        }
+        auto end = std::copy_if(std::execution::par,  active_set, active_set + size, *WorkSet, haswork);
+        return end - *WorkSet;
     }
 
     /* Print some counters for a completed treewalk*/
