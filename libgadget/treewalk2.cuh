@@ -206,9 +206,18 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         /* This is a standard stream compaction algorithm. It evaluates the haswork function
          * for every particle, stores the results in an array of flags, counts the non-zero flags,
          * and then scatters each particle integer to the right index in the final array. All is parallelized. */
-        auto end = thrust::copy_if(thrust::device,
-            active_set, active_set + size, *WorkSet, haswork);
-        return end - *WorkSet;
+        if(active_set) {
+            auto end = thrust::copy_if(thrust::device,
+                active_set, active_set + size, *WorkSet, haswork);
+            return end - *WorkSet;
+        }
+        else { // Need to handle this separately
+            auto end = thrust::copy_if(thrust::device,
+                thrust::make_counting_iterator<int>(0),   // input: indices 0..size-1
+                thrust::make_counting_iterator<int>(size),
+                *WorkSet, haswork);
+            return end - *WorkSet;
+        }
     }
 
     int * ev_count_exports(int * WorkSet, const int64_t WorkSetSize, particle_data * const parts)
