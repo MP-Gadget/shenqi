@@ -22,7 +22,6 @@
 #include <cuda_runtime.h>           // For CUDA runtime API functions.
 #include <device_launch_parameters.h>  // To support device-related parameters.
 #include <thrust/copy.h>                        // thrust::copy_if
-#include <thrust/iterator/counting_iterator.h>  // thrust::make_counting_iterator
 #include <thrust/execution_policy.h>            // thrust::device
 #include <thrust/scan.h>            // thrust::exclusive_scan
 #include <thrust/find.h>            // thrust::find_if

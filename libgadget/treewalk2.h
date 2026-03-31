@@ -16,7 +16,6 @@
 /* For the parallel execution policy.*/
 #include <execution>
 #include <algorithm>
-#include <boost/iterator/counting_iterator.hpp>
 
 #define MAXITER 400
 

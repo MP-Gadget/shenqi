@@ -6,7 +6,7 @@
 #include <omp.h>
 #include <execution>
 #include <algorithm>
-#include <boost/iterator/counting_iterator.hpp>
+#include <numeric>
 
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
