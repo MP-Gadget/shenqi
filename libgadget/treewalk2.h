@@ -403,11 +403,15 @@ public:
                 active_set, active_set + size, *WorkSet, haswork);
             return end - *WorkSet;
         }
-        else { // Need to handle this separately
+        else { // Need to handle this separately.
+            /* The GPU code has a counting_iterator from thrust which avoids allocating the memory.
+             * There is nothing in the stl, but there is a counting_iterator in boost.
+             * However, nvc++ does not accept it as a copy_if argument. */
+            int * indices = (int *) mymalloc("ActiveIndex", PartManager->NumPart * sizeof(int));
+            std::iota(indices, indices + PartManager->NumPart, 0);
             auto end = std::copy_if(std::execution::par,
-                boost::counting_iterator<int>(0),   // input: indices 0..size-1
-                boost::counting_iterator<int>(size),
-                *WorkSet, haswork);
+                indices, indices + size, *WorkSet, haswork);
+            myfree(indices);
             return end - *WorkSet;
         }
     }
