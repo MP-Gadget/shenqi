@@ -4,7 +4,6 @@
 #include "treewalk.h"
 #include "walltime.h"
 #include "sfr_eff.h"
-#include "timefac.h"
 #include "density.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
@@ -373,7 +372,7 @@ winds_veldisp_haswork(int n, TreeWalk * tw)
 /* Find the 1D DM velocity dispersion of all gas particles by running a density loop.
  * Stores it in VDisp in the slots structure.*/
 void
-winds_find_vel_disp(const ActiveParticles * act, const double Time, const double hubble, Cosmology * CP, DriftKickTimes * times, DomainDecomp * ddecomp)
+winds_find_vel_disp(const ActiveParticles * act, const double Time, const double hubble, Cosmology * CP, DriftKickTimes * times, TimeBinMgr * timebinmgr, DomainDecomp * ddecomp)
 {
     TreeWalk tw[1] = {0};
     struct WindVDispPriv priv[1] = {0};
@@ -396,7 +395,7 @@ winds_find_vel_disp(const ActiveParticles * act, const double Time, const double
 
     priv[0].Time = Time;
     priv[0].hubble = hubble;
-    priv[0].ddrift = get_exact_drift_factor(CP, times->Ti_Current, times->Ti_Current + times->PM_length);
+    priv[0].ddrift = timebinmgr->get_exact_drift_factor(times->Ti_Current, times->Ti_Current + times->PM_length);
     tw->priv = priv;
 
     /* Build the queue to check that we have something to do before we rebuild the tree.*/
@@ -413,7 +412,7 @@ winds_find_vel_disp(const ActiveParticles * act, const double Time, const double
     if(totvdisp > 0 || totbh > 0) {
         force_tree_rebuild_mask(tree, ddecomp, DMMASK, NULL);
         tw->haswork = NULL;
-        init_kick_factor_data(&priv->kf, times, CP);
+        init_kick_factor_data(&priv->kf, times, timebinmgr, CP);
     }
 
     /* Compute the black hole velocity dispersions if needed*/

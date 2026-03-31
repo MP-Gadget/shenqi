@@ -328,14 +328,15 @@ void qsort_openmp(void *base, size_t nmemb, size_t size,
 
             /* now swap Abase and Atmp for next merge */
 #pragma omp barrier
-#pragma omp master
+/* omp single has an implicit memory barrier before exit, necessary on aarch64.
+ * omp master on aarch64 is not sufficient.*/
+#pragma omp single
 	    {
                 void ** a = Abase;
                 Abase = Atmp;
                 Atmp = a;
 	    }
-#pragma omp barrier
-            /* at this point Abase contains the sorted array */
+        /* at this point Abase contains the sorted array */
         }
         /* output was written to the tmp rather than desired location, copy it */
         if((!indirect && Abase[0] != base)

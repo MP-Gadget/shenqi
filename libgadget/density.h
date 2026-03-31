@@ -3,8 +3,6 @@
 
 #include "forcetree.h"
 #include "timestep.h"
-#include "densitykernel.h"
-#include "utils/paramset.h"
 #include "timebinmgr.h"
 #include "density2.h"
 
@@ -32,7 +30,7 @@ void set_densitypar_old(struct density_params dp);
  * it just computes densities.
  * If DoEgyDensity is true it also computes the entropy-weighted density for
  * pressure-entropy SPH. */
-void density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, Cosmology * CP, struct sph_pred_data * SPH_predicted, MyFloat * GradRho_mag, const ForceTree * const tree);
+void density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, TimeBinMgr * timebinmgr, Cosmology * CP, struct sph_pred_data * SPH_predicted, MyFloat * GradRho_mag, const ForceTree * const tree);
 
 void slots_free_sph_pred_data(struct sph_pred_data * sph_pred);
 
@@ -42,6 +40,6 @@ void SPH_VelPred(int i, MyFloat * VelPred, const struct kick_factor_data * kf);
 /* Predicted velocity for dark matter, ignoring the hydro component.*/
 void DM_VelPred(int i, MyFloat * VelPred, const struct kick_factor_data * kf);
 /* Initialise the grav and hydrokick arrays for the current kick times.*/
-void init_kick_factor_data(struct kick_factor_data * kf, const DriftKickTimes * const times, Cosmology * CP);
+void init_kick_factor_data(struct kick_factor_data * kf, const DriftKickTimes * const times, TimeBinMgr * timebinmgr, Cosmology * CP);
 
 #endif

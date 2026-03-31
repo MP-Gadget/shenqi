@@ -21,7 +21,7 @@
  * the function density_kernel_wk and _dwk takes u to maintain compatibility
  * with volker's gadget.
  */
-double wk_cs(DensityKernel * kernel, double q) {
+double wk_cs(const DensityKernel * kernel, double q) {
     if(q < 1.0) {
         return 0.25 * pow(2 - q, 3) - pow(1 - q, 3);
     }
@@ -30,7 +30,7 @@ double wk_cs(DensityKernel * kernel, double q) {
     }
     return 0.0;
 }
-double dwk_cs(DensityKernel * kernel, double q) {
+double dwk_cs(const DensityKernel * kernel, double q) {
     if(q < 1.0) {
         return - 0.25 * 3 * pow(2 - q, 2) + 3 * pow(1 - q, 2);
     }
@@ -39,7 +39,7 @@ double dwk_cs(DensityKernel * kernel, double q) {
     }
     return 0.0;
 }
-static double wk_qus(DensityKernel * kernel, double q) {
+static double wk_qus(const DensityKernel * kernel, double q) {
     if(q < 0.5) {
         return pow(2.5 - q, 4) - 5 * pow(1.5 - q, 4) + 10 * pow(0.5 - q, 4);
     }
@@ -51,7 +51,7 @@ static double wk_qus(DensityKernel * kernel, double q) {
     }
     return 0.0;
 }
-static double dwk_qus(DensityKernel * kernel, double q) {
+static double dwk_qus(const DensityKernel * kernel, double q) {
     if(q < 0.5) {
         return -4 * pow(2.5 - q, 3) + 20 * pow(1.5 - q, 3) - 40 * pow(0.5 - q, 3);
     }
@@ -63,7 +63,7 @@ static double dwk_qus(DensityKernel * kernel, double q) {
     }
     return 0.0;
 }
-static double wk_qs(DensityKernel * kernel, double q) {
+static double wk_qs(const DensityKernel * kernel, double q) {
     if(q < 1.0) {
         return pow(3 - q, 5) - 6 * pow(2 - q, 5) + 15 * pow(1 - q, 5);
     }
@@ -75,7 +75,7 @@ static double wk_qs(DensityKernel * kernel, double q) {
     }
     return 0.0;
 }
-static double dwk_qs(DensityKernel * kernel, double q) {
+static double dwk_qs(const DensityKernel * kernel, double q) {
     if(q < 1.0) {
         return -5 * pow(3 - q, 4) + 30 * pow(2 - q, 4)
              - 75 * pow (1 - q, 4);
@@ -91,8 +91,8 @@ static double dwk_qs(DensityKernel * kernel, double q) {
 
 static struct {
     const char * name;
-    double (*wk)(DensityKernel * kernel, double q);
-    double (*dwk)(DensityKernel * kernel, double q);
+    double (*wk)(const DensityKernel * kernel, double q);
+    double (*dwk)(const DensityKernel * kernel, double q);
     double support; /* H / h, see Price 2011: arxiv 1012.1885*/
     double sigma[3];
 } KERNELS[] = {
@@ -105,7 +105,7 @@ static struct {
 };
 
 double
-density_kernel_dwk(DensityKernel * kernel, double u)
+density_kernel_dwk(const DensityKernel * kernel, double u)
 {
     double support = KERNELS[kernel->type].support;
     return kernel->dWknorm *
@@ -113,7 +113,7 @@ density_kernel_dwk(DensityKernel * kernel, double u)
 }
 
 double
-density_kernel_wk(DensityKernel * kernel, double u)
+density_kernel_wk(const DensityKernel * kernel, double u)
 {
     double support = KERNELS[kernel->type].support;
     return kernel->Wknorm *
@@ -121,7 +121,7 @@ density_kernel_wk(DensityKernel * kernel, double u)
 }
 
 double
-density_kernel_desnumngb(DensityKernel * kernel, double eta)
+density_kernel_desnumngb(const DensityKernel * kernel, double eta)
 {
     /* this returns the expected number of ngb in for given sph resolution
      * deseta */
@@ -131,7 +131,7 @@ density_kernel_desnumngb(DensityKernel * kernel, double eta)
 }
 
 double
-density_kernel_volume(DensityKernel * kernel)
+density_kernel_volume(const DensityKernel * kernel)
 {
     return NORM_COEFF * pow(kernel->H, NUMDIMS);
 }

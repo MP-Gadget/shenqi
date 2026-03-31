@@ -9,7 +9,6 @@
 #include "walltime.h"
 #include "density.h"
 #include "treewalk.h"
-#include "timefac.h"
 #include "slotsmanager.h"
 #include "timestep.h"
 #include "utils/endrun.h"
@@ -26,6 +25,8 @@ set_densitypar_old(struct density_params dp)
     DensityParams = dp;
 }
 
+static TimeBinMgr * globalTimeBinMgr;
+
 /* The evolved entropy at drift time: evolved dlog a.
  * Used to predict pressure and entropy for SPH */
 MyFloat
@@ -33,7 +34,7 @@ SPH_EntVarPred(const int p_i, const DriftKickTimes * times)
 {
         const int bin = Part[p_i].TimeBinHydro;
         const int PI = Part[p_i].PI;
-        const double dloga = dloga_from_dti(times->Ti_Current - times->Ti_kick[bin], times->Ti_Current);
+        const double dloga = globalTimeBinMgr->dloga_from_dti(times->Ti_Current - times->Ti_kick[bin], times->Ti_Current);
         double EntVarPred = SphP[PI].Entropy + SphP[PI].DtEntropy * dloga;
         /*Entropy limiter for the predicted entropy: makes sure entropy stays positive. */
         if(EntVarPred < 0.05*SphP[PI].Entropy)
@@ -75,11 +76,11 @@ DM_VelPred(int i, MyFloat * VelPred, const struct kick_factor_data * kf)
 
 /* Initialise the grav and hydrokick arrays for the current kick times.*/
 void
-init_kick_factor_data(struct kick_factor_data * kf, const DriftKickTimes * const times, Cosmology * CP)
+init_kick_factor_data(struct kick_factor_data * kf, const DriftKickTimes * const times, TimeBinMgr * timebinmgr, Cosmology * CP)
 {
     int i;
     /* Factor this out since all particles have the same PM kick time*/
-    kf->FgravkickB = get_exact_gravkick_factor(CP, times->PM_kick, times->Ti_Current);
+    kf->FgravkickB = timebinmgr->get_exact_gravkick_factor(times->PM_kick, times->Ti_Current);
     memset(kf->gravkicks, 0, sizeof(kf->gravkicks[0])*(TIMEBINS+1));
     memset(kf->hydrokicks, 0, sizeof(kf->hydrokicks[0])*(TIMEBINS+1));
     /* Compute the factors to move a current kick times velocity to the drift time velocity.
@@ -88,8 +89,8 @@ init_kick_factor_data(struct kick_factor_data * kf, const DriftKickTimes * const
     #pragma omp parallel for
     for(i = times->mintimebin; i <= TIMEBINS; i++)
     {
-        kf->gravkicks[i] = get_exact_gravkick_factor(CP, times->Ti_kick[i], times->Ti_Current);
-        kf->hydrokicks[i] = get_exact_hydrokick_factor(CP, times->Ti_kick[i], times->Ti_Current);
+        kf->gravkicks[i] = timebinmgr->get_exact_gravkick_factor(times->Ti_kick[i], times->Ti_Current);
+        kf->hydrokicks[i] = timebinmgr->get_exact_hydrokick_factor(times->Ti_kick[i], times->Ti_Current);
     }
 }
 
@@ -194,7 +195,7 @@ static void density_copy(int place, TreeWalkQueryDensity * I, TreeWalk * tw);
  * neighbours.)
  */
 void
-density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, Cosmology * CP, struct sph_pred_data * SPH_predicted, MyFloat * GradRho_mag, const ForceTree * const tree)
+density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, const DriftKickTimes times, TimeBinMgr * timebinmgr, Cosmology * CP, struct sph_pred_data * SPH_predicted, MyFloat * GradRho_mag, const ForceTree * const tree)
 {
     TreeWalk tw[1] = {{0}};
     struct DensityPriv priv[1];
@@ -213,6 +214,7 @@ density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int 
     tw->priv = priv;
     tw->tree = tree;
 
+    globalTimeBinMgr = timebinmgr;
     DENSITY_GET_PRIV(tw)->Left = (MyFloat *) mymalloc("DENS_PRIV->Left", PartManager->NumPart * sizeof(MyFloat));
     DENSITY_GET_PRIV(tw)->Right = (MyFloat *) mymalloc("DENS_PRIV->Right", PartManager->NumPart * sizeof(MyFloat));
     DENSITY_GET_PRIV(tw)->NumNgb = (MyFloat *) mymalloc("DENS_PRIV->NumNgb", PartManager->NumPart * sizeof(MyFloat));
@@ -245,7 +247,7 @@ density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int 
         DENSITY_GET_PRIV(tw)->Left[p_i] = 0;
     }
 
-    init_kick_factor_data(&priv->kf, &times, CP);
+    init_kick_factor_data(&priv->kf, &times, timebinmgr, CP);
     priv->times = &times;
 
     /* If all particles are active, easiest to compute all the predicted velocities immediately*/

@@ -3,11 +3,10 @@
 
 #include "forcetree.h"
 #include "timestep.h"
-#include "density.h"
 #include "utils/paramset.h"
 
 /*Function to compute hydro accelerations and adiabatic entropy change*/
-void hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPred, DriftKickTimes& times,  Cosmology * CP, const ForceTree * const tree);
+void hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPred, DriftKickTimes& times,  TimeBinMgr * timebinmgr, Cosmology * CP, const ForceTree * const tree, bool UseGPU=false);
 
 struct hydro_params
 {

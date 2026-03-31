@@ -23,6 +23,7 @@ struct density_testdata
     struct sph_pred_data sph_pred;
     DomainDecomp ddecomp;
     struct density_params dp;
+    TimeBinMgr timebinmgr;
 };
 
 /*Make a simple trivial domain for all data on a single processor*/
@@ -60,7 +61,7 @@ static struct density_testdata setup_density(void)
 {
     struct density_testdata data = {0};
     /* Needed so the integer timeline works*/
-    setup_sync_points(NULL,0.01, 0.1, 0.0, 0);
+    data.timebinmgr = TimeBinMgr(NULL,0.01, 0.1, 0.0, false);
 
     /*Reserve space for the slots*/
     slots_init(0.01 * PartManager->MaxPart, SlotsManager);
@@ -86,12 +87,12 @@ static struct density_testdata setup_density(void)
     data.dp.MaxNumNgbDeviation = 0.5;
     data.dp.DensityKernelType = DENSITY_KERNEL_CUBIC_SPLINE;
     data.dp.MinGasHsmlFractional = 0.006;
+    data.dp.BlackHoleMaxAccretionRadius = 99999.;
     struct gravshort_tree_params tree_params = {0};
     tree_params.FractionalGravitySoftening = 1;
     set_gravshort_treepar(tree_params);
     gravshort_set_softenings(1);
-    data.dp.BlackHoleMaxAccretionRadius = 99999.;
-
+    data.dp.MinGasHsml = 0.006 * (FORCE_SOFTENING()/2.8);
     set_densitypar(data.dp);
     return data;
 }
@@ -166,7 +167,7 @@ static void do_density_test(struct density_testdata * data, const int numpart, d
 
     /* Rebuild without moments to check it works*/
     force_tree_rebuild_mask(&tree, &ddecomp, GASMASK, NULL);
-    density(&act, 1, 0, 0, kick, &CP, &(data->sph_pred.EntVarPred), NULL, &tree);
+    density(&act, 1, 0, 0, kick, &data->timebinmgr, &CP, &(data->sph_pred.EntVarPred), NULL, &tree);
     end = MPI_Wtime();
     double ms = (end - start)*1000;
     message(0, "Found densities in %.3g ms\n", ms);
@@ -191,7 +192,7 @@ static void do_density_test(struct density_testdata * data, const int numpart, d
 
     start = MPI_Wtime();
     /*Find the density*/
-    density(&act, 1, 0, 0, kick, &CP, &(data->sph_pred.EntVarPred), NULL, &tree);
+    density(&act, 1, 0, 0, kick, &data->timebinmgr, &CP, &(data->sph_pred.EntVarPred), NULL, &tree);
     end = MPI_Wtime();
     slots_free_sph_pred_data(&data->sph_pred);
 

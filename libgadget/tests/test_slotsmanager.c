@@ -45,7 +45,7 @@ setup_particles(void)
         int j;
         for(j = 0; j <3; j++)
             PartManager->Base[i].Pos[j] = i / PartManager->NumPart * PartManager->BoxSize;
-        PartManager->Base[i].ID = i;
+        PartManager->Base[i].ID = i+1;
     }
 
     slots_setup_id(PartManager, SlotsManager);

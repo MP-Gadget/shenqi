@@ -33,18 +33,18 @@ typedef struct {
 } DensityKernel;
 
 double
-density_kernel_desnumngb(DensityKernel * kernel, double eta);
+density_kernel_desnumngb(const DensityKernel * kernel, double eta);
 void
 density_kernel_init(DensityKernel * kernel, double H, enum DensityKernelType type);
 double
-density_kernel_wk(DensityKernel * kernel, double u);
+density_kernel_wk(const DensityKernel * kernel, double u);
 double
-density_kernel_dwk(DensityKernel * kernel, double u);
+density_kernel_dwk(const DensityKernel * kernel, double u);
 double
-density_kernel_volume(DensityKernel * kernel);
+density_kernel_volume(const DensityKernel * kernel);
 
 static inline double
-density_kernel_dW(DensityKernel * kernel, double u, double wk, double dwk)
+density_kernel_dW(const DensityKernel * kernel, double u, double wk, double dwk)
 {
     return - (NUMDIMS * kernel->Hinv * wk + u * dwk);
 }

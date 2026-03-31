@@ -9,7 +9,6 @@
 #include "slotsmanager.h"
 #include "treewalk.h"
 #include "density.h"
-#include "timefac.h"
 #include "hydra.h"
 #include "winds.h"
 #include "utils/endrun.h"
@@ -134,18 +133,20 @@ hydro_copy(int place, TreeWalkQueryHydro * input, TreeWalk * tw);
 static void
 hydro_reduce(int place, TreeWalkResultHydro * result, enum TreeWalkReduceMode mode, TreeWalk * tw);
 
+static TimeBinMgr * globalTimeBinMgr;
+
 /*! This function is the driver routine for the calculation of hydrodynamical
  *  force and rate of change of entropy due to shock heating for all active
  *  particles .
  */
 void
-hydro_force_old(const ActiveParticles * act, const double atime, struct sph_pred_data * SPH_predicted, const DriftKickTimes times,  Cosmology * CP, const ForceTree * const tree)
+hydro_force_old(const ActiveParticles * act, const double atime, struct sph_pred_data * SPH_predicted, const DriftKickTimes times,  TimeBinMgr * timebinmgr, Cosmology * CP, const ForceTree * const tree)
 {
     int i;
     TreeWalk tw[1] = {{0}};
 
     struct HydraPriv priv[1];
-
+    globalTimeBinMgr = timebinmgr;
     tw->ev_label = "HYDRO";
     tw->visit = (TreeWalkVisitFunction) treewalk_visit_ngbiter;
     tw->ngbiter = (TreeWalkNgbIterFunction) hydro_ngbiter;
@@ -189,7 +190,7 @@ hydro_force_old(const ActiveParticles * act, const double atime, struct sph_pred
     HYDRA_GET_PRIV(tw)->atime = atime;
     HYDRA_GET_PRIV(tw)->hubble_a2 = hubble * atime * atime;
     priv->times = &times;
-    init_kick_factor_data(&priv->kf, &times, CP);
+    init_kick_factor_data(&priv->kf, &times, timebinmgr, CP);
     memset(priv->drifts, 0, sizeof(priv->drifts[0])*(TIMEBINS+1));
     #pragma omp parallel for
     for(i = times.mintimebin; i <= TIMEBINS; i++)
@@ -197,7 +198,7 @@ hydro_force_old(const ActiveParticles * act, const double atime, struct sph_pred
         /* For density: last active drift time is Ti_kick - 1/2 timestep as the kick time is half a timestep ahead.
          * For active particles no density drift is needed.*/
         if(!is_timebin_active(i, times.Ti_Current))
-            priv->drifts[i] = get_exact_drift_factor(CP, times.Ti_lastactivedrift[i], times.Ti_Current);
+            priv->drifts[i] = globalTimeBinMgr->get_exact_drift_factor(times.Ti_lastactivedrift[i], times.Ti_Current);
     }
 
     treewalk_run(tw, act->ActiveParticle, act->NumActiveParticle);
@@ -245,7 +246,7 @@ hydro_copy(int place, TreeWalkQueryHydro * input, TreeWalk * tw)
         input->Pressure = HYDRA_GET_PRIV(tw)->PressurePred[Part[place].PI];
     else
         input->Pressure = PressurePred(eomdensity, input->EntVarPred);
-    input->dloga = get_dloga_for_bin(Part[place].TimeBinHydro, HYDRA_GET_PRIV(tw)->times->Ti_Current);
+    input->dloga = globalTimeBinMgr->get_dloga_for_bin(Part[place].TimeBinHydro, HYDRA_GET_PRIV(tw)->times->Ti_Current);
     /* calculation of F1 */
     soundspeed_i = sqrt(GAMMA * input->Pressure / eomdensity);
     input->F1 = fabs(SPHP(place).DivVel) /
@@ -432,7 +433,7 @@ hydro_ngbiter(
         /* now make sure that viscous acceleration is not too large */
 
         /*XXX: why is this dloga ?*/
-        double dloga = 2 * DMAX(I->dloga, get_dloga_for_bin(Part[other].TimeBinHydro, HYDRA_GET_PRIV(lv->tw)->times->Ti_Current));
+        double dloga = 2 * DMAX(I->dloga, globalTimeBinMgr->get_dloga_for_bin(Part[other].TimeBinHydro, HYDRA_GET_PRIV(lv->tw)->times->Ti_Current));
         if(dloga > 0 && (dwk_i + dwk_j) < 0)
         {
             if((I->Mass + Part[other].Mass) > 0) {
@@ -494,7 +495,12 @@ hydro_postprocess(int i, TreeWalk * tw)
         /* if we have winds, we decouple particles briefly if delaytime>0 */
         if(winds_is_particle_decoupled(i))
         {
-            winds_decoupled_hydro(i, HYDRA_GET_PRIV(tw)->atime);
+            int k;
+            for(k = 0; k < 3; k++)
+                SPHP(i).HydroAccel[k] = 0;
+
+            SPHP(i).DtEntropy = 0;
+            winds_decoupled_hydro(&SPHP(i), HYDRA_GET_PRIV(tw)->atime, winds_get_speed(), winds_get_dens_thresh());
         }
     }
 }
