@@ -566,24 +566,15 @@ petaio_build_buffer(BigArray * array, IOTableEntry * ent, const int * selection,
         return;
     }
 
-#pragma omp parallel
-    {
-        int i;
-        const int tid = omp_get_thread_num();
-        const int NT = omp_get_num_threads();
-        const int start = NumSelection * (size_t) tid / NT;
-        const int end = NumSelection * ((size_t) tid + 1) / NT;
-        /* fill the buffer */
-        char * p = (char *) array->data;
-        p += array->strides[0] * start;
-        for(i = start; i < end; i ++) {
-            const int j = selection[i];
-            if(Parts[j].Type != ent->ptype) {
-                endrun(2, "Selection %d has type = %d != %d\n", j, Parts[j].Type, ent->ptype);
-            }
-            ent->getter(j, p, Parts, SlotsManager, conv);
-            p += array->strides[0];
+    /* fill the buffer */
+    char * p = (char *) array->data;
+    for(int i = 0; i < NumSelection; i ++) {
+        const int j = selection[i];
+        if(Parts[j].Type != ent->ptype) {
+            endrun(2, "Selection %d has type = %d != %d\n", j, Parts[j].Type, ent->ptype);
         }
+        ent->getter(j, p, Parts, SlotsManager, conv);
+        p += array->strides[0];
     }
 }
 
