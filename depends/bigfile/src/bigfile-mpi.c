@@ -389,7 +389,7 @@ _aggregated(
             ptrdiff_t offset, /* offset of the entire comm */
             size_t localsize,
             BigArray * array,
-            int (*action)(BigBlock * bb, BigBlockPtr * ptr, BigArray * array),
+            int write,
             int root,
             MPI_Comm comm);
 
@@ -397,8 +397,7 @@ static int
 _throttle_action(MPI_Comm comm, int concurrency, BigBlock * block,
     BigBlockPtr * ptr,
     BigArray * array,
-    int (*action)(BigBlock * bb, BigBlockPtr * ptr, BigArray * array)
-)
+    int write)
 {
     int ThisTask, NTask;
 
@@ -449,7 +448,7 @@ _throttle_action(MPI_Comm comm, int concurrency, BigBlock * block,
         size_t offset = myoffset;
         MPI_Bcast(&offset, 1, MPI_LONG, 0, seggrp->Segment);
 
-        rt = _aggregated(block, ptr, offset, localsize, array, action, seggrp->segment_leader_rank, seggrp->Segment);
+        rt = _aggregated(block, ptr, offset, localsize, array, write, seggrp->segment_leader_rank, seggrp->Segment);
 
     }
 
@@ -469,7 +468,7 @@ _aggregated(
             ptrdiff_t offset, /* offset of the entire comm */
             size_t localsize, /* offset of the entire comm */
             BigArray * array,
-            int (*action)(BigBlock * bb, BigBlockPtr * ptr, BigArray * array),
+            int write,
             int root,
             MPI_Comm comm)
 {
@@ -516,16 +515,20 @@ _aggregated(
         big_array_init(garray, gbuf, block->dtype, 2, (size_t[]){(size_t) grouptotalsize, (size_t) block->nmemb}, NULL);
     }
 
-    if(action == big_block_write) {
+    if(write) {
         _dtype_convert(ilarray, iarray, localsize * block->nmemb);
         MPI_Gatherv(lbuf, recvcounts[rank], MPI_BYTE,
                     gbuf, recvcounts, recvdispls, MPI_BYTE, root, comm);
     }
     if(rank == root) {
         big_block_seek_rel(block, ptr1, offset);
-        e = action(block, ptr1, garray);
+        if(write)
+            e = big_block_write(block, ptr1, garray);
+        else
+            e = big_block_read(block, ptr1, garray);
     }
-    if(action == big_block_read) {
+    /* We are a read*/
+    if(!write) {
         MPI_Scatterv(gbuf, recvcounts, recvdispls, MPI_BYTE,
                     lbuf, recvcounts[rank], MPI_BYTE, root, comm);
         _dtype_convert(iarray, ilarray, localsize * block->nmemb);
@@ -542,14 +545,14 @@ _aggregated(
 int
 big_block_mpi_write(BigBlock * block, BigBlockPtr * ptr, BigArray * array, int concurrency, MPI_Comm comm)
 {
-    int rt = _throttle_action(comm, concurrency, block, ptr, array, big_block_write);
+    int rt = _throttle_action(comm, concurrency, block, ptr, array, 1);
     return rt;
 }
 
 int
 big_block_mpi_read(BigBlock * block, BigBlockPtr * ptr, BigArray * array, int concurrency, MPI_Comm comm)
 {
-    int rt = _throttle_action(comm, concurrency, block, ptr, array, big_block_read);
+    int rt = _throttle_action(comm, concurrency, block, ptr, array, 0);
     return rt;
 }
 
