@@ -493,24 +493,18 @@ _aggregated(
     void * lbuf = malloc(elsize * localsize);
     void * gbuf = NULL;
 
+    /* Count is in bytes*/
     int recvcounts[nrank];
     int recvdispls[nrank + 1];
 
     recvdispls[0] = 0;
-    recvcounts[rank] = localsize;
+    recvcounts[rank] = localsize * elsize;
     MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, recvcounts, 1, MPI_INT, comm);
-
-    int grouptotalsize = localsize;
-
-    MPI_Allreduce(MPI_IN_PLACE, &grouptotalsize, 1, MPI_INT, MPI_SUM, comm);
 
     for(i = 0; i < nrank; i ++) {
         recvdispls[i + 1] = recvdispls[i] + recvcounts[i];
     }
-
-    MPI_Datatype mpidtype;
-    MPI_Type_contiguous(elsize, MPI_BYTE, &mpidtype);
-    MPI_Type_commit(&mpidtype);
+    int grouptotalsize = recvdispls[nrank] / elsize;
 
     big_array_init(larray, lbuf, block->dtype, 2, (size_t[]){localsize, (size_t) block->nmemb}, NULL);
 
@@ -524,16 +518,16 @@ _aggregated(
 
     if(action == big_block_write) {
         _dtype_convert(ilarray, iarray, localsize * block->nmemb);
-        MPI_Gatherv(lbuf, recvcounts[rank], mpidtype,
-                    gbuf, recvcounts, recvdispls, mpidtype, root, comm);
+        MPI_Gatherv(lbuf, recvcounts[rank], MPI_BYTE,
+                    gbuf, recvcounts, recvdispls, MPI_BYTE, root, comm);
     }
     if(rank == root) {
         big_block_seek_rel(block, ptr1, offset);
         e = action(block, ptr1, garray);
     }
     if(action == big_block_read) {
-        MPI_Scatterv(gbuf, recvcounts, recvdispls, mpidtype,
-                    lbuf, localsize, mpidtype, root, comm);
+        MPI_Scatterv(gbuf, recvcounts, recvdispls, MPI_BYTE,
+                    lbuf, recvcounts[rank], MPI_BYTE, root, comm);
         _dtype_convert(iarray, ilarray, localsize * block->nmemb);
     }
 
@@ -541,8 +535,6 @@ _aggregated(
         free(gbuf);
     }
     free(lbuf);
-
-    MPI_Type_free(&mpidtype);
 
     return big_file_mpi_broadcast_anyerror(e, comm);
 }
