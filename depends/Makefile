@@ -6,7 +6,8 @@ include $(CONFIG)
 # MPICC ?= mpicc
 MPICCDEP ?= mpicc
 OPTIMIZE ?= -O2 -g -fopenmp -Wall
-COPTIMIZE = $(filter-out -std=gnu++20,$(OPTIMIZE))
+COPTIMIZE1 = $(filter-out -std=gnu++20,$(OPTIMIZE))
+COPTIMIZE = $(filter-out -stdpar=gpu,$(COPTIMIZE1))
 LIBRARIES=lib/libbigfile-mpi.a
 FFTLIBRARIES=lib/libpfft_omp.a lib/libfftw3_mpi.a lib/libfftw3_omp.a
 depends: $(LIBRARIES) $(FFTLIBRARIES)
@@ -22,7 +23,7 @@ pfft: install_pfft.sh
 	mkdir -p lib; \
 	mkdir -p include; \
 	#Using -ipo causes icc to crash.
-	MPICC="$(MPICCDEP)" CC="$(MPICCDEP)" CFLAGS="$(filter-out -ipo,$(COPTIMIZE)) -I $(PWD)/include" LFLAGS="-L$(PWD)/lib" AR="$(AR)" RANLIB=$(RANLIB) \
+	MPICC="$(MPICCDEP)" CC="$(MPICCDEP)" CFLAGS="$(filter-out -stdpar=gpu,$(COPTIMIZE)) -I $(PWD)/include" LFLAGS="-L$(PWD)/lib" AR="$(AR)" RANLIB=$(RANLIB) \
         sh $(PWD)/install_pfft.sh $(PWD)/
 
 clean: clean-fast clean-fft
