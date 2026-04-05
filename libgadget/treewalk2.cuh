@@ -222,13 +222,16 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
 
     int * ev_count_exports(int * WorkSet, const int64_t WorkSetSize, particle_data * const parts)
     {
-        const int threadsPerBlock = 256;
-        const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
-
         int * exportcounts;
-        cudaError_t err = cudaMalloc(&exportcounts, sizeof(int) * WorkSetSize);
+        /* Allocate at least 1 element so cudaFree is always valid. */
+        cudaError_t err = cudaMalloc(&exportcounts, sizeof(int) * std::max(WorkSetSize, (int64_t)1));
         if(err != cudaSuccess)
             endrun(5, "Failed to allocate device memory for export counts: %s\n", cudaGetErrorString(err));
+        if(WorkSetSize == 0)
+            return exportcounts;
+
+        const int threadsPerBlock = 256;
+        const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
 
         /* First count the exports from each particle and store the counts in exportcounts.
          * We only count exports we have not yet sent.
@@ -311,6 +314,8 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
 
     // Function to launch kernel (wrapper)
     void ev_primary(int * WorkSet, int64_t WorkSetSize, particle_data * const particles) {
+        if(WorkSetSize == 0)
+            return;
         /* Declare device memory for counters */
         unsigned int * d_maxNinteractions = nullptr;
         unsigned int * d_minNinteractions = nullptr;
@@ -348,6 +353,8 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
      * */
     void ev_secondary(ResultType * results, QueryType * imports, const int64_t WorkSetSize, struct particle_data * const particles)
     {
+        if(WorkSetSize == 0)
+            return;
         const int threadsPerBlock = 256;
         const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
         /* All arrays need to be managed malloc or device:
@@ -362,6 +369,8 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
     /* Do the postprocessing on the GPU. This simply evaluates the postprocess function for every particle. */
     void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const particles)
     {
+        if(WorkSetSize == 0)
+            return;
         const int threadsPerBlock = 256;
         const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
         treewalk_postprocess_kernel<ParamType, OutputType>
