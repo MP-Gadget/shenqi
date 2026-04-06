@@ -628,7 +628,8 @@ void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, i
 
     int NumWriters = IO.NumWriters;
 
-    size_t size = count_sum(array->dims[0]);
+    size_t size, count_local = array->dims[0];
+    MPI_Allreduce(&count_local, &size, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     int NumFiles;
 
     if(IO.EnableAggregatedIO) {
