@@ -648,6 +648,7 @@ void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, i
     /*Do not write empty files*/
     if(size == 0) {
         NumFiles = 0;
+        return;
     }
 
     if(verbose && size > 0) {
