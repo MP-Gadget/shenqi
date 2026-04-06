@@ -621,8 +621,8 @@ int petaio_read_block(BigFile * bf, const char * blockname, BigArray * array, in
 void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, int verbose)
 {
 
-    BigBlock bb;
-    BigBlockPtr ptr;
+    BigBlock bb = {0};
+    BigBlockPtr ptr = {0};
 
     int elsize = big_file_dtype_itemsize(array->dtype);
 
@@ -637,7 +637,8 @@ void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, i
             NumWriters = NumFiles * IO.WritersPerFile;
         }
         if(NumWriters < IO.MinNumWriters && IO.MinNumWriters > 1) {
-            message(0, "Throttling to %d NumWriters but could throttle to %d.\n", IO.MinNumWriters, NumWriters);
+            if(NumWriters > 0)
+                message(0, "Throttling to %d NumWriters but could throttle to %d.\n", IO.MinNumWriters, NumWriters);
             NumWriters = IO.MinNumWriters;
             NumFiles = (NumWriters + IO.WritersPerFile - 1) / IO.WritersPerFile ;
         }
