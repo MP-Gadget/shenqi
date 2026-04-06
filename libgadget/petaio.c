@@ -661,9 +661,6 @@ void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, i
         endrun(0, "Failed to create block at %s:%s\n", blockname,
                     big_file_get_error_message());
     }
-    if(0 != big_block_seek(&bb, &ptr, 0)) {
-        endrun(0, "Failed to seek:%s\n", big_file_get_error_message());
-    }
     if(0 != big_block_mpi_write(&bb, &ptr, array, NumWriters, MPI_COMM_WORLD)) {
         endrun(0, "Failed to write :%s\n", big_file_get_error_message());
     }
