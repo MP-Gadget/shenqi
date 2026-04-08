@@ -273,11 +273,8 @@ allocator_print(Allocator * alloc)
 }
 
 void *
-allocator_realloc_int_nomalloc(Allocator * alloc, void * ptr, const size_t new_size, const char * fmt, ...)
+allocator_realloc_int_nomalloc(Allocator * alloc, void * ptr, const size_t new_size, const char * fmt, va_list va)
 {
-    va_list va;
-    va_start(va, fmt);
-
     char * cptr = (char *) ptr;
     struct BlockHeader * header = (struct BlockHeader*) (cptr - ALIGNMENT);
     struct BlockHeader tmp = * header;
@@ -301,7 +298,6 @@ allocator_realloc_int_nomalloc(Allocator * alloc, void * ptr, const size_t new_s
     if(tmp.dir == ALLOC_DIR_TOP && new_size > tmp.request_size) {
         memmove(newptr, tmp.ptr, tmp.size);
     }
-    va_end(va);
     return newptr;
 }
 
@@ -507,13 +503,12 @@ allocator_get_used_size_malloc(Allocator * alloc)
 }
 
 void *
-allocator_realloc_int_malloc(Allocator * alloc, void * ptr, const size_t new_size, const char * fmt, ...)
+allocator_realloc_int_malloc(Allocator * alloc, void * ptr, const size_t new_size, const char * fmt, va_list va)
 {
-    va_list va;
-    va_start(va, fmt);
-
+    /* update record */
     char * cptr = (char *) ptr;
     struct BlockHeader * header = (struct BlockHeader*) (cptr - ALIGNMENT);
+    header->request_size = new_size;
 
     if (!is_header(header)) {
         endrun(1, "Not an allocated address: Header = %8p ptr = %8p\n", header, cptr);
@@ -538,10 +533,9 @@ allocator_realloc_int_malloc(Allocator * alloc, void * ptr, const size_t new_siz
         header2 = (struct BlockHeader *) realloc(header, new_size + ALIGNMENT);
     // Update header pointer in the new block
     header2->ptr = (char*) header2 + ALIGNMENT;
-    header2->request_size = new_size;
-    /* update record */
+    /* Update header annotation*/
     vsprintf(header2->annotation, fmt, va);
-    va_end(va);
+    header2->request_size = new_size;
     memcpy(header2->self, header2, sizeof(header2[0]));
     return header2->ptr;
 }

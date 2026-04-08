@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <omp.h>
+#include <algorithm>
 
 #include <bigfile-mpi.h>
 
@@ -191,7 +192,7 @@ petaio_save_snapshot(const char * fname, struct IOTable * IOTable, int verbose, 
         }
         /* No need to write empty folders for particle types we don't have.
          * But do still write them for stars and BHs as someone might expect them.*/
-        if(ptype_count[ptype] == 0 && ptype < 4)
+        if(NTotal[ptype] == 0 && ptype < 4)
             continue;
         sprintf(blockname, "%d/%s", ptype, IOTable->ent[i].name);
         petaio_build_buffer(&array, &IOTable->ent[i], selection + ptype_offset[ptype], ptype_count[ptype], PartManager->Base, SlotsManager, &conv);
@@ -317,8 +318,8 @@ petaio_read_snapshot(int num, const char * OutputDir, Cosmology * CP, struct hea
                 keep |= (0 == strcmp(IOTable->ent[i].name, "BlackholeMass"));
                 keep |= (0 == strcmp(IOTable->ent[i].name, "MinPotPos"));
             }
-            /* Some IC codes may set the gas particle mass directly, rather than in the header*/
-            if(ptype == 0 && header->MassTable[ptype] <= 0)
+            /* Some IC codes may set the particle mass directly, rather than in the header*/
+            if(header->MassTable[ptype] <= 0)
                 keep |= (0 == strcmp(IOTable->ent[i].name, "Mass"));
             if(!keep) continue;
         }
@@ -350,21 +351,20 @@ petaio_read_snapshot(int num, const char * OutputDir, Cosmology * CP, struct hea
          *  entropy.
          * */
         struct particle_data * parts = PartManager->Base;
-        int i;
         /* touch up the mass -- IC files save mass in header */
         #pragma omp parallel for
-        for(i = 0; i < PartManager->NumPart; i++)
+        for(int i = 0; i < PartManager->NumPart; i++)
         {
-            parts[i].Mass = header->MassTable[parts[i].Type];
+            if(header->MassTable[parts[i].Type] > 0)
+                parts[i].Mass = header->MassTable[parts[i].Type];
         }
 
         if (!IO.UsePeculiarVelocity ) {
             /* fixing the unit of velocity from Legacy GenIC IC */
             #pragma omp parallel for
-            for(i = 0; i < PartManager->NumPart; i++) {
-                int k;
+            for(int i = 0; i < PartManager->NumPart; i++) {
                 /* for GenIC's Gadget-1 snapshot Unit to Gadget-2 Internal velocity unit */
-                for(k = 0; k < 3; k++)
+                for(int k = 0; k < 3; k++)
                     parts[i].Vel[k] *= sqrt(header->TimeSnapshot) * header->TimeSnapshot;
             }
         }
@@ -621,14 +621,15 @@ int petaio_read_block(BigFile * bf, const char * blockname, BigArray * array, in
 void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, int verbose)
 {
 
-    BigBlock bb;
-    BigBlockPtr ptr;
+    BigBlock bb = {0};
+    BigBlockPtr ptr = {0};
 
     int elsize = big_file_dtype_itemsize(array->dtype);
 
     int NumWriters = IO.NumWriters;
 
-    size_t size = count_sum(array->dims[0]);
+    size_t size, count_local = array->dims[0];
+    MPI_Allreduce(&count_local, &size, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     int NumFiles;
 
     if(IO.EnableAggregatedIO) {
@@ -637,7 +638,8 @@ void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, i
             NumWriters = NumFiles * IO.WritersPerFile;
         }
         if(NumWriters < IO.MinNumWriters && IO.MinNumWriters > 1) {
-            message(0, "Throttling to %d NumWriters but could throttle to %d.\n", IO.MinNumWriters, NumWriters);
+            if(NumWriters > 0)
+                message(0, "Throttling to %d NumWriters but could throttle to %d.\n", IO.MinNumWriters, NumWriters);
             NumWriters = IO.MinNumWriters;
             NumFiles = (NumWriters + IO.WritersPerFile - 1) / IO.WritersPerFile ;
         }
@@ -647,6 +649,7 @@ void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, i
     /*Do not write empty files*/
     if(size == 0) {
         NumFiles = 0;
+        return;
     }
 
     if(verbose && size > 0) {
@@ -657,9 +660,6 @@ void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, i
     if(0 != big_file_mpi_create_block(bf, &bb, blockname, array->dtype, array->dims[1], NumFiles, size, MPI_COMM_WORLD)) {
         endrun(0, "Failed to create block at %s:%s\n", blockname,
                     big_file_get_error_message());
-    }
-    if(0 != big_block_seek(&bb, &ptr, 0)) {
-        endrun(0, "Failed to seek:%s\n", big_file_get_error_message());
     }
     if(0 != big_block_mpi_write(&bb, &ptr, array, NumWriters, MPI_COMM_WORLD)) {
         endrun(0, "Failed to write :%s\n", big_file_get_error_message());
@@ -938,21 +938,16 @@ static void STGeneration(int i, unsigned char * out, void * baseptr, void * sman
     part[i].Generation = *out;
 }
 
-static int order_by_type(const void *a, const void *b)
+/* Function implementing Operator < */
+static bool order_by_type(const IOTableEntry& pa, const IOTableEntry& pb)
 {
-    const struct IOTableEntry * pa  = (const struct IOTableEntry *) a;
-    const struct IOTableEntry * pb  = (const struct IOTableEntry *) b;
-
-    if(pa->ptype < pb->ptype)
-        return -1;
-    if(pa->ptype > pb->ptype)
-        return +1;
-    if(pa->zorder < pb->zorder)
-        return -1;
-    if(pa->zorder > pb->zorder)
-        return 1;
-
-    return 0;
+    if(pa.ptype < pb.ptype)
+        return true;
+    if(pa.ptype > pb.ptype)
+        return false;
+    if(pa.zorder < pb.zorder)
+        return true;
+    return false;
 }
 
 void register_io_blocks(struct IOTable * IOTable, int WriteGroupID, int MetalReturnOn)
@@ -1055,7 +1050,7 @@ void register_io_blocks(struct IOTable * IOTable, int WriteGroupID, int MetalRet
     /* end excursion set*/
 
     /*Sort IO blocks so similar types are together; then ordered by the sequence they are declared. */
-    qsort_openmp(IOTable->ent, IOTable->used, sizeof(struct IOTableEntry), order_by_type);
+    std::sort(IOTable->ent, IOTable->ent + IOTable->used, order_by_type);
 }
 
 /* Add extra debug blocks to the output*/
@@ -1097,7 +1092,7 @@ void register_debug_io_blocks(struct IOTable * IOTable)
     IO_REG_WRONLY(StarVelDisp,       "f4", 1, 4, IOTable);
 
     /*Sort IO blocks so similar types are together; then ordered by the sequence they are declared. */
-    qsort_openmp(IOTable->ent, IOTable->used, sizeof(struct IOTableEntry), order_by_type);
+    std::sort(IOTable->ent, IOTable->ent + IOTable->used, order_by_type);
 }
 
 void destroy_io_blocks(struct IOTable * IOTable) {

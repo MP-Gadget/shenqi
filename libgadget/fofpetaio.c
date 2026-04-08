@@ -63,8 +63,6 @@ int fof_save_particles(FOFGroups * fof, char * fname, int SaveParticles, Cosmolo
         if(ptype == PTYPE_FOF_GROUP) {
             sprintf(blockname, "FOFGroups/%s", FOFIOTable.ent[i].name);
             build_buffer_fof(fof, &array, &FOFIOTable.ent[i], &conv);
-            message(0, "Writing Block %s\n", blockname);
-
             petaio_save_block(&bf, blockname, &array, 1);
             petaio_destroy_buffer(&array);
         }
@@ -143,7 +141,7 @@ int fof_save_particles(FOFGroups * fof, char * fname, int SaveParticles, Cosmolo
         myfree(selection);
         /* If we allocated new particle arrays, just free them*/
         if(halo_pman != PartManager) {
-            myfree(halo_sman->Base);
+            slots_free(halo_sman);
             myfree(halo_pman->Base);
         }
         walltime_measure("/FOF/IO/WriteParticles");
@@ -345,10 +343,10 @@ fof_distribute_particles(struct part_manager_type * halo_pman, struct slots_mana
 
         memcpy(halo_sman, SlotsManager, sizeof(struct slots_manager_type));
 
-        halo_sman->Base = NULL;
         for(i = 0; i < 6; i ++) {
             halo_sman->info[i].size = 0;
             halo_sman->info[i].maxsize = 0;
+            halo_sman->info[i].ptr = NULL;
         }
         slots_reserve(0, atleast, halo_sman);
 
@@ -379,7 +377,7 @@ fof_distribute_particles(struct part_manager_type * halo_pman, struct slots_mana
     if(domain_exchange(fof_sorted_layout, halo_pman, NULL, halo_pman, halo_sman, 10000, Comm)) {
         message(1930, "Failed to exchange and write particles for the FOF. This is non-fatal, continuing.\n");
         if(halo_pman != PartManager) {
-            myfree(halo_sman->Base);
+            slots_free(halo_sman);
             myfree(halo_pman->Base);
         }
         return 1;

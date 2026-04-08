@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <algorithm>
+#include <execution>
 /* do NOT use complex.h it breaks the code */
 
 #include "petapm.h"
@@ -34,8 +36,28 @@ struct Pencil { /* a pencil starting at offset, with lenght len */
     int first;
     int meshbuf_first; /* first pixel in meshbuf */
     int task;
+
+    bool operator<(const struct Pencil& p2) const {
+        /* Both are zero, neither is lesser.
+         * This was not here before, but we need
+         * it to avoid (p1 < p2) && (p2 < p1).*/
+        if(len == 0 && p2.len == 0)
+            return false;
+        /* move zero length pixels to the end */
+        if(p2.len == 0)
+            return true;
+        if(len == 0)
+            return false;
+        if(task < p2.task)
+            return true;
+        if(task > p2.task)
+            return false;
+        if(meshbuf_first < p2.meshbuf_first)
+            return true;
+        return false;
+    }
 };
-static int pencil_cmp_target(const void * v1, const void * v2);
+
 static int pos_get_target(PetaPM * pm, const int pos[2]);
 
 /* FIXME: move this to MPIU_. */
@@ -620,7 +642,7 @@ layout_prepare (PetaPM * pm,
     layout_build_pencils(pm, L, meshbuf, regions, Nregions);
 
     /* sort the pencils by the target rank for ease of next step */
-    qsort_openmp(L->PencilSend, NpAlloc, sizeof(struct Pencil), pencil_cmp_target);
+    std::sort(std::execution::par_unseq, L->PencilSend, L->PencilSend + NpAlloc);
     /* zero length pixels are moved to the tail */
 
     /* now shrink NpExport*/
@@ -1038,17 +1060,6 @@ static int pos_get_target(PetaPM * pm, const int pos[2]) {
     }
     MPI_Cart_rank(pm->priv->comm_cart_2d, task2d, &rank);
     return rank;
-}
-static int pencil_cmp_target(const void * v1, const void * v2) {
-    const struct Pencil * p1 = (const struct Pencil *) v1;
-    const struct Pencil * p2 = (const struct Pencil *) v2;
-    /* move zero length pixels to the end */
-    if(p2->len == 0) return -1;
-    if(p1->len == 0) return 1;
-    int t1 = p1->task;
-    int t2 = p2->task;
-    return ((t2 < t1) - (t1 < t2)) * 2 +
-        ((p2->meshbuf_first < p1->meshbuf_first) - (p1->meshbuf_first < p2->meshbuf_first));
 }
 
 #ifdef DEBUG

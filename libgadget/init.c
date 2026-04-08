@@ -10,6 +10,7 @@
 
 #include "forcetree.h"
 #include "density2.h"
+#include "density.h"
 
 #include "petaio.h"
 #include "domain.h"
@@ -59,23 +60,25 @@ set_init_params(ParameterSet * ps)
 }
 
 /* Setup a list of sync points until the end of the simulation.*/
-void init_timeline(Cosmology * CP, int RestartSnapNum, double TimeMax, const struct header_data * header, const int SnapshotWithFOF)
+TimeBinMgr init_timeline(Cosmology * CP, int RestartSnapNum, double TimeMax, const struct header_data * header, const int SnapshotWithFOF)
 {
     /*Add TimeInit and TimeMax to the output list*/
     if (RestartSnapNum < 0) {
         /* allow a first snapshot at IC time; */
-        setup_sync_points(CP,header->TimeIC, TimeMax, 0.0, SnapshotWithFOF);
+        return TimeBinMgr(CP, header->TimeIC, TimeMax, 0.0, SnapshotWithFOF);
     } else {
         /* skip dumping the exactly same snapshot */
-        setup_sync_points(CP, header->TimeIC, TimeMax, header->TimeSnapshot, SnapshotWithFOF);
+        TimeBinMgr timebinmgr(CP, header->TimeIC, TimeMax, header->TimeSnapshot, SnapshotWithFOF);
         /* If TimeInit is not in a sensible place on the integer timeline
          * (can happen if the outputs changed since it was written)
          * start the integer timeline anew from TimeInit */
-        inttime_t ti_init = ti_from_loga(log(header->TimeSnapshot)) % TIMEBASE;
+        inttime_t ti_init = timebinmgr.ti_from_loga(log(header->TimeSnapshot)) % TIMEBASE;
         if(round_down_power_of_two(ti_init) != ti_init) {
             message(0,"Resetting integer timeline (as %lx != %lx) to current snapshot\n",ti_init, round_down_power_of_two(ti_init));
-            setup_sync_points(CP, header->TimeSnapshot, TimeMax, header->TimeSnapshot, SnapshotWithFOF);
+            TimeBinMgr timebinmgr2(CP, header->TimeSnapshot, TimeMax, header->TimeSnapshot, SnapshotWithFOF);
+            return timebinmgr2;
         }
+        return timebinmgr;
     }
 }
 
@@ -89,10 +92,8 @@ static void init_alloc_particle_slot_memory(struct part_manager_type * PartManag
 /*! This function reads the initial conditions, allocates storage for the
  *  particle data, validates and initialises the particle data.
  */
-inttime_t init(int RestartSnapNum, const char * OutputDir, struct header_data * header, Cosmology * CP)
+inttime_t init(int RestartSnapNum, const char * OutputDir, struct header_data * header, Cosmology * CP, const inttime_t Ti_Current)
 {
-    int i;
-
     init_alloc_particle_slot_memory(PartManager, SlotsManager, InitParams.PartAllocFactor, header, MPI_COMM_WORLD);
 
     /*Read the snapshot*/
@@ -118,10 +119,8 @@ inttime_t init(int RestartSnapNum, const char * OutputDir, struct header_data * 
     gravshort_set_softenings(MeanSeparation[1]);
     fof_init(MeanSeparation[1]);
 
-    inttime_t Ti_Current = init_timebins(header->TimeSnapshot);
-
     #pragma omp parallel for
-    for(i = 0; i < PartManager->NumPart; i++)	/* initialize sph_properties */
+    for(int i = 0; i < PartManager->NumPart; i++)	/* initialize sph_properties */
     {
         int j;
         Part[i].Ti_drift = Ti_Current;
@@ -404,7 +403,7 @@ void get_mean_separation(double * MeanSeparation, const double BoxSize, const in
  * Initialization of the entropy variable is a little trickier in this version of SPH,
  * since we need to make sure it 'talks to' the density appropriately */
 static void
-setup_density_indep_entropy(const ActiveParticles * act, ForceTree * Tree, Cosmology * CP, struct sph_pred_data * sph_pred, double u_init, double a3, int BlackHoleOn, const inttime_t Ti_Current)
+setup_density_indep_entropy(const ActiveParticles * act, ForceTree * Tree, Cosmology * CP, struct sph_pred_data * sph_pred, double u_init, double a3, int BlackHoleOn, const inttime_t Ti_Current, TimeBinMgr * timebinmgr)
 {
     int j;
     int stop = 0;
@@ -429,7 +428,7 @@ setup_density_indep_entropy(const ActiveParticles * act, ForceTree * Tree, Cosmo
         /* Empty kick factors as we do not move*/
         DriftKickTimes times = init_driftkicktime(Ti_Current);
         /* Update the EgyWtDensity*/
-        density(act, 0, DensityIndependentSphOn(), BlackHoleOn, times, CP, &(sph_pred->EntVarPred), NULL, Tree);
+        density(act, 0, DensityIndependentSphOn(), BlackHoleOn, times, timebinmgr, CP, &(sph_pred->EntVarPred), NULL, Tree);
         slots_free_sph_pred_data(sph_pred);
         if(stop)
             break;
@@ -460,7 +459,7 @@ setup_density_indep_entropy(const ActiveParticles * act, ForceTree * Tree, Cosmo
  *  then iterate if needed to find the right smoothing length.
  */
 void
-setup_smoothinglengths(int RestartSnapNum, DomainDecomp * ddecomp, Cosmology * CP, int BlackHoleOn, double MinEgySpec, double uu_in_cgs, const inttime_t Ti_Current, const double atime, const int64_t NTotGasInit)
+setup_smoothinglengths(int RestartSnapNum, DomainDecomp * ddecomp, Cosmology * CP, int BlackHoleOn, double MinEgySpec, double uu_in_cgs, const inttime_t Ti_Current, TimeBinMgr * timebinmgr, const double atime, const int64_t NTotGasInit)
 {
     int i;
     const double a3 = pow(atime, 3);
@@ -509,11 +508,11 @@ setup_smoothinglengths(int RestartSnapNum, DomainDecomp * ddecomp, Cosmology * C
     DriftKickTimes times = init_driftkicktime(Ti_Current);
     /*At the first time step all particles should be active*/
     ActiveParticles act = init_empty_active_particles(PartManager);
-    density(&act, 1, 0, BlackHoleOn, times, CP, &(sph_pred.EntVarPred), NULL, &Tree);
+    density(&act, 1, 0, BlackHoleOn, times, timebinmgr, CP, &(sph_pred.EntVarPred), NULL, &Tree);
     slots_free_sph_pred_data(&sph_pred);
 
     if(DensityIndependentSphOn()) {
-        setup_density_indep_entropy(&act, &Tree, CP, &sph_pred, u_init, a3, BlackHoleOn, Ti_Current);
+        setup_density_indep_entropy(&act, &Tree, CP, &sph_pred, u_init, a3, BlackHoleOn, Ti_Current, timebinmgr);
     }
     else {
         /*Initialize to initial energy*/

@@ -54,6 +54,14 @@ enum TreeWalkReduceMode {
     TREEWALK_TOPTREE,
 };
 
+/* This enum specifies which mode the toptree walk is in.
+ * TOPTREE_COUNT counts the number of exports, without writing to memory.
+ * TOPTREE_EXPORT writes the export memory at a known-sized buffer.*/
+enum TopTreeMode {
+    TOPTREE_COUNT,
+    TOPTREE_EXPORT,
+};
+
 /* Should be subclassed to contain the treewalk parameters specific to each treewalk.
  * Used to be called XX_GET_PRIV(tw)->priv.
  */
@@ -149,7 +157,7 @@ cull_node(const double * const Pos, const double BoxSize, const MyFloat Hsml, co
 {
     double dist;
     if constexpr (symmetric == NGB_TREEFIND_SYMMETRIC) {
-        dist = DMAX(current->mom.hmax, Hsml) + 0.5 * current->len;
+        dist = fmax(current->mom.hmax, Hsml) + 0.5 * current->len;
     } else {
         dist = Hsml + 0.5 * current->len;
     }
@@ -199,6 +207,7 @@ public:
      * @param output Result accumulator
      * @return the number of nodes used in the dataindex table on success, -1 if export buffer is full
      */
+    template <enum TopTreeMode mode>
     MYCUDAFN int toptree_visit(const int target, const QueryType& input, const ParamType& priv, data_index * const DataIndexTable, const size_t BunchSize)
     {
         //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
@@ -220,7 +229,7 @@ public:
             }
             if(current->f.ChildType == PSEUDO_NODE_TYPE) {
                 /* Export the pseudo particle*/
-                if(!DataIndexTable)
+                if constexpr(mode == TOPTREE_COUNT)
                     NThisParticleExport = export_count(current->s.suns[0], NThisParticleExport);
                 else {
                     NThisParticleExport = export_particle(current->s.suns[0], target, NThisParticleExport, DataIndexTable, BunchSize);
@@ -240,8 +249,10 @@ public:
             /* ok, we need to open the node */
             no = current->s.suns[0];
         }
+#if defined DEBUG && not defined __CUDACC__
         if(NThisParticleExport > 1000)
             message(5, "%ld exports for particle %d! Odd.\n", NThisParticleExport, target);
+#endif
         /* If we filled up, this partial toptree walk will be discarded and the toptree loop exited.*/
         //message(5, "Export buffer full for particle %d with %ld (%lu) exports\n", target, NThisParticleExport, Nexport);
         return NThisParticleExport;
@@ -331,8 +342,7 @@ class LocalNgbTreeWalk
 public:
     /* A pointer to the tree nodes to walk.*/
     const NODE * const Nodes;
-    double dist[3];
-    double r2;
+
     /* Constructor from treewalk */
     MYCUDAFN LocalNgbTreeWalk(const NODE * const Node, const QueryType& input):
      Nodes(Node)
@@ -404,7 +414,8 @@ public:
                         * Happens for wind treewalk for gas turned into stars on this timestep.*/
                         if(!((1<<parts[other].Type) & mask))
                             continue;
-                        ngbiter(input, other, output, priv, parts);
+                        /* Call ngbiter for the child class */
+                        static_cast<DerivedType*>(this)->ngbiter(input, parts[other], output, priv);
                         ninteractions++;
                     }
                     /* Move sideways*/
@@ -428,29 +439,22 @@ public:
     * Override when using ngbiter-based visits.
     *
     * @param input  Query data
+    * @param
     * @param output Result accumulator
     * @param iter   Neighbour iterator with distance info
     * @param lv     Thread-local walk state
     */
-    MYCUDAFN void ngbiter(const QueryType& input, const int other, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
-    {
-        const particle_data& particle = parts[other];
-        double symHsml = input.Hsml;
-        if constexpr(symmetric == NGB_TREEFIND_SYMMETRIC) {
-            symHsml = DMAX(particle.Hsml, input.Hsml);
-        }
+    MYCUDAFN void ngbiter(const QueryType& input, const particle_data& particle, ResultType * output, const ParamType& priv) {};
 
-        r2 = 0;
-        int d;
-        double h2 = symHsml * symHsml;
-        for(d = 0; d < 3; d ++) {
+    MYCUDAFN double get_distance(const QueryType& input, const particle_data& partother, const double BoxSize, double * dist)
+    {
+        double r2 = 0;
+        for(int d = 0; d < 3; d ++) {
             /* the distance vector points to 'other' */
-            dist[d] = NEAREST(input.Pos[d] - particle.Pos[d], priv.BoxSize);
+            dist[d] = NEAREST(input.Pos[d] - partother.Pos[d], BoxSize);
             r2 += dist[d] * dist[d];
-            if(r2 > h2) break;
         }
-        /* Call ngbiter for the child class */
-        static_cast<DerivedType*>(this)->ngbiter(input, other, output, priv, parts);
+        return r2;
     }
 };
 

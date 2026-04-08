@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
+#include <vector>
 #include "lenstools.h"
 #include "utils/string.h"
 #include "utils/mymalloc.h"
@@ -10,7 +11,6 @@
 #include "plane.h"
 #include "physconst.h"
 #include "partmanager.h"
-#include "timefac.h"
 #include "utils/endrun.h"
 #include "utils/system.h"
 #include "timebinmgr.h"
@@ -19,12 +19,9 @@ static struct plane_params
 {
     int64_t NormalsLength;
     int Normals[3];
-
-    int64_t CutPointsLength;
-    double CutPoints[1024];
-
     int Resolution;
     double Thickness; // in kpc/h
+    std::vector<double> CutPoints;
 } PlaneParams;
 
 char *
@@ -93,26 +90,25 @@ set_plane_params(ParameterSet * ps)
         // plane resolution
         PlaneParams.Resolution = param_get_int(ps, "PlaneResolution");
 
-        // plane thickness
+        // plane thickness in internal units (kpc/h)
         PlaneParams.Thickness = param_get_double(ps, "PlaneThickness");
-
         // Plane normals
         set_plane_normals(ps);
-
         // Plane cut points
-        if (!param_get_string(ps, "PlaneCutPoints")) {
-            message(0, "No cut points provided, a set of default values will be set: (1/2 + i) * plane thickness (< box size, i = 0, 1, 2...)\n");
-            // set the length to 0
-            PlaneParams.CutPointsLength = 0;
-        }
-        else
-            BuildOutputList(ps, "PlaneCutPoints", PlaneParams.CutPoints, &PlaneParams.CutPointsLength, 1024);
+        PlaneParams.CutPoints = BuildOutputList(param_get_string(ps, "PlaneCutPoints"));
     }
-    MPI_Bcast(&PlaneParams, sizeof(struct plane_params), MPI_BYTE, 0, MPI_COMM_WORLD);
+    // 1. Broadcast the POD members together
+    MPI_Bcast(&PlaneParams, offsetof(struct plane_params, CutPoints), MPI_BYTE, 0, MPI_COMM_WORLD);
+
+    // 2. Broadcast the vector
+    size_t len = PlaneParams.CutPoints.size();
+    MPI_Bcast(&len, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
+    PlaneParams.CutPoints.resize(len);
+    MPI_Bcast(PlaneParams.CutPoints.data(), len, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 }
 
-void write_plane(int snapnum, const double atime, Cosmology * CP, const char * OutputDir, const double UnitVelocity_in_cm_per_s, const double UnitLength_in_cm) {
-
+void write_plane(int snapnum, const double atime, Cosmology * CP, const char * OutputDir, const double UnitVelocity_in_cm_per_s, const double UnitLength_in_cm)
+{
     double BoxSize = PartManager->BoxSize;
 
     /* NOTE: this is correct only for pure DM runs because this code is called on a PM step and we garbage collect after the exchange.
@@ -124,25 +120,19 @@ void write_plane(int snapnum, const double atime, Cosmology * CP, const char * O
 
     // plane parameters
     int plane_resolution = PlaneParams.Resolution;
-    double thickness = PlaneParams.Thickness; // in kpc/h
-    if (thickness <= 0.0) {
+    if (PlaneParams.Thickness <= 0.0) {
         message(0, "No positive thickness provided, the side length of the box, %g, will be used.\n", BoxSize);
-        thickness = BoxSize;
+        PlaneParams.Thickness = BoxSize;
     }
 
-    // set a set of cut points if NULL
-    if (PlaneParams.CutPointsLength == 0) {
-        PlaneParams.CutPointsLength = (int64_t) (BoxSize / thickness);
-        for (int i = 0; i < PlaneParams.CutPointsLength; i++) {
-            PlaneParams.CutPoints[i] = (.5 + i) * thickness;
-        }
-        // print cut points
-        message(0, "Cut points set automatically:\n");
-        for (int i = 0; i < PlaneParams.CutPointsLength; i++) {
-            message(0,"CutPoints[%d] = %g\n", i, PlaneParams.CutPoints[i]);
+    if (PlaneParams.CutPoints.size() == 0) {
+        message(0, "No cut points provided, a set of default values will be set: (1/2 + i) * plane thickness (< box size, i = 0, 1, 2...)\n");
+        PlaneParams.CutPoints.resize((BoxSize / PlaneParams.Thickness));
+        for (size_t i = 0; i < PlaneParams.CutPoints.size(); i++) {
+            PlaneParams.CutPoints[i] = (.5 + i) * PlaneParams.Thickness;
+            message(0,"CutPoints[%lu] = %g\n", i, PlaneParams.CutPoints[i]);
         }
     }
-
 
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
@@ -159,7 +149,7 @@ void write_plane(int snapnum, const double atime, Cosmology * CP, const char * O
     message(0, "Comoving distance: %g\n", comoving_distance);
 
     /* loop over cut points and normal directions to generate lensing potential planes */
-    for (int i = 0; i < PlaneParams.CutPointsLength; i++) {
+    for (size_t i = 0; i < PlaneParams.CutPoints.size(); i++) {
         for (int j = 0; j < PlaneParams.NormalsLength; j++) {
             message(0, "Computing for cut point %g and normal %d\n", PlaneParams.CutPoints[i], PlaneParams.Normals[j]);
 
@@ -167,7 +157,7 @@ void write_plane(int snapnum, const double atime, Cosmology * CP, const char * O
             int64_t num_particles_plane = 0, num_particles_plane_tot = 0;
 
             /*computing lensing potential planes*/
-            num_particles_plane = cutPlaneGaussianGrid(num_particles_tot,  comoving_distance, BoxSize, CP, atime, PlaneParams.Normals[j], PlaneParams.CutPoints[i], thickness, left_corner, plane_resolution, plane_result);
+            num_particles_plane = cutPlaneGaussianGrid(num_particles_tot,  comoving_distance, BoxSize, CP, atime, PlaneParams.Normals[j], PlaneParams.CutPoints[i], PlaneParams.Thickness, left_corner, plane_resolution, plane_result);
 
             /*sum up planes from all tasks*/
             MPI_Reduce(plane_result, summed_plane_result, plane_resolution * plane_resolution, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);

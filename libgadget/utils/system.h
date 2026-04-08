@@ -43,7 +43,6 @@ double get_random_number(const uint64_t id, const RandTable * const rnd);
 RandTable set_random_numbers(uint64_t seed, const size_t rndtablesize);
 /* Free the random number table and set Table to NULL*/
 void free_random_numbers(RandTable * rnd);
-int64_t count_sum(int64_t countLocal);
 
 /* Returns true if condition is true on ANY processor*/
 int MPIU_Any(int condition, MPI_Comm comm);
@@ -98,15 +97,6 @@ static inline int atomic_fetch_and_add(int * ptr, int value) {
     {
       k = (*ptr);
       (*ptr)+=value;
-    }
-    return k;
-}
-static inline int atomic_add_and_fetch(int * ptr, int value) {
-    int k;
-#pragma omp atomic capture
-    {
-      (*ptr)+=value;
-      k = (*ptr);
     }
     return k;
 }

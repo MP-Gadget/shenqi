@@ -22,7 +22,6 @@
 #include "cosmology.h"
 #include "powerspectrum.h"
 #include "physconst.h"
-#include "timefac.h"
 
 /** Floating point accuracy*/
 #define FLOAT_ACC   1e-6

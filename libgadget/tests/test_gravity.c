@@ -171,7 +171,7 @@ static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int di
     for(i=0; i<PartManager->NumPart; i++) {
         PartManager->Base[i].Type = 1;
         PartManager->Base[i].Mass = 1;
-        PartManager->Base[i].ID = i;
+        PartManager->Base[i].ID = i+1;
         PartManager->Base[i].TimeBinHydro = 0;
         PartManager->Base[i].TimeBinGravity = 0;
         PartManager->Base[i].IsGarbage = 0;

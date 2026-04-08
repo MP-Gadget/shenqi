@@ -40,8 +40,10 @@
 #include "veldisp.h"
 #include "physconst.h"
 #include "plane.h"
+#include "sfr_eff.h"
 
 static struct ClockTable Clocks;
+static TimeBinMgr timebinmgr;
 /* Size of table full of random numbers generated each timestep.*/
 #define  RNDTABLE 32768
 
@@ -278,20 +280,29 @@ begrun(const int RestartSnapNum, struct header_data * head)
     if(head->TimeSnapshot > All.TimeMax)
         All.TimeMax = head->TimeSnapshot;
 
-    init_timeline(&All.CP, RestartSnapNum, All.TimeMax, head, All.SnapshotWithFOF);
+    timebinmgr = init_timeline(&All.CP, RestartSnapNum, All.TimeMax, head, All.SnapshotWithFOF);
+
+    /*Initialise the integer timeline*/
+    inttime_t ti_init = timebinmgr.ti_from_loga(log(head->TimeSnapshot));
+    /*Enforce Ti_Current is initially even*/
+    if(ti_init % 2 == 1)
+        ti_init++;
+    message(0, "Initial TimeStep at TimeInit %g Ti_Current = %ld \n", head->TimeSnapshot, ti_init);
 
     /* Get the nk and do allocation. */
     if(All.CP.MassiveNuLinRespOn)
         init_neutrinos_lra(head->neutrinonk, head->TimeIC, All.TimeMax, All.CP.Omega0, &All.CP.ONu, All.CP.UnitTime_in_s, CM_PER_MPC);
 
-    /* ... read initial model and initialise the times*/
-    inttime_t ti_init = init(RestartSnapNum, All.OutputDir, head, &All.CP);
+    /* ... read initial particle state*/
+    init(RestartSnapNum, All.OutputDir, head, &All.CP, ti_init);
+
+    set_io_sfr_helper(&timebinmgr);
 
     if(RestartSnapNum < 0) {
         DomainDecomp ddecomp[1] = {0};
         domain_decompose_full(ddecomp, MPI_COMM_WORLD); /* do initial domain decomposition (gives equal numbers of particles) so density() is safe*/
         /* On first run, generate smoothing lengths and set initial entropies based on CMB temperature*/
-        setup_smoothinglengths(RestartSnapNum, ddecomp, &All.CP, All.BlackHoleOn, get_MinEgySpec(), units.UnitInternalEnergy_in_cgs, ti_init, head->TimeSnapshot, head->NTotalInit[0]);
+        setup_smoothinglengths(RestartSnapNum, ddecomp, &All.CP, All.BlackHoleOn, get_MinEgySpec(), units.UnitInternalEnergy_in_cgs, ti_init, &timebinmgr, head->TimeSnapshot, head->NTotalInit[0]);
         domain_free(ddecomp);
     }
     else
@@ -371,7 +382,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
 
     DriftKickTimes times = init_driftkicktime(ti_init);
 
-    double atime = get_atime(times.Ti_Current);
+    double atime = timebinmgr.get_atime(times.Ti_Current);
 
     while(1) /* main loop */
     {
@@ -387,7 +398,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         times.Ti_Current = Ti_Next;
 
         /*Convert back to floating point time*/
-        double newatime = get_atime(times.Ti_Current);
+        double newatime = timebinmgr.get_atime(times.Ti_Current);
         if(newatime < atime)
             endrun(1, "Negative timestep: %g New Time: %g Old time %g!\n", newatime - atime, newatime, atime);
         atime = newatime;
@@ -397,8 +408,8 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         SyncPoint * next_sync; /* if we are out of planned sync points, terminate */
         SyncPoint * planned_sync; /* NULL; if the step is not a planned sync point. */
 
-        next_sync = find_next_sync_point(times.Ti_Current);
-        planned_sync = find_current_sync_point(times.Ti_Current);
+        next_sync = timebinmgr.find_next_sync_point(times.Ti_Current);
+        planned_sync = timebinmgr.find_current_sync_point(times.Ti_Current);
 
         HCIAction action[1];
 
@@ -431,11 +442,12 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         }
 
         int extradomain = is_timebin_active(times.mintimebin + All.MaxDomainTimeBinDepth, times.Ti_Current);
+        const double ddrift = timebinmgr.get_exact_drift_factor(Ti_Last, times.Ti_Current);
         /* drift and ddecomp decomposition */
         /* at first step this is a noop */
         if(extradomain || is_PM) {
             /* Sync positions of all particles */
-            drift_all_particles(Ti_Last, times.Ti_Current, &All.CP, rel_random_shift);
+            drift_all_particles(Ti_Last, times.Ti_Current, ddrift, rel_random_shift);
             /* full decomposition rebuilds the domain, needs keys.*/
             domain_decompose_full(ddecomp, MPI_COMM_WORLD);
         } else {
@@ -447,7 +459,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             drift.CP = &All.CP;
             drift.ti0 = Ti_Last;
             drift.ti1 = times.Ti_Current;
-            int needfull = domain_maintain(ddecomp, &drift);
+            int needfull = domain_maintain(ddecomp, &drift, ddrift);
             if(needfull)
                 domain_decompose_full(ddecomp, MPI_COMM_WORLD);
         }
@@ -457,7 +469,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         update_lastactive_drift(&times);
 
         ActiveParticles Act = init_empty_active_particles(PartManager);
-        build_active_particles(&Act, &times, NumCurrentTiStep, atime, PartManager);
+        build_active_particles(&Act, &times, &timebinmgr, NumCurrentTiStep, atime, PartManager);
 
         /* Are the particle neutrinos gravitating this timestep?
          * If so we need to add them to the tree.*/
@@ -487,7 +499,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             /*Predicted SPH data.*/
             struct sph_pred_data sph_predicted = {0};
             if(All.DensityOn)
-                density(&Act, 1, DensityIndependentSphOn(), All.BlackHoleOn, times, &All.CP, &(sph_predicted.EntVarPred), GradRho_mag, &gasTree);  /* computes density, and pressure */
+                density(&Act, 1, DensityIndependentSphOn(), All.BlackHoleOn, times, &timebinmgr, &All.CP, &(sph_predicted.EntVarPred), GradRho_mag, &gasTree, All.UseGPU);  /* computes density, and pressure */
 
             /* adds hydrodynamical accelerations and computes du/dt  */
             if(All.HydroOn) {
@@ -504,7 +516,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
                  * he has never encountered a simulation where this matters in practice, probably because
                  * it would only be important in very dissipative environments where the SPH noise is fairly large
                  * and there is no opportunity for errors to build up.*/
-                hydro_force(&Act, atime, sph_predicted.EntVarPred, times, &All.CP, &gasTree);
+                hydro_force(&Act, atime, sph_predicted.EntVarPred, times, &timebinmgr, &All.CP, &gasTree, All.UseGPU);
             }
             /* Scratch data cannot be used checkpoint because FOF does an exchange.*/
             slots_free_sph_pred_data(&sph_predicted);
@@ -514,7 +526,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
 
             /* Hydro half-kick after hydro force, as not done with the gravity.*/
             if(All.HierarchicalGravity)
-                apply_hydro_half_kick(&Act, &All.CP, &times, atime);
+                apply_hydro_half_kick(&Act, &All.CP, &times, &timebinmgr, atime);
         }
 
         /* The opening criterion for the gravtree
@@ -555,14 +567,14 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
                 /* We need to store a GravAccel for new star particles as well, so we need extra memory.*/
                 GravAccel.nstore = PartManager->NumPart + SlotsManager->info[0].size;
                 GravAccel.GravAccel = (MyFloat (*) [3]) mymanagedmalloc("GravAccel", GravAccel.nstore * sizeof(GravAccel.GravAccel[0]));
-                hierarchical_gravity_accelerations(&Act, &pm, ddecomp, GravAccel, &times, HybridNuTracer, &All.CP, All.OutputDir);
+                hierarchical_gravity_accelerations(&Act, &pm, ddecomp, GravAccel, &times, &timebinmgr, HybridNuTracer, &All.CP, All.OutputDir, All.UseGPU);
             }
             else if(All.TreeGravOn && totgravactive) {
                     ForceTree Tree = {0};
                     /* Do a short range pairwise only step if desired*/
                     const double rho0 = All.CP.Omega0 * 3 * All.CP.Hubble * All.CP.Hubble / (8 * M_PI * All.CP.GravInternal);
                     force_tree_full(&Tree, ddecomp, HybridNuTracer, All.OutputDir);
-                    grav_short_tree(&Act, &pm, &Tree, NULL, rho0, times.Ti_Current);
+                    grav_short_tree(&Act, &pm, &Tree, NULL, rho0, times.Ti_Current, All.UseGPU);
                     force_tree_free(&Tree);
             }
         }
@@ -573,14 +585,14 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
              * Need a scale factor for velocity limiter.
              * For hierarchical gravity the short-range kick is done above.
              * Synchronises TiKick and TiDrift for the active particles. */
-            apply_half_kick(&Act, &All.CP, &times, atime);
+            apply_half_kick(&Act, &All.CP, &times, &timebinmgr, atime);
         }
 
         /* Sets Ti_Kick in the times structure.*/
         update_kick_times(&times);
 
         if(is_PM) {
-            apply_PM_half_kick(&All.CP, &times);
+            apply_PM_half_kick(&All.CP, &times, &timebinmgr);
         }
 
         /* get syncpoint variables for Excursion set (here) and snapshot saving (later) */
@@ -662,7 +674,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             }
 
             if(is_PM && All.CoolingOn)
-                winds_find_vel_disp(&Act, atime, hubble_function(&All.CP, atime), &All.CP, &times, ddecomp);
+                winds_find_vel_disp(&Act, atime, hubble_function(&All.CP, atime), &All.CP, &times, &timebinmgr, ddecomp);
             /* Note that the tree here may be freed, if we are not a gravity-active timestep,
              * or if we are a PM step.*/
             /* If we didn't build a tree for gravity, we need to build one in BH or in winds.
@@ -675,19 +687,20 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             if(All.BlackHoleOn) {
                 /*Get a new BH details file if the current one is too large.*/
                 rotate_bhdetails_file(&fds, All.OutputDir, RestartSnapNum);
-                blackhole(&Act, atime, &All.CP, &gasTree, ddecomp, &times, &rnd, units, fds.FdBlackHoles, fds.FdBlackholeDetails, &fds.TotalBHDetailsBytesWritten);
+                blackhole(&Act, atime, &All.CP, &gasTree, ddecomp, &times, &timebinmgr, &rnd, units, fds.FdBlackHoles, fds.FdBlackholeDetails, &fds.TotalBHDetailsBytesWritten);
             }
             /**** radiative cooling and star formation *****/
             if(All.CoolingOn)
-                cooling_and_starformation(&Act, atime, get_dloga_for_bin(times.mintimebin, times.Ti_Current), &gasTree, GravAccel, ddecomp, &All.CP, GradRho_mag, &rnd, fds.FdSfr);
+                cooling_and_starformation(&Act, atime, timebinmgr.get_dloga_for_bin(times.mintimebin, times.Ti_Current), &timebinmgr, &gasTree, GravAccel, ddecomp, &All.CP, GradRho_mag, &rnd, fds.FdSfr);
         }
         /* We don't need this timestep's tree anymore.*/
         force_tree_free(&gasTree);
 
         /* Compute the list of particles that cross a lightcone and write it to disc.
          * This should happen when kick and drift times are synchronised.*/
-        if(All.LightconeOn)
-            lightcone_compute(atime, PartManager, &All.CP, Ti_Last, Ti_Next, &rnd);
+        if(All.LightconeOn) {
+            lightcone_compute(atime, PartManager, ddrift, &rnd);
+        }
 
         /* Now done with random numbers*/
         if(rnd.Table)
@@ -732,7 +745,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
                  * to one processor than there is room for.*/
                 slots_gc_sorted(PartManager, SlotsManager);
                 /* Do a domain exchange*/
-                if(domain_maintain(ddecomp, NULL))
+                if(domain_maintain(ddecomp, NULL, 0))
                     endrun(0, "Domain exchange after FOF save particle did not complete!\n");
                 /* Not strictly necessary, but a good idea for performance*/
                 slots_gc_sorted(PartManager, SlotsManager);
@@ -771,10 +784,10 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         int badtimestep=0;
         if(!All.HierarchicalGravity) {
             const double asmth = pm.Asmth * PartManager->BoxSize / pm.Nmesh;
-            badtimestep = find_timesteps(&Act, &times, atime, All.FastParticleType, &All.CP, asmth, NumCurrentTiStep == 0);
+            badtimestep = find_timesteps(&Act, &times, &timebinmgr, atime, All.FastParticleType, &All.CP, asmth, NumCurrentTiStep == 0);
             /* Update velocity and ti_kick to the new step, with the newly computed step size. Unsyncs ti_kick and ti_drift.
              * Both hydro and gravity are kicked.*/
-            apply_half_kick(&Act, &All.CP, &times, atime);
+            apply_half_kick(&Act, &All.CP, &times, &timebinmgr, atime);
         } else {
             /* This finds the gravity timesteps, computes the gravitational forces
              * and kicks the particles on the gravitational timeline.
@@ -782,13 +795,13 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
              * each timebin has a force done individually and we do not store the acceleration hierarchy.
              * This does mean we double the cost of the force evaluations.*/
             if(totgravactive)
-                badtimestep = hierarchical_gravity_and_timesteps(&Act, &pm, ddecomp, GravAccel, &times, atime, HybridNuTracer, All.FastParticleType, &All.CP, All.OutputDir);
+                badtimestep = hierarchical_gravity_and_timesteps(&Act, &pm, ddecomp, GravAccel, &times, &timebinmgr, atime, HybridNuTracer, All.FastParticleType, &All.CP, All.OutputDir, All.UseGPU);
             if(GasEnabled) {
                 /* Find hydro timesteps and apply the hydro kick, unsyncing the drift and kick times. */
-                badtimestep += find_hydro_timesteps(&Act, &times, atime, &All.CP, NumCurrentTiStep == 0);
+                badtimestep += find_hydro_timesteps(&Act, &times, &timebinmgr, atime, &All.CP, NumCurrentTiStep == 0);
                 /* If there is no hydro kick to do we still need to update the kick times.*/
                 if(!badtimestep)
-                    apply_hydro_half_kick(&Act, &All.CP, &times, atime);
+                    apply_hydro_half_kick(&Act, &All.CP, &times, &timebinmgr, atime);
             }
         }
         if(badtimestep) {
@@ -809,7 +822,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         update_kick_times(&times);
 
         if(is_PM) {
-            apply_PM_half_kick(&All.CP, &times);
+            apply_PM_half_kick(&All.CP, &times, &timebinmgr);
         }
 
         /* We can now free the active list: the new step have new active particles*/
@@ -826,7 +839,7 @@ void
 runtests(const int RestartSnapNum, const inttime_t Ti_Current, const struct header_data * header)
 {
     run_gravity_test(RestartSnapNum, &All.CP, All.Asmth, All.Nmesh, Ti_Current, All.OutputDir, header);
-    run_consistency_test(RestartSnapNum, All.UseGPU, &All.CP, All.Asmth, All.Nmesh, Ti_Current, All.OutputDir, header);
+    run_consistency_test(RestartSnapNum, All.UseGPU, &All.CP, All.Asmth, All.Nmesh, Ti_Current, &timebinmgr, All.OutputDir, header);
 }
 
 void
@@ -851,7 +864,7 @@ runfof(const int RestartSnapNum, const inttime_t Ti_Current, const struct header
             struct sph_pred_data sph_predicted = {0};
             force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK, All.OutputDir);
             /* computes GradRho with a treewalk. No hsml update as we are reading from a snapshot.*/
-            density(&Act, 0, 0, All.BlackHoleOn, times, &All.CP, &(sph_predicted.EntVarPred), GradRho, &gasTree);
+            density(&Act, 0, 0, All.BlackHoleOn, times, &timebinmgr, &All.CP, &(sph_predicted.EntVarPred), GradRho, &gasTree, All.UseGPU);
             force_tree_free(&gasTree);
             slots_free_sph_pred_data(&sph_predicted);
         }
@@ -859,7 +872,7 @@ runfof(const int RestartSnapNum, const inttime_t Ti_Current, const struct header
         struct grav_accel_store gg = {0};
         /* Cooling is just for the star formation rate, so does not actually use the random table*/
         RandTable rnd = set_random_numbers(All.RandomSeed, RNDTABLE);
-        cooling_and_starformation(&Act, header->TimeSnapshot, 0, &Tree, gg, ddecomp, &All.CP, GradRho, &rnd, NULL);
+        cooling_and_starformation(&Act, header->TimeSnapshot, 0, &timebinmgr, &Tree, gg, ddecomp, &All.CP, GradRho, &rnd, NULL);
         free_random_numbers(&rnd);
 
         if(GradRho)

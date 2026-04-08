@@ -1,4 +1,6 @@
 #include <string.h>
+#include <algorithm>
+#include <execution>
 #include "slotsmanager.h"
 #include "partmanager.h"
 
@@ -244,10 +246,15 @@ static int slot_cmp_reverse_link(const void * b1in, const void * b2in) {
     return (b1->ReverseLink > b2->ReverseLink) - (b1->ReverseLink < b2->ReverseLink);
 }
 
+/* bool slot_cmp_reverse_link(const particle_data_ext& a, const particle_data_ext& b) {
+    if(a.ReverseLink  < b.ReverseLink)
+        return true;
+    return false;
+}*/
+
 static int
 slots_gc_mark(const struct part_manager_type * pman, const struct slots_manager_type * sman)
 {
-    int64_t i;
     if(!(sman->info[0].enabled ||
        sman->info[1].enabled ||
        sman->info[2].enabled ||
@@ -257,15 +264,14 @@ slots_gc_mark(const struct part_manager_type * pman, const struct slots_manager_
         return 0;
 
 #ifdef DEBUG
-    int ptype;
     /*Initially set all reverse links to an obviously invalid value*/
-    for(ptype = 0; ptype < 6; ptype++)
+    for(int ptype = 0; ptype < 6; ptype++)
     {
         struct slot_info info = sman->info[ptype];
         if(!info.enabled)
             continue;
         #pragma omp parallel for
-        for(i = 0; i < info.size; i++) {
+        for(int64_t i = 0; i < info.size; i++) {
             struct particle_data_ext * sdata = (struct particle_data_ext * )(info.ptr + info.elsize * i);
             sdata->ReverseLink = pman->MaxPart + 100;
         }
@@ -273,7 +279,7 @@ slots_gc_mark(const struct part_manager_type * pman, const struct slots_manager_
 #endif
 
 #pragma omp parallel for
-    for(i = 0; i < pman->NumPart; i++) {
+    for(int64_t i = 0; i < pman->NumPart; i++) {
         struct slot_info info = sman->info[pman->Base[i].Type];
         if(!info.enabled)
             continue;
@@ -403,25 +409,19 @@ struct PeanoOrder
     peano_t Key;
     int TypeKey;
     int Pindex;
+
+    bool operator<(const PeanoOrder& other) const
+    {
+        /* Note garbage types have their values set to something large here*/
+        if(TypeKey < other.TypeKey)
+            return true;
+        if(TypeKey > other.TypeKey)
+            return false;
+        if(Key < other.Key)
+            return true;
+        return false;
+    }
 };
-
-static int
-order_by_type_and_key(const void *a, const void *b)
-{
-    const struct PeanoOrder * pa  = (const struct PeanoOrder *) a;
-    const struct PeanoOrder * pb  = (const struct PeanoOrder *) b;
-    /* Note garbage types have their values set to something large here*/
-    if(pa->TypeKey < pb->TypeKey)
-        return -1;
-    if(pa->TypeKey > pb->TypeKey)
-        return +1;
-    if(pa->Key < pb->Key)
-        return -1;
-    if(pa->Key > pb->Key)
-        return +1;
-
-    return 0;
-}
 
 /* Sort the particles and their slots by type and peano order.
  * This does a gc by sorting the Garbage to the end of the array and then trimming.
@@ -430,13 +430,12 @@ order_by_type_and_key(const void *a, const void *b)
 void
 slots_gc_sorted(struct part_manager_type * pman, struct slots_manager_type * sman)
 {
-    int ptype, i;
     /* Resort the particles such that those of the same type and key are close by.
      * The locality is broken by the exchange. */
     int64_t garbage=0;
     struct PeanoOrder * peanokeys = (struct PeanoOrder *)mymalloc("Keydata", pman->NumPart * sizeof(struct PeanoOrder));
     #pragma omp parallel for reduction(+: garbage)
-    for(i = 0; i < pman->NumPart; i++) {
+    for(int64_t i = 0; i < pman->NumPart; i++) {
         peanokeys[i].Key = PEANO(pman->Base[i].Pos, pman->BoxSize);
         peanokeys[i].TypeKey = pman->Base[i].Type;
         if(pman->Base[i].IsGarbage) {
@@ -447,9 +446,9 @@ slots_gc_sorted(struct part_manager_type * pman, struct slots_manager_type * sma
         peanokeys[i].Pindex = i;
     }
     /* Sort the keys*/
-    qsort_openmp(peanokeys, pman->NumPart, sizeof(struct PeanoOrder), order_by_type_and_key);
+    std::sort(std::execution::par_unseq, peanokeys, peanokeys + pman->NumPart);
     /* Now sort the base with a cycle leader permutation algorithm, like qsort.*/
-    for(i = 0; i < pman->NumPart; i++) {
+    for(int64_t i = 0; i < pman->NumPart; i++) {
         int k = peanokeys[i].Pindex;
         /* This element already in the right place*/
         if(k == i)
@@ -472,14 +471,17 @@ slots_gc_sorted(struct part_manager_type * pman, struct slots_manager_type * sma
         pman->Base[j] = tmp_p;
     }
     // message(1, "garbage %ld\n", garbage);
+
+    myfree(peanokeys);
+    /*Set up ReverseLink, marking all garbage particles with a bad slot.
+     * Do this before we compact the base particle table so any
+     * garbage slots are marked as well. Not really necessary as they
+     * are also marked in slots_mark_garbage().*/
+    slots_gc_mark(pman, sman);
     /*Remove garbage particles*/
     pman->NumPart -= garbage;
 
-    myfree(peanokeys);
-    /*Set up ReverseLink*/
-    slots_gc_mark(pman, sman);
-
-    for(ptype = 0; ptype < 6; ptype++) {
+    for(int ptype = 0; ptype < 6; ptype++) {
         if(!SLOTS_ENABLED(ptype, sman))
             continue;
         /* sort the used ones
@@ -501,25 +503,14 @@ slots_gc_sorted(struct part_manager_type * pman, struct slots_manager_type * sma
 size_t
 slots_reserve(int where, int64_t atleast[6], struct slots_manager_type * sman)
 {
-    int64_t newMaxSlots[6];
-    int ptype;
+    int64_t newMaxSlots[6] = {0};
     int good = 1;
 
-    if(sman->Base == NULL) {
-        /* Allocate the particle tables in managed memory. This is heavy-weight, since the particle tables are most of the memory on the CPU.
-         * However, the treewalk currently needs to read the particles, so we have no other option (for now). */
-        sman->Base = (char*) mymanagedmalloc("SlotsBase", sizeof(struct sph_particle_data));
-        /* This is so the ptr is never null! Avoid undefined behaviour. */
-        for(ptype = 5; ptype >= 0; ptype--) {
-            sman->info[ptype].ptr = sman->Base;
-        }
-    }
-
+    size_t total_bytes = 0;
     int64_t add = sman->increase;
     if (add < 8192) add = 8192;
 
-    /* FIXME: allow shrinking; need to tweak the memmove later. */
-    for(ptype = 0; ptype < 6; ptype ++) {
+    for(int ptype = 0; ptype < 6; ptype ++) {
         newMaxSlots[ptype] = sman->info[ptype].maxsize;
         if(!SLOTS_ENABLED(ptype, sman)) continue;
         /* if current empty slots is less than half of add, need to grow */
@@ -527,48 +518,36 @@ slots_reserve(int where, int64_t atleast[6], struct slots_manager_type * sman)
             newMaxSlots[ptype] = atleast[ptype] + add;
             good = 0;
         }
+        total_bytes += sman->info[ptype].elsize * newMaxSlots[ptype];
     }
 
-    size_t total_bytes = 0;
-    size_t offsets[6];
-    size_t bytes[6] = {0};
-
-    for(ptype = 0; ptype < 6; ptype++) {
-        offsets[ptype] = total_bytes;
-        bytes[ptype] = sman->info[ptype].elsize * newMaxSlots[ptype];
-        total_bytes += bytes[ptype];
-    }
     /* no need to grow, already have enough */
     if (good) {
         return total_bytes;
     }
-    char * newSlotsBase = (char *) myrealloc(sman->Base, total_bytes);
 
     /* realloc may move the base pointer.
      * Thus we need to also move the slots pointers before doing the memmove. If we are using our own
      * memory allocator the base address never moves, so this is unnecessary (but we do it anyway).*/
-    for(ptype = 0; ptype < 6; ptype++) {
-        sman->info[ptype].ptr = sman->info[ptype].ptr - sman->Base + newSlotsBase;
+    for(int ptype = 0; ptype < 6; ptype++) {
+        /* Allocate the particle tables in managed memory. This is heavy-weight, since the particle tables are most of the memory on the CPU.
+         * However, the treewalk currently needs to read the particles, so we have no other option (for now). */
+        if(!SLOTS_ENABLED(ptype, sman))
+            continue;
+        char * oldptr = sman->info[ptype].ptr;
+        sman->info[ptype].ptr = (char *) mymanagedmalloc("SlotType", sman->info[ptype].elsize * newMaxSlots[ptype]);
+        sman->info[ptype].maxsize = newMaxSlots[ptype];
+
+        /* This is expensive!*/
+        if(oldptr) {
+            memmove(sman->info[ptype].ptr, oldptr, sman->info[ptype].elsize * sman->info[ptype].size);
+            myfree(oldptr);
+        }
     }
 
     message(where, "SLOTS: Reserved %g MB for %ld sph, %ld stars and %ld BHs (disabled: %ld %ld %ld)\n", total_bytes / (1024.0 * 1024.0),
             newMaxSlots[0], newMaxSlots[4], newMaxSlots[5], newMaxSlots[1], newMaxSlots[2], newMaxSlots[3]);
 
-    /* move the last block first since we are only increasing sizes, moving items forward.
-     * No need to move the 0 block, since it is already moved to newSlotsBase in realloc.*/
-    for(ptype = 5; ptype > 0; ptype--) {
-        if(!SLOTS_ENABLED(ptype, sman)) continue;
-        memmove(newSlotsBase + offsets[ptype],
-            sman->info[ptype].ptr,
-            sman->info[ptype].elsize * sman->info[ptype].size);
-    }
-
-    sman->Base = newSlotsBase;
-
-    for(ptype = 0; ptype < 6; ptype++) {
-        sman->info[ptype].ptr = newSlotsBase + offsets[ptype];
-        sman->info[ptype].maxsize = newMaxSlots[ptype];
-    }
     return total_bytes;
 }
 
@@ -590,8 +569,13 @@ slots_set_enabled(int ptype, size_t elsize, struct slots_manager_type * sman)
 void
 slots_free(struct slots_manager_type * sman)
 {
-    myfree(sman->Base);
-    sman->Base = NULL;
+    for(int i = 0; i < 6; i++) {
+        if(!SLOTS_ENABLED(i, sman))
+            continue;
+        if(sman->info[i].ptr)
+            myfree(sman->info[i].ptr);
+        sman->info[i].ptr = NULL;
+    }
 }
 
 /* mark the i-th base particle as a garbage. */
@@ -621,11 +605,12 @@ slots_check_id_consistency(struct part_manager_type * pman, struct slots_manager
             continue;
 
         int PI = pman->Base[i].PI;
-        if(PI >= info.size) {
-            endrun(1, "slot PI consistency failed2\n");
+        if(PI >= info.size || PI < 0) {
+            endrun(1, "slot PI consistency failed: PI %d size %ld\n", PI, info.size);
         }
-        if(BASESLOT_PI(PI, type, sman)->ID != pman->Base[i].ID) {
-            endrun(1, "slot id consistency failed2: i=%ld PI=%d type = %d P.ID = %ld SLOT.ID=%ld\n",i, PI, pman->Base[i].Type, pman->Base[i].ID, BASESLOT_PI(PI, type, sman)->ID);
+        /* Enforce that IDs are non-zero as many corruptions manifest in zero ID.*/
+        if(BASESLOT_PI(PI, type, sman)->ID != pman->Base[i].ID || pman->Base[i].ID <= 0) {
+            endrun(1, "slot id consistency failed: i=%ld PI=%d type = %d P.ID = %ld SLOT.ID=%ld\n",i, PI, pman->Base[i].Type, pman->Base[i].ID, BASESLOT_PI(PI, type, sman)->ID);
         }
         used[type] ++;
     }
