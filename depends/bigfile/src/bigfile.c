@@ -798,8 +798,8 @@ big_block_read(BigBlock * bb, BigBlockPtr * ptr, BigArray * array)
 {
     char * chunkbuf = (char *) malloc(CHUNK_BYTES);
 
-    int nmemb = bb->nmemb ? bb->nmemb : 1;
-    int felsize = big_file_dtype_itemsize(bb->dtype) * nmemb;
+    int64_t nmemb = bb->nmemb ? bb->nmemb : 1;
+    int64_t felsize = big_file_dtype_itemsize(bb->dtype) * nmemb;
     size_t CHUNK_SIZE = CHUNK_BYTES / felsize;
 
     BigArray chunk_array = {0};
@@ -828,6 +828,14 @@ big_block_read(BigBlock * bb, BigBlockPtr * ptr, BigArray * array)
                 ex_eof,
                 "Reading beyond the block `%s` at (%d:%td)",
                 bb->basename, ptr->fileid, ptr->roffset * felsize);
+    fp = _big_file_open_a_file(bb->basename, ptr->fileid, "r", 1);
+    RAISEIF(fp == NULL,
+            ex_open,
+            NULL);
+    RAISEIF(0 > fseek(fp, ptr->roffset * felsize, SEEK_SET),
+            ex_seek,
+            "Failed to seek in block `%s' at (%d:%td) (%s)",
+            bb->basename, ptr->fileid, ptr->roffset * felsize, strerror(errno));
 
     while(toread > 0 && ! big_block_eof(bb, ptr)) {
         size_t chunk_size = CHUNK_SIZE;
@@ -847,39 +855,40 @@ big_block_read(BigBlock * bb, BigBlockPtr * ptr, BigArray * array)
         /* read to the beginning of chunk */
         big_array_iter_init(&chunk_iter, &chunk_array);
 
-        fp = _big_file_open_a_file(bb->basename, ptr->fileid, "r", 1);
-        RAISEIF(fp == NULL,
-                ex_open,
-                NULL);
-        RAISEIF(0 > fseek(fp, ptr->roffset * felsize, SEEK_SET),
-                ex_seek,
-                "Failed to seek in block `%s' at (%d:%td) (%s)",
-                bb->basename, ptr->fileid, ptr->roffset * felsize, strerror(errno));
         RAISEIF(chunk_size != fread(chunkbuf, felsize, chunk_size, fp),
                 ex_read,
                 "Failed to read in block `%s' at (%d:%td) (%s)",
                 bb->basename, ptr->fileid, ptr->roffset * felsize, strerror(errno));
-        fclose(fp);
-        fp = NULL;
 
         /* now translate the data from chunkbuf to mptr */
         RAISEIF(0 != _dtype_convert(&array_iter, &chunk_iter, chunk_size * bb->nmemb),
             ex_convert, NULL);
 
         toread -= chunk_size;
+        /* big_block_seek may change the fileid (because the physical file is full up)
+         * Check for this case and re-open the new file*/
+        int fileid = ptr->fileid;
         RAISEIF(0 != big_block_seek_rel(bb, ptr, chunk_size),
                 ex_blockseek,
                 NULL);
+        if(ptr->fileid != fileid) {
+            fclose(fp);
+            fp = _big_file_open_a_file(bb->basename, ptr->fileid, "r", 1);
+            RAISEIF(fp == NULL,
+                ex_open,
+                NULL);
+        }
     }
 
+    fclose(fp);
     free(chunkbuf);
     return 0;
 ex_read:
 ex_seek:
-    fclose(fp);
 ex_insuf:
 ex_convert:
 ex_blockseek:
+    fclose(fp);
 ex_open:
 ex_eof:
     free(chunkbuf);
@@ -893,8 +902,8 @@ big_block_write(BigBlock * bb, BigBlockPtr * ptr, BigArray * array)
     /* the file header is modified */
     bb->dirty = 1;
     char * chunkbuf = (char *) malloc(CHUNK_BYTES);
-    int nmemb = bb->nmemb ? bb->nmemb : 1;
-    int felsize = big_file_dtype_itemsize(bb->dtype) * nmemb;
+    int64_t nmemb = bb->nmemb ? bb->nmemb : 1;
+    int64_t felsize = big_file_dtype_itemsize(bb->dtype) * nmemb;
     size_t CHUNK_SIZE = CHUNK_BYTES / felsize;
 
     BigArray chunk_array = {0};
@@ -908,7 +917,7 @@ big_block_write(BigBlock * bb, BigBlockPtr * ptr, BigArray * array)
     FILE * fp;
 
     if(chunkbuf == NULL) {
-        _big_file_raise("not enough memory for chunkbuf of size %d bytes", __FILE__, __LINE__,  CHUNK_BYTES);
+        _big_file_raise("not enough memory for chunkbuf of size %zu bytes", __FILE__, __LINE__,  CHUNK_BYTES);
         return -1;
     }
 
@@ -919,9 +928,18 @@ big_block_write(BigBlock * bb, BigBlockPtr * ptr, BigArray * array)
 
     ptrdiff_t abs = bb->foffset[ptr->fileid] + ptr->roffset + towrite;
     RAISEIF(abs > bb->size,
-                ex_eof,
-                "Writing beyond the block `%s` at (%d:%td)",
-                bb->basename, ptr->fileid, ptr->roffset * felsize);
+        ex_eof,
+        "Writing beyond the block `%s` at (%d:%td)",
+        bb->basename, ptr->fileid, ptr->roffset * felsize);
+
+    fp = _big_file_open_a_file(bb->basename, ptr->fileid, "r+", 1);
+        RAISEIF(fp == NULL,
+                ex_open,
+                NULL);
+    RAISEIF(0 > fseek(fp, ptr->roffset * felsize, SEEK_SET),
+        ex_seek,
+        "Failed to seek in block `%s' at (%d:%td) (%s)",
+        bb->basename, ptr->fileid, ptr->roffset * felsize, strerror(errno));
 
     while(towrite > 0 && ! big_block_eof(bb, ptr)) {
         size_t chunk_size = CHUNK_SIZE;
@@ -940,37 +958,37 @@ big_block_write(BigBlock * bb, BigBlockPtr * ptr, BigArray * array)
         RAISEIF(0 != _dtype_convert(&chunk_iter, &array_iter, chunk_size * bb->nmemb),
             ex_convert, NULL);
 
-        sysvsum(&bb->fchecksum[ptr->fileid], chunkbuf, chunk_size * felsize);
-
-        fp = _big_file_open_a_file(bb->basename, ptr->fileid, "r+", 1);
-        RAISEIF(fp == NULL,
-                ex_open,
-                NULL);
-        RAISEIF(0 > fseek(fp, ptr->roffset * felsize, SEEK_SET),
-                ex_seek,
-                "Failed to seek in block `%s' at (%d:%td) (%s)",
-                bb->basename, ptr->fileid, ptr->roffset * felsize, strerror(errno));
         RAISEIF(chunk_size != fwrite(chunkbuf, felsize, chunk_size, fp),
                 ex_write,
                 "Failed to write in block `%s' at (%d:%td) (%s)",
                 bb->basename, ptr->fileid, ptr->roffset * felsize, strerror(errno));
-        fclose(fp);
+        sysvsum(&bb->fchecksum[ptr->fileid], chunkbuf, chunk_size * felsize);
 
         towrite -= chunk_size;
+        /* big_block_seek may change the fileid (because the physical file is full up)
+         * Check for this case and re-open the new file*/
+        int fileid = ptr->fileid;
         RAISEIF(0 != big_block_seek_rel(bb, ptr, chunk_size),
                 ex_blockseek, NULL);
+        if(ptr->fileid != fileid) {
+            fclose(fp);
+            fp = _big_file_open_a_file(bb->basename, ptr->fileid, "r+", 1);
+            RAISEIF(fp == NULL,
+                ex_open,
+                NULL);
+        }
     }
+    fclose(fp);
     free(chunkbuf);
     return 0;
 ex_write:
 ex_seek:
-    fclose(fp);
 ex_convert:
-ex_open:
 ex_blockseek:
+    fclose(fp);
+ex_open:
 ex_eof:
     free(chunkbuf);
-ex_malloc:
     return -1;
 }
 
@@ -1501,8 +1519,7 @@ attrset_read_attr_set_v2(BigAttrSet * attrset, const char * basename)
     }
     char * buffer = (char*) malloc(size + 1);
     unsigned char * data = (unsigned char * ) malloc(size + 1);
-    RAISEIF(!buffer, ex_init, "Could not allocate memory for buffer: %ld bytes",size+1);
-    RAISEIF(!data, ex_data, "Could not allocate memory for data: %ld bytes",size+1);
+    RAISEIF((!buffer) || (!data), ex_init, "Could not allocate memory for data or buffer: %ld bytes",2 * (size+1));
     fseek(fattr, 0, SEEK_SET);
     RAISEIF(size != fread(buffer, 1, size, fattr),
             ex_read_file,
@@ -1511,10 +1528,11 @@ attrset_read_attr_set_v2(BigAttrSet * attrset, const char * basename)
     if(0) { /* Just here for the error cleanups*/
 ex_read_file:
         attrset->dirty = 0;
-        free(data);
-ex_data:
-        free(buffer);
 ex_init:
+        if(data)
+            free(data);
+        if(buffer)
+            free(buffer);
         fclose(fattr);
         return -1;
     }
