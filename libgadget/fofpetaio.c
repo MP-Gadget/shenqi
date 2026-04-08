@@ -63,8 +63,6 @@ int fof_save_particles(FOFGroups * fof, char * fname, int SaveParticles, Cosmolo
         if(ptype == PTYPE_FOF_GROUP) {
             sprintf(blockname, "FOFGroups/%s", FOFIOTable.ent[i].name);
             build_buffer_fof(fof, &array, &FOFIOTable.ent[i], &conv);
-            message(0, "Writing Block %s\n", blockname);
-
             petaio_save_block(&bf, blockname, &array, 1);
             petaio_destroy_buffer(&array);
         }
