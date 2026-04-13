@@ -401,16 +401,12 @@ fof_distribute_particles(struct part_manager_type * halo_pman, struct slots_mana
 }
 
 static void build_buffer_fof(FOFGroups * fof, BigArray * array, IOTableEntry * ent, struct conversions * conv) {
-
-    int64_t npartLocal = fof->Ngroups;
-
-    petaio_alloc_buffer(array, ent, npartLocal);
+    petaio_alloc_buffer(array, ent, fof->Ngroups);
     /* fill the buffer */
-    char * p = (char *) array->data;
-    int i;
-    for(i = 0; i < fof->Ngroups; i ++) {
+    #pragma omp parallel for
+    for(int i = 0; i < fof->Ngroups; i ++) {
+        char * p = (char *) array->data + i * array->strides[0];
         ent->getter(i, p, fof->Group, NULL, conv);
-        p += array->strides[0];
     }
 }
 
