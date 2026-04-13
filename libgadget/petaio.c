@@ -31,12 +31,9 @@
  *
  */
 static struct petaio_params {
-    size_t BytesPerFile;   /* Number of bytes per physical file; this decides how many files bigfile creates each block */
-    int WritersPerFile;    /* Number of concurrent writers per file; this decides number of writers */
-    int NumWriters;        /* Number of concurrent writers, this caps number of writers */
-    int MinNumWriters;        /* Min Number of concurrent writers, this caps number of writers */
-    int EnableAggregatedIO;  /* Enable aggregated IO policy for small files.*/
-    size_t AggregatedIOThreshold; /* bytes per writer above which to use non-aggregated IO (avoid OOM)*/
+    size_t MinBytesPerFile;   /* Minimum number of bytes per physical file; instead of writing thousands of small files,
+                               * bigfile will create a single file and multiple ranks will write to it in turn */
+    int MaxIORanks;        /* Number of concurrent writers or readers, this caps the number of ranks doing IO at once. Defaults to number of tasks. */
     /* Changes the comoving factors of the snapshot outputs. Set in the ICs.
      * If UsePeculiarVelocity = 1 then snapshots save to the velocity field the physical peculiar velocity, v = a dx/dt (where x is comoving distance).
      * If UsePeculiarVelocity = 0 then the velocity field is a * v = a^2 dx/dt in snapshots
@@ -63,15 +60,12 @@ set_petaio_params(ParameterSet * ps)
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
     if(ThisTask == 0) {
-        IO.BytesPerFile = param_get_int(ps, "BytesPerFile");
+        IO.MinBytesPerFile = param_get_int(ps, "BytesPerFile");
         IO.UsePeculiarVelocity = 0; /* Will be set by the Initial Condition File */
-        IO.NumWriters = param_get_int(ps, "NumWriters");
-        IO.MinNumWriters = param_get_int(ps, "MinNumWriters");
-        IO.WritersPerFile = param_get_int(ps, "WritersPerFile");
-        IO.AggregatedIOThreshold = param_get_int(ps, "AggregatedIOThreshold");
-        /* Convert from MB to bytes*/
-        IO.AggregatedIOThreshold *= 1024L * 1024L;
-        IO.EnableAggregatedIO = param_get_int(ps, "EnableAggregatedIO");
+        IO.MaxIORanks = param_get_int(ps, "NumWriters");
+        if(IO.MaxIORanks <= 0)
+            MPI_Comm_size(MPI_COMM_WORLD, &IO.MaxIORanks);
+
         IO.OutputPotential = param_get_int(ps, "OutputPotential");
         IO.OutputTimebins = param_get_int(ps, "OutputTimebins");
         IO.OutputHeliumFractions = param_get_int(ps, "OutputHeliumFractions");
@@ -89,20 +83,6 @@ int GetUsePeculiarVelocity(void)
 
 static void petaio_write_header(BigFile * bf, const double atime, const int64_t * NTotal, const Cosmology * CP, const struct header_data * data);
 static void petaio_read_header_internal(BigFile * bf, Cosmology * CP, struct header_data * data);
-
-/* these are only used in reading in */
-void petaio_init(void) {
-    /* Smaller files will do aggregated IO.*/
-    if(IO.EnableAggregatedIO) {
-        message(0, "Aggregated IO is enabled\n");
-        big_file_mpi_set_aggregated_threshold(IO.AggregatedIOThreshold);
-    } else {
-        message(0, "Aggregated IO is disabled.\n");
-        big_file_mpi_set_aggregated_threshold(0);
-    }
-    if(IO.NumWriters == 0)
-        MPI_Comm_size(MPI_COMM_WORLD, &IO.NumWriters);
-}
 
 /* Build a list of the first particle of each type on the current processor.
  * This assumes that all particles are sorted!*/
@@ -585,8 +565,8 @@ void petaio_destroy_buffer(BigArray * array) {
 
 /* read a block from disk, spread the values to memory with setters  */
 int petaio_read_block(BigFile * bf, const char * blockname, BigArray * array, int required) {
-    BigBlock bb;
-    BigBlockPtr ptr;
+    BigBlock bb = {0};
+    BigBlockPtr ptr = {0};
 
     /* open the block */
     if(0 != big_file_mpi_open_block(bf, &bb, blockname, MPI_COMM_WORLD)) {
@@ -598,7 +578,7 @@ int petaio_read_block(BigFile * bf, const char * blockname, BigArray * array, in
     if(0 != big_block_seek(&bb, &ptr, 0)) {
             endrun(1, "Failed to seek block %s: %s\n", blockname, big_file_get_error_message());
     }
-    if(0 != big_block_mpi_read(&bb, &ptr, array, IO.NumWriters, MPI_COMM_WORLD)) {
+    if(0 != big_block_mpi_read(&bb, &ptr, array, IO.MaxIORanks, MPI_COMM_WORLD)) {
         endrun(1, "Failed to read from block %s: %s\n", blockname, big_file_get_error_message());
     }
     if(0 != big_block_mpi_close(&bb, MPI_COMM_WORLD)) {
@@ -611,58 +591,32 @@ int petaio_read_block(BigFile * bf, const char * blockname, BigArray * array, in
 /* save a block to disk */
 void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, int verbose)
 {
-
-    BigBlock bb = {0};
-    BigBlockPtr ptr = {0};
-
-    int elsize = big_file_dtype_itemsize(array->dtype);
-
-    int NumWriters = IO.NumWriters;
-
     size_t size, count_local = array->dims[0];
     MPI_Allreduce(&count_local, &size, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
-    int NumFiles;
 
-    if(IO.EnableAggregatedIO) {
-        NumFiles = (size * elsize + IO.BytesPerFile - 1) / IO.BytesPerFile;
-        if(NumWriters > NumFiles * IO.WritersPerFile) {
-            NumWriters = NumFiles * IO.WritersPerFile;
-        }
-        if(NumWriters < IO.MinNumWriters && IO.MinNumWriters > 1) {
-            if(NumWriters > 0)
-                message(0, "Throttling to %d NumWriters but could throttle to %d.\n", IO.MinNumWriters, NumWriters);
-            NumWriters = IO.MinNumWriters;
-            NumFiles = (NumWriters + IO.WritersPerFile - 1) / IO.WritersPerFile ;
-        }
-    } else {
-        NumFiles = NumWriters;
-    }
     /*Do not write empty files*/
     if(size == 0) {
-        NumFiles = 0;
         return;
     }
+    /* This defaults to the number of tasks.*/
+    int NumWriters = IO.MaxIORanks;
 
-    if(verbose && size > 0) {
-        message(0, "Will write %td particles to %d Files with %d writers for %s. \n", size, NumFiles, NumWriters, blockname);
+    int elsize = big_file_dtype_itemsize(array->dtype);
+    /* This makes sure the file size is not too small*/
+    int MaxNumFiles = (size * elsize + IO.MinBytesPerFile - 1) / IO.MinBytesPerFile;
+    if(NumWriters > MaxNumFiles)
+        NumWriters = MaxNumFiles;
+
+    if(verbose) {
+        message(0, "Will write %td particles with %d writers for %s. \n", size, NumWriters, blockname);
     }
-    /* create the block */
-    /* dims[1] is the number of members per item */
-    if(0 != big_file_mpi_create_block(bf, &bb, blockname, array->dtype, array->dims[1], NumFiles, size, MPI_COMM_WORLD)) {
-        endrun(0, "Failed to create block at %s:%s\n", blockname,
+    /* create and write the block */
+    if(0 != big_block_mpi_create_and_write(bf, blockname, array, NumWriters, MPI_COMM_WORLD)) {
+        endrun(0, "Failed to write block at %s:%s\n", blockname,
                     big_file_get_error_message());
     }
-    if(0 != big_block_mpi_write(&bb, &ptr, array, NumWriters, MPI_COMM_WORLD)) {
-        endrun(0, "Failed to write :%s\n", big_file_get_error_message());
-    }
-
-    if(verbose && size > 0)
-        message(0, "Done writing %td particles to %d Files\n", size, NumFiles);
-
-    if(0 != big_block_mpi_close(&bb, MPI_COMM_WORLD)) {
-        endrun(0, "Failed to close block at %s:%s\n", blockname,
-                big_file_get_error_message());
-    }
+    if(verbose)
+        message(0, "Done writing %td particles for %s\n", size, blockname);
 }
 
 /*

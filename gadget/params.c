@@ -149,13 +149,8 @@ create_gadget_parameter_set()
     param_declare_double(ps, "MaxNumNgbDeviation", OPTIONAL, 0.5, "Maximal deviation from the desired number of neighbours for each SPH particle.");
     param_declare_double(ps, "HydroCostFactor", OPTIONAL, 1, "Unused.");
 
-    param_declare_int(ps, "BytesPerFile", OPTIONAL, 1024 * 1024 * 1024, "number of bytes per file");
-    param_declare_int(ps, "NumWriters", OPTIONAL, 0, "Max number of concurrent writer processes. 0 implies Number of Tasks; ");
-    param_declare_int(ps, "MinNumWriters", OPTIONAL, 1, "Min number of concurrent writer processes. We increase number of Files to avoid too few writers. ");
-    param_declare_int(ps, "WritersPerFile", OPTIONAL, 8, "Number of Writer groups assigned to a file; total number of writers is capped by NumWriters.");
-
-    param_declare_int(ps, "EnableAggregatedIO", OPTIONAL, 1, "Reduces the number of open files in snapshots so that each file has size BytesPerFile.");
-    param_declare_int(ps, "AggregatedIOThreshold", OPTIONAL, 256, "Max size (in MB) on a writer before reverting to throttled IO.");
+    param_declare_int(ps, "BytesPerFile", OPTIONAL, 512 * 1024 * 1024, "Minimum number of bytes per file");
+    param_declare_int(ps, "NumWriters", OPTIONAL, 0, "Max number of concurrent writer processes. <= 0 implies Number of Tasks; ");
 
     /*Parameters of the cooling module*/
     param_declare_int(ps, "CoolingOn", REQUIRED, 0, "Enables cooling");
