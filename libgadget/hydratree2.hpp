@@ -324,7 +324,8 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
             /* now make sure that viscous acceleration is not too large */
 
             /*XXX: why is this dloga ?*/
-            double dloga = 2 * fmax(priv.kf.dloga[input.TimeBinHydro], priv.kf.dloga[particle.TimeBinHydro]);
+            double dloga = 2 * fmax(priv.kf.dloga_for_bin[input.TimeBinHydro],
+                                    priv.kf.dloga_for_bin[particle.TimeBinHydro]);
             if(dloga > 0 && (dwk_i + dwk_j) < 0)
             {
                 if((input.Mass + particle.Mass) > 0) {

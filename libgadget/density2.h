@@ -55,7 +55,8 @@ class KickFactorData
     double FgravkickB;
     double gravkicks[TIMEBINS+1];
     double hydrokicks[TIMEBINS+1];
-    double dloga[TIMEBINS+1];
+    double dloga_kick[TIMEBINS+1];
+    double dloga_for_bin[TIMEBINS+1];
 
     /* Initialise the grav and hydrokick arrays for the current kick times.*/
     MYCUDAFN
@@ -66,7 +67,8 @@ class KickFactorData
         FgravkickB = timebins->get_exact_gravkick_factor(times->PM_kick, times->Ti_Current);
         memset(gravkicks, 0, sizeof(gravkicks[0])*(TIMEBINS+1));
         memset(hydrokicks, 0, sizeof(hydrokicks[0])*(TIMEBINS+1));
-        memset(dloga, 0, sizeof(dloga[0])*(TIMEBINS+1));
+        memset(dloga_kick, 0, sizeof(dloga_kick[0])*(TIMEBINS+1));
+        memset(dloga_for_bin, 0, sizeof(dloga_for_bin[0])*(TIMEBINS+1));
         /* Compute the factors to move a current kick times velocity to the drift time velocity.
          * We need to do the computation for all timebins up to the maximum because even inactive
          * particles may have interactions. */
@@ -75,7 +77,8 @@ class KickFactorData
         {
             gravkicks[i] = timebins->get_exact_gravkick_factor(times->Ti_kick[i], times->Ti_Current);
             hydrokicks[i] = timebins->get_exact_hydrokick_factor(times->Ti_kick[i], times->Ti_Current);
-            dloga[i] = timebins->dloga_from_dti(times->Ti_Current - times->Ti_kick[i], times->Ti_Current);
+            dloga_kick[i] = timebins->dloga_from_dti(times->Ti_Current - times->Ti_kick[i], times->Ti_Current);
+            dloga_for_bin[i] = timebins->get_dloga_for_bin(i, times->Ti_Current);
         }
     }
 
@@ -112,7 +115,7 @@ class KickFactorData
     MYCUDAFN MyFloat
     SPH_EntVarPred(const particle_data& particle, const sph_particle_data& sph_part) const
     {
-            double EntVarPred = sph_part.Entropy + sph_part.DtEntropy * dloga[particle.TimeBinHydro];
+            double EntVarPred = sph_part.Entropy + sph_part.DtEntropy * dloga_kick[particle.TimeBinHydro];
             /*Entropy limiter for the predicted entropy: makes sure entropy stays positive. */
             if(EntVarPred < 0.05*sph_part.Entropy)
                 EntVarPred = 0.05 * sph_part.Entropy;
