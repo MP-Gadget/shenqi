@@ -240,15 +240,6 @@ treewalk_build_queue(TreeWalk * tw, int * active_set, const size_t size, int may
     /*Shrink memory*/
     tw->WorkSet = (int *) myrealloc(tw->WorkSet, sizeof(int) * nqueue);
 
-#if 0
-    /* check the uniqueness of the active_set list. This is very slow. */
-    qsort_openmp(tw->WorkSet, nqueue, sizeof(int), cmpint);
-    for(i = 0; i < nqueue - 1; i ++) {
-        if(tw->WorkSet[i] == tw->WorkSet[i+1]) {
-            endrun(8829, "A few particles are twicely active.\n");
-        }
-    }
-#endif
     tw->WorkSetSize = nqueue;
 }
 

@@ -2,8 +2,6 @@
 #define BOOST_TEST_MODULE exchange
 #include "booststub.h"
 
-#define qsort_openmp qsort
-
 #include <libgadget/exchange.h>
 #include <libgadget/domain.h>
 #include <libgadget/slotsmanager.h>
@@ -46,7 +44,7 @@ setup_particles(int64_t NType[6])
     int i;
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i ++) {
-        PartManager->Base[i].ID = i + PartManager->NumPart * ThisTask;
+        PartManager->Base[i].ID = (i+1) + PartManager->NumPart * ThisTask;
     }
 
     slots_setup_id(PartManager, SlotsManager);

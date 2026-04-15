@@ -42,12 +42,10 @@ typedef struct ActiveParticles
  * No heap memory is allocated.*/
 ActiveParticles init_empty_active_particles(struct part_manager_type * PartManager);
 /* Build a list of active particles from the particle manager, allocating memory for the active particle list.*/
-void build_active_particles(ActiveParticles * act, const DriftKickTimes * const times, const int NumCurrentTiStep, const double Time, const struct part_manager_type * const PartManager);
+void build_active_particles(ActiveParticles * act, const DriftKickTimes * const times, TimeBinMgr * timebinmgr, const int NumCurrentTiStep, const double Time, const struct part_manager_type * const PartManager);
 
 /* Free the active particle list if necessary*/
 void free_active_particles(ActiveParticles * act);
-/* Get the current scale factor*/
-double get_atime(const inttime_t Ti_Current);
 
 /* This function assigns new short-range timesteps to particles.
  * It will also advance the PM timestep and set the new timestep length.
@@ -60,21 +58,19 @@ double get_atime(const inttime_t Ti_Current);
  * asmth: size of PM smoothing cell in internal units. asmth = All.Asmth * PartManager->BoxSize / Nmesh
  * isFirstTimeStep: Flags to do special things for BHs on first time step.
  * Returns 0 if success, 1 if timestep is bad.*/
-int find_timesteps(const ActiveParticles * act, DriftKickTimes * times, const double atime, int FastParticleType, const Cosmology * CP, const double asmth, const int isFirstTimeStep);
-int find_hydro_timesteps(const ActiveParticles * act, DriftKickTimes * times, const double atime, const Cosmology * CP, const int isFirstTimeStep);
+int find_timesteps(const ActiveParticles * act, DriftKickTimes * times, TimeBinMgr * timebinmgr, const double atime, int FastParticleType, const Cosmology * CP, const double asmth, const int isFirstTimeStep);
+int find_hydro_timesteps(const ActiveParticles * act, DriftKickTimes * times, TimeBinMgr * timebinmgr, const double atime, const Cosmology * CP, const int isFirstTimeStep);
 
 /* Apply half a kick to the particles: short-range and long-range.
  * These functions sync drift and kick times.*/
-void apply_half_kick(const ActiveParticles * act, Cosmology * CP, DriftKickTimes * times, const double atime);
+void apply_half_kick(const ActiveParticles * act, Cosmology * CP, DriftKickTimes * times, TimeBinMgr * timebinmgr,  const double atime);
 /* Do hydro kick only*/
-void apply_hydro_half_kick(const ActiveParticles * act, Cosmology * CP, DriftKickTimes * times, const double atime);
-void apply_PM_half_kick(Cosmology * CP, DriftKickTimes * times);
+void apply_hydro_half_kick(const ActiveParticles * act, Cosmology * CP, DriftKickTimes * times, TimeBinMgr * timebinmgr, const double atime);
+void apply_PM_half_kick(Cosmology * CP, DriftKickTimes * times,TimeBinMgr * timebinmgr);
 
 int is_timebin_active(int i, inttime_t current);
 
 inttime_t find_next_kick(inttime_t Ti_Current, int minTimeBin);
-
-inttime_t init_timebins(double TimeInit);
 
 /* Update the table of active bin drift times */
 void update_lastactive_drift(DriftKickTimes * times);
@@ -96,11 +92,11 @@ struct grav_accel_store
  * and does the gravitational half-step kicks.
  * Note this does not compute the initial accelerations: hierarchical_gravity_accelerations should be run FIRST.
  * Re-uses the gravity memory from StoredGravAccel.*/
-int hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, const double atime, int HybridNuGrav, int FastParticleType, Cosmology * CP, const char * EmergencyOutputDir);
+int hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, TimeBinMgr * timebinmgr, const double atime, int HybridNuGrav, int FastParticleType, Cosmology * CP, const char * EmergencyOutputDir, bool UseGPU);
 
 /* Computes short-range gravitational forces and
  * do the gravitational half-step kicks. Places the gravitational force into StoredGravAccel.*/
-int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, int HybridNuGrav, Cosmology * CP, const char * EmergencyOutputDir);
+int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, TimeBinMgr * timebinmgr, int HybridNuGrav, Cosmology * CP, const char * EmergencyOutputDir, bool UseGPU);
 
 /* Updates the Ti_kick times a half-step for this bin*/
 void update_kick_times(DriftKickTimes * times);

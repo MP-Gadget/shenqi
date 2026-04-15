@@ -22,7 +22,6 @@
 #include <cuda_runtime.h>           // For CUDA runtime API functions.
 #include <device_launch_parameters.h>  // To support device-related parameters.
 #include <thrust/copy.h>                        // thrust::copy_if
-#include <thrust/iterator/counting_iterator.h>  // thrust::make_counting_iterator
 #include <thrust/execution_policy.h>            // thrust::device
 #include <thrust/scan.h>            // thrust::exclusive_scan
 #include <thrust/find.h>            // thrust::find_if
@@ -54,7 +53,7 @@ __global__ void count_toptree_exports(
     const int i = WorkSet ? WorkSet[tid] : tid;
     /* Toptree never uses node list */
     QueryType input(parts[i], NULL, firstnode, *priv);
-    const int rt = lv.toptree_visit(i, input, *priv, NULL, 0);
+    const int rt = lv.template toptree_visit<TOPTREE_COUNT>(i, input, *priv, NULL, 0);
     exportcounts[tid] = rt;
 }
 
@@ -99,7 +98,7 @@ void do_toptree_exports(
     QueryType input(parts[i], NULL, firstnode, *priv);
     /* This will save exports to the memory in ExportTable[exportoffsets[tid-1]].
      * We ignore return as it is the same as exportcounts. BunchSize is large as we arranged never to overflow.*/
-    lv.toptree_visit(i, input, *priv, currentexport, nexport);
+    lv.template toptree_visit<TOPTREE_EXPORT>(i, input, *priv, currentexport, nexport);
 };
 
 template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType, typename OutputType>
@@ -173,16 +172,6 @@ void treewalk_postprocess_kernel(
     output->postprocess(p_i, parts, priv);
 }
 
-template <typename QueryType>
-class HasWorkPredicate {
-     const particle_data * parts;
-     const int * active_set;
-     MYCUDAFN bool operator()(int i) const {
-         int p_i = active_set ? active_set[i] : i;
-         return QueryType::haswork(p_i, parts);
-     }
- };
-
 template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType>
 class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType>
 {
@@ -213,28 +202,36 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         if(err != cudaSuccess)
             endrun(5, "Failed to allocate device memory for active set: %s\n", cudaGetErrorString(err));
 
-        HasWorkPredicate<QueryType> functor{parts, active_set};
+        HasWorkPredicate<QueryType> haswork{parts};
         /* This is a standard stream compaction algorithm. It evaluates the haswork function
          * for every particle, stores the results in an array of flags, counts the non-zero flags,
          * and then scatters each particle integer to the right index in the final array. All is parallelized. */
-        auto end = thrust::copy_if(
-            thrust::device,
-            thrust::make_counting_iterator(0),   // input: indices 0..size-1
-            thrust::make_counting_iterator((int)size),
-            *WorkSet, functor);
-
-        return end - *WorkSet;
+        if(active_set) {
+            auto end = thrust::copy_if(thrust::device,
+                active_set, active_set + size, *WorkSet, haswork);
+            return end - *WorkSet;
+        }
+        else { // Need to handle this separately
+            auto end = thrust::copy_if(thrust::device,
+                thrust::make_counting_iterator<int>(0),   // input: indices 0..size-1
+                thrust::make_counting_iterator<int>(size),
+                *WorkSet, haswork);
+            return end - *WorkSet;
+        }
     }
 
     int * ev_count_exports(int * WorkSet, const int64_t WorkSetSize, particle_data * const parts)
     {
-        const int threadsPerBlock = 256;
-        const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
-
         int * exportcounts;
-        cudaError_t err = cudaMalloc(&exportcounts, sizeof(int) * WorkSetSize);
+        /* Allocate at least 1 element so cudaFree is always valid. */
+        cudaError_t err = cudaMalloc(&exportcounts, sizeof(int) * std::max(WorkSetSize, (int64_t)1));
         if(err != cudaSuccess)
             endrun(5, "Failed to allocate device memory for export counts: %s\n", cudaGetErrorString(err));
+        if(WorkSetSize == 0)
+            return exportcounts;
+
+        const int threadsPerBlock = 256;
+        const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
 
         /* First count the exports from each particle and store the counts in exportcounts.
          * We only count exports we have not yet sent.
@@ -317,6 +314,8 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
 
     // Function to launch kernel (wrapper)
     void ev_primary(int * WorkSet, int64_t WorkSetSize, particle_data * const particles) {
+        if(WorkSetSize == 0)
+            return;
         /* Declare device memory for counters */
         unsigned int * d_maxNinteractions = nullptr;
         unsigned int * d_minNinteractions = nullptr;
@@ -354,6 +353,8 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
      * */
     void ev_secondary(ResultType * results, QueryType * imports, const int64_t WorkSetSize, struct particle_data * const particles)
     {
+        if(WorkSetSize == 0)
+            return;
         const int threadsPerBlock = 256;
         const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
         /* All arrays need to be managed malloc or device:
@@ -368,6 +369,8 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
     /* Do the postprocessing on the GPU. This simply evaluates the postprocess function for every particle. */
     void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const particles)
     {
+        if(WorkSetSize == 0)
+            return;
         const int threadsPerBlock = 256;
         const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
         treewalk_postprocess_kernel<ParamType, OutputType>

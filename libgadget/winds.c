@@ -119,20 +119,16 @@ winds_is_particle_decoupled(int i)
     return 0;
 }
 
-void
-winds_decoupled_hydro(int i, double atime)
+double
+winds_get_speed(void)
 {
-    int k;
-    for(k = 0; k < 3; k++)
-        SPHP(i).HydroAccel[k] = 0;
+    return wind_params.WindSpeed;
+}
 
-    SPHP(i).DtEntropy = 0;
-
-    double windspeed = wind_params.WindSpeed * atime;
-    const double fac_mu = pow(atime, 3 * (GAMMA - 1) / 2) / atime;
-    windspeed *= fac_mu;
-    double hsml_c = cbrt(wind_params.WindFreeTravelDensThresh /SPHP(i).Density) * atime;
-    SPHP(i).MaxSignalVel = hsml_c * DMAX((2 * windspeed), SPHP(i).MaxSignalVel);
+double
+winds_get_dens_thresh(void)
+{
+    return wind_params.WindFreeTravelDensThresh;
 }
 
 static void wind_do_kick(int other, double vel, double therm, double atime, const RandTable * const rnd);
@@ -164,6 +160,8 @@ sfr_wind_feedback_ngbiter(TreeWalkQueryWind * I,
 /* Returns 1 if the winds ever decouple, 0 otherwise*/
 int winds_ever_decouple(void)
 {
+    if(!HAS(wind_params.WindModel, WIND_DECOUPLE_SPH))
+        return 0;
     if(wind_params.MaxWindFreeTravelTime > 0)
         return 1;
     else
@@ -372,7 +370,7 @@ winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time,
 
 /*Evolve a wind particle, reducing its DelayTime*/
 void
-winds_evolve(int i, double a3inv, double hubble)
+winds_evolve(int i, double a3inv, double hubble, TimeBinMgr * timebinmgr)
 {
     /*Remove a wind particle from the delay mode if the (physical) density has dropped sufficiently.*/
     if(SPHP(i).DelayTime > 0 && SPHP(i).Density * a3inv < wind_params.WindFreeTravelDensThresh) {
@@ -383,10 +381,10 @@ winds_evolve(int i, double a3inv, double hubble)
         /* Enforce the maximum in case of restarts*/
         if(SPHP(i).DelayTime > wind_params.MaxWindFreeTravelTime)
             SPHP(i).DelayTime = wind_params.MaxWindFreeTravelTime;
-        const double dloga = get_dloga_for_bin(Part[i].TimeBinHydro, Part[i].Ti_drift);
+        const double dloga = timebinmgr->get_dloga_for_bin(Part[i].TimeBinHydro, Part[i].Ti_drift);
         /*  the proper time duration of the step */
         const double dtime = dloga / hubble;
-        SPHP(i).DelayTime = DMAX(SPHP(i).DelayTime - dtime, 0);
+        SPHP(i).DelayTime = fmax(SPHP(i).DelayTime - dtime, 0);
     }
 }
 

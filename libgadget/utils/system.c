@@ -224,12 +224,6 @@ MPIU_cumsum(int64_t countLocal, MPI_Comm comm)
     return offsetLocal;
 }
 
-int64_t count_sum(int64_t countLocal) {
-    int64_t sum = 0;
-    MPI_Allreduce(&countLocal, &sum, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
-    return sum;
-}
-
 size_t sizemax(size_t a, size_t b)
 {
   if(a < b)
