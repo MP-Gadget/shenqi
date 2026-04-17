@@ -1007,9 +1007,9 @@ void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
             endrun(5, "Error in basegroup import: minidtask %d != ThisTask %d\n", gi->MinIDTask, ThisTask);
         }
     }
-#endif
     GroupType * ghosts2 = (GroupType *) mymalloc("TMP", nmemb * sizeof(GroupType));
 
+    /* Debug code does an intermediate copy so we can check consistency. Non DEBUG mode likes to live dangerously*/
     MPI_Alltoallv_smart(images, Recv_count, NULL, dtype,
                         ghosts2, Send_count, NULL, dtype,
                         Comm);
@@ -1025,6 +1025,11 @@ void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
     }
     memcpy(groups + Nmine, ghosts2, sizeof(GroupType) * (nmemb - Nmine));
     myfree(ghosts2);
+#else
+    MPI_Alltoallv_smart(images, Recv_count, NULL, dtype,
+                        groups + Nmine, Send_count, NULL, dtype,
+                        Comm);
+#endif
 
     myfree(images);
 
