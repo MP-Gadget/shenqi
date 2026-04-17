@@ -980,6 +980,7 @@ void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
             if(image->MinID >= prime->MinID)
                 break;
         }
+        int imagebegin = start;
         for(;start < nimport; start++) {
             BaseGroup * prime = reinterpret_cast<BaseGroup *>(&groups[i]);
             BaseGroup * image = reinterpret_cast<BaseGroup *>(&images[start]);
@@ -988,19 +989,9 @@ void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
             /* Note the type here should be GroupType*/
             groups[i].reduce(images[start]);
         }
-    }
-
-    /* update the images, such that they can be send back to the ghosts */
-    start = 0;
-    for(int i = 0; i < Nmine; i++)
-    {
-        for(;start < nimport; start++) {
-            BaseGroup * prime = reinterpret_cast<BaseGroup *>(&groups[i]);
-            BaseGroup * image = reinterpret_cast<BaseGroup *>(&images[start]);
-            if(image->MinID >= prime->MinID)
-                break;
-        }
-        for(;start < nimport; start++) {
+        int imageend = start;
+        /* update the images, such that they can be send back to the ghosts */
+        for(start = imagebegin; start < imageend; start++) {
             BaseGroup * prime = reinterpret_cast<BaseGroup *>(&groups[i]);
             BaseGroup * image = reinterpret_cast<BaseGroup *>(&images[start]);
             if(image->MinID != prime->MinID)
