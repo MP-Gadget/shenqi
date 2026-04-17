@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <inttypes.h>
+#include <execution>
 #include <omp.h>
 
 #include "utils/endrun.h"
@@ -99,10 +100,17 @@ struct fof_particle_list
     MyIDType MinID;
     int MinIDTask;
     int Pindex;
+
+    /* Order by minID */
+    bool operator< (const struct fof_particle_list& p2) const
+    {
+        if(MinID < p2.MinID)
+            return true;
+        return false;
+    }
 };
 
 static void fof_label_secondary(struct fof_particle_list * HaloLabel, ForceTree * tree);
-static int fof_compare_HaloLabel_MinID(const void *a, const void *b);
 static int _fof_compare_Group_MinIDTask_ThisTask;
 static int fof_compare_Group_MinIDTask(const void *a, const void *b);
 static int fof_compare_Group_OriginalIndex(const void *a, const void *b);
@@ -190,12 +198,13 @@ fof_fof(DomainDecomp * ddecomp, const int StoreGrNr, MPI_Comm Comm)
     walltime_measure("/FOF/Secondary");
 
     /* sort HaloLabel according to MinID, because we need that for compiling catalogues */
-    qsort_openmp(HaloLabel, PartManager->NumPart, sizeof(struct fof_particle_list), fof_compare_HaloLabel_MinID);
+    std::sort(std::execution::par_unseq, HaloLabel, HaloLabel+PartManager->NumPart);
 
-    int NgroupsExt = 0;
+    int NgroupsExt = 1;
 
-    for(i = 0; i < PartManager->NumPart; i ++) {
-        if(i == 0 || HaloLabel[i].MinID != HaloLabel[i - 1].MinID) NgroupsExt ++;
+    for(i = 1; i < PartManager->NumPart; i ++) {
+        if(HaloLabel[i].MinID != HaloLabel[i - 1].MinID)
+            NgroupsExt ++;
     }
 
     /* The first round is to eliminate groups that are too short. */
@@ -1446,17 +1455,6 @@ void fof_seed(FOFGroups * fof, ActiveParticles * act, double atime, const RandTa
     myfree(ImportGroups);
 
     walltime_measure("/FOF/Seeding");
-}
-
-static int fof_compare_HaloLabel_MinID(const void *a, const void *b)
-{
-    if(((struct fof_particle_list *) a)->MinID < ((struct fof_particle_list *) b)->MinID)
-        return -1;
-
-    if(((struct fof_particle_list *) a)->MinID > ((struct fof_particle_list *) b)->MinID)
-        return +1;
-
-    return 0;
 }
 
 static int fof_compare_Group_MinID(const void *a, const void *b)
