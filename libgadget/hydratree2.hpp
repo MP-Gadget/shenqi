@@ -290,6 +290,11 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
         const double p_over_rho2_j = Pressure_j / (eomdensity_j * eomdensity_j);
         const double soundspeed_j = sqrt(GAMMA * Pressure_j / eomdensity_j);
 
+        /* Symmetrize the max signal vel*/
+        double vsig = soundspeed_i + soundspeed_j;
+        if(vsig > output->MaxSignalVel)
+            output->MaxSignalVel = vsig;
+
         double dv[3];
         for(int d = 0; d < 3; d++) {
             dv[d] = input.Vel[d] - VelPred[d];
@@ -309,8 +314,8 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
             /*See Gadget-2 paper: eq. 13*/
             const double mu_ij = priv.fac_mu * vdotr2 / r;	/* note: this is negative! */
             const double rho_ij = 0.5 * (input.Density + density_j);
-            double vsig = soundspeed_i + soundspeed_j - 3 * mu_ij;
-
+            vsig = soundspeed_i + soundspeed_j - 3 * mu_ij;
+            /* Gadget-4 does not update the maxsignal vel here, but Gizmo does.*/
             if(vsig > output->MaxSignalVel)
                 output->MaxSignalVel = vsig;
 
