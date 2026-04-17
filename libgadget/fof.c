@@ -111,10 +111,6 @@ struct fof_particle_list
 };
 
 static void fof_label_secondary(struct fof_particle_list * HaloLabel, ForceTree * tree);
-static int _fof_compare_Group_MinIDTask_ThisTask;
-static int fof_compare_Group_MinIDTask(const void *a, const void *b);
-static int fof_compare_Group_OriginalIndex(const void *a, const void *b);
-static int fof_compare_Group_MinID(const void *a, const void *b);
 template <typename GroupType> void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm);
 
 
@@ -930,11 +926,14 @@ void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
     MPI_Type_contiguous(sizeof(GroupType), MPI_BYTE, &dtype);
     MPI_Type_commit(&dtype);
 
-    /*Set global data for the comparison*/
-    _fof_compare_Group_MinIDTask_ThisTask = ThisTask;
     /* local groups will be moved to the beginning, we skip them with offset */
-    //std::sort(std::execution::par_unseq, groups, groups + nmemb);
-    qsort_openmp(groups, nmemb, sizeof(GroupType), fof_compare_Group_MinIDTask);
+    std::sort(std::execution::par_unseq, groups, groups + nmemb, [ThisTask](const GroupType& a, const GroupType& b) {
+        int t1 = reinterpret_cast<const BaseGroup *>(&a)->MinIDTask;
+        int t2 = reinterpret_cast<const BaseGroup *>(&b)->MinIDTask;
+        if(t1 == ThisTask) t1 = -1;
+        if(t2 == ThisTask) t2 = -1;
+        return t1 < t2;
+    });
     /* count how many we have of each task */
     memset(Send_count, 0, sizeof(int) * NTask);
 
@@ -965,11 +964,13 @@ void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
         gi->OriginalIndex = i;
     }
 
-    /* sort the groups according to MinID */
-    //std::sort(std::execution::par_unseq, groups, groups + Nmine);
-    //std::sort(std::execution::par_unseq, images, images + nimport);
-    qsort_openmp(groups, Nmine, sizeof(GroupType), fof_compare_Group_MinID);
-    qsort_openmp(images, nimport, sizeof(GroupType), fof_compare_Group_MinID);
+    /* sort the images according to MinID so equal_range can search them */
+    std::sort(std::execution::par_unseq, groups, groups + Nmine, [](const GroupType& a, const GroupType& b) {
+        return reinterpret_cast<const BaseGroup *>(&a)->MinID < reinterpret_cast<const BaseGroup *>(&b)->MinID;
+    });
+    std::sort(std::execution::par_unseq, images, images + nimport, [](const GroupType& a, const GroupType& b) {
+        return reinterpret_cast<const BaseGroup *>(&a)->MinID < reinterpret_cast<const BaseGroup *>(&b)->MinID;
+    });
 
     /* merge the imported ones with the local ones */
     int start = 0;
@@ -1003,8 +1004,9 @@ void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
     }
 
     /* reset the ordering of imported list, such that it can be properly returned */
-    //std::sort(std::execution::par_unseq, images, images + nimport);
-    qsort_openmp(images, nimport, sizeof(GroupType), fof_compare_Group_OriginalIndex);
+    std::sort(std::execution::par_unseq, images, images + nimport, [](const GroupType& a, const GroupType& b) {
+        return reinterpret_cast<const BaseGroup *>(&a)->OriginalIndex < reinterpret_cast<const BaseGroup *>(&b)->OriginalIndex;
+    });
 #ifdef DEBUG
     for(int i = 0; i < nimport; i++) {
         BaseGroup * gi = reinterpret_cast<BaseGroup *>(&images[i]);
@@ -1267,12 +1269,6 @@ static void fof_label_secondary(struct fof_particle_list * HaloLabel, ForceTree 
  * will be converted to a seed.
  *
  * */
-static int cmp_seed_task(const void * c1, const void * c2) {
-    const struct Group * g1 = (const struct Group *) c1;
-    const struct Group * g2 = (const struct Group *) c2;
-
-    return g1->seed_task - g2->seed_task;
-}
 
 static void fof_seed_make_one(struct Group * g, int ThisTask, const double atime, const RandTable * const rnd) {
    if(g->seed_task != ThisTask) {
@@ -1314,7 +1310,9 @@ void fof_seed(FOFGroups * fof, ActiveParticles * act, double atime, const RandTa
     }
     myfree(Marked);
 
-    qsort_openmp(ExportGroups, Nexport, sizeof(ExportGroups[0]), cmp_seed_task);
+    std::sort(std::execution::par_unseq, ExportGroups, ExportGroups + Nexport, [](const Group& a, const Group& b) {
+        return a.seed_task < b.seed_task;
+    });
 
     int * Send_count = ta_malloc("Send_count", int, NTask);
     int * Recv_count = ta_malloc("Recv_count", int, NTask);
@@ -1389,38 +1387,6 @@ void fof_seed(FOFGroups * fof, ActiveParticles * act, double atime, const RandTa
     walltime_measure("/FOF/Seeding");
 }
 
-static int fof_compare_Group_MinID(const void *a, const void *b)
-
-{
-    if(((struct BaseGroup *) a)->MinID < ((struct BaseGroup *) b)->MinID)
-        return -1;
-
-    if(((struct BaseGroup *) a)->MinID > ((struct BaseGroup *) b)->MinID)
-        return +1;
-
-    return 0;
-}
-
-static int fof_compare_Group_MinIDTask(const void *a, const void *b)
-{
-    const struct BaseGroup * p1 = (const struct BaseGroup *) a;
-    const struct BaseGroup * p2 = (const struct BaseGroup *) b;
-    int t1 = p1->MinIDTask;
-    int t2 = p2->MinIDTask;
-    if(t1 == _fof_compare_Group_MinIDTask_ThisTask) t1 = -1;
-    if(t2 == _fof_compare_Group_MinIDTask_ThisTask) t2 = -1;
-
-    if(t1 < t2) return -1;
-    if(t1 > t2) return +1;
-    return 0;
-
-}
-
-static int fof_compare_Group_OriginalIndex(const void *a, const void *b)
-
-{
-    return ((struct BaseGroup *) a)->OriginalIndex - ((struct BaseGroup *) b)->OriginalIndex;
-}
 
 static void fof_radix_Group_TotalCountTaskDiffMinID(const void * a, void * radix, void * arg) {
     uint64_t * u = (uint64_t *) radix;
