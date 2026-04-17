@@ -115,11 +115,8 @@ static int _fof_compare_Group_MinIDTask_ThisTask;
 static int fof_compare_Group_MinIDTask(const void *a, const void *b);
 static int fof_compare_Group_OriginalIndex(const void *a, const void *b);
 static int fof_compare_Group_MinID(const void *a, const void *b);
-static void fof_reduce_groups(
-    void * groups,
-    int nmemb,
-    size_t elsize,
-    void (*reduce_group)(void * gdst, void * gsrc), MPI_Comm Comm);
+template <typename GroupType> void fof_reduce_groups(GroupType * groups, int nmemb, void (*reduce_group)(void * gdst, void * gsrc), MPI_Comm Comm);
+
 
 static void fof_finish_group_properties(FOFGroups * fof, double BoxSize);
 
@@ -804,7 +801,7 @@ fof_compile_base(struct BaseGroup * base, int NgroupsExt, struct fof_particle_li
     }
 
     /* update global attributes */
-    fof_reduce_groups(base, NgroupsExt, sizeof(base[0]), fof_reduce_base_group, Comm);
+    fof_reduce_groups<BaseGroup>(base, NgroupsExt, fof_reduce_base_group, Comm);
 
     /* eliminate all groups that are too small */
     for(i = 0; i < NgroupsExt; i++)
@@ -903,7 +900,7 @@ fof_compile_catalogue(struct FOFGroups * fof, const int NgroupsExt, struct fof_p
     }
 
     /* collect global properties */
-    fof_reduce_groups(fof->Group, NgroupsExt, sizeof(fof->Group[0]), fof_reduce_group, Comm);
+    fof_reduce_groups<Group>(fof->Group, NgroupsExt, fof_reduce_group, Comm);
 
     /* count Groups and number of particles hosted by me */
     fof->Ngroups = 0;
@@ -955,14 +952,9 @@ fof_compile_catalogue(struct FOFGroups * fof, const int NgroupsExt, struct fof_p
     }
 }
 
-
-static void fof_reduce_groups(
-    void * groups,
-    int nmemb,
-    size_t elsize,
-    void (*reduce_group)(void * gdst, void * gsrc), MPI_Comm Comm)
+template <typename GroupType>
+void fof_reduce_groups(GroupType * groups, int nmemb, void (*reduce_group)(void * gdst, void * gsrc), MPI_Comm Comm)
 {
-
     int NTask, ThisTask;
     MPI_Comm_size(Comm, &NTask);
     MPI_Comm_rank(Comm, &ThisTask);
@@ -980,26 +972,25 @@ static void fof_reduce_groups(
     int * Send_count = ta_malloc("Send_count", int, NTask);
     int * Recv_count = ta_malloc("Recv_count", int, NTask);
 
-    void * images = NULL;
-    void * ghosts = NULL;
-    int i;
-    int start;
+    GroupType * images = NULL;
+    GroupType * ghosts = NULL;
 
     MPI_Datatype dtype;
 
-    MPI_Type_contiguous(elsize, MPI_BYTE, &dtype);
+    MPI_Type_contiguous(sizeof(GroupType), MPI_BYTE, &dtype);
     MPI_Type_commit(&dtype);
 
     /*Set global data for the comparison*/
     _fof_compare_Group_MinIDTask_ThisTask = ThisTask;
     /* local groups will be moved to the beginning, we skip them with offset */
-    qsort_openmp(groups, nmemb, elsize, fof_compare_Group_MinIDTask);
+    //std::sort(std::execution::par_unseq, groups, groups + nmemb);
+    qsort_openmp(groups, nmemb, sizeof(GroupType), fof_compare_Group_MinIDTask);
     /* count how many we have of each task */
     memset(Send_count, 0, sizeof(int) * NTask);
 
-    for(i = 0; i < nmemb; i++) {
-        struct BaseGroup * gi = (struct BaseGroup *) (((char*) groups) + i * elsize);
-        Send_count[gi->MinIDTask]++;
+    for(int i = 0; i < nmemb; i++) {
+        BaseGroup * base = reinterpret_cast<BaseGroup *>( &(groups[i]));
+        Send_count[base->MinIDTask]++;
     }
 
     /* Skip local groups */
@@ -1009,86 +1000,85 @@ static void fof_reduce_groups(
     MPI_Alltoall(Send_count, 1, MPI_INT, Recv_count, 1, MPI_INT, Comm);
 
     int nimport = 0;
-    for(i = 0; i < NTask; i ++) {
+    for(int i = 0; i < NTask; i ++) {
         nimport += Recv_count[i];
     }
 
-    images = mymalloc("images", nimport * elsize);
-    ghosts = ((char*) groups) + elsize * Nmine;
+    images = (GroupType *) mymalloc("images", nimport * sizeof(GroupType));
+    ghosts = groups + Nmine;
 
     MPI_Alltoallv_smart(ghosts, Send_count, NULL, dtype,
                         images, Recv_count, NULL, dtype, Comm);
 
-    for(i = 0; i < nimport; i++) {
-        struct BaseGroup * gi = (struct BaseGroup*) ((char*) images + i * elsize);
+    for(int i = 0; i < nimport; i++) {
+        BaseGroup * gi = reinterpret_cast<BaseGroup *>(&images[i]);
         gi->OriginalIndex = i;
     }
 
     /* sort the groups according to MinID */
-    qsort_openmp(groups, Nmine, elsize, fof_compare_Group_MinID);
-    qsort_openmp(images, nimport, elsize, fof_compare_Group_MinID);
+    //std::sort(std::execution::par_unseq, groups, groups + Nmine);
+    //std::sort(std::execution::par_unseq, images, images + nimport);
+    qsort_openmp(groups, Nmine, sizeof(GroupType), fof_compare_Group_MinID);
+    qsort_openmp(images, nimport, sizeof(GroupType), fof_compare_Group_MinID);
 
     /* merge the imported ones with the local ones */
-    start = 0;
-    for(i = 0; i < Nmine; i++) {
+    int start = 0;
+    for(int i = 0; i < Nmine; i++) {
         for(;start < nimport; start++) {
-            struct BaseGroup * prime = (struct BaseGroup*) ((char*) groups + i * elsize);
-            struct BaseGroup * image = (struct BaseGroup*) ((char*) images + start  * elsize);
-            if(image->MinID >= prime->MinID) {
+            BaseGroup * prime = reinterpret_cast<BaseGroup *>(&groups[i]);
+            BaseGroup * image = reinterpret_cast<BaseGroup *>(&images[start]);
+            if(image->MinID >= prime->MinID)
                 break;
-            }
         }
         for(;start < nimport; start++) {
-            struct BaseGroup * prime = (struct BaseGroup*) ((char*) groups + i * elsize);
-            struct BaseGroup * image = (struct BaseGroup*) ((char*) images + start * elsize);
-            if(image->MinID != prime->MinID) {
+            BaseGroup * prime = reinterpret_cast<BaseGroup *>(&groups[i]);
+            BaseGroup * image = reinterpret_cast<BaseGroup *>(&images[start]);
+            if(image->MinID != prime->MinID)
                 break;
-            }
             reduce_group(prime, image);
         }
     }
 
     /* update the images, such that they can be send back to the ghosts */
     start = 0;
-    for(i = 0; i < Nmine; i++)
+    for(int i = 0; i < Nmine; i++)
     {
         for(;start < nimport; start++) {
-            struct BaseGroup * prime = (struct BaseGroup*) ((char*) groups + i * elsize);
-            struct BaseGroup * image = (struct BaseGroup*) ((char*) images + start * elsize);
-            if(image->MinID >= prime->MinID) {
+            BaseGroup * prime = reinterpret_cast<BaseGroup *>(&groups[i]);
+            BaseGroup * image = reinterpret_cast<BaseGroup *>(&images[start]);
+            if(image->MinID >= prime->MinID)
                 break;
-            }
         }
         for(;start < nimport; start++) {
-            struct BaseGroup * prime = (struct BaseGroup*) ((char*) groups + i * elsize);
-            struct BaseGroup * image = (struct BaseGroup*) ((char*) images + start * elsize);
-            if(image->MinID != prime->MinID) {
+            BaseGroup * prime = reinterpret_cast<BaseGroup *>(&groups[i]);
+            BaseGroup * image = reinterpret_cast<BaseGroup *>(&images[start]);
+            if(image->MinID != prime->MinID)
                 break;
-            }
             int save = image->OriginalIndex;
-            memcpy(image, prime, elsize);
+            memcpy(image, prime, sizeof(GroupType));
             image->OriginalIndex = save;
         }
     }
 
     /* reset the ordering of imported list, such that it can be properly returned */
-    qsort_openmp(images, nimport, elsize, fof_compare_Group_OriginalIndex);
+    //std::sort(std::execution::par_unseq, images, images + nimport);
+    qsort_openmp(images, nimport, sizeof(GroupType), fof_compare_Group_OriginalIndex);
 #ifdef DEBUG
-    for(i = 0; i < nimport; i++) {
-        struct BaseGroup * gi = (struct BaseGroup*) ((char*) images + i * elsize);
+    for(int i = 0; i < nimport; i++) {
+        BaseGroup * gi = reinterpret_cast<BaseGroup *>(&images[i]);
         if(gi->MinIDTask != ThisTask) {
             endrun(5, "Error in basegroup import: minidtask %d != ThisTask %d\n", gi->MinIDTask, ThisTask);
         }
     }
 #endif
-    void * ghosts2 = mymalloc("TMP", nmemb * elsize);
+    GroupType * ghosts2 = (GroupType *) mymalloc("TMP", nmemb * sizeof(GroupType));
 
     MPI_Alltoallv_smart(images, Recv_count, NULL, dtype,
                         ghosts2, Send_count, NULL, dtype,
                         Comm);
-    for(i = 0; i < nmemb - Nmine; i ++) {
-        struct BaseGroup * g1 = (struct BaseGroup*) ((char*) ghosts + i * elsize);
-        struct BaseGroup * g2 = (struct BaseGroup*) ((char*) ghosts2 + i* elsize);
+    for(int i = 0; i < nmemb - Nmine; i ++) {
+        BaseGroup * g1 = reinterpret_cast<BaseGroup *>(&ghosts[i]);
+        BaseGroup * g2 = reinterpret_cast<BaseGroup *>(&ghosts2[i]);
         if(g1->MinID != g2->MinID) {
             endrun(2, "g1 minID %lu, g2 minID %lu\n", g1->MinID, g2->MinID);
         }
@@ -1096,7 +1086,7 @@ static void fof_reduce_groups(
             endrun(2, "g1 minIDTask %d, g2 minIDTask %d\n", g1->MinIDTask, g2->MinIDTask);
         }
     }
-    memcpy(ghosts, ghosts2, elsize * (nmemb - Nmine));
+    memcpy(ghosts, ghosts2, sizeof(GroupType) * (nmemb - Nmine));
     myfree(ghosts2);
 
     myfree(images);
