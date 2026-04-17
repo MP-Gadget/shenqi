@@ -225,7 +225,6 @@ begrun(const int RestartSnapNum, struct header_data * head)
     mymalloc_init(All.UseGPU);
 
     petapm_module_init(omp_get_max_threads());
-    petaio_init();
     walltime_init(&Clocks);
 
     *head = petaio_read_header(RestartSnapNum, All.OutputDir, &All.CP);
