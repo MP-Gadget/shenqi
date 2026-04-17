@@ -115,7 +115,7 @@ static int _fof_compare_Group_MinIDTask_ThisTask;
 static int fof_compare_Group_MinIDTask(const void *a, const void *b);
 static int fof_compare_Group_OriginalIndex(const void *a, const void *b);
 static int fof_compare_Group_MinID(const void *a, const void *b);
-template <typename GroupType> void fof_reduce_groups(GroupType * groups, int nmemb, void (*reduce_group)(void * gdst, void * gsrc), MPI_Comm Comm);
+template <typename GroupType> void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm);
 
 
 static void fof_finish_group_properties(FOFGroups * fof, double BoxSize);
@@ -584,56 +584,6 @@ fof_primary_ngbiter(TreeWalkQueryFOF * I,
     }
 }
 
-static void fof_reduce_base_group(void * pdst, void * psrc) {
-    struct BaseGroup * gdst = (struct BaseGroup *) pdst;
-    struct BaseGroup * gsrc = (struct BaseGroup *) psrc;
-    gdst->Length += gsrc->Length;
-    /* preserve the dst FirstPos so all other base group gets the same FirstPos */
-}
-
-static void fof_reduce_group(void * pdst, void * psrc) {
-    struct Group * gdst = (struct Group *) pdst;
-    struct Group * gsrc = (struct Group *) psrc;
-    int j;
-    gdst->Length += gsrc->Length;
-    gdst->Mass += gsrc->Mass;
-
-    for(j = 0; j < 6; j++)
-    {
-        gdst->LenType[j] += gsrc->LenType[j];
-        gdst->MassType[j] += gsrc->MassType[j];
-    }
-
-    gdst->Sfr += gsrc->Sfr;
-    gdst->GasMetalMass += gsrc->GasMetalMass;
-    gdst->StellarMetalMass += gsrc->StellarMetalMass;
-    gdst->MassHeIonized += gsrc->MassHeIonized;
-    for(j = 0; j < NMETALS; j++) {
-        gdst->GasMetalElemMass[j] += gsrc->GasMetalElemMass[j];
-        gdst->StellarMetalElemMass[j] += gsrc->StellarMetalElemMass[j];
-    }
-    gdst->BH_Mdot += gsrc->BH_Mdot;
-    gdst->BH_Mass += gsrc->BH_Mass;
-    if(gsrc->MaxDens > gdst->MaxDens)
-    {
-        gdst->MaxDens = gsrc->MaxDens;
-        gdst->seed_index = gsrc->seed_index;
-        gdst->seed_task = gsrc->seed_task;
-    }
-
-    int d1, d2;
-    for(d1 = 0; d1 < 3; d1++)
-    {
-        gdst->CM[d1] += gsrc->CM[d1];
-        gdst->Vel[d1] += gsrc->Vel[d1];
-        gdst->Jmom[d1] += gsrc->Jmom[d1];
-        for(d2 = 0; d2 < 3; d2 ++) {
-            gdst->Imom[d1][d2] += gsrc->Imom[d1][d2];
-        }
-    }
-
-}
-
 static void add_particle_to_group(struct Group * gdst, int i, int ThisTask) {
 
     /* My local number of particles contributing to the full catalogue. */
@@ -801,7 +751,7 @@ fof_compile_base(struct BaseGroup * base, int NgroupsExt, struct fof_particle_li
     }
 
     /* update global attributes */
-    fof_reduce_groups<BaseGroup>(base, NgroupsExt, fof_reduce_base_group, Comm);
+    fof_reduce_groups<BaseGroup>(base, NgroupsExt, Comm);
 
     /* eliminate all groups that are too small */
     for(i = 0; i < NgroupsExt; i++)
@@ -900,7 +850,7 @@ fof_compile_catalogue(struct FOFGroups * fof, const int NgroupsExt, struct fof_p
     }
 
     /* collect global properties */
-    fof_reduce_groups<Group>(fof->Group, NgroupsExt, fof_reduce_group, Comm);
+    fof_reduce_groups<Group>(fof->Group, NgroupsExt, Comm);
 
     /* count Groups and number of particles hosted by me */
     fof->Ngroups = 0;
@@ -953,7 +903,7 @@ fof_compile_catalogue(struct FOFGroups * fof, const int NgroupsExt, struct fof_p
 }
 
 template <typename GroupType>
-void fof_reduce_groups(GroupType * groups, int nmemb, void (*reduce_group)(void * gdst, void * gsrc), MPI_Comm Comm)
+void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
 {
     int NTask, ThisTask;
     MPI_Comm_size(Comm, &NTask);
@@ -1035,7 +985,8 @@ void fof_reduce_groups(GroupType * groups, int nmemb, void (*reduce_group)(void 
             BaseGroup * image = reinterpret_cast<BaseGroup *>(&images[start]);
             if(image->MinID != prime->MinID)
                 break;
-            reduce_group(prime, image);
+            /* Note the type here should be GroupType*/
+            groups[i].reduce(images[start]);
         }
     }
 
