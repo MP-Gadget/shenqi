@@ -240,18 +240,6 @@ slots_gc_base(struct part_manager_type * pman)
     return 0;
 }
 
-static int slot_cmp_reverse_link(const void * b1in, const void * b2in) {
-    const struct particle_data_ext * b1 = (struct particle_data_ext *) b1in;
-    const struct particle_data_ext * b2 = (struct particle_data_ext *) b2in;
-    return (b1->ReverseLink > b2->ReverseLink) - (b1->ReverseLink < b2->ReverseLink);
-}
-
-/* bool slot_cmp_reverse_link(const particle_data_ext& a, const particle_data_ext& b) {
-    if(a.ReverseLink  < b.ReverseLink)
-        return true;
-    return false;
-}*/
-
 static int
 slots_gc_mark(const struct part_manager_type * pman, const struct slots_manager_type * sman)
 {
@@ -486,11 +474,12 @@ slots_gc_sorted(struct part_manager_type * pman, struct slots_manager_type * sma
             continue;
         /* sort the used ones
          * by their location in the P array */
-        qsort_openmp(sman->info[ptype].ptr,
-                 sman->info[ptype].size,
-                 sman->info[ptype].elsize,
-                 slot_cmp_reverse_link);
-
+        if(ptype == 0)
+            std::sort(std::execution::par_unseq, sman->sph_slot(), sman->sph_slot() + sman->info[ptype].size);
+        else if(ptype == 4)
+            std::sort(std::execution::par_unseq, sman->star_slot(), sman->star_slot() + sman->info[ptype].size);
+        else if(ptype == 5)
+            std::sort(std::execution::par_unseq, sman->bh_slot(), sman->bh_slot() + sman->info[ptype].size);
         /*Reduce slots used*/
         SlotsManager->info[ptype].size = slots_get_last_garbage(0, sman->info[ptype].size-1, ptype, pman, sman);
         slots_gc_collect(ptype, pman, sman);

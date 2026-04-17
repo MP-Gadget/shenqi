@@ -23,11 +23,16 @@ struct particle_data_ext {
 #ifdef DEBUG
     MyIDType ID; /* for data consistency check, same as particle ID */
 #endif
+bool operator< (const particle_data_ext& b) const {
+    if(ReverseLink  < b.ReverseLink)
+        return true;
+    return false;
+}
+
 };
 
 /* Data stored for each black hole in addition to collisionless data*/
-struct bh_particle_data {
-    struct particle_data_ext base;
+struct bh_particle_data : public particle_data_ext {
     /* Flags*/
     /* Stores the minimum timebins of all black hole neighbours.
      * The black hole timebin is then set to this.*/
@@ -70,9 +75,8 @@ struct bh_particle_data {
 #define NMETALS 9
 
 /*Data for each star particle*/
-struct star_particle_data
+struct star_particle_data: public particle_data_ext
 {
-    struct particle_data_ext base;
     float LastEnrichmentMyr;  /* Last time the star particle had an enrichment event, in Myr since FormationTime.*/
     MyFloat TotalMassReturned; /* The total mass returned from this star since formation.
                                   The initial mass of the SSP in this star is STARP.TotalMassReturned + P.Mass.
@@ -90,10 +94,8 @@ struct star_particle_data
 /* the following structure holds data that is stored for each SPH particle in addition to the collisionless
  * variables.
  */
-struct sph_particle_data
+struct sph_particle_data: public particle_data_ext
 {
-    struct particle_data_ext base;
-    /* int sized 4-bytes gap*/
     MyFloat       Density;		/*!< current baryonic mass density of particle */
     /*This is only used if DensityIndependentSph is on.
      * If DensityIndependentSph is off then Density is used instead.*/
@@ -132,6 +134,19 @@ extern struct slots_manager_type {
     struct slot_info info[6];
     double increase; /* Percentage amount to increase
                       * slot reservation by when requested.*/
+
+    struct sph_particle_data * sph_slot() const {
+        return (struct sph_particle_data*) info[0].ptr;
+    }
+
+    struct star_particle_data * star_slot() const {
+        return (struct star_particle_data*) info[4].ptr;
+    }
+
+    struct bh_particle_data * bh_slot() const {
+        return (struct bh_particle_data*) info[5].ptr;
+    }
+
 } SlotsManager[1];
 
 /* shortcuts for accessing different slots directly by the index */
