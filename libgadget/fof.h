@@ -23,6 +23,10 @@ struct BaseGroup {
      * subtract CurrentParticleOffset to get the physical frame.*/
     float FirstPos[3];
 
+    const BaseGroup * get_base() const {
+        return this;
+    };
+
     void reduce(const BaseGroup& gsrc) {
         Length += gsrc.Length;
         /* preserve the dst FirstPos so all other base group gets the same FirstPos */
@@ -62,6 +66,10 @@ struct Group
 
     int seed_index;
     int seed_task;
+
+    const BaseGroup * get_base() const{
+        return &base;
+    };
 
     void reduce(const Group& gsrc) {
         Length += gsrc.Length;

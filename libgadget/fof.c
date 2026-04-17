@@ -912,14 +912,11 @@ void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
      *           images are reduced to prime, then the prime attributes
      *           are copied to images, and sent back to the ghosts.
      *
-     *   in the begining, prime and ghosts contains local group attributes.
+     *   in the beginning, prime and ghosts contains local group attributes.
      *   in the end, prime and ghosts all contain full group attributes.
      **/
     int * Send_count = ta_malloc("Send_count", int, NTask);
     int * Recv_count = ta_malloc("Recv_count", int, NTask);
-
-    GroupType * images = NULL;
-    GroupType * ghosts = NULL;
 
     MPI_Datatype dtype;
 
@@ -928,8 +925,8 @@ void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
 
     /* local groups will be moved to the beginning, we skip them with offset */
     std::sort(std::execution::par_unseq, groups, groups + nmemb, [ThisTask](const GroupType& a, const GroupType& b) {
-        int t1 = reinterpret_cast<const BaseGroup *>(&a)->MinIDTask;
-        int t2 = reinterpret_cast<const BaseGroup *>(&b)->MinIDTask;
+        int t1 = a.get_base()->MinIDTask;
+        int t2 = b.get_base()->MinIDTask;
         if(t1 == ThisTask) t1 = -1;
         if(t2 == ThisTask) t2 = -1;
         return t1 < t2;
@@ -938,7 +935,7 @@ void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
     memset(Send_count, 0, sizeof(int) * NTask);
 
     for(int i = 0; i < nmemb; i++) {
-        BaseGroup * base = reinterpret_cast<BaseGroup *>( &(groups[i]));
+        const BaseGroup * base = groups[i].get_base();
         Send_count[base->MinIDTask]++;
     }
 
@@ -953,63 +950,59 @@ void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
         nimport += Recv_count[i];
     }
 
-    images = (GroupType *) mymalloc("images", nimport * sizeof(GroupType));
-    ghosts = groups + Nmine;
+    GroupType * images = (GroupType *) mymalloc("images", nimport * sizeof(GroupType));
 
-    MPI_Alltoallv_smart(ghosts, Send_count, NULL, dtype,
+    /* Fill out local copies of the groups from other ranks*/
+    MPI_Alltoallv_smart(groups + Nmine, Send_count, NULL, dtype,
                         images, Recv_count, NULL, dtype, Comm);
 
     for(int i = 0; i < nimport; i++) {
-        BaseGroup * gi = reinterpret_cast<BaseGroup *>(&images[i]);
-        gi->OriginalIndex = i;
+        reinterpret_cast<BaseGroup *>(&images[i])->OriginalIndex = i;
     }
 
     /* sort the images according to MinID so equal_range can search them */
     std::sort(std::execution::par_unseq, groups, groups + Nmine, [](const GroupType& a, const GroupType& b) {
-        return reinterpret_cast<const BaseGroup *>(&a)->MinID < reinterpret_cast<const BaseGroup *>(&b)->MinID;
+        return a.get_base()->MinID < b.get_base()->MinID;
     });
     std::sort(std::execution::par_unseq, images, images + nimport, [](const GroupType& a, const GroupType& b) {
-        return reinterpret_cast<const BaseGroup *>(&a)->MinID < reinterpret_cast<const BaseGroup *>(&b)->MinID;
+        return a.get_base()->MinID < b.get_base()->MinID;
     });
 
     /* merge the imported ones with the local ones */
     int start = 0;
     for(int i = 0; i < Nmine; i++) {
+        const BaseGroup * prime = groups[i].get_base();
         for(;start < nimport; start++) {
-            BaseGroup * prime = reinterpret_cast<BaseGroup *>(&groups[i]);
-            BaseGroup * image = reinterpret_cast<BaseGroup *>(&images[start]);
+            const BaseGroup * image = images[start].get_base();
             if(image->MinID >= prime->MinID)
                 break;
         }
         int imagebegin = start;
         for(;start < nimport; start++) {
-            BaseGroup * prime = reinterpret_cast<BaseGroup *>(&groups[i]);
-            BaseGroup * image = reinterpret_cast<BaseGroup *>(&images[start]);
+            const BaseGroup * image = images[start].get_base();
             if(image->MinID != prime->MinID)
                 break;
             /* Note the type here should be GroupType*/
             groups[i].reduce(images[start]);
         }
         int imageend = start;
-        /* update the images, such that they can be send back to the ghosts */
+        /* update the images, such that they can be send back to the original task*/
         for(start = imagebegin; start < imageend; start++) {
-            BaseGroup * prime = reinterpret_cast<BaseGroup *>(&groups[i]);
-            BaseGroup * image = reinterpret_cast<BaseGroup *>(&images[start]);
-            if(image->MinID != prime->MinID)
-                break;
+            const BaseGroup * image = images[start].get_base();
             int save = image->OriginalIndex;
-            memcpy(image, prime, sizeof(GroupType));
-            image->OriginalIndex = save;
+            memcpy(&images[start], &groups[i], sizeof(GroupType));
+            reinterpret_cast<BaseGroup *>(&images[start])->OriginalIndex = save;
         }
     }
 
     /* reset the ordering of imported list, such that it can be properly returned */
     std::sort(std::execution::par_unseq, images, images + nimport, [](const GroupType& a, const GroupType& b) {
-        return reinterpret_cast<const BaseGroup *>(&a)->OriginalIndex < reinterpret_cast<const BaseGroup *>(&b)->OriginalIndex;
+        return a.get_base()->OriginalIndex < b.get_base()->OriginalIndex;
     });
+
 #ifdef DEBUG
     for(int i = 0; i < nimport; i++) {
-        BaseGroup * gi = reinterpret_cast<BaseGroup *>(&images[i]);
+        const BaseGroup * gi = images[i].get_base();
         if(gi->MinIDTask != ThisTask) {
             endrun(5, "Error in basegroup import: minidtask %d != ThisTask %d\n", gi->MinIDTask, ThisTask);
         }
@@ -1021,8 +1014,8 @@ void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
                         ghosts2, Send_count, NULL, dtype,
                         Comm);
     for(int i = 0; i < nmemb - Nmine; i ++) {
-        BaseGroup * g1 = reinterpret_cast<BaseGroup *>(&ghosts[i]);
-        BaseGroup * g2 = reinterpret_cast<BaseGroup *>(&ghosts2[i]);
+        const BaseGroup * g1 = groups[i+ Nmine].get_base();
+        const BaseGroup * g2 = ghosts2[i].get_base();
         if(g1->MinID != g2->MinID) {
             endrun(2, "g1 minID %lu, g2 minID %lu\n", g1->MinID, g2->MinID);
         }
@@ -1030,7 +1023,7 @@ void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
             endrun(2, "g1 minIDTask %d, g2 minIDTask %d\n", g1->MinIDTask, g2->MinIDTask);
         }
     }
-    memcpy(ghosts, ghosts2, sizeof(GroupType) * (nmemb - Nmine));
+    memcpy(groups + Nmine, ghosts2, sizeof(GroupType) * (nmemb - Nmine));
     myfree(ghosts2);
 
     myfree(images);
