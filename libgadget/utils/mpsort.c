@@ -6,12 +6,16 @@
 #include <time.h>
 #include <string.h>
 
+#include <algorithm>
+#include <numeric>
+#include <vector>
+#include <execution>
+
 #include <mpi.h>
 
 #include "mpsort.h"
 #include "system.h"
 #include "mymalloc.h"
-#include "openmpsort.h"
 #include "endrun.h"
 
 typedef int (*_compar_fn_t)(const void * r1, const void * r2, size_t rsize);
@@ -160,7 +164,7 @@ void _setup_radix_sort(
             d->bisect = (_bisect_fn_t) _bisect_radix_uint64_t;
             break;
         default:
-            if(be_detect.c[0] != 1) {
+            if (be_detect.c[0] != 1) {
                 if(rsize % 8 == 0) {
                     d->compar = _compar_radix_le_u8;
                 } else{
@@ -179,30 +183,125 @@ void _setup_radix_sort(
 }
 
 /****
- * sort by radix;
- * internally this uses qsort_r of glibc.
+ * sort by radix using std::sort.
  *
+ * The sort is performed by pre-computing the radix keys for every element,
+ * sorting an index array according to those keys, and then rearranging
+ * the underlying data.
  **** */
-static struct crstruct _cacr_d;
 
-/* implementation ; internal */
-static int _compute_and_compar_radix(const void * p1, const void * p2) {
-    char r1[_cacr_d.rsize], r2[_cacr_d.rsize];
-    _cacr_d.radix(p1, r1, _cacr_d.arg);
-    _cacr_d.radix(p2, r2, _cacr_d.arg);
-    int c1 = _cacr_d.compar(r1, r2, _cacr_d.rsize);
-    return c1;
+typedef void (*radix_fn)(const void * ptr, void * radix, void * arg);
+
+template <typename T>
+static void radix_sort_impl(void * base, size_t nmemb, size_t size,
+        radix_fn radix, void * arg) {
+
+    if (nmemb < 2) return;
+
+    char * cbase = static_cast<char *>(base);
+
+    /* Pre-compute all radix keys. */
+    std::vector<T> keys(nmemb);
+    for (size_t i = 0; i < nmemb; i++) {
+        radix(cbase + i * size, &keys[i], arg);
+    }
+
+    /* Build an index array and sort by key. */
+    std::vector<size_t> indices(nmemb);
+    std::iota(indices.begin(), indices.end(), 0);
+
+    std::sort(std::execution::par_unseq, indices.begin(), indices.end(),
+        [&keys](size_t a, size_t b) { return keys[a] < keys[b]; });
+
+    /* Rearrange the data into a temporary buffer according to indices,
+     * then memcpy back to base. */
+    char * tmp = (char *) mymalloc("tmp", nmemb * size);
+    #pragma omp parallel for
+    for (size_t i = 0; i < nmemb; i++) {
+        memcpy(tmp + i * size, cbase + indices[i] * size, size);
+    }
+    memcpy(cbase, tmp, nmemb * size);
+    myfree(tmp);
+}
+
+/* Fallback path for rsize > 8 (radix key does not fit in a uint64_t).
+ * Sort by comparing the pre-computed byte-arrays using the compar function
+ * chosen by _setup_radix_sort (handles endianness and 8-byte-aligned large
+ * radixes). */
+static void radix_sort_bytes(void * base, size_t nmemb, size_t size,
+        radix_fn radix, size_t rsize, void * arg) {
+
+    if (nmemb < 2) return;
+
+    char * cbase = static_cast<char *>(base);
+
+    /* Pre-compute all radix keys into a single contiguous byte array. */
+    char * keys = (char *) mymalloc("radixkeys", nmemb * rsize);
+    #pragma omp parallel for
+    for (size_t i = 0; i < nmemb; i++) {
+        radix(cbase + i * size, keys + i * rsize, arg);
+    }
+
+    std::vector<size_t> indices(nmemb);
+    std::iota(indices.begin(), indices.end(), 0);
+
+    /* Use the same compar selection as _setup_radix_sort. */
+    /* Cheers stack overflow*/
+    union {
+        uint32_t i;
+        char c[4];
+    } be_detect = {0x01020304};
+    if (be_detect.c[0] != 1) {
+        if (rsize % 8 == 0) {
+            std::sort(indices.begin(), indices.end(), [keys, rsize](size_t a, size_t b) {
+                return _compar_radix_le_u8(keys + a * rsize, keys + b * rsize, rsize) < 0;
+            });
+        } else{
+            std::sort(indices.begin(), indices.end(), [keys, rsize](size_t a, size_t b) {
+                return _compar_radix_le(keys + a * rsize, keys + b * rsize, rsize) < 0;
+            });
+        }
+    } else {
+        if (rsize % 8 == 0) {
+            std::sort(indices.begin(), indices.end(), [keys, rsize](size_t a, size_t b) {
+                return _compar_radix_be_u8(keys + a * rsize, keys + b * rsize, rsize) < 0;
+            });
+        } else{
+            std::sort(indices.begin(), indices.end(), [keys, rsize](size_t a, size_t b) {
+                return _compar_radix_be(keys + a * rsize, keys + b * rsize, rsize) < 0;
+            });
+        }
+    }
+    myfree(keys);
+    /* Rearrange the data into a temporary buffer according to indices,
+     * then memcpy back to base. */
+    char * tmp = (char *) mymalloc("tmp", nmemb * size);
+    #pragma omp parallel for
+    for (size_t i = 0; i < nmemb; i++) {
+        memcpy(tmp + i * size, cbase + indices[i] * size, size);
+    }
+    memcpy(cbase, tmp, nmemb * size);
+    myfree(tmp);
 }
 
 static void radix_sort(void * base, size_t nmemb, size_t size,
-        void (*radix)(const void * ptr, void * radix, void * arg),
+        radix_fn radix,
         size_t rsize,
         void * arg) {
-
-    memset(&_cacr_d, 0, sizeof(struct crstruct));
-    _setup_radix_sort(&_cacr_d, base, nmemb, size, radix, rsize, arg);
-
-    qsort_openmp(_cacr_d.base, _cacr_d.nmemb, _cacr_d.size, _compute_and_compar_radix);
+    switch (rsize) {
+        case 2:
+            radix_sort_impl<uint16_t>(base, nmemb, size, radix, arg);
+            break;
+        case 4:
+            radix_sort_impl<uint32_t>(base, nmemb, size, radix, arg);
+            break;
+        case 8:
+            radix_sort_impl<uint64_t>(base, nmemb, size, radix, arg);
+            break;
+        default:
+            radix_sort_bytes(base, nmemb, size, radix, rsize, arg);
+            break;
+    }
 }
 
 
