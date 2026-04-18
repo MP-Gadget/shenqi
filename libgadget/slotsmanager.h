@@ -136,23 +136,23 @@ extern struct slots_manager_type {
                       * slot reservation by when requested.*/
 
     struct sph_particle_data * sph_slot() const {
-        return (struct sph_particle_data*) info[0].ptr;
+        return reinterpret_cast<struct sph_particle_data*>(info[0].ptr);
     }
 
     struct star_particle_data * star_slot() const {
-        return (struct star_particle_data*) info[4].ptr;
+        return reinterpret_cast<struct star_particle_data*>(info[4].ptr);
     }
 
     struct bh_particle_data * bh_slot() const {
-        return (struct bh_particle_data*) info[5].ptr;
+        return reinterpret_cast<struct bh_particle_data*>(info[5].ptr);
     }
 
 } SlotsManager[1];
 
 /* shortcuts for accessing different slots directly by the index */
-#define SphP ((struct sph_particle_data*) SlotsManager->info[0].ptr)
-#define StarP ((struct star_particle_data*) SlotsManager->info[4].ptr)
-#define BhP ((struct bh_particle_data*) SlotsManager->info[5].ptr)
+#define SphP (SlotsManager->sph_slot())
+#define StarP (SlotsManager->star_slot())
+#define BhP (SlotsManager->bh_slot())
 
 /* shortcuts for accessing slots from base particle index */
 #define SPHP(i) SphP[PartManager->Base[i].PI]
@@ -160,7 +160,7 @@ extern struct slots_manager_type {
 #define STARP(i) StarP[PartManager->Base[i].PI]
 
 /* shortcuts to access base slot attributes */
-#define BASESLOT_PI(PI, ptype, sman) ((struct particle_data_ext *)(sman->info[ptype].ptr + sman->info[ptype].elsize * (PI)))
+#define BASESLOT_PI(PI, ptype, sman) (reinterpret_cast<struct particle_data_ext*>(sman->info[ptype].ptr + sman->info[ptype].elsize * (PI)))
 
 void slots_init(double increase, struct slots_manager_type * sman);
 /*Enable a slot on type ptype. All slots are disabled after slots_init().*/
