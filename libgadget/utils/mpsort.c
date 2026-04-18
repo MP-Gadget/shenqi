@@ -10,6 +10,7 @@
 #include <numeric>
 #include <vector>
 #include <execution>
+#include <bit>
 
 #include <mpi.h>
 
@@ -139,11 +140,6 @@ void _setup_radix_sort(
         size_t rsize,
         void * arg) {
 
-    /* Cheers stack overflow*/
-    union {
-        uint32_t i;
-        char c[4];
-    } be_detect = {0x01020304};
     d->base = base;
     d->nmemb = nmemb;
     d->rsize = rsize;
@@ -164,7 +160,7 @@ void _setup_radix_sort(
             d->bisect = (_bisect_fn_t) _bisect_radix_uint64_t;
             break;
         default:
-            if (be_detect.c[0] != 1) {
+            if constexpr(std::endian::native == std::endian::little) {
                 if(rsize % 8 == 0) {
                     d->compar = _compar_radix_le_u8;
                 } else{
@@ -246,12 +242,7 @@ static void radix_sort_bytes(void * base, size_t nmemb, size_t size,
     std::iota(indices.begin(), indices.end(), 0);
 
     /* Use the same compar selection as _setup_radix_sort. */
-    /* Cheers stack overflow*/
-    union {
-        uint32_t i;
-        char c[4];
-    } be_detect = {0x01020304};
-    if (be_detect.c[0] != 1) {
+    if constexpr(std::endian::native == std::endian::little) {
         if (rsize % 8 == 0) {
             std::sort(indices.begin(), indices.end(), [keys, rsize](size_t a, size_t b) {
                 return _compar_radix_le_u8(keys + a * rsize, keys + b * rsize, rsize) < 0;
