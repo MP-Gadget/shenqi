@@ -33,40 +33,16 @@ struct crstruct {
     _bisect_fn_t bisect;
 };
 
-#define DEFTYPE(type) \
-static int _compar_radix_ ## type ( \
-        const type * u1,  \
-        const type * u2,  \
-        size_t junk) { \
-    return (signed) (*u1 > *u2) - (signed) (*u1 < *u2); \
-} \
-static void _bisect_radix_ ## type ( \
-        type * u, \
-        const type * u1,  \
-        const type * u2,  \
-        size_t junk) { \
-    *u = *u1 + ((*u2 - *u1) >> 1); \
+template <typename intt>
+static int _compar_radix (const intt * u1, const intt * u2, size_t junk) {
+    return (signed) (*u1 > *u2) - (signed) (*u1 < *u2);
 }
-DEFTYPE(uint16_t)
-DEFTYPE(uint32_t)
-DEFTYPE(uint64_t)
-static int _compar_radix(const void * r1, const void * r2, size_t rsize, int dir) {
-    size_t i;
-    /* from most significant */
-    const unsigned char * u1 = (const unsigned char *) r1;
-    const unsigned char * u2 = (const unsigned char *) r2;
-    if(dir < 0) {
-        u1 += rsize - 1;
-        u2 += rsize - 1;;
-    }
-    for(i = 0; i < rsize; i ++) {
-        if(*u1 < *u2) return -1;
-        if(*u1 > *u2) return 1;
-        u1 += dir;
-        u2 += dir;
-    }
-    return 0;
+
+template <typename intt>
+static void _bisect_radix (intt * u, const intt * u1, const intt * u2, size_t junk) {
+    *u = *u1 + ((*u2 - *u1) >> 1);
 }
+
 static int _compar_radix_u8(const void * r1, const void * r2, size_t rsize, int dir) {
     size_t i;
     /* from most significant */
@@ -148,16 +124,16 @@ void _setup_radix_sort(
     d->size = size;
     switch(rsize) {
         case 2:
-            d->compar = (_compar_fn_t) _compar_radix_uint16_t;
-            d->bisect = (_bisect_fn_t) _bisect_radix_uint16_t;
+            d->compar = (_compar_fn_t) _compar_radix<uint16_t>;
+            d->bisect = (_bisect_fn_t) _bisect_radix<uint16_t>;
             break;
         case 4:
-            d->compar = (_compar_fn_t) _compar_radix_uint32_t;
-            d->bisect = (_bisect_fn_t) _bisect_radix_uint32_t;
+            d->compar = (_compar_fn_t) _compar_radix<uint32_t>;
+            d->bisect = (_bisect_fn_t) _bisect_radix<uint32_t>;
             break;
         case 8:
-            d->compar = (_compar_fn_t) _compar_radix_uint64_t;
-            d->bisect = (_bisect_fn_t) _bisect_radix_uint64_t;
+            d->compar = (_compar_fn_t) _compar_radix<uint64_t>;
+            d->bisect = (_bisect_fn_t) _bisect_radix<uint64_t>;
             break;
         default:
             if constexpr(std::endian::native == std::endian::little) {
