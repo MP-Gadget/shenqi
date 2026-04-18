@@ -60,12 +60,6 @@ static int _compar_radix_u8(const void * r1, const void * r2, size_t rsize, int 
     }
     return 0;
 }
-static int _compar_radix_le(const void * r1, const void * r2, size_t rsize) {
-    return _compar_radix(r1, r2, rsize, -1);
-}
-static int _compar_radix_be(const void * r1, const void * r2, size_t rsize) {
-    return _compar_radix(r1, r2, rsize, +1);
-}
 static int _compar_radix_le_u8(const void * r1, const void * r2, size_t rsize) {
     return _compar_radix_u8(r1, r2, rsize, -1);
 }
@@ -137,18 +131,10 @@ void _setup_radix_sort(
             break;
         default:
             if constexpr(std::endian::native == std::endian::little) {
-                if(rsize % 8 == 0) {
-                    d->compar = _compar_radix_le_u8;
-                } else{
-                    d->compar = _compar_radix_le;
-                }
+                d->compar = _compar_radix_le_u8;
                 d->bisect = _bisect_radix_le;
             } else {
-                if(rsize % 8 == 0) {
-                    d->compar = _compar_radix_be_u8;
-                } else{
-                    d->compar = _compar_radix_be;
-                }
+                d->compar = _compar_radix_be_u8;
                 d->bisect = _bisect_radix_be;
             }
     }
@@ -207,6 +193,12 @@ static void radix_sort_bytes(void * base, size_t nmemb, size_t size,
 
     char * cbase = static_cast<char *>(base);
 
+    /* We enforce that rsize is a multiple of 8, so we can do
+     * comparisons 64-bits at a time, which is much faster.
+     * It is easy enough to pad large integers.*/
+    //static_assert(rsize % 8  == 0);
+    if(rsize %8 != 0)
+        endrun(5, "rsize must be a multiple of 8 in mpsort_mpi. rsize is %lu\n", rsize);
     /* Pre-compute all radix keys into a single contiguous byte array. */
     char * keys = (char *) mymalloc("radixkeys", nmemb * rsize);
     #pragma omp parallel for
@@ -219,25 +211,13 @@ static void radix_sort_bytes(void * base, size_t nmemb, size_t size,
 
     /* Use the same compar selection as _setup_radix_sort. */
     if constexpr(std::endian::native == std::endian::little) {
-        if (rsize % 8 == 0) {
-            std::sort(indices.begin(), indices.end(), [keys, rsize](size_t a, size_t b) {
-                return _compar_radix_le_u8(keys + a * rsize, keys + b * rsize, rsize) < 0;
-            });
-        } else{
-            std::sort(indices.begin(), indices.end(), [keys, rsize](size_t a, size_t b) {
-                return _compar_radix_le(keys + a * rsize, keys + b * rsize, rsize) < 0;
-            });
-        }
+        std::sort(indices.begin(), indices.end(), [keys, rsize](size_t a, size_t b) {
+            return _compar_radix_le_u8(keys + a * rsize, keys + b * rsize, rsize) < 0;
+        });
     } else {
-        if (rsize % 8 == 0) {
-            std::sort(indices.begin(), indices.end(), [keys, rsize](size_t a, size_t b) {
-                return _compar_radix_be_u8(keys + a * rsize, keys + b * rsize, rsize) < 0;
-            });
-        } else{
-            std::sort(indices.begin(), indices.end(), [keys, rsize](size_t a, size_t b) {
-                return _compar_radix_be(keys + a * rsize, keys + b * rsize, rsize) < 0;
-            });
-        }
+        std::sort(indices.begin(), indices.end(), [keys, rsize](size_t a, size_t b) {
+            return _compar_radix_be_u8(keys + a * rsize, keys + b * rsize, rsize) < 0;
+        });
     }
     myfree(keys);
     /* Rearrange the data into a temporary buffer according to indices,
