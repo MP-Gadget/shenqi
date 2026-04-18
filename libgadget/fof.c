@@ -23,7 +23,6 @@
 #include "partmanager.h"
 #include "densitykernel.h"
 #include "utils/mymalloc.h"
-#include "utils/openmpsort.h"
 #include "utils/spinlocks.h"
 #include "utils/string.h"
 

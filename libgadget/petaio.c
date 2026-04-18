@@ -22,7 +22,6 @@
 #include "physconst.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
-#include "utils/openmpsort.h"
 #include "utils/string.h"
 /************
  *

@@ -9,7 +9,6 @@
 #include "timebinmgr.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
-#include "utils/openmpsort.h"
 
 #include "cosmology.h"
 

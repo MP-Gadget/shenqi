@@ -6,7 +6,7 @@ CONFIG ?= ../Options.mk
 
 include $(CONFIG)
 
-UTILS_TESTED = peano memory #openmpsort interp
+UTILS_TESTED = peano memory #interp
 UTILS_MPI_TESTED = mpsort
 
 TESTED = cooling \
@@ -77,7 +77,6 @@ utils/mpsort.o \
 utils/mymalloc.o \
 utils/system.o \
 utils/paramset.o \
-utils/openmpsort.o \
 utils/unitsystem.o \
 utils/string.o \
 utils/spinlocks.o
