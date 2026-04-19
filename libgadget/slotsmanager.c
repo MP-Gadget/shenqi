@@ -479,6 +479,9 @@ slots_gc_sorted(struct part_manager_type * pman, struct slots_manager_type * sma
             std::sort(std::execution::par_unseq, sman->star_slot(), sman->star_slot() + sman->info[ptype].size);
         else if(ptype == 5)
             std::sort(std::execution::par_unseq, sman->bh_slot(), sman->bh_slot() + sman->info[ptype].size);
+        else
+            /* This is unused, but the function returns the generic particle_data_ext type*/
+            std::sort(std::execution::par_unseq, sman->slot(ptype), sman->slot(ptype) + sman->info[ptype].size);
         /*Reduce slots used*/
         SlotsManager->info[ptype].size = slots_get_last_garbage(0, sman->info[ptype].size-1, ptype, pman, sman);
         slots_gc_collect(ptype, pman, sman);

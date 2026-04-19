@@ -134,6 +134,9 @@ extern struct slots_manager_type {
     struct slot_info info[6];
     double increase; /* Percentage amount to increase
                       * slot reservation by when requested.*/
+    struct particle_data_ext * slot(const int ptype) const {
+        return reinterpret_cast<struct particle_data_ext * >(info[ptype].ptr);
+    }
 
     struct sph_particle_data * sph_slot() const {
         return reinterpret_cast<struct sph_particle_data*>(info[0].ptr);
