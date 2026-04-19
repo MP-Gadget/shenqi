@@ -132,18 +132,13 @@ int compar_int(void * d1, void * d2)
 }
 
 static void
-do_mpsort_test(int64_t srcsize, int bits, int staggered, int gather)
+do_mpsort_test(int64_t srcsize, int bits, int staggered)
 {
     int ThisTask;
     int NTask;
 
     MPI_Comm_size(MPI_COMM_WORLD, &NTask);
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-
-    if(gather == 1)
-        mpsort_mpi_set_options(MPSORT_REQUIRE_GATHER_SORT);
-    if(gather == 0)
-        mpsort_mpi_set_options(MPSORT_DISABLE_GATHER_SORT);
 
 //     message(0, "NTask = %d\n", NTask);
 //     message(0, "src size = %ld\n", srcsize);
@@ -157,7 +152,6 @@ do_mpsort_test(int64_t srcsize, int bits, int staggered, int gather)
     int64_t destsize = csize * (ThisTask + 1) /  NTask - csize * (ThisTask) / NTask;
 
     message(0, "dest size = %ld\n", destsize);
-//     message(0, "csize = %ld\n", csize);
 
     int64_t * src = (int64_t *) mymalloc("src", srcsize * sizeof(int64_t));
     int64_t * dest = (int64_t *) mymalloc("dest", destsize * sizeof(int64_t));
@@ -166,12 +160,9 @@ do_mpsort_test(int64_t srcsize, int bits, int staggered, int gather)
     generate(src, srcsize, bits, seed);
 
     int64_t srcsum = checksum(src, srcsize, MPI_COMM_WORLD);
-//         if(ThisTask == 0)
-//        mpsort_setup_timers(512);
     {
         double start = MPI_Wtime();
 
-        mpsort_setup_timers(512);
         mpsort_mpi_newarray(src, srcsize,
                             dest, destsize,
                             sizeof(int64_t),
@@ -191,13 +182,8 @@ do_mpsort_test(int64_t srcsize, int bits, int staggered, int gather)
         check_sorted(dest, sizeof(int64_t), destsize, compar_int, MPI_COMM_WORLD);
 
         message(0, "MPSort total time: %g\n", end - start);
-//         if(ThisTask == 0) {
-//             mpsort_mpi_report_last_run();
-//                mpsort_free_timers();
-//         }
     }
 
-    mpsort_mpi_unset_options(MPSORT_REQUIRE_GATHER_SORT + MPSORT_DISABLE_GATHER_SORT);
     myfree(dest);
     myfree(src);
 }
@@ -303,26 +289,17 @@ BOOST_AUTO_TEST_CASE(test_basegroup)
 BOOST_AUTO_TEST_CASE(test_mpsort_bits)
 {
     message(0, "16 bits!\n");
-    /* With whatever gather we like*/
-    do_mpsort_test(2000, 16, 0, -1);
+    do_mpsort_test(2000, 16, 0);
     message(0, "32 bits!\n");
-    do_mpsort_test(2000, 32, 0, -1);
+    do_mpsort_test(2000, 32, 0);
     message(0, "64 bits!\n");
-    do_mpsort_test(2000, 64, 0, -1);
+    do_mpsort_test(2000, 64, 0);
 }
 
 BOOST_AUTO_TEST_CASE(test_mpsort_stagger)
 {
     /* With stagger*/
-    do_mpsort_test(2000, 32, 1, -1);
+    do_mpsort_test(2000, 32, 1);
     /* Use a number that doesn't divide evenly so we get a different destsize*/
-    do_mpsort_test(1999, 32, 0, -1);
-}
-
-BOOST_AUTO_TEST_CASE(test_mpsort_gather)
-{
-    /* With forced gather*/
-    do_mpsort_test(2000, 32, 0, 1);
-    /* Without forced gather*/
-    do_mpsort_test(2000, 32, 0, 0);
+    do_mpsort_test(1999, 32, 0);
 }
