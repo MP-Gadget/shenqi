@@ -73,7 +73,6 @@ utils/endrun.o \
 utils/peano.o \
 utils/interp.o \
 utils/memory.o \
-utils/mpsort.o \
 utils/mymalloc.o \
 utils/system.o \
 utils/paramset.o \
@@ -92,6 +91,10 @@ all: libgadget.a libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_%: tests/test_%.c .objs/%.o libgadget-utils.a
+	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+
+#No .obj, header-only
+.objs/utils/test_mpsort: tests/test_mpsort.c libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_cosmology: tests/test_cosmology.c .objs/cosmology.o libgadget-utils.a
