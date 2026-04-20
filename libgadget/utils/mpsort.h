@@ -78,6 +78,7 @@ static void _bisect_radix(void * r, const void * r1, const void * r2) {
         dir = 1;
         u1 += rsize - 1;
         u2 += rsize - 1;
+        u  += rsize - 1;
     }
     /* from most significant */
     for(i = 0; i < rsize; i ++) {
