@@ -336,6 +336,8 @@ struct piter {
     char * Pright;
     struct crstruct * d;
 };
+
+template <size_t rsize>
 static void piter_init(struct piter * pi,
         char * Pmin, char * Pmax, int Plength,
         struct crstruct * d) {
@@ -344,18 +346,19 @@ static void piter_init(struct piter * pi,
     pi->narrow = ta_malloc("narrow", int, Plength);
     memset(pi->narrow, 0, Plength * sizeof(int));
     pi->d = d;
-    pi->Pleft = ta_malloc("left", char, Plength * d->rsize);
-    memset(pi->Pleft, 0, Plength * d->rsize * sizeof(char));
-    pi->Pright = ta_malloc("right", char, Plength * d->rsize);
-    memset(pi->Pright, 0, Plength * d->rsize * sizeof(char));
+    pi->Pleft = ta_malloc("left", char, Plength * rsize);
+    memset(pi->Pleft, 0, Plength * rsize * sizeof(char));
+    pi->Pright = ta_malloc("right", char, Plength * rsize);
+    memset(pi->Pright, 0, Plength * rsize * sizeof(char));
     pi->Plength = Plength;
 
     int i;
     for(i = 0; i < pi->Plength; i ++) {
-        memcpy(&pi->Pleft[i * d->rsize], Pmin, d->rsize);
-        memcpy(&pi->Pright[i * d->rsize], Pmax, d->rsize);
+        memcpy(&pi->Pleft[i * rsize], Pmin, rsize);
+        memcpy(&pi->Pright[i * rsize], Pmax, rsize);
     }
 }
+
 static void piter_destroy(struct piter * pi) {
     myfree(pi->Pright);
     myfree(pi->Pleft);
@@ -370,6 +373,7 @@ static void piter_destroy(struct piter * pi) {
  * the additional 'right]'. (usual bisect range is
  * '[left, right)' )
  * */
+template <size_t rsize>
 static void piter_bisect(struct piter * pi, char * P) {
     struct crstruct * d = pi->d;
     int i;
@@ -377,20 +381,20 @@ static void piter_bisect(struct piter * pi, char * P) {
         if(pi->stable[i]) continue;
         if(pi->narrow[i]) {
             /* The last iteration, test Pright directly */
-            memcpy(&P[i * d->rsize],
-                &pi->Pright[i * d->rsize],
-                d->rsize);
+            memcpy(&P[i * rsize],
+                &pi->Pright[i * rsize],
+                rsize);
             pi->stable[i] = 1;
         } else {
             /* ordinary iteration */
-            d->bisect(&P[i * d->rsize],
-                    &pi->Pleft[i * d->rsize],
-                    &pi->Pright[i * d->rsize]);
+            d->bisect(&P[i * rsize],
+                    &pi->Pleft[i * rsize],
+                    &pi->Pright[i * rsize]);
             /* in case the bisect can't move P beyond left,
              * the range is too small, so we set flag narrow,
              * and next iteration we will directly test Pright */
-            if(d->compar(&P[i * d->rsize],
-                &pi->Pleft[i * d->rsize]) <= 0) {
+            if(d->compar(&P[i * rsize],
+                &pi->Pleft[i * rsize]) <= 0) {
                 pi->narrow[i] = 1;
             }
         }
@@ -426,28 +430,26 @@ static int piter_all_done(struct piter * pi) {
  * test if the counts satisfies CLT < C <= CLE.
  * move Pleft / Pright accordingly.
  * */
+template <size_t rsize>
 static void piter_accept(struct piter * pi, char * P,
         ptrdiff_t * C, ptrdiff_t * CLT, ptrdiff_t * CLE) {
-    struct crstruct * d = pi->d;
-    int i;
 #if 0
     for(i = 0; i < pi->Plength + 1; i ++) {
         printf("counts %d LT %ld C %ld LE %ld\n",
                 i, CLT[i], C[i], CLE[i]);
     }
 #endif
-    for(i = 0; i < pi->Plength; i ++) {
+    for(int i = 0; i < pi->Plength; i ++) {
         if( CLT[i + 1] < C[i + 1] && C[i + 1] <= CLE[i + 1]) {
             pi->stable[i] = 1;
             continue;
+        }
+        if(CLT[i + 1] >= C[i + 1]) {
+            /* P[i] is too big */
+            memcpy(&pi->Pright[i * rsize], &P[i * rsize], rsize);
         } else {
-            if(CLT[i + 1] >= C[i + 1]) {
-                /* P[i] is too big */
-                memcpy(&pi->Pright[i * d->rsize], &P[i * d->rsize], d->rsize);
-            } else {
-                /* P[i] is too small */
-                memcpy(&pi->Pleft[i * d->rsize], &P[i * d->rsize], d->rsize);
-            }
+            /* P[i] is too small */
+            memcpy(&pi->Pleft[i * rsize], &P[i * rsize], rsize);
         }
     }
 }
@@ -915,11 +917,11 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
 
     struct piter pi;
 
-    piter_init(&pi, Pmin.data(), Pmax.data(), o.NTask - 1, &d);
+    piter_init<rsize>(&pi, Pmin.data(), Pmax.data(), o.NTask - 1, &d);
 
     while(!done) {
         iter ++;
-        piter_bisect(&pi, P);
+        piter_bisect<rsize>(&pi, P);
 
         _histogram(P, o.NTask - 1, o.mybase, o.mynmemb, myCLT, myCLE, &d);
 
@@ -931,7 +933,7 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
         char bisectnum[20];
         snprintf(bisectnum, 20, "bisect%04d", iter);
 
-        piter_accept(&pi, P, C, CLT, CLE);
+        piter_accept<rsize>(&pi, P, C, CLT, CLE);
 #if 0
         {
             int k;
