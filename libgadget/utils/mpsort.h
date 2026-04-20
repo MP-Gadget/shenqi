@@ -34,17 +34,17 @@ struct crstruct {
     _bisect_fn_t bisect;
 };
 
-template <typename intt>
-static int _compar_radix (const intt * u1, const intt * u2) {
+template <typename T>
+static int _compar_radix (const T * u1, const T * u2) {
     return (signed) (*u1 > *u2) - (signed) (*u1 < *u2);
 }
 
-template <typename intt>
-static void _bisect_radix (intt * u, const intt * u1, const intt * u2) {
+template <typename T>
+static void _bisect_radix (T * u, const T * u1, const T * u2) {
     *u = *u1 + ((*u2 - *u1) >> 1);
 }
 
-template <size_t rsize>
+template <typename T>
 static int _compar_radix_u8(const void * r1, const void * r2) {
     /* from most significant */
     const uint64_t * u1 = (const uint64_t *) r1;
@@ -52,10 +52,10 @@ static int _compar_radix_u8(const void * r1, const void * r2) {
     int dir = 1;
     if constexpr(std::endian::native == std::endian::little) {
         dir = -1;
-        u1 = (const uint64_t *) ((const char*) u1 + rsize - 8);
-        u2 = (const uint64_t *) ((const char*) u2 + rsize - 8);
+        u1 = (const uint64_t *) ((const char*) u1 + sizeof(T) - 8);
+        u2 = (const uint64_t *) ((const char*) u2 + sizeof(T) - 8);
     }
-    for(size_t i = 0; i < rsize; i += 8) {
+    for(size_t i = 0; i < sizeof(T); i += 8) {
         if(*u1 < *u2) return -1;
         if(*u1 > *u2) return 1;
         u1 += dir;
@@ -64,9 +64,9 @@ static int _compar_radix_u8(const void * r1, const void * r2) {
     return 0;
 }
 
-template <size_t rsize>
-static void _bisect_radix(void * r, const void * r1, const void * r2) {
-    size_t i;
+template <typename T>
+static void _bisect_radix_u8(void * r, const void * r1, const void * r2) {
+    constexpr size_t rsize = sizeof(T);
     const unsigned char * u1 = (const unsigned char *) r1;
     const unsigned char * u2 = (const unsigned char *) r2;
     unsigned char * u = (unsigned char *) r;
@@ -81,7 +81,7 @@ static void _bisect_radix(void * r, const void * r1, const void * r2) {
         u  += rsize - 1;
     }
     /* from most significant */
-    for(i = 0; i < rsize; i ++) {
+    for(size_t i = 0; i < rsize; i ++) {
         unsigned int tmp = (unsigned int) *u2 + *u1 + carry;
         if(tmp >= 256) carry = 1;
         else carry = 0;
@@ -91,7 +91,7 @@ static void _bisect_radix(void * r, const void * r1, const void * r2) {
         u2 -= dir;
     }
     u += dir;
-    for(i = 0; i < rsize; i ++) {
+    for(size_t i = 0; i < rsize; i ++) {
         unsigned int tmp = *u + carry * 256;
         carry = tmp & 1;
         *u = (tmp >> 1) ;
@@ -123,8 +123,8 @@ static void _setup_radix_sort(
         d->compar = (_compar_fn_t) _compar_radix<uint64_t>;
         d->bisect = (_bisect_fn_t) _bisect_radix<uint64_t>;
     } else {
-        d->compar = _compar_radix_u8<rsize>;
-        d->bisect = _bisect_radix<rsize>;
+        d->compar = _compar_radix_u8<std::array<char, rsize> >;
+        d->bisect = _bisect_radix_u8<std::array<char, rsize> >;
     }
 }
 
@@ -144,6 +144,11 @@ static void radix_sort_impl(void * base, size_t nmemb, size_t size,
 
     if (nmemb < 2) return;
 
+    /* We enforce that rsize is a multiple of 8, so we can do
+     * comparisons 64-bits at a time, which is much faster.
+     * It is easy enough to pad large integers.*/
+    static_assert(sizeof(T) < 8 || sizeof(T) % 8  == 0);
+
     char * cbase = static_cast<char *>(base);
 
     /* Pre-compute all radix keys, building a std::pair. */
@@ -154,48 +159,17 @@ static void radix_sort_impl(void * base, size_t nmemb, size_t size,
         keys[i].second = i;
     }
 
-    /* Sort by key (first part of the pair). */
-    std::sort(std::execution::par_unseq, keys.begin(), keys.end());
-
-    /* Rearrange the data into a temporary buffer according to indices,
-     * then memcpy back to base. */
-    char * tmp = (char *) mymalloc("tmp", nmemb * size);
-    #pragma omp parallel for
-    for (size_t i = 0; i < nmemb; i++) {
-        memcpy(tmp + i * size, cbase + keys[i].second * size, size);
+    /* Sort by key (first part of the pair). For small types we can use operator < directly,
+     * for large types we need the comparison function*/
+    if constexpr(sizeof(T) <= 8) {
+        std::sort(std::execution::par_unseq, keys.begin(), keys.end());
     }
-    memcpy(cbase, tmp, nmemb * size);
-    myfree(tmp);
-}
-
-/* Fallback path for rsize > 8 (radix key does not fit in a uint64_t).
- * Sort by comparing the pre-computed byte-arrays using the compar function
- * chosen by _setup_radix_sort (handles endianness and 8-byte-aligned large
- * radixes). */
-template <size_t rsize>
-static void radix_sort_bytes(void * base, size_t nmemb, size_t size,
-        radix_fn radix, void * arg) {
-
-    if (nmemb < 2) return;
-
-    char * cbase = static_cast<char *>(base);
-
-    /* We enforce that rsize is a multiple of 8, so we can do
-     * comparisons 64-bits at a time, which is much faster.
-     * It is easy enough to pad large integers.*/
-    static_assert(rsize % 8  == 0);
-    /* Pre-compute all radix keys into a single contiguous byte array. */
-    std::vector<std::pair<std::array<char, rsize>, size_t> > keys(nmemb);
-    #pragma omp parallel for
-    for (size_t i = 0; i < nmemb; i++) {
-        radix(cbase + i * size, keys[i].first.data(), arg);
-        keys[i].second = i;
+    else {
+        std::sort(keys.begin(), keys.end(), [](const auto& a, const auto& b) {
+            return _compar_radix_u8<T>(a.first.data(), b.first.data()) < 0;
+        });
     }
 
-    /* Use the same compar selection as _setup_radix_sort. */
-    std::sort(keys.begin(), keys.end(), [](const auto& a, const auto& b) {
-        return _compar_radix_u8<rsize>(a.first.data(), b.first.data()) < 0;
-    });
     /* Rearrange the data into a temporary buffer according to indices,
      * then memcpy back to base. */
     char * tmp = (char *) mymalloc("tmp", nmemb * size);
@@ -211,6 +185,7 @@ template <size_t rsize>
 static void radix_sort(void * base, size_t nmemb, size_t size,
         radix_fn radix,
         void * arg) {
+
     if constexpr(rsize == 2) {
         radix_sort_impl<uint16_t>(base, nmemb, size, radix, arg);
     }
@@ -219,7 +194,9 @@ static void radix_sort(void * base, size_t nmemb, size_t size,
     } else if constexpr(rsize == 8) {
         radix_sort_impl<uint64_t>(base, nmemb, size, radix, arg);
     } else {
-        radix_sort_bytes<rsize>(base, nmemb, size, radix, arg);
+        /* Check that std::array has no padding.*/
+        static_assert(sizeof(std::array<char, rsize>) == rsize);
+        radix_sort_impl<std::array<char, rsize> >(base, nmemb, size, radix, arg);
     }
 }
 
