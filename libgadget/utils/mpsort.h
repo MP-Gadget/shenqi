@@ -35,17 +35,17 @@ struct crstruct {
 };
 
 template <typename T>
-static int _compar_radix (const T * u1, const T * u2) {
+int _compar_radix (const T * u1, const T * u2) {
     return (signed) (*u1 > *u2) - (signed) (*u1 < *u2);
 }
 
 template <typename T>
-static void _bisect_radix (T * u, const T * u1, const T * u2) {
+void _bisect_radix (T * u, const T * u1, const T * u2) {
     *u = *u1 + ((*u2 - *u1) >> 1);
 }
 
 template <typename T>
-static int _compar_radix_u8(const void * r1, const void * r2) {
+int _compar_radix_u8(const void * r1, const void * r2) {
     /* from most significant */
     const uint64_t * u1 = (const uint64_t *) r1;
     const uint64_t * u2 = (const uint64_t *) r2;
@@ -65,7 +65,7 @@ static int _compar_radix_u8(const void * r1, const void * r2) {
 }
 
 template <typename T>
-static void _bisect_radix_u8(void * r, const void * r1, const void * r2) {
+void _bisect_radix_u8(void * r, const void * r1, const void * r2) {
     constexpr size_t rsize = sizeof(T);
     const unsigned char * u1 = (const unsigned char *) r1;
     const unsigned char * u2 = (const unsigned char *) r2;
@@ -100,7 +100,7 @@ static void _bisect_radix_u8(void * r, const void * r1, const void * r2) {
 }
 
 template <size_t rsize>
-static void _setup_radix_sort(
+void _setup_radix_sort(
         struct crstruct *d,
         void * base,
         size_t nmemb,
@@ -139,7 +139,7 @@ static void _setup_radix_sort(
 typedef void (*radix_fn)(const void * ptr, void * radix, void * arg);
 
 template <typename T>
-static void radix_sort_impl(void * base, size_t nmemb, size_t size,
+void radix_sort_impl(void * base, size_t nmemb, size_t size,
         radix_fn radix, void * arg) {
 
     if (nmemb < 2) return;
@@ -182,7 +182,7 @@ static void radix_sort_impl(void * base, size_t nmemb, size_t size,
 }
 
 template <size_t rsize>
-static void radix_sort(void * base, size_t nmemb, size_t size,
+void radix_sort(void * base, size_t nmemb, size_t size,
         radix_fn radix,
         void * arg) {
 
@@ -338,7 +338,7 @@ struct piter {
 };
 
 template <size_t rsize>
-static void piter_init(struct piter * pi,
+void piter_init(struct piter * pi,
         char * Pmin, char * Pmax, int Plength,
         struct crstruct * d) {
     pi->stable = ta_malloc("stable", int, Plength);
@@ -374,7 +374,7 @@ static void piter_destroy(struct piter * pi) {
  * '[left, right)' )
  * */
 template <size_t rsize>
-static void piter_bisect(struct piter * pi, char * P) {
+void piter_bisect(struct piter * pi, char * P) {
     struct crstruct * d = pi->d;
     int i;
     for(i = 0; i < pi->Plength; i ++) {
@@ -431,7 +431,7 @@ static int piter_all_done(struct piter * pi) {
  * move Pleft / Pright accordingly.
  * */
 template <size_t rsize>
-static void piter_accept(struct piter * pi, char * P,
+void piter_accept(struct piter * pi, char * P,
         ptrdiff_t * C, ptrdiff_t * CLT, ptrdiff_t * CLE) {
 #if 0
     for(i = 0; i < pi->Plength + 1; i ++) {
@@ -765,7 +765,7 @@ MPIU_Scatter (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffe
 }
 
 template <size_t rsize>
-static void _find_Pmax_Pmin_C(void * mybase, size_t mynmemb,
+void _find_Pmax_Pmin_C(void * mybase, size_t mynmemb,
         size_t myoutnmemb,
         std::array<char, rsize>& Pmax, std::array<char, rsize>& Pmin,
         ptrdiff_t * C,
@@ -883,7 +883,7 @@ _solve_for_layout_mpi (
 }
 
 template <size_t rsize>
-static int
+int
 mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
 {
     ptrdiff_t * myC = (ptrdiff_t *) mymalloc("myhistC", (o.NTask + 1) * sizeof(ptrdiff_t));
