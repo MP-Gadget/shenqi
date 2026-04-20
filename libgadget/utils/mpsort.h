@@ -518,13 +518,6 @@ static void _destroy_mpsort_mpi(struct crmpistruct * o) {
     MPI_Type_free(&o->MPI_TYPE_DATA);
 }
 
-static void _find_Pmax_Pmin_C(void * mybase, size_t mynmemb,
-        size_t myoutnmemb,
-        char * Pmax, char * Pmin,
-        ptrdiff_t * C,
-        struct crstruct * d,
-        struct crmpistruct * o);
-
 static int _solve_for_layout_mpi (
         int NTask,
         ptrdiff_t * C,
@@ -769,39 +762,38 @@ MPIU_Scatter (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffe
     MPI_Type_free(&dtype);
 }
 
+template <size_t rsize>
 static void _find_Pmax_Pmin_C(void * mybase, size_t mynmemb,
         size_t myoutnmemb,
-        char * Pmax, char * Pmin,
+        std::array<char, rsize>& Pmax, std::array<char, rsize>& Pmin,
         ptrdiff_t * C,
         struct crstruct * d,
         struct crmpistruct * o) {
-    memset(Pmax, 0, d->rsize);
-    memset(Pmin, -1, d->rsize);
 
-    char myPmax[d->rsize];
-    char myPmin[d->rsize];
+    std::array<char, rsize> myPmax;
+    std::array<char, rsize> myPmin;
 
     size_t * eachnmemb = ta_malloc("eachnmemb", size_t, o->NTask);
     size_t * eachoutnmemb = ta_malloc("eachoutnmemb", size_t, o->NTask);
-    char * eachPmax = (char *) mymalloc("eachPmax", d->rsize * o->NTask * sizeof(char));
-    char * eachPmin = (char *) mymalloc("eachPmin", d->rsize * o->NTask * sizeof(char));
+    char * eachPmax = (char *) mymalloc("eachPmax", rsize * o->NTask * sizeof(char));
+    char * eachPmin = (char *) mymalloc("eachPmin", rsize * o->NTask * sizeof(char));
     int i;
 
     if(mynmemb > 0) {
-        d->radix((char*) mybase + (mynmemb - 1) * d->size, myPmax, d->arg);
-        d->radix(mybase, myPmin, d->arg);
+        d->radix((char*) mybase + (mynmemb - 1) * d->size, myPmax.data(), d->arg);
+        d->radix(mybase, myPmin.data(), d->arg);
     } else {
-        memset(myPmin, 0, d->rsize);
-        memset(myPmax, 0, d->rsize);
+        memset(myPmin.data(), 0, rsize);
+        memset(myPmax.data(), 0, rsize);
     }
 
     MPI_Allgather(&mynmemb, 1, MPI_TYPE_PTRDIFF,
             eachnmemb, 1, MPI_TYPE_PTRDIFF, o->comm);
     MPI_Allgather(&myoutnmemb, 1, MPI_TYPE_PTRDIFF,
             eachoutnmemb, 1, MPI_TYPE_PTRDIFF, o->comm);
-    MPI_Allgather(myPmax, 1, o->MPI_TYPE_RADIX,
+    MPI_Allgather(myPmax.data(), 1, o->MPI_TYPE_RADIX,
             eachPmax, 1, o->MPI_TYPE_RADIX, o->comm);
-    MPI_Allgather(myPmin, 1, o->MPI_TYPE_RADIX,
+    MPI_Allgather(myPmin.data(), 1, o->MPI_TYPE_RADIX,
             eachPmin, 1, o->MPI_TYPE_RADIX, o->comm);
 
 
@@ -810,11 +802,11 @@ static void _find_Pmax_Pmin_C(void * mybase, size_t mynmemb,
         C[i + 1] = C[i] + eachoutnmemb[i];
         if(eachnmemb[i] == 0) continue;
 
-        if(d->compar(eachPmax + i * d->rsize, Pmax) > 0) {
-            memcpy(Pmax, eachPmax + i * d->rsize, d->rsize);
+        if(d->compar(eachPmax + i * rsize, Pmax.data()) > 0) {
+            memcpy(Pmax.data(), eachPmax + i * rsize, rsize);
         }
-        if(d->compar(eachPmin + i * d->rsize, Pmin) < 0) {
-            memcpy(Pmin, eachPmin + i * d->rsize, d->rsize);
+        if(d->compar(eachPmin + i * rsize, Pmin.data()) < 0) {
+            memcpy(Pmin.data(), eachPmin + i * rsize, rsize);
         }
     }
 
@@ -913,17 +905,17 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
 
     MPI_Barrier(o.comm);
 
-    char * P = ta_malloc("PP", char, d.rsize * (o.NTask - 1));
-    memset(P, 0, d.rsize * (o.NTask -1));
+    char * P = ta_malloc("PP", char, rsize * (o.NTask - 1));
+    memset(P, 0, rsize * (o.NTask -1));
 
-    char Pmax[d.rsize];
-    char Pmin[d.rsize];
-
-    _find_Pmax_Pmin_C(o.mybase, o.mynmemb, o.myoutnmemb, Pmax, Pmin, C, &d, &o);
+    std::array<char, rsize> Pmax{0};
+    std::array<char, rsize> Pmin;
+    Pmin.fill((char) 0xFF);
+    _find_Pmax_Pmin_C<rsize>(o.mybase, o.mynmemb, o.myoutnmemb, Pmax, Pmin, C, &d, &o);
 
     struct piter pi;
 
-    piter_init(&pi, Pmin, Pmax, o.NTask - 1, &d);
+    piter_init(&pi, Pmin.data(), Pmax.data(), o.NTask - 1, &d);
 
     while(!done) {
         iter ++;
