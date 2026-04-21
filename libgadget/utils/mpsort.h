@@ -20,7 +20,6 @@
 #include "mymalloc.h"
 #include "endrun.h"
 
-typedef int (*_compar_fn_t)(const void * r1, const void * r2);
 typedef void (*_bisect_fn_t)(void * r, const void * r1, const void * r2);
 
 struct crstruct {
@@ -30,38 +29,40 @@ struct crstruct {
     size_t rsize;
     void * arg;
     void (*radix)(const void * ptr, void * radix, void * arg);
-    _compar_fn_t compar;
     _bisect_fn_t bisect;
 };
 
 template <typename T>
-int _compar_radix (const T * u1, const T * u2) {
-    return (signed) (*u1 > *u2) - (signed) (*u1 < *u2);
+int _compar_radix (const T& u1, const T& u2) {
+    if constexpr(sizeof(T) <= 8) {
+        return (signed) (u1 > u2) - (signed) (u1 < u2);
+    }
+    else {
+        /* from most significant */
+        const uint64_t * pu1 = (const uint64_t *) &u1;
+        const uint64_t * pu2 = (const uint64_t *) &u2;
+        int dir = 1;
+        if constexpr(std::endian::native == std::endian::little) {
+            dir = -1;
+            /* Last byte first*/
+            pu1 = (const uint64_t *) ((&u1)+1);
+            pu1--;
+            pu2 = (const uint64_t *) ((&u2)+1);
+            pu2--;
+        }
+        for(size_t i = 0; i < sizeof(T); i += 8) {
+            if(*pu1 < *pu2) return -1;
+            if(*pu1 > *pu2) return 1;
+            pu1 += dir;
+            pu2 += dir;
+        }
+        return 0;
+    }
 }
 
 template <typename T>
 void _bisect_radix (T * u, const T * u1, const T * u2) {
     *u = *u1 + ((*u2 - *u1) >> 1);
-}
-
-template <typename T>
-int _compar_radix_u8(const void * r1, const void * r2) {
-    /* from most significant */
-    const uint64_t * u1 = (const uint64_t *) r1;
-    const uint64_t * u2 = (const uint64_t *) r2;
-    int dir = 1;
-    if constexpr(std::endian::native == std::endian::little) {
-        dir = -1;
-        u1 = (const uint64_t *) ((const char*) u1 + sizeof(T) - 8);
-        u2 = (const uint64_t *) ((const char*) u2 + sizeof(T) - 8);
-    }
-    for(size_t i = 0; i < sizeof(T); i += 8) {
-        if(*u1 < *u2) return -1;
-        if(*u1 > *u2) return 1;
-        u1 += dir;
-        u2 += dir;
-    }
-    return 0;
 }
 
 template <typename T>
@@ -114,16 +115,12 @@ void _setup_radix_sort(
     d->radix = radix;
     d->size = size;
     if constexpr(rsize == 2) {
-        d->compar = (_compar_fn_t) _compar_radix<uint16_t>;
         d->bisect = (_bisect_fn_t) _bisect_radix<uint16_t>;
     } else if constexpr(rsize == 4) {
-        d->compar = (_compar_fn_t) _compar_radix<uint32_t>;
         d->bisect = (_bisect_fn_t) _bisect_radix<uint32_t>;
     } else if constexpr(rsize == 8) {
-        d->compar = (_compar_fn_t) _compar_radix<uint64_t>;
         d->bisect = (_bisect_fn_t) _bisect_radix<uint64_t>;
     } else {
-        d->compar = _compar_radix_u8<std::array<char, rsize> >;
         d->bisect = _bisect_radix_u8<std::array<char, rsize> >;
     }
 }
@@ -139,7 +136,7 @@ void _setup_radix_sort(
 typedef void (*radix_fn)(const void * ptr, void * radix, void * arg);
 
 template <typename T>
-void radix_sort_impl(void * base, size_t nmemb, size_t size,
+void radix_sort(void * base, size_t nmemb, size_t size,
         radix_fn radix, void * arg) {
 
     if (nmemb < 2) return;
@@ -166,7 +163,7 @@ void radix_sort_impl(void * base, size_t nmemb, size_t size,
     }
     else {
         std::sort(keys.begin(), keys.end(), [](const auto& a, const auto& b) {
-            return _compar_radix_u8<T>(a.first.data(), b.first.data()) < 0;
+            return _compar_radix<T>(a.first, b.first) < 0;
         });
     }
 
@@ -181,26 +178,6 @@ void radix_sort_impl(void * base, size_t nmemb, size_t size,
     myfree(tmp);
 }
 
-template <size_t rsize>
-void radix_sort(void * base, size_t nmemb, size_t size,
-        radix_fn radix,
-        void * arg) {
-
-    if constexpr(rsize == 2) {
-        radix_sort_impl<uint16_t>(base, nmemb, size, radix, arg);
-    }
-    else if constexpr(rsize == 4) {
-        radix_sort_impl<uint32_t>(base, nmemb, size, radix, arg);
-    } else if constexpr(rsize == 8) {
-        radix_sort_impl<uint64_t>(base, nmemb, size, radix, arg);
-    } else {
-        /* Check that std::array has no padding.*/
-        static_assert(sizeof(std::array<char, rsize>) == rsize);
-        radix_sort_impl<std::array<char, rsize> >(base, nmemb, size, radix, arg);
-    }
-}
-
-
 /*
  * returns index of the last item satisfying
  * [item] < P,
@@ -208,22 +185,23 @@ void radix_sort(void * base, size_t nmemb, size_t size,
  * returns -1 if [all] < P
  * */
 
-static ptrdiff_t _bsearch_last_lt(void * P,
+template <typename T>
+ptrdiff_t _bsearch_last_lt(T& P,
     void * base, size_t nmemb,
     struct crstruct * d) {
 
     if (nmemb == 0) return -1;
 
-    char tmpradix[d->rsize];
+    T tmpradix;
     ptrdiff_t left = 0;
     ptrdiff_t right = nmemb - 1;
 
-    d->radix((char*) base, tmpradix, d->arg);
-    if(d->compar(tmpradix, P) >= 0) {
+    d->radix((char*) base, &tmpradix, d->arg);
+    if(_compar_radix<T>(tmpradix, P) >= 0) {
         return - 1;
     }
-    d->radix((char*) base + right * d->size, tmpradix, d->arg);
-    if(d->compar(tmpradix, P) < 0) {
+    d->radix((char*) base + right * d->size, &tmpradix, d->arg);
+    if(_compar_radix<T>(tmpradix, P) < 0) {
         return nmemb - 1;
     }
 
@@ -231,10 +209,10 @@ static ptrdiff_t _bsearch_last_lt(void * P,
     /* [left] < P <= [right] */
     while(right > left + 1) {
         ptrdiff_t mid = ((right - left + 1) >> 1) + left;
-        d->radix((char*) base + mid * d->size, tmpradix, d->arg);
+        d->radix((char*) base + mid * d->size, &tmpradix, d->arg);
         /* if [mid] < P , move left to mid */
         /* if [mid] >= P , move right to mid */
-        int c1 = d->compar(tmpradix, P);
+        int c1 = _compar_radix<T>(tmpradix, P);
         if(c1 < 0) {
             left = mid;
         } else {
@@ -249,22 +227,23 @@ static ptrdiff_t _bsearch_last_lt(void * P,
  * [item] <= P,
  *
  * */
-static ptrdiff_t _bsearch_last_le(void * P,
+template <typename T>
+ptrdiff_t _bsearch_last_le(T& P,
     void * base, size_t nmemb,
     struct crstruct * d) {
 
     if (nmemb == 0) return -1;
 
-    char tmpradix[d->rsize];
+    T tmpradix;
     ptrdiff_t left = 0;
     ptrdiff_t right = nmemb - 1;
 
-    d->radix((char*) base, tmpradix, d->arg);
-    if(d->compar(tmpradix, P) > 0) {
+    d->radix((char*) base, &tmpradix, d->arg);
+    if(_compar_radix<T>(tmpradix, P) > 0) {
         return -1;
     }
-    d->radix((char*) base + right * d->size, tmpradix, d->arg);
-    if(d->compar(tmpradix, P) <= 0) {
+    d->radix((char*) base + right * d->size, &tmpradix, d->arg);
+    if(_compar_radix<T>(tmpradix, P) <= 0) {
         return nmemb - 1;
     }
 
@@ -272,10 +251,10 @@ static ptrdiff_t _bsearch_last_le(void * P,
     /* [left] <= P < [right] */
     while(right > left + 1) {
         ptrdiff_t mid = ((right - left + 1) >> 1) + left;
-        d->radix((char*) base + mid * d->size, tmpradix, d->arg);
+        d->radix((char*) base + mid * d->size, &tmpradix, d->arg);
         /* if [mid] <= P , move left to mid */
         /* if [mid] > P , move right to mid*/
-        int c1 = d->compar(tmpradix, P);
+        int c1 = _compar_radix<T>(tmpradix, P);
         if(c1 <= 0) {
             left = mid;
         } else {
@@ -297,7 +276,8 @@ static ptrdiff_t _bsearch_last_le(void * P,
  * myCLT[Plength + 1] is always mynmemb
  *
  * */
-static void _histogram(char * P, int Plength, void * mybase, size_t mynmemb,
+template <typename T>
+void _histogram(T* P, int Plength, void * mybase, size_t mynmemb,
         ptrdiff_t * myCLT, ptrdiff_t * myCLE,
         struct crstruct * d) {
     int it;
@@ -307,7 +287,7 @@ static void _histogram(char * P, int Plength, void * mybase, size_t mynmemb,
         for(it = 0; it < Plength; it ++) {
             /* No need to start from the beginging of mybase, since myubase and P are both sorted */
             ptrdiff_t offset = myCLT[it];
-            myCLT[it + 1] = _bsearch_last_lt(P + it * d->rsize,
+            myCLT[it + 1] = _bsearch_last_lt<T>(P[it],
                             ((char*) mybase) + offset * d->size,
                             mynmemb - offset, d)
                             + 1 + offset;
@@ -319,7 +299,7 @@ static void _histogram(char * P, int Plength, void * mybase, size_t mynmemb,
         for(it = 0; it < Plength; it ++) {
             /* No need to start from the beginging of mybase, since myubase and P are both sorted */
             ptrdiff_t offset = myCLE[it];
-            myCLE[it + 1] = _bsearch_last_le(P + it * d->rsize,
+            myCLE[it + 1] = _bsearch_last_le<T>(P[it],
                             ((char*) mybase) + offset * d->size,
                             mynmemb - offset, d)
                             + 1 + offset;
@@ -328,101 +308,91 @@ static void _histogram(char * P, int Plength, void * mybase, size_t mynmemb,
     }
 }
 
+template <typename T>
 struct piter {
     int * stable;
     int * narrow;
     int Plength;
-    char * Pleft;
-    char * Pright;
+    T * Pleft;
+    T * Pright;
     struct crstruct * d;
-};
 
-template <size_t rsize>
-void piter_init(struct piter * pi,
-        char * Pmin, char * Pmax, int Plength,
-        struct crstruct * d) {
-    pi->stable = ta_malloc("stable", int, Plength);
-    memset(pi->stable, 0, Plength * sizeof(int));
-    pi->narrow = ta_malloc("narrow", int, Plength);
-    memset(pi->narrow, 0, Plength * sizeof(int));
-    pi->d = d;
-    pi->Pleft = ta_malloc("left", char, Plength * rsize);
-    memset(pi->Pleft, 0, Plength * rsize * sizeof(char));
-    pi->Pright = ta_malloc("right", char, Plength * rsize);
-    memset(pi->Pright, 0, Plength * rsize * sizeof(char));
-    pi->Plength = Plength;
-
-    int i;
-    for(i = 0; i < pi->Plength; i ++) {
-        memcpy(&pi->Pleft[i * rsize], Pmin, rsize);
-        memcpy(&pi->Pright[i * rsize], Pmax, rsize);
+    piter(T& Pmin, T& Pmax, int Plength_i, struct crstruct * d_i): Plength(Plength_i), d(d_i)
+    {
+        stable = ta_malloc("stable", int, Plength);
+        memset(stable, 0, Plength * sizeof(int));
+        narrow = ta_malloc("narrow", int, Plength);
+        memset(narrow, 0, Plength * sizeof(int));
+        Pleft = (T* ) mymalloc("left", Plength * sizeof(T));
+        Pright = (T*) mymalloc("right", Plength * sizeof(T));
+        for(int i = 0; i < Plength; i ++) {
+            Pleft[i] = Pmin;
+            Pright[i] = Pmax;
+        }
     }
-}
 
-static void piter_destroy(struct piter * pi) {
-    myfree(pi->Pright);
-    myfree(pi->Pleft);
-    myfree(pi->narrow);
-    myfree(pi->stable);
-}
+    ~piter()
+    {
+        myfree(Pright);
+        myfree(Pleft);
+        myfree(narrow);
+        myfree(stable);
+    }
 
-/*
- * this will bisect the left / right in piter.
- * note that piter goes [left, right], thus we need
- * to maintain an internal status to make sure we go over
- * the additional 'right]'. (usual bisect range is
- * '[left, right)' )
- * */
-template <size_t rsize>
-void piter_bisect(struct piter * pi, char * P) {
-    struct crstruct * d = pi->d;
-    int i;
-    for(i = 0; i < pi->Plength; i ++) {
-        if(pi->stable[i]) continue;
-        if(pi->narrow[i]) {
-            /* The last iteration, test Pright directly */
-            memcpy(&P[i * rsize],
-                &pi->Pright[i * rsize],
-                rsize);
-            pi->stable[i] = 1;
-        } else {
-            /* ordinary iteration */
-            d->bisect(&P[i * rsize],
-                    &pi->Pleft[i * rsize],
-                    &pi->Pright[i * rsize]);
-            /* in case the bisect can't move P beyond left,
-             * the range is too small, so we set flag narrow,
-             * and next iteration we will directly test Pright */
-            if(d->compar(&P[i * rsize],
-                &pi->Pleft[i * rsize]) <= 0) {
-                pi->narrow[i] = 1;
+    /*
+    * this will bisect the left / right in piter.
+    * note that piter goes [left, right], thus we need
+    * to maintain an internal status to make sure we go over
+    * the additional 'right]'. (usual bisect range is
+    * '[left, right)' )
+    * */
+    void bisect(T* P)
+    {
+        for(int i = 0; i < Plength; i ++) {
+            if(stable[i])
+                continue;
+            if(narrow[i]) {
+                /* The last iteration, test Pright directly */
+                P[i] = Pright[i];
+                stable[i] = 1;
+            } else {
+                /* ordinary iteration */
+                d->bisect(&P[i],
+                        &Pleft[i],
+                        &Pright[i]);
+                /* in case the bisect can't move P beyond left,
+                * the range is too small, so we set flag narrow,
+                * and next iteration we will directly test Pright */
+                if(_compar_radix<T>(P[i], Pleft[i]) <= 0) {
+                    narrow[i] = 1;
+                }
+            }
+        #if 0
+            printf("bisect %d %u %u %u\n", i, *(int*) &P[i * d->rsize],
+                    *(int*) &pi->Pleft[i * d->rsize],
+                    *(int*) &pi->Pright[i * d->rsize]);
+        #endif
+        }
+    }
+
+    int all_done()
+    {
+        int done = 1;
+        #if 0
+        #pragma omp single
+        for(i = 0; i < pi->Plength; i ++) {
+            printf("P %d stable %d narrow %d\n",
+                i, pi->stable[i], pi->narrow[i]);
+        }
+        #endif
+        for(int i = 0; i < Plength; i ++) {
+            if(!stable[i]) {
+                done = 0;
+                break;
             }
         }
-#if 0
-        printf("bisect %d %u %u %u\n", i, *(int*) &P[i * d->rsize],
-                *(int*) &pi->Pleft[i * d->rsize],
-                *(int*) &pi->Pright[i * d->rsize]);
-#endif
+        return done;
     }
-}
-static int piter_all_done(struct piter * pi) {
-    int i;
-    int done = 1;
-#if 0
-#pragma omp single
-    for(i = 0; i < pi->Plength; i ++) {
-        printf("P %d stable %d narrow %d\n",
-            i, pi->stable[i], pi->narrow[i]);
-    }
-#endif
-    for(i = 0; i < pi->Plength; i ++) {
-        if(!pi->stable[i]) {
-            done = 0;
-            break;
-        }
-    }
-    return done;
-}
 
 /*
  * bisection acceptance test.
@@ -430,29 +400,28 @@ static int piter_all_done(struct piter * pi) {
  * test if the counts satisfies CLT < C <= CLE.
  * move Pleft / Pright accordingly.
  * */
-template <size_t rsize>
-void piter_accept(struct piter * pi, char * P,
-        ptrdiff_t * C, ptrdiff_t * CLT, ptrdiff_t * CLE) {
-#if 0
-    for(i = 0; i < pi->Plength + 1; i ++) {
-        printf("counts %d LT %ld C %ld LE %ld\n",
-                i, CLT[i], C[i], CLE[i]);
-    }
-#endif
-    for(int i = 0; i < pi->Plength; i ++) {
-        if( CLT[i + 1] < C[i + 1] && C[i + 1] <= CLE[i + 1]) {
-            pi->stable[i] = 1;
-            continue;
+    void accept(T* P, ptrdiff_t * C, ptrdiff_t * CLT, ptrdiff_t * CLE) {
+        #if 0
+        for(i = 0; i < pi->Plength + 1; i ++) {
+            printf("counts %d LT %ld C %ld LE %ld\n",
+                    i, CLT[i], C[i], CLE[i]);
         }
-        if(CLT[i + 1] >= C[i + 1]) {
-            /* P[i] is too big */
-            memcpy(&pi->Pright[i * rsize], &P[i * rsize], rsize);
-        } else {
-            /* P[i] is too small */
-            memcpy(&pi->Pleft[i * rsize], &P[i * rsize], rsize);
+        #endif
+        for(int i = 0; i < Plength; i ++) {
+            if( CLT[i + 1] < C[i + 1] && C[i + 1] <= CLE[i + 1]) {
+                stable[i] = 1;
+                continue;
+            }
+            if(CLT[i + 1] >= C[i + 1]) {
+                /* P[i] is too big */
+                Pright[i] = P[i];
+            } else {
+                /* P[i] is too small */
+                Pleft[i] = P[i];
+            }
         }
     }
-}
+};
 
 /* mpi version of radix sort;
  *
@@ -764,51 +733,47 @@ MPIU_Scatter (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffe
     MPI_Type_free(&dtype);
 }
 
-template <size_t rsize>
+template <typename T>
 void _find_Pmax_Pmin_C(void * mybase, size_t mynmemb,
         size_t myoutnmemb,
-        std::array<char, rsize>& Pmax, std::array<char, rsize>& Pmin,
+        T& Pmax, T& Pmin,
         ptrdiff_t * C,
         struct crstruct * d,
         struct crmpistruct * o) {
 
-    std::array<char, rsize> myPmax;
-    std::array<char, rsize> myPmin;
+    T myPmax{0};
+    T myPmin{0};
 
     size_t * eachnmemb = ta_malloc("eachnmemb", size_t, o->NTask);
     size_t * eachoutnmemb = ta_malloc("eachoutnmemb", size_t, o->NTask);
-    char * eachPmax = (char *) mymalloc("eachPmax", rsize * o->NTask * sizeof(char));
-    char * eachPmin = (char *) mymalloc("eachPmin", rsize * o->NTask * sizeof(char));
-    int i;
+    T * eachPmax = (T *) mymalloc("eachPmax", o->NTask * sizeof(T));
+    T * eachPmin = (T *) mymalloc("eachPmin", o->NTask * sizeof(T));
 
     if(mynmemb > 0) {
-        d->radix((char*) mybase + (mynmemb - 1) * d->size, myPmax.data(), d->arg);
-        d->radix(mybase, myPmin.data(), d->arg);
-    } else {
-        memset(myPmin.data(), 0, rsize);
-        memset(myPmax.data(), 0, rsize);
+        d->radix((char*) mybase + (mynmemb - 1) * d->size, &myPmax, d->arg);
+        d->radix(mybase, &myPmin, d->arg);
     }
 
     MPI_Allgather(&mynmemb, 1, MPI_TYPE_PTRDIFF,
             eachnmemb, 1, MPI_TYPE_PTRDIFF, o->comm);
     MPI_Allgather(&myoutnmemb, 1, MPI_TYPE_PTRDIFF,
             eachoutnmemb, 1, MPI_TYPE_PTRDIFF, o->comm);
-    MPI_Allgather(myPmax.data(), 1, o->MPI_TYPE_RADIX,
+    MPI_Allgather(&myPmax, 1, o->MPI_TYPE_RADIX,
             eachPmax, 1, o->MPI_TYPE_RADIX, o->comm);
-    MPI_Allgather(myPmin.data(), 1, o->MPI_TYPE_RADIX,
+    MPI_Allgather(&myPmin, 1, o->MPI_TYPE_RADIX,
             eachPmin, 1, o->MPI_TYPE_RADIX, o->comm);
 
 
     C[0] = 0;
-    for(i = 0; i < o->NTask; i ++) {
+    for(int i = 0; i < o->NTask; i ++) {
         C[i + 1] = C[i] + eachoutnmemb[i];
         if(eachnmemb[i] == 0) continue;
 
-        if(d->compar(eachPmax + i * rsize, Pmax.data()) > 0) {
-            memcpy(Pmax.data(), eachPmax + i * rsize, rsize);
+        if(_compar_radix<T>(eachPmax[i], Pmax) > 0) {
+            memcpy(&Pmax, &eachPmax[i], sizeof(T));
         }
-        if(d->compar(eachPmin + i * rsize, Pmin.data()) < 0) {
-            memcpy(Pmin.data(), eachPmin + i * rsize, rsize);
+        if(_compar_radix<T>(eachPmin[i], Pmin) < 0) {
+            memcpy(&Pmin, &eachPmin[i], sizeof(T));
         }
     }
 
@@ -882,7 +847,7 @@ _solve_for_layout_mpi (
     return 0;
 }
 
-template <size_t rsize>
+template <typename T>
 int
 mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
 {
@@ -902,28 +867,27 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
     char * buffer;
     int i;
 
+    constexpr size_t rsize = sizeof(T);
     /* and sort the local array */
-    radix_sort<rsize>(d.base, d.nmemb, d.size, d.radix, d.arg);
+    radix_sort<T>(d.base, d.nmemb, d.size, d.radix, d.arg);
 
     MPI_Barrier(o.comm);
 
-    char * P = ta_malloc("PP", char, rsize * (o.NTask - 1));
+    T * P = (T *) mymalloc("PP", (o.NTask - 1) * sizeof(T));
     memset(P, 0, rsize * (o.NTask -1));
 
-    std::array<char, rsize> Pmax{0};
-    std::array<char, rsize> Pmin;
-    Pmin.fill((char) 0xFF);
-    _find_Pmax_Pmin_C<rsize>(o.mybase, o.mynmemb, o.myoutnmemb, Pmax, Pmin, C, &d, &o);
+    T Pmax{0};
+    T Pmin;
+    memset(&Pmin, -1, sizeof(T));
+    _find_Pmax_Pmin_C<T>(o.mybase, o.mynmemb, o.myoutnmemb, Pmax, Pmin, C, &d, &o);
 
-    struct piter pi;
-
-    piter_init<rsize>(&pi, Pmin.data(), Pmax.data(), o.NTask - 1, &d);
+    piter<T> pi(Pmin, Pmax, o.NTask - 1, &d);
 
     while(!done) {
         iter ++;
-        piter_bisect<rsize>(&pi, P);
+        pi.bisect(P);
 
-        _histogram(P, o.NTask - 1, o.mybase, o.mynmemb, myCLT, myCLE, &d);
+        _histogram<T>(P, o.NTask - 1, o.mybase, o.mynmemb, myCLT, myCLE, &d);
 
         MPI_Allreduce(myCLT, CLT, o.NTask + 1,
                 MPI_TYPE_PTRDIFF, MPI_SUM, o.comm);
@@ -933,7 +897,7 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
         char bisectnum[20];
         snprintf(bisectnum, 20, "bisect%04d", iter);
 
-        piter_accept<rsize>(&pi, P, C, CLT, CLE);
+        pi.accept(P, C, CLT, CLE);
 #if 0
         {
             int k;
@@ -971,12 +935,10 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
             }
         }
 #endif
-        done = piter_all_done(&pi);
+        done = pi.all_done();
     }
 
-    piter_destroy(&pi);
-
-    _histogram(P, o.NTask - 1, o.mybase, o.mynmemb, myCLT, myCLE, &d);
+    _histogram<T>(P, o.NTask - 1, o.mybase, o.mynmemb, myCLT, myCLE, &d);
 
     ta_free(P);
 
@@ -1141,16 +1103,16 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
     myfree(myC);
     MPI_Barrier(o.comm);
 
-    radix_sort<rsize>(o.myoutbase, o.myoutnmemb, d.size, d.radix, d.arg);
+    radix_sort<T>(o.myoutbase, o.myoutnmemb, d.size, d.radix, d.arg);
 
     MPI_Barrier(o.comm);
 
     return 0;
 }
 
-template <size_t rsize>
+template <typename T>
 void
-mpsort_mpi_newarray_impl (void * mybase, size_t mynmemb,
+mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
         void * myoutbase, size_t myoutnmemb,
         size_t elsize,
         void (*radix)(const void * ptr, void * radix, void * arg),
@@ -1183,7 +1145,7 @@ mpsort_mpi_newarray_impl (void * mybase, size_t mynmemb,
     }
     /* MPSort: radix size is large (%ld) but not aligned to 8 bytes.
        This is known to frequently trigger MPI bugs.*/
-    static_assert(rsize % 8 == 0 || rsize < 8);
+    static_assert(sizeof(T) % 8 == 0 || sizeof(T) < 8);
 
     size_t * sizes = ta_malloc("sizes", size_t, NTask);
     sizes[ThisTask] = mynmemb;
@@ -1231,11 +1193,11 @@ mpsort_mpi_newarray_impl (void * mybase, size_t mynmemb,
         struct crstruct d;
         struct crmpistruct o;
 
-        _setup_radix_sort<rsize>(&d, mysegmentbase, mysegmentnmemb, elsize, radix, arg);
+        _setup_radix_sort<sizeof(T)>(&d, mysegmentbase, mysegmentnmemb, elsize, radix, arg);
 
         _setup_mpsort_mpi(&o, &d, myoutsegmentbase, myoutsegmentnmemb, seggrp->Leaders);
 
-        mpsort_mpi_histogram_sort<rsize>(d, o);
+        mpsort_mpi_histogram_sort<T>(d, o);
 
         _destroy_mpsort_mpi(&o);
     }
@@ -1256,6 +1218,30 @@ mpsort_mpi_newarray_impl (void * mybase, size_t mynmemb,
     uint64_t sum2 = checksum(myoutbase, elsize * myoutnmemb, comm);
     if (sum1 != sum2) {
         endrun(5, "Data changed after sorting; checksum mismatch.\n");
+    }
+}
+
+/* Convert the size into a type*/
+template <size_t rsize>
+void
+mpsort_mpi_newarray_impl (void * mybase, size_t mynmemb,
+        void * myoutbase, size_t myoutnmemb,
+        size_t elsize,
+        void (*radix)(const void * ptr, void * radix, void * arg),
+        void * arg,
+        MPI_Comm comm,
+        const int line,
+        const char * file)
+{
+    if constexpr(rsize == 2) {
+        mpsort_mpi_newarray_impl_type<uint16_t>(mybase, mynmemb, myoutbase, myoutnmemb, elsize, radix, arg, comm, line, file);
+    } else if constexpr(rsize == 4) {
+        mpsort_mpi_newarray_impl_type<uint32_t>(mybase, mynmemb, myoutbase, myoutnmemb, elsize, radix, arg, comm, line, file);
+    } else if constexpr(rsize == 8) {
+        mpsort_mpi_newarray_impl_type<uint64_t>(mybase, mynmemb, myoutbase, myoutnmemb, elsize, radix, arg, comm, line, file);
+    } else {
+        static_assert(sizeof(std::array<char, rsize>) == rsize);
+        mpsort_mpi_newarray_impl_type<std::array<char, rsize>>(mybase, mynmemb, myoutbase, myoutnmemb, elsize, radix, arg, comm, line, file);
     }
 }
 
