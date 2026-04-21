@@ -26,7 +26,6 @@ struct crstruct {
     void * base;
     size_t nmemb;
     size_t size;
-    size_t rsize;
     void * arg;
     void (*radix)(const void * ptr, void * radix, void * arg);
     _bisect_fn_t bisect;
@@ -110,7 +109,6 @@ void _setup_radix_sort(
         void * arg) {
     d->base = base;
     d->nmemb = nmemb;
-    d->rsize = rsize;
     d->arg = arg;
     d->radix = radix;
     d->size = size;
@@ -453,7 +451,8 @@ struct crmpistruct {
     int ThisTask;
 };
 
-static void
+template <typename T>
+void
 _setup_mpsort_mpi(struct crmpistruct * o,
                   struct crstruct * d,
                   void * myoutbase, size_t myoutnmemb,
@@ -477,7 +476,7 @@ _setup_mpsort_mpi(struct crmpistruct * o,
         endrun(4, "total number of items in the item does not match the input %ld != %ld\n", o->outnmemb, o->nmemb);
     }
 
-    MPI_Type_contiguous(d->rsize, MPI_BYTE, &o->MPI_TYPE_RADIX);
+    MPI_Type_contiguous(sizeof(T), MPI_BYTE, &o->MPI_TYPE_RADIX);
     MPI_Type_commit(&o->MPI_TYPE_RADIX);
 
     MPI_Type_contiguous(d->size, MPI_BYTE, &o->MPI_TYPE_DATA);
@@ -867,14 +866,13 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
     char * buffer;
     int i;
 
-    constexpr size_t rsize = sizeof(T);
     /* and sort the local array */
     radix_sort<T>(d.base, d.nmemb, d.size, d.radix, d.arg);
 
     MPI_Barrier(o.comm);
 
     T * P = (T *) mymalloc("PP", (o.NTask - 1) * sizeof(T));
-    memset(P, 0, rsize * (o.NTask -1));
+    memset(P, 0, sizeof(T) * (o.NTask -1));
 
     T Pmax{0};
     T Pmin;
@@ -1195,7 +1193,7 @@ mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
 
         _setup_radix_sort<sizeof(T)>(&d, mysegmentbase, mysegmentnmemb, elsize, radix, arg);
 
-        _setup_mpsort_mpi(&o, &d, myoutsegmentbase, myoutsegmentnmemb, seggrp->Leaders);
+        _setup_mpsort_mpi<T>(&o, &d, myoutsegmentbase, myoutsegmentnmemb, seggrp->Leaders);
 
         mpsort_mpi_histogram_sort<T>(d, o);
 
