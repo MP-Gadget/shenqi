@@ -1091,11 +1091,10 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
     return 0;
 }
 
-template <typename T>
+template <typename T, size_t elsize>
 void
 mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
         void * myoutbase, size_t myoutnmemb,
-        size_t elsize,
         void (*radix)(const void * ptr, void * radix, void * arg),
         void * arg,
         MPI_Comm comm,
@@ -1116,14 +1115,8 @@ mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
     MPI_Comm_size(comm, &NTask);
     MPI_Comm_rank(comm, &ThisTask);
 
-    if(elsize > 8 && elsize % 8 != 0) {
-        if(ThisTask == 0) {
-            endrun(12, "MPSort: element size is large (%ld) but not aligned to 8 bytes. "
-                            "This is known to frequently trigger MPI bugs. "
-                            "Caller site: %s:%d\n",
-                            elsize, file, line);
-        }
-    }
+    //element size is large but not aligned to 8 bytes.This is known to frequently trigger MPI bugs.
+    static_assert(elsize <= 8 || elsize % 8 == 0);
     /* MPSort: radix size is large (%ld) but not aligned to 8 bytes.
        This is known to frequently trigger MPI bugs.*/
     static_assert(sizeof(T) % 8 == 0 || sizeof(T) < 8);
@@ -1203,11 +1196,10 @@ mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
 }
 
 /* Convert the size into a type*/
-template <size_t rsize>
+template <size_t rsize, size_t elsize>
 void
 mpsort_mpi_newarray_impl (void * mybase, size_t mynmemb,
         void * myoutbase, size_t myoutnmemb,
-        size_t elsize,
         void (*radix)(const void * ptr, void * radix, void * arg),
         void * arg,
         MPI_Comm comm,
@@ -1215,24 +1207,22 @@ mpsort_mpi_newarray_impl (void * mybase, size_t mynmemb,
         const char * file)
 {
     if constexpr(rsize == 2) {
-        mpsort_mpi_newarray_impl_type<uint16_t>(mybase, mynmemb, myoutbase, myoutnmemb, elsize, radix, arg, comm, line, file);
+        mpsort_mpi_newarray_impl_type<uint16_t, elsize>(mybase, mynmemb, myoutbase, myoutnmemb, radix, arg, comm, line, file);
     } else if constexpr(rsize == 4) {
-        mpsort_mpi_newarray_impl_type<uint32_t>(mybase, mynmemb, myoutbase, myoutnmemb, elsize, radix, arg, comm, line, file);
+        mpsort_mpi_newarray_impl_type<uint32_t, elsize>(mybase, mynmemb, myoutbase, myoutnmemb, radix, arg, comm, line, file);
     } else if constexpr(rsize == 8) {
-        mpsort_mpi_newarray_impl_type<uint64_t>(mybase, mynmemb, myoutbase, myoutnmemb, elsize, radix, arg, comm, line, file);
+        mpsort_mpi_newarray_impl_type<uint64_t, elsize>(mybase, mynmemb, myoutbase, myoutnmemb, radix, arg, comm, line, file);
     } else {
         static_assert(sizeof(std::array<char, rsize>) == rsize);
-        mpsort_mpi_newarray_impl_type<std::array<char, rsize>>(mybase, mynmemb, myoutbase, myoutnmemb, elsize, radix, arg, comm, line, file);
+        mpsort_mpi_newarray_impl_type<std::array<char, rsize>, elsize>(mybase, mynmemb, myoutbase, myoutnmemb, radix, arg, comm, line, file);
     }
 }
 
 #define mpsort_mpi(base, nmemb, elsize, radix, rsize, arg, comm) \
-    mpsort_mpi_newarray_impl<rsize>(base, nmemb, base, nmemb, elsize, radix, arg, comm, \
-    __LINE__, __FILE__)
+    mpsort_mpi_newarray_impl<rsize, elsize>(base, nmemb, base, nmemb, radix, arg, comm, __LINE__, __FILE__)
 
 #define mpsort_mpi_newarray(base, nmemb, out, outnmemb, elsize, \
     radix, rsize, arg, comm) \
-    mpsort_mpi_newarray_impl<rsize>(base, nmemb, out, outnmemb, elsize, \
-    radix, arg, comm, __LINE__, __FILE__)
+    mpsort_mpi_newarray_impl<rsize, elsize>(base, nmemb, out, outnmemb, radix, arg, comm, __LINE__, __FILE__)
 
 #endif
