@@ -622,11 +622,6 @@ _destroy_segment_group(struct SegmentGroupDescr * descr)
     MPI_Comm_free(&descr->Leaders);
 }
 
-static void
-MPIU_Scatter (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffer, int nrecv, size_t elsize, int * totalnsend);
-static void
-MPIU_Gather (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffer, int nsend, size_t elsize, int * totalnrecv);
-
 static uint64_t
 checksum(void * base, size_t nbytes, MPI_Comm comm)
 {
@@ -641,13 +636,10 @@ checksum(void * base, size_t nbytes, MPI_Comm comm)
 }
 
 static void
-MPIU_Gather (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffer, int nsend, size_t elsize, int * totalnrecv)
+MPIU_Gather (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffer, int nsend, size_t elsize)
 {
     int NTask;
-    int ThisTask;
-
     MPI_Comm_size(comm, &NTask);
-    MPI_Comm_rank(comm, &ThisTask);
 
     MPI_Datatype dtype;
     MPI_Type_contiguous(elsize, MPI_BYTE, &dtype);
@@ -655,36 +647,25 @@ MPIU_Gather (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffer
 
     int * recvcount = ta_malloc("recvcount", int, NTask);
     int * rdispls = ta_malloc("rdispls", int, NTask+1);
-    int i;
+
     MPI_Gather(&nsend, 1, MPI_INT, recvcount, 1, MPI_INT, root, comm);
 
     rdispls[0] = 0;
-    for(i = 1; i <= NTask; i ++) {
+    for(int i = 1; i <= NTask; i ++) {
         rdispls[i] = rdispls[i - 1] + recvcount[i - 1];
     }
 
-    if(ThisTask == root) {
-        if(totalnrecv)
-            *totalnrecv = rdispls[NTask];
-    } else {
-        if(totalnrecv)
-            *totalnrecv = 0;
-    }
-
     MPI_Gatherv(sendbuffer, nsend, dtype, recvbuffer, recvcount, rdispls, dtype, root, comm);
-
-    ta_free(rdispls);
-    ta_free(recvcount);
+    myfree(rdispls);
+    myfree(recvcount);
     MPI_Type_free(&dtype);
 }
 
 static void
-MPIU_Scatter (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffer, int nrecv, size_t elsize, int * totalnsend)
+MPIU_Scatter (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffer, int nrecv, size_t elsize)
 {
     int NTask;
-    int ThisTask;
     MPI_Comm_size(comm, &NTask);
-    MPI_Comm_rank(comm, &ThisTask);
 
     MPI_Datatype dtype;
     MPI_Type_contiguous(elsize, MPI_BYTE, &dtype);
@@ -692,26 +673,16 @@ MPIU_Scatter (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffe
 
     int * sendcount = ta_malloc("sendcount", int, NTask);
     int * sdispls = ta_malloc("sdispls", int, NTask+1);
-    int i;
 
     MPI_Gather(&nrecv, 1, MPI_INT, sendcount, 1, MPI_INT, root, comm);
 
     sdispls[0] = 0;
-    for(i = 1; i <= NTask; i ++) {
+    for(int i = 1; i <= NTask; i ++) {
         sdispls[i] = sdispls[i - 1] + sendcount[i - 1];
     }
-
-    if(ThisTask == root) {
-        if(totalnsend)
-            *totalnsend = sdispls[NTask];
-    } else {
-        if(totalnsend)
-            *totalnsend = 0;
-    }
     MPI_Scatterv(sendbuffer, sendcount, sdispls, dtype, recvbuffer, nrecv, dtype, root, comm);
-
-    ta_free(sdispls);
-    ta_free(sendcount);
+    myfree(sdispls);
+    myfree(sendcount);
     MPI_Type_free(&dtype);
 }
 
@@ -1152,7 +1123,7 @@ mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
             mysegmentbase = mymalloc("segmentbase", mysegmentnmemb * elsize);
             myoutsegmentbase = mymalloc("outsegment", myoutsegmentnmemb * elsize);
         }
-        MPIU_Gather(seggrp->Group, seggrp->group_leader_rank, mybase, mysegmentbase, mynmemb, elsize, NULL);
+        MPIU_Gather(seggrp->Group, seggrp->group_leader_rank, mybase, mysegmentbase, mynmemb, elsize);
     } else {
         mysegmentbase = mybase;
         myoutsegmentbase = myoutbase;
@@ -1174,7 +1145,7 @@ mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
     }
 
     if(groupsize > 1) {
-        MPIU_Scatter(seggrp->Group, seggrp->group_leader_rank, myoutsegmentbase, myoutbase, myoutnmemb, elsize, NULL);
+        MPIU_Scatter(seggrp->Group, seggrp->group_leader_rank, myoutsegmentbase, myoutbase, myoutnmemb, elsize);
     }
 
     if(grouprank == seggrp->group_leader_rank) {
