@@ -875,9 +875,6 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
         MPI_Allreduce(myCLE, CLE, o.NTask + 1,
                 MPI_TYPE_PTRDIFF, MPI_SUM, o.comm);
 
-        char bisectnum[20];
-        snprintf(bisectnum, 20, "bisect%04d", iter);
-
         pi.accept(P, C, CLT, CLE);
 #if 0
         {
