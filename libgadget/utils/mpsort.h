@@ -20,15 +20,10 @@
 #include "mymalloc.h"
 #include "endrun.h"
 
-typedef void (*_bisect_fn_t)(void * r, const void * r1, const void * r2);
-
 struct crstruct {
-    void * base;
-    size_t nmemb;
     size_t size;
     void * arg;
     void (*radix)(const void * ptr, void * radix, void * arg);
-    _bisect_fn_t bisect;
 };
 
 template <typename T>
@@ -61,66 +56,52 @@ int _compar_radix (const T& u1, const T& u2) {
 
 template <typename T>
 void _bisect_radix (T * u, const T * u1, const T * u2) {
-    *u = *u1 + ((*u2 - *u1) >> 1);
-}
-
-template <typename T>
-void _bisect_radix_u8(void * r, const void * r1, const void * r2) {
-    constexpr size_t rsize = sizeof(T);
-    const unsigned char * u1 = (const unsigned char *) r1;
-    const unsigned char * u2 = (const unsigned char *) r2;
-    unsigned char * u = (unsigned char *) r;
-    unsigned int carry = 0;
-    int dir;
-    if constexpr(std::endian::native == std::endian::little) {
-        dir = -1;
+    if constexpr(sizeof(T) <= 8) {
+        *u = *u1 + ((*u2 - *u1) >> 1);
     } else {
-        dir = 1;
-        u1 += rsize - 1;
-        u2 += rsize - 1;
-        u  += rsize - 1;
-    }
-    /* from most significant */
-    for(size_t i = 0; i < rsize; i ++) {
-        unsigned int tmp = (unsigned int) *u2 + *u1 + carry;
-        if(tmp >= 256) carry = 1;
-        else carry = 0;
-        *u = tmp % (UINT8_MAX+1);
-        u -= dir;
-        u1 -= dir;
-        u2 -= dir;
-    }
-    u += dir;
-    for(size_t i = 0; i < rsize; i ++) {
-        unsigned int tmp = *u + carry * 256;
-        carry = tmp & 1;
-        *u = (tmp >> 1) ;
-        u += dir;
+        constexpr size_t rsize = sizeof(T);
+        const unsigned char * cu1 = (const unsigned char *) u1;
+        const unsigned char * cu2 = (const unsigned char *) u2;
+        unsigned char * cu = (unsigned char *) u;
+        unsigned int carry = 0;
+        int dir;
+        if constexpr(std::endian::native == std::endian::little) {
+            dir = -1;
+        } else {
+            dir = 1;
+            cu1 += rsize - 1;
+            cu2 += rsize - 1;
+            cu  += rsize - 1;
+        }
+        /* from most significant */
+        for(size_t i = 0; i < rsize; i ++) {
+            unsigned int tmp = (unsigned int) *cu2 + *cu1 + carry;
+            if(tmp >= 256) carry = 1;
+            else carry = 0;
+            *cu = tmp % (UINT8_MAX+1);
+            cu -= dir;
+            cu1 -= dir;
+            cu2 -= dir;
+        }
+        cu += dir;
+        for(size_t i = 0; i < rsize; i ++) {
+            unsigned int tmp = *cu + carry * 256;
+            carry = tmp & 1;
+            *cu = (tmp >> 1) ;
+            cu += dir;
+        }
     }
 }
 
 template <size_t rsize>
 void _setup_radix_sort(
         struct crstruct *d,
-        void * base,
-        size_t nmemb,
         size_t size,
         void (*radix)(const void * ptr, void * radix, void * arg),
         void * arg) {
-    d->base = base;
-    d->nmemb = nmemb;
     d->arg = arg;
     d->radix = radix;
     d->size = size;
-    if constexpr(rsize == 2) {
-        d->bisect = (_bisect_fn_t) _bisect_radix<uint16_t>;
-    } else if constexpr(rsize == 4) {
-        d->bisect = (_bisect_fn_t) _bisect_radix<uint32_t>;
-    } else if constexpr(rsize == 8) {
-        d->bisect = (_bisect_fn_t) _bisect_radix<uint64_t>;
-    } else {
-        d->bisect = _bisect_radix_u8<std::array<char, rsize> >;
-    }
 }
 
 /****
@@ -355,7 +336,7 @@ struct piter {
                 stable[i] = 1;
             } else {
                 /* ordinary iteration */
-                d->bisect(&P[i],
+                _bisect_radix<T>(&P[i],
                         &Pleft[i],
                         &Pright[i]);
                 /* in case the bisect can't move P beyond left,
@@ -455,6 +436,8 @@ template <typename T>
 void
 _setup_mpsort_mpi(struct crmpistruct * o,
                   struct crstruct * d,
+                  void * base,
+                  size_t nmemb,
                   void * myoutbase, size_t myoutnmemb,
                   MPI_Comm comm)
 {
@@ -464,8 +447,8 @@ _setup_mpsort_mpi(struct crmpistruct * o,
     MPI_Comm_size(comm, &o->NTask);
     MPI_Comm_rank(comm, &o->ThisTask);
 
-    o->mybase = d->base;
-    o->mynmemb = d->nmemb;
+    o->mybase = base;
+    o->mynmemb = nmemb;
     o->myoutbase = myoutbase;
     o->myoutnmemb = myoutnmemb;
 
@@ -867,7 +850,7 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
     int i;
 
     /* and sort the local array */
-    radix_sort<T>(d.base, d.nmemb, d.size, d.radix, d.arg);
+    radix_sort<T>(o.mybase, o.mynmemb, d.size, d.radix, d.arg);
 
     MPI_Barrier(o.comm);
 
@@ -1191,9 +1174,9 @@ mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
         struct crstruct d;
         struct crmpistruct o;
 
-        _setup_radix_sort<sizeof(T)>(&d, mysegmentbase, mysegmentnmemb, elsize, radix, arg);
+        _setup_radix_sort<sizeof(T)>(&d, elsize, radix, arg);
 
-        _setup_mpsort_mpi<T>(&o, &d, myoutsegmentbase, myoutsegmentnmemb, seggrp->Leaders);
+        _setup_mpsort_mpi<T>(&o, &d, mysegmentbase, mysegmentnmemb, myoutsegmentbase, myoutsegmentnmemb, seggrp->Leaders);
 
         mpsort_mpi_histogram_sort<T>(d, o);
 
