@@ -5,11 +5,8 @@
 #include <mpi.h>
 #include <stdarg.h>
 
-/* Note on a 32-bit architecture MPI_LONG may be 32-bit,
- * so these should be MPI_LONG_LONG. But in
- * the future MPI_LONG_LONG may become 128-bit.*/
-#define MPI_UINT64 MPI_UNSIGNED_LONG
-#define MPI_INT64 MPI_LONG
+#define MPI_UINT64 MPI_UINT64_T
+#define MPI_INT64 MPI_INT64_T
 
 /* Check the version of OPENMP. We now require OpenMP 5.1 for GPU offloading.
  * At time of writing no version of gcc supports this!
