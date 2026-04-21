@@ -416,8 +416,6 @@ struct piter {
  *
  * */
 
-static MPI_Datatype MPI_TYPE_PTRDIFF = 0;
-
 struct crmpistruct {
     MPI_Datatype MPI_TYPE_RADIX;
     MPI_Datatype MPI_TYPE_DATA;
@@ -452,8 +450,8 @@ _setup_mpsort_mpi(struct crmpistruct * o,
     o->myoutbase = myoutbase;
     o->myoutnmemb = myoutnmemb;
 
-    MPI_Allreduce(&o->mynmemb, &o->nmemb, 1, MPI_TYPE_PTRDIFF, MPI_SUM, comm);
-    MPI_Allreduce(&o->myoutnmemb, &o->outnmemb, 1, MPI_TYPE_PTRDIFF, MPI_SUM, comm);
+    MPI_Allreduce(&o->mynmemb, &o->nmemb, 1, MPI_INT64_T, MPI_SUM, comm);
+    MPI_Allreduce(&o->myoutnmemb, &o->outnmemb, 1, MPI_INT64_T, MPI_SUM, comm);
 
     if(o->outnmemb != o->nmemb) {
         endrun(4, "total number of items in the item does not match the input %ld != %ld\n", o->outnmemb, o->nmemb);
@@ -707,10 +705,10 @@ void _find_Pmax_Pmin_C(void * mybase, size_t mynmemb,
         d->radix(mybase, &myPmin, d->arg);
     }
 
-    MPI_Allgather(&mynmemb, 1, MPI_TYPE_PTRDIFF,
-            eachnmemb, 1, MPI_TYPE_PTRDIFF, o->comm);
-    MPI_Allgather(&myoutnmemb, 1, MPI_TYPE_PTRDIFF,
-            eachoutnmemb, 1, MPI_TYPE_PTRDIFF, o->comm);
+    MPI_Allgather(&mynmemb, 1, MPI_INT64_T,
+            eachnmemb, 1, MPI_INT64_T, o->comm);
+    MPI_Allgather(&myoutnmemb, 1, MPI_INT64_T,
+            eachoutnmemb, 1, MPI_INT64_T, o->comm);
     MPI_Allgather(&myPmax, 1, o->MPI_TYPE_RADIX,
             eachPmax, 1, o->MPI_TYPE_RADIX, o->comm);
     MPI_Allgather(&myPmin, 1, o->MPI_TYPE_RADIX,
@@ -842,9 +840,9 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
         _histogram<T>(P, o.NTask - 1, o.mybase, o.mynmemb, myCLT, myCLE, &d);
 
         MPI_Allreduce(myCLT, CLT, o.NTask + 1,
-                MPI_TYPE_PTRDIFF, MPI_SUM, o.comm);
+                MPI_INT64_T, MPI_SUM, o.comm);
         MPI_Allreduce(myCLE, CLE, o.NTask + 1,
-                MPI_TYPE_PTRDIFF, MPI_SUM, o.comm);
+                MPI_INT64_T, MPI_SUM, o.comm);
 
         pi.accept(P, C, CLT, CLE);
 #if 0
@@ -897,16 +895,16 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
 
     /* transpose the matrix, could have been done with a new datatype */
     /*
-    MPI_Alltoall(myCLT, 1, MPI_TYPE_PTRDIFF,
-            myT_CLT, 1, MPI_TYPE_PTRDIFF, o.comm);
+    MPI_Alltoall(myCLT, 1, MPI_INT64_T,
+            myT_CLT, 1, MPI_INT64_T, o.comm);
     */
-    MPI_Alltoall(myCLT + 1, 1, MPI_TYPE_PTRDIFF,
-            myT_CLT, 1, MPI_TYPE_PTRDIFF, o.comm);
+    MPI_Alltoall(myCLT + 1, 1, MPI_INT64_T,
+            myT_CLT, 1, MPI_INT64_T, o.comm);
 
-    /*MPI_Alltoall(myCLE, 1, MPI_TYPE_PTRDIFF,
-            myT_CLE, 1, MPI_TYPE_PTRDIFF, o.comm); */
-    MPI_Alltoall(myCLE + 1, 1, MPI_TYPE_PTRDIFF,
-            myT_CLE, 1, MPI_TYPE_PTRDIFF, o.comm);
+    /*MPI_Alltoall(myCLE, 1, MPI_INT64_T,
+            myT_CLE, 1, MPI_INT64_T, o.comm); */
+    MPI_Alltoall(myCLE + 1, 1, MPI_INT64_T,
+            myT_CLE, 1, MPI_INT64_T, o.comm);
 
     _solve_for_layout_mpi(o.NTask, C, myT_CLT, myT_CLE, myT_C, o.comm);
 
@@ -914,8 +912,8 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
     myfree(myT_CLT);
 
     myC[0] = 0;
-    MPI_Alltoall(myT_C, 1, MPI_TYPE_PTRDIFF,
-            myC + 1, 1, MPI_TYPE_PTRDIFF, o.comm);
+    MPI_Alltoall(myT_C, 1, MPI_INT64_T,
+            myC + 1, 1, MPI_INT64_T, o.comm);
 
     myfree(myT_C);
 
@@ -1069,11 +1067,6 @@ mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
         const int line,
         const char * file)
 {
-    if(MPI_TYPE_PTRDIFF == 0) {
-        if(MPI_SUCCESS != MPI_Type_match_size(MPI_TYPECLASS_INTEGER, sizeof(ptrdiff_t), &MPI_TYPE_PTRDIFF))
-            endrun(3, "Ptrdiff size %ld not recognised\n", sizeof(ptrdiff_t));
-    }
-
     struct SegmentGroupDescr seggrp[1];
 
     uint64_t sum1 = checksum(mybase, elsize * mynmemb, comm);
@@ -1091,7 +1084,7 @@ mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
 
     size_t * sizes = ta_malloc("sizes", size_t, NTask);
     sizes[ThisTask] = mynmemb;
-    MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, sizes, 1, MPI_TYPE_PTRDIFF, comm);
+    MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, sizes, 1, MPI_INT64_T, comm);
 
     size_t avgsegsize = NTask; /* combine very small ranks to segments */
     if (avgsegsize * elsize > 4 * 1024 * 1024) {
@@ -1115,8 +1108,8 @@ mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
     MPI_Comm_size(seggrp->Group, &groupsize);
     MPI_Comm_rank(seggrp->Group, &grouprank);
 
-    MPI_Allreduce(&mynmemb, &mysegmentnmemb, 1, MPI_TYPE_PTRDIFF, MPI_SUM, seggrp->Group);
-    MPI_Allreduce(&myoutnmemb, &myoutsegmentnmemb, 1, MPI_TYPE_PTRDIFF, MPI_SUM, seggrp->Group);
+    MPI_Allreduce(&mynmemb, &mysegmentnmemb, 1, MPI_INT64_T, MPI_SUM, seggrp->Group);
+    MPI_Allreduce(&myoutnmemb, &myoutsegmentnmemb, 1, MPI_INT64_T, MPI_SUM, seggrp->Group);
 
     if (groupsize > 1) {
         if(grouprank == seggrp->group_leader_rank) {
