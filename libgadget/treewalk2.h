@@ -475,9 +475,6 @@ public:
     * This loop is used primarily in density estimation.*/
     void do_hsml_loop(int * queue, int64_t queuesize, const int update_hsml, particle_data * parts)
     {
-        double maxnumngb = 0;
-        double minnumngb = 1e60;
-
         /* Build the first queue */
         double tstart = second();
         int * ReDoQueue = NULL;
@@ -488,6 +485,9 @@ public:
         int Niteration = 0;
         /* we will repeat the whole thing for those particles where we didn't find enough neighbours */
         do {
+            double maxnumngb = 0;
+            double minnumngb = 1e60;
+
             int * CurQueue = ReDoQueue;
             /* ev_postprocess is not done in run_on_queue, instead, done in this loop*/
             run_on_queue(CurQueue, size, parts, MPI_COMM_WORLD, false);
@@ -535,7 +535,7 @@ public:
             double minngb, maxngb;
             MPI_Reduce(&maxnumngb, &maxngb, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
             MPI_Reduce(&minnumngb, &minngb, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
-            message(0, "Max ngb=%g, min ngb=%g\n", maxngb, minngb);
+            message(0, "Iter=%d Max ngb=%g, min ngb=%g\n", Niteration, maxngb, minngb);
     #ifdef DEBUG
             if(size < 10 && Niteration > 20 ) {
                 int pp = ReDoQueue[0];
