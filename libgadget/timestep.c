@@ -1305,42 +1305,62 @@ build_active_particles(ActiveParticles * act, const DriftKickTimes * const times
     act->MaxActiveParticle = PartManager->MaxPart;
 
     /*We know all particles are active on a PM timestep*/
-    act->ActiveParticle = (int *) mymanagedmalloc("ActiveParticle", PartManager->MaxPart * sizeof(int));
-    ActivePredicate pred{PartManager->Base, times->Ti_Current};
-    /* The GPU code equivalent uses a counting_iterator. There is an equivalent in boost::counting_iterator for the CPU, but
-     * it does not compile on nvc++, which does not accept it as an STL iterator. Therefore we just populate an index array.*/
-    int * indices = (int *) mymalloc("ActiveIndex", PartManager->NumPart * sizeof(int));
-    std::iota(indices, indices + PartManager->NumPart, 0);
-    auto end = std::copy_if(std::execution::par,
-        indices, indices + PartManager->NumPart, act->ActiveParticle, pred);
-    act->NumActiveParticle = end - act->ActiveParticle;
-    myfree(indices);
-    act->Particles = PartManager->Base;
-    /* Need to count the active list for this.*/
-    int64_t nactivegrav = 0;
-    int64_t nactivehydro = 0;
-    #pragma omp parallel for reduction(+: TimeBinCountType[: 6 * (TIMEBINS+1)]) reduction(+: nactivegrav), reduction(+: nactivehydro)
-    for(int i = 0; i < act->NumActiveParticle; i++)
-    {
-        const int pi = act->ActiveParticle[i];
-        /* This is here for the PM step where ActiveParticle is NULL*/
-        if(PartManager->Base[pi].IsGarbage || PartManager->Base[pi].Swallowed)
-            continue;
-        /* Account gas and BHs to their hydro bin and other particles to their gravity bin*/
-        int bin = PartManager->Base[pi].TimeBinGravity;
-        if(is_timebin_active(bin, times->Ti_Current)) {
-            nactivegrav++;
+    if(is_PM_timestep(times)) {
+        act->ActiveParticle = NULL;
+        act->NumActiveParticle = PartManager->NumPart;
+        act->NumActiveGravity = PartManager->NumPart;
+        act->Particles = PartManager->Base;
+        act->NumActiveHydro = SlotsManager->info[0].size + SlotsManager->info[5].size;
+        #pragma omp parallel for reduction(+: TimeBinCountType[: 6 * (TIMEBINS+1)])
+        for(int i = 0; i < PartManager->NumPart; i++)
+        {
+            if(PartManager->Base[i].IsGarbage || PartManager->Base[i].Swallowed)
+                continue;
+            const int type = PartManager->Base[i].Type;
+            /* Account gas and BHs to their hydro bin and other particles to their gravity bin*/
+            int bin = PartManager->Base[i].TimeBinGravity;
+            if(type == 0 || type == 5)
+                bin = PartManager->Base[i].TimeBinHydro;
+            TimeBinCountType[(TIMEBINS + 1) * type + bin] ++;
         }
-        const int type = PartManager->Base[pi].Type;
-        /* Any hydro particle on the active list is automatically hydro active*/
-        if(type == 0 || type == 5) {
-            bin = PartManager->Base[pi].TimeBinHydro;
-            nactivehydro ++;
-        }
-        TimeBinCountType[(TIMEBINS + 1) * type + bin] ++;
     }
-    act->NumActiveHydro = nactivehydro;
-    act->NumActiveGravity = nactivegrav;
+    else {
+        act->ActiveParticle = (int *) mymanagedmalloc("ActiveParticle", PartManager->MaxPart * sizeof(int));
+        ActivePredicate pred{PartManager->Base, times->Ti_Current};
+        /* The GPU code equivalent uses a counting_iterator. There is an equivalent in boost::counting_iterator for the CPU, but
+         * it does not compile on nvc++, which does not accept it as an STL iterator. Therefore we just populate an index array.*/
+        int * indices = (int *) mymalloc("ActiveIndex", PartManager->NumPart * sizeof(int));
+        std::iota(indices, indices + PartManager->NumPart, 0);
+        auto end = std::copy_if(std::execution::par,
+            indices, indices + PartManager->NumPart, act->ActiveParticle, pred);
+        act->NumActiveParticle = end - act->ActiveParticle;
+        myfree(indices);
+        act->Particles = PartManager->Base;
+        /* Need to count the active list for this.*/
+        int64_t nactivegrav = 0;
+        int64_t nactivehydro = 0;
+        #pragma omp parallel for reduction(+: TimeBinCountType[: 6 * (TIMEBINS+1)]) reduction(+: nactivegrav), reduction(+: nactivehydro)
+        for(int i = 0; i < act->NumActiveParticle; i++)
+        {
+            const int pi = act->ActiveParticle[i];
+            if(PartManager->Base[pi].IsGarbage || PartManager->Base[pi].Swallowed)
+                continue;
+            /* Account gas and BHs to their hydro bin and other particles to their gravity bin*/
+            int bin = PartManager->Base[pi].TimeBinGravity;
+            if(is_timebin_active(bin, times->Ti_Current)) {
+                nactivegrav++;
+            }
+            const int type = PartManager->Base[pi].Type;
+            /* Any hydro particle on the active list is automatically hydro active*/
+            if(type == 0 || type == 5) {
+                bin = PartManager->Base[pi].TimeBinHydro;
+                nactivehydro ++;
+            }
+            TimeBinCountType[(TIMEBINS + 1) * type + bin] ++;
+        }
+        act->NumActiveHydro = nactivehydro;
+        act->NumActiveGravity = nactivegrav;
+    }
 
     walltime_measure("/Timeline/Active");
 
@@ -1377,9 +1397,20 @@ build_active_sublist(const ActiveParticles * act, int maxtimebin, const inttime_
     sub_act->ActiveParticle = (int *) mymanagedmalloc("SubActiveParticle", act->NumActiveParticle * sizeof(int));
     //     message(0, "Building sublist containing particles up to bin %d\n", maxtimebin);
     const SubActivePredicate pred{act->Particles, Ti_Current, maxtimebin};
-    auto end = std::copy_if(std::execution::par, act->ActiveParticle,  act->ActiveParticle + act->NumActiveParticle,
-        sub_act->ActiveParticle, pred);
-    sub_act->NumActiveParticle = end - sub_act->ActiveParticle;
+    if(act->ActiveParticle) {
+        auto end = std::copy_if(std::execution::par, act->ActiveParticle, act->ActiveParticle + act->NumActiveParticle,
+            sub_act->ActiveParticle, pred);
+        sub_act->NumActiveParticle = end - sub_act->ActiveParticle;
+    }
+    else {
+        /* PM step: act->ActiveParticle is NULL and the active set is all particles 0..NumActiveParticle-1. */
+        int * indices = (int *) mymalloc("SubActiveIndex", act->NumActiveParticle * sizeof(int));
+        std::iota(indices, indices + act->NumActiveParticle, 0);
+        auto end = std::copy_if(std::execution::par,
+            indices, indices + act->NumActiveParticle, sub_act->ActiveParticle, pred);
+        sub_act->NumActiveParticle = end - sub_act->ActiveParticle;
+        myfree(indices);
+    }
     sub_act->NumActiveGravity = sub_act->NumActiveParticle;
     sub_act->MaxActiveParticle = sub_act->NumActiveParticle;
     sub_act->Particles = act->Particles;
