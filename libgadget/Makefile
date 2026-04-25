@@ -87,51 +87,51 @@ all: libgadget.a libgadget-utils.a
 
 .PHONY: all test run-tests
 
-.objs/utils/test_%: tests/test_%.c .objs/utils/%.o libgadget-utils.a
-	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
-
-.objs/test_%: tests/test_%.c .objs/%.o libgadget-utils.a
-	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
-
-#No .obj, header-only
-.objs/utils/test_mpsort: tests/test_mpsort.c libgadget-utils.a
-	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
-
-.objs/test_cosmology: tests/test_cosmology.c .objs/cosmology.o libgadget-utils.a
-	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
-
-.objs/test_densitykernel: tests/test_densitykernel.cpp densitykernel.hpp
+.objs/utils/test_%: tests/test_%.cpp .objs/utils/%.o libgadget-utils.a
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_timebinmgr: tests/test_timebinmgr.c .objs/timebinmgr.o .objs/cosmology.o .objs/omega_nu_single.o libgadget-utils.a
+.objs/test_%: tests/test_%.cpp .objs/%.o libgadget-utils.a
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+
+#No .obj, header-only
+.objs/utils/test_mpsort: tests/test_mpsort.cpp libgadget-utils.a
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+
+.objs/test_cosmology: tests/test_cosmology.cpp .objs/cosmology.o libgadget-utils.a
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+
+objs/test_densitykernel: tests/test_densitykernel.cpp densitykernel.hpp
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+
+.objs/test_timebinmgr: tests/test_timebinmgr.cpp .objs/timebinmgr.o .objs/cosmology.o .objs/omega_nu_single.o libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_neutrinos_lra: tests/test_neutrinos_lra.c .objs/neutrinos_lra.o .objs/cosmology.o .objs/omega_nu_single.o libgadget-utils.a
-	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+.objs/test_neutrinos_lra: tests/test_neutrinos_lra.cpp .objs/neutrinos_lra.o .objs/cosmology.o .objs/omega_nu_single.o libgadget-utils.a
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_cooling_rates: tests/test_cooling_rates.c .objs/cooling_rates.o .objs/cooling_uvfluc.o libgadget-utils.a
-	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+.objs/test_cooling_rates: tests/test_cooling_rates.cpp .objs/cooling_rates.o .objs/cooling_uvfluc.o libgadget-utils.a
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_exchange: tests/test_exchange.c .objs/exchange.o libgadget.a libgadget-utils.a
-	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+.objs/test_exchange: tests/test_exchange.cpp .objs/exchange.o libgadget.a libgadget-utils.a
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_density: tests/test_density.c .objs/density.o libgadget.a libgadget-utils.a
-	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+.objs/test_density: tests/test_density.cpp .objs/density.o libgadget.a libgadget-utils.a
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_metal_return: tests/test_metal_return.c .objs/metal_return.o libgadget.a libgadget-utils.a
-	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+.objs/test_metal_return: tests/test_metal_return.cpp .objs/metal_return.o libgadget.a libgadget-utils.a
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_cooling: tests/test_cooling.c .objs/cooling.o .objs/cooling_rates.o .objs/cooling_uvfluc.o libgadget-utils.a
-	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+.objs/test_cooling: tests/test_cooling.cpp .objs/cooling.o .objs/cooling_rates.o .objs/cooling_uvfluc.o libgadget-utils.a
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_gravity: tests/test_gravity.c libgadget.a libgadget-utils.a
-	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+.objs/test_gravity: tests/test_gravity.cpp libgadget.a libgadget-utils.a
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_fof: tests/test_fof.c libgadget.a libgadget-utils.a
-	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+.objs/test_fof: tests/test_fof.cpp libgadget.a libgadget-utils.a
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_forcetree: tests/test_forcetree.c libgadget.a libgadget-utils.a
-	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+.objs/test_forcetree: tests/test_forcetree.cpp libgadget.a libgadget-utils.a
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 build-tests: $(TESTBIN)
 

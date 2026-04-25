@@ -22,7 +22,7 @@ OBJS := $(OBJS:%.o=.objs/%.o)
 
 all : libgenic.a
 
-.objs/test_%: tests/test_%.c .objs/%.o ../libgadget/libgadget.a ../libgadget/libgadget-utils.a
+.objs/test_%: tests/test_%.cpp .objs/%.o ../libgadget/libgadget.a ../libgadget/libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 build-tests: $(TESTBIN)
