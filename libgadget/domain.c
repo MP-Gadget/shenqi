@@ -22,7 +22,6 @@
 #include "utils/mpsort.h"
 #include "utils/system.h"
 #include "utils/mymalloc.h"
-#include "utils/openmpsort.h"
 #include "utils/endrun.h"
 
 #define TAG_GRAV_A        18

@@ -22,6 +22,15 @@ struct BaseGroup {
     /* Note: this is in the translated frame,
      * subtract CurrentParticleOffset to get the physical frame.*/
     float FirstPos[3];
+
+    const BaseGroup * get_base() const {
+        return this;
+    };
+
+    void reduce(const BaseGroup& gsrc) {
+        Length += gsrc.Length;
+        /* preserve the dst FirstPos so all other base group gets the same FirstPos */
+    }
 };
 
 struct Group
@@ -57,6 +66,46 @@ struct Group
 
     int seed_index;
     int seed_task;
+
+    const BaseGroup * get_base() const{
+        return &base;
+    };
+
+    void reduce(const Group& gsrc) {
+        Length += gsrc.Length;
+        Mass += gsrc.Mass;
+
+        for(int j = 0; j < 6; j++) {
+            LenType[j] += gsrc.LenType[j];
+            MassType[j] += gsrc.MassType[j];
+        }
+
+        Sfr += gsrc.Sfr;
+        GasMetalMass += gsrc.GasMetalMass;
+        StellarMetalMass += gsrc.StellarMetalMass;
+        MassHeIonized += gsrc.MassHeIonized;
+        for(int j = 0; j < NMETALS; j++) {
+            GasMetalElemMass[j] += gsrc.GasMetalElemMass[j];
+            StellarMetalElemMass[j] += gsrc.StellarMetalElemMass[j];
+        }
+        BH_Mdot += gsrc.BH_Mdot;
+        BH_Mass += gsrc.BH_Mass;
+        if(gsrc.MaxDens > MaxDens)
+        {
+            MaxDens = gsrc.MaxDens;
+            seed_index = gsrc.seed_index;
+            seed_task = gsrc.seed_task;
+        }
+
+        for(int d1 = 0; d1 < 3; d1++) {
+            CM[d1] += gsrc.CM[d1];
+            Vel[d1] += gsrc.Vel[d1];
+            Jmom[d1] += gsrc.Jmom[d1];
+            for(int d2 = 0; d2 < 3; d2 ++) {
+                Imom[d1][d2] += gsrc.Imom[d1][d2];
+            }
+        }
+    }
 };
 
 /* Structure to hold all allocated FOF groups*/

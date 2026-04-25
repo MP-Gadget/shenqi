@@ -14,7 +14,6 @@
 #include "utils/memory.h"
 #include "utils/mymalloc.h"
 #include "utils/paramset.h"
-#include "utils/openmpsort.h"
 #include "utils/system.h"
 #include "utils/string.h"
 #include "utils/endrun.h"

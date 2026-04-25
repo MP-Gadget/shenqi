@@ -3,13 +3,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <string.h>
-
+#include <execution>
+#include <algorithm>
 #include <bigfile-mpi.h>
 
 #include "utils/endrun.h"
 #include "utils/mpsort.h"
 #include "utils/mymalloc.h"
-#include "utils/openmpsort.h"
 
 #include "partmanager.h"
 #include "slotsmanager.h"
@@ -197,24 +197,6 @@ static int fof_cmp_origin(const void * c1, const void * c2) {
 }
 #endif
 
-static int
-order_by_type_and_grnr(const void *a, const void *b)
-{
-    const struct particle_data * pa  = (const struct particle_data *) a;
-    const struct particle_data * pb  = (const struct particle_data *) b;
-
-    if(pa->Type < pb->Type)
-        return -1;
-    if(pa->Type > pb->Type)
-        return +1;
-    if(pa->GrNr < pb->GrNr)
-        return -1;
-    if(pa->GrNr > pb->GrNr)
-        return +1;
-
-    return 0;
-}
-
 /* Build the target task structure by doing a double parallel sort */
 static void
 fof_find_target_task(struct PartIndex * pi, int64_t pi_size, const uint64_t task_origin_offset, MPI_Comm Comm)
@@ -384,7 +366,16 @@ fof_distribute_particles(struct part_manager_type * halo_pman, struct slots_mana
     }
 
     /* Sort locally by group number*/
-    qsort_openmp(halo_pman->Base, halo_pman->NumPart, sizeof(struct particle_data), order_by_type_and_grnr);
+    std::sort(std::execution::par_unseq, halo_pman->Base, halo_pman->Base + halo_pman->NumPart, [](const particle_data& pa, const particle_data& pb) {
+            if(pa.Type < pb.Type)
+                return true;
+            if(pa.Type > pb.Type)
+                return false;
+            if(pa.GrNr < pb.GrNr)
+                return true;
+            return false;
+    });
+
 #ifdef DEBUG
     GrNrMax = -1;
     int64_t GrNrMaxGlobalAfter = -1;

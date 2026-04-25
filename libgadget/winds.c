@@ -3,6 +3,8 @@
 #include <math.h>
 #include <string.h>
 #include <omp.h>
+#include <execution>
+#include <algorithm>
 #include "winds.h"
 #include "physconst.h"
 #include "treewalk.h"
@@ -11,8 +13,6 @@
 #include "walltime.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
-#include "utils/openmpsort.h"
-
 
 /*Parameters of the wind model*/
 static struct WindParams
@@ -185,6 +185,25 @@ struct StarKick
     double StarKickVelocity;
     /* Thermal energy included in the kick*/
     double StarTherm;
+
+    /* Comparison function to sort the StarKicks by particle id, distance and star ID.
+     * The closest star is used. */
+    bool operator < (const StarKick& starb) const
+    {
+        if(part_index > starb.part_index)
+            return false;
+        if(part_index < starb.part_index)
+            return true;
+        if(StarDistance > starb.StarDistance)
+            return false;
+        if(StarDistance < starb.StarDistance)
+            return true;
+        if(StarID > starb.StarID)
+            return false;
+        if(StarID < starb.StarID)
+            return true;
+        return false;
+    }
 };
 
 struct WindPriv {
@@ -199,27 +218,6 @@ struct WindPriv {
     int tree_alloc_in_wind;
     RandTable * rnd;
 };
-
-/* Comparison function to sort the StarKicks by particle id, distance and star ID.
- * The closest star is used. */
-int cmp_by_part_id(const void * a, const void * b)
-{
-    const struct StarKick * stara = (const struct StarKick * ) a;
-    const struct StarKick * starb = (const struct StarKick *) b;
-    if(stara->part_index > starb->part_index)
-        return 1;
-    if(stara->part_index < starb->part_index)
-        return -1;
-    if(stara->StarDistance > starb->StarDistance)
-        return 1;
-    if(stara->StarDistance < starb->StarDistance)
-        return -1;
-    if(stara->StarID > starb->StarID)
-        return 1;
-    if(stara->StarID < starb->StarID)
-        return -1;
-    return 0;
-}
 
 #define WIND_GET_PRIV(tw) ((struct WindPriv *) (tw->priv))
 #define WINDP(i, wind) wind[Part[i].PI]
@@ -333,7 +331,7 @@ winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time,
     treewalk_run(tw, NewStars, NumNewStars);
 
     /* Sort the possible kicks*/
-    qsort_openmp(priv->kicks, priv->nkicks, sizeof(struct StarKick), cmp_by_part_id);
+    std::sort(std::execution::par_unseq, priv->kicks, priv->kicks + priv->nkicks);
     /* Not parallel as the number of kicked particles should be pretty small*/
     int64_t last_part = -1;
     int64_t nkicked = 0;

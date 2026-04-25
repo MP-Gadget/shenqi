@@ -6,7 +6,7 @@ CONFIG ?= ../Options.mk
 
 include $(CONFIG)
 
-UTILS_TESTED = peano memory #openmpsort interp
+UTILS_TESTED = peano memory #interp
 UTILS_MPI_TESTED = mpsort
 
 TESTED = cooling \
@@ -73,11 +73,9 @@ utils/endrun.o \
 utils/peano.o \
 utils/interp.o \
 utils/memory.o \
-utils/mpsort.o \
 utils/mymalloc.o \
 utils/system.o \
 utils/paramset.o \
-utils/openmpsort.o \
 utils/unitsystem.o \
 utils/string.o \
 utils/spinlocks.o
@@ -93,6 +91,10 @@ all: libgadget.a libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_%: tests/test_%.c .objs/%.o libgadget-utils.a
+	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+
+#No .obj, header-only
+.objs/utils/test_mpsort: tests/test_mpsort.c libgadget-utils.a
 	$(MPICC) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_cosmology: tests/test_cosmology.c .objs/cosmology.o libgadget-utils.a

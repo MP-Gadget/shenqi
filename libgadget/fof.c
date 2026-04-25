@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <inttypes.h>
+#include <execution>
 #include <omp.h>
 
 #include "utils/endrun.h"
@@ -22,7 +23,6 @@
 #include "partmanager.h"
 #include "densitykernel.h"
 #include "utils/mymalloc.h"
-#include "utils/openmpsort.h"
 #include "utils/spinlocks.h"
 #include "utils/string.h"
 
@@ -99,19 +99,19 @@ struct fof_particle_list
     MyIDType MinID;
     int MinIDTask;
     int Pindex;
+
+    /* Order by minID */
+    bool operator< (const struct fof_particle_list& p2) const
+    {
+        if(MinID < p2.MinID)
+            return true;
+        return false;
+    }
 };
 
 static void fof_label_secondary(struct fof_particle_list * HaloLabel, ForceTree * tree);
-static int fof_compare_HaloLabel_MinID(const void *a, const void *b);
-static int _fof_compare_Group_MinIDTask_ThisTask;
-static int fof_compare_Group_MinIDTask(const void *a, const void *b);
-static int fof_compare_Group_OriginalIndex(const void *a, const void *b);
-static int fof_compare_Group_MinID(const void *a, const void *b);
-static void fof_reduce_groups(
-    void * groups,
-    int nmemb,
-    size_t elsize,
-    void (*reduce_group)(void * gdst, void * gsrc), MPI_Comm Comm);
+template <typename GroupType> void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm);
+
 
 static void fof_finish_group_properties(FOFGroups * fof, double BoxSize);
 
@@ -190,12 +190,13 @@ fof_fof(DomainDecomp * ddecomp, const int StoreGrNr, MPI_Comm Comm)
     walltime_measure("/FOF/Secondary");
 
     /* sort HaloLabel according to MinID, because we need that for compiling catalogues */
-    qsort_openmp(HaloLabel, PartManager->NumPart, sizeof(struct fof_particle_list), fof_compare_HaloLabel_MinID);
+    std::sort(std::execution::par_unseq, HaloLabel, HaloLabel+PartManager->NumPart);
 
-    int NgroupsExt = 0;
+    int NgroupsExt = 1;
 
-    for(i = 0; i < PartManager->NumPart; i ++) {
-        if(i == 0 || HaloLabel[i].MinID != HaloLabel[i - 1].MinID) NgroupsExt ++;
+    for(i = 1; i < PartManager->NumPart; i ++) {
+        if(HaloLabel[i].MinID != HaloLabel[i - 1].MinID)
+            NgroupsExt ++;
     }
 
     /* The first round is to eliminate groups that are too short. */
@@ -578,56 +579,6 @@ fof_primary_ngbiter(TreeWalkQueryFOF * I,
     }
 }
 
-static void fof_reduce_base_group(void * pdst, void * psrc) {
-    struct BaseGroup * gdst = (struct BaseGroup *) pdst;
-    struct BaseGroup * gsrc = (struct BaseGroup *) psrc;
-    gdst->Length += gsrc->Length;
-    /* preserve the dst FirstPos so all other base group gets the same FirstPos */
-}
-
-static void fof_reduce_group(void * pdst, void * psrc) {
-    struct Group * gdst = (struct Group *) pdst;
-    struct Group * gsrc = (struct Group *) psrc;
-    int j;
-    gdst->Length += gsrc->Length;
-    gdst->Mass += gsrc->Mass;
-
-    for(j = 0; j < 6; j++)
-    {
-        gdst->LenType[j] += gsrc->LenType[j];
-        gdst->MassType[j] += gsrc->MassType[j];
-    }
-
-    gdst->Sfr += gsrc->Sfr;
-    gdst->GasMetalMass += gsrc->GasMetalMass;
-    gdst->StellarMetalMass += gsrc->StellarMetalMass;
-    gdst->MassHeIonized += gsrc->MassHeIonized;
-    for(j = 0; j < NMETALS; j++) {
-        gdst->GasMetalElemMass[j] += gsrc->GasMetalElemMass[j];
-        gdst->StellarMetalElemMass[j] += gsrc->StellarMetalElemMass[j];
-    }
-    gdst->BH_Mdot += gsrc->BH_Mdot;
-    gdst->BH_Mass += gsrc->BH_Mass;
-    if(gsrc->MaxDens > gdst->MaxDens)
-    {
-        gdst->MaxDens = gsrc->MaxDens;
-        gdst->seed_index = gsrc->seed_index;
-        gdst->seed_task = gsrc->seed_task;
-    }
-
-    int d1, d2;
-    for(d1 = 0; d1 < 3; d1++)
-    {
-        gdst->CM[d1] += gsrc->CM[d1];
-        gdst->Vel[d1] += gsrc->Vel[d1];
-        gdst->Jmom[d1] += gsrc->Jmom[d1];
-        for(d2 = 0; d2 < 3; d2 ++) {
-            gdst->Imom[d1][d2] += gsrc->Imom[d1][d2];
-        }
-    }
-
-}
-
 static void add_particle_to_group(struct Group * gdst, int i, int ThisTask) {
 
     /* My local number of particles contributing to the full catalogue. */
@@ -795,7 +746,7 @@ fof_compile_base(struct BaseGroup * base, int NgroupsExt, struct fof_particle_li
     }
 
     /* update global attributes */
-    fof_reduce_groups(base, NgroupsExt, sizeof(base[0]), fof_reduce_base_group, Comm);
+    fof_reduce_groups<BaseGroup>(base, NgroupsExt, Comm);
 
     /* eliminate all groups that are too small */
     for(i = 0; i < NgroupsExt; i++)
@@ -894,7 +845,7 @@ fof_compile_catalogue(struct FOFGroups * fof, const int NgroupsExt, struct fof_p
     }
 
     /* collect global properties */
-    fof_reduce_groups(fof->Group, NgroupsExt, sizeof(fof->Group[0]), fof_reduce_group, Comm);
+    fof_reduce_groups<Group>(fof->Group, NgroupsExt, Comm);
 
     /* count Groups and number of particles hosted by me */
     fof->Ngroups = 0;
@@ -946,14 +897,9 @@ fof_compile_catalogue(struct FOFGroups * fof, const int NgroupsExt, struct fof_p
     }
 }
 
-
-static void fof_reduce_groups(
-    void * groups,
-    int nmemb,
-    size_t elsize,
-    void (*reduce_group)(void * gdst, void * gsrc), MPI_Comm Comm)
+template <typename GroupType>
+void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
 {
-
     int NTask, ThisTask;
     MPI_Comm_size(Comm, &NTask);
     MPI_Comm_rank(Comm, &ThisTask);
@@ -965,32 +911,31 @@ static void fof_reduce_groups(
      *           images are reduced to prime, then the prime attributes
      *           are copied to images, and sent back to the ghosts.
      *
-     *   in the begining, prime and ghosts contains local group attributes.
+     *   in the beginning, prime and ghosts contains local group attributes.
      *   in the end, prime and ghosts all contain full group attributes.
      **/
     int * Send_count = ta_malloc("Send_count", int, NTask);
     int * Recv_count = ta_malloc("Recv_count", int, NTask);
 
-    void * images = NULL;
-    void * ghosts = NULL;
-    int i;
-    int start;
-
     MPI_Datatype dtype;
 
-    MPI_Type_contiguous(elsize, MPI_BYTE, &dtype);
+    MPI_Type_contiguous(sizeof(GroupType), MPI_BYTE, &dtype);
     MPI_Type_commit(&dtype);
 
-    /*Set global data for the comparison*/
-    _fof_compare_Group_MinIDTask_ThisTask = ThisTask;
     /* local groups will be moved to the beginning, we skip them with offset */
-    qsort_openmp(groups, nmemb, elsize, fof_compare_Group_MinIDTask);
+    std::sort(std::execution::par_unseq, groups, groups + nmemb, [ThisTask](const GroupType& a, const GroupType& b) {
+        int t1 = a.get_base()->MinIDTask;
+        int t2 = b.get_base()->MinIDTask;
+        if(t1 == ThisTask) t1 = -1;
+        if(t2 == ThisTask) t2 = -1;
+        return t1 < t2;
+    });
     /* count how many we have of each task */
     memset(Send_count, 0, sizeof(int) * NTask);
 
-    for(i = 0; i < nmemb; i++) {
-        struct BaseGroup * gi = (struct BaseGroup *) (((char*) groups) + i * elsize);
-        Send_count[gi->MinIDTask]++;
+    for(int i = 0; i < nmemb; i++) {
+        const BaseGroup * base = groups[i].get_base();
+        Send_count[base->MinIDTask]++;
     }
 
     /* Skip local groups */
@@ -1000,86 +945,76 @@ static void fof_reduce_groups(
     MPI_Alltoall(Send_count, 1, MPI_INT, Recv_count, 1, MPI_INT, Comm);
 
     int nimport = 0;
-    for(i = 0; i < NTask; i ++) {
+    for(int i = 0; i < NTask; i ++) {
         nimport += Recv_count[i];
     }
 
-    images = mymalloc("images", nimport * elsize);
-    ghosts = ((char*) groups) + elsize * Nmine;
+    GroupType * images = (GroupType *) mymalloc("images", nimport * sizeof(GroupType));
 
-    MPI_Alltoallv_smart(ghosts, Send_count, NULL, dtype,
+    /* Fill out local copies of the groups from other ranks*/
+    MPI_Alltoallv_smart(groups + Nmine, Send_count, NULL, dtype,
                         images, Recv_count, NULL, dtype, Comm);
 
-    for(i = 0; i < nimport; i++) {
-        struct BaseGroup * gi = (struct BaseGroup*) ((char*) images + i * elsize);
-        gi->OriginalIndex = i;
+    for(int i = 0; i < nimport; i++) {
+        reinterpret_cast<BaseGroup *>(&images[i])->OriginalIndex = i;
     }
 
-    /* sort the groups according to MinID */
-    qsort_openmp(groups, Nmine, elsize, fof_compare_Group_MinID);
-    qsort_openmp(images, nimport, elsize, fof_compare_Group_MinID);
+    /* sort the images according to MinID so equal_range can search them */
+    std::sort(std::execution::par_unseq, groups, groups + Nmine, [](const GroupType& a, const GroupType& b) {
+        return a.get_base()->MinID < b.get_base()->MinID;
+    });
+    std::sort(std::execution::par_unseq, images, images + nimport, [](const GroupType& a, const GroupType& b) {
+        return a.get_base()->MinID < b.get_base()->MinID;
+    });
 
     /* merge the imported ones with the local ones */
-    start = 0;
-    for(i = 0; i < Nmine; i++) {
+    int start = 0;
+    for(int i = 0; i < Nmine; i++) {
+        const BaseGroup * prime = groups[i].get_base();
         for(;start < nimport; start++) {
-            struct BaseGroup * prime = (struct BaseGroup*) ((char*) groups + i * elsize);
-            struct BaseGroup * image = (struct BaseGroup*) ((char*) images + start  * elsize);
-            if(image->MinID >= prime->MinID) {
+            const BaseGroup * image = images[start].get_base();
+            if(image->MinID >= prime->MinID)
                 break;
-            }
         }
+        int imagebegin = start;
         for(;start < nimport; start++) {
-            struct BaseGroup * prime = (struct BaseGroup*) ((char*) groups + i * elsize);
-            struct BaseGroup * image = (struct BaseGroup*) ((char*) images + start * elsize);
-            if(image->MinID != prime->MinID) {
+            const BaseGroup * image = images[start].get_base();
+            if(image->MinID != prime->MinID)
                 break;
-            }
-            reduce_group(prime, image);
+            /* Note the type here should be GroupType*/
+            groups[i].reduce(images[start]);
         }
-    }
-
-    /* update the images, such that they can be send back to the ghosts */
-    start = 0;
-    for(i = 0; i < Nmine; i++)
-    {
-        for(;start < nimport; start++) {
-            struct BaseGroup * prime = (struct BaseGroup*) ((char*) groups + i * elsize);
-            struct BaseGroup * image = (struct BaseGroup*) ((char*) images + start * elsize);
-            if(image->MinID >= prime->MinID) {
-                break;
-            }
-        }
-        for(;start < nimport; start++) {
-            struct BaseGroup * prime = (struct BaseGroup*) ((char*) groups + i * elsize);
-            struct BaseGroup * image = (struct BaseGroup*) ((char*) images + start * elsize);
-            if(image->MinID != prime->MinID) {
-                break;
-            }
+        int imageend = start;
+        /* update the images, such that they can be send back to the original task*/
+        for(start = imagebegin; start < imageend; start++) {
+            const BaseGroup * image = images[start].get_base();
             int save = image->OriginalIndex;
-            memcpy(image, prime, elsize);
-            image->OriginalIndex = save;
+            memcpy(&images[start], &groups[i], sizeof(GroupType));
+            reinterpret_cast<BaseGroup *>(&images[start])->OriginalIndex = save;
         }
     }
 
     /* reset the ordering of imported list, such that it can be properly returned */
-    qsort_openmp(images, nimport, elsize, fof_compare_Group_OriginalIndex);
+    std::sort(std::execution::par_unseq, images, images + nimport, [](const GroupType& a, const GroupType& b) {
+        return a.get_base()->OriginalIndex < b.get_base()->OriginalIndex;
+    });
+
 #ifdef DEBUG
-    for(i = 0; i < nimport; i++) {
-        struct BaseGroup * gi = (struct BaseGroup*) ((char*) images + i * elsize);
+    for(int i = 0; i < nimport; i++) {
+        const BaseGroup * gi = images[i].get_base();
         if(gi->MinIDTask != ThisTask) {
             endrun(5, "Error in basegroup import: minidtask %d != ThisTask %d\n", gi->MinIDTask, ThisTask);
         }
     }
-#endif
-    void * ghosts2 = mymalloc("TMP", nmemb * elsize);
+    GroupType * ghosts2 = (GroupType *) mymalloc("TMP", nmemb * sizeof(GroupType));
 
+    /* Debug code does an intermediate copy so we can check consistency. Non DEBUG mode likes to live dangerously*/
     MPI_Alltoallv_smart(images, Recv_count, NULL, dtype,
                         ghosts2, Send_count, NULL, dtype,
                         Comm);
-    for(i = 0; i < nmemb - Nmine; i ++) {
-        struct BaseGroup * g1 = (struct BaseGroup*) ((char*) ghosts + i * elsize);
-        struct BaseGroup * g2 = (struct BaseGroup*) ((char*) ghosts2 + i* elsize);
+    for(int i = 0; i < nmemb - Nmine; i ++) {
+        const BaseGroup * g1 = groups[i+ Nmine].get_base();
+        const BaseGroup * g2 = ghosts2[i].get_base();
         if(g1->MinID != g2->MinID) {
             endrun(2, "g1 minID %lu, g2 minID %lu\n", g1->MinID, g2->MinID);
         }
@@ -1087,8 +1022,13 @@ static void fof_reduce_groups(
             endrun(2, "g1 minIDTask %d, g2 minIDTask %d\n", g1->MinIDTask, g2->MinIDTask);
         }
     }
-    memcpy(ghosts, ghosts2, elsize * (nmemb - Nmine));
+    memcpy(groups + Nmine, ghosts2, sizeof(GroupType) * (nmemb - Nmine));
     myfree(ghosts2);
+#else
+    MPI_Alltoallv_smart(images, Recv_count, NULL, dtype,
+                        groups + Nmine, Send_count, NULL, dtype,
+                        Comm);
+#endif
 
     myfree(images);
 
@@ -1326,12 +1266,6 @@ static void fof_label_secondary(struct fof_particle_list * HaloLabel, ForceTree 
  * will be converted to a seed.
  *
  * */
-static int cmp_seed_task(const void * c1, const void * c2) {
-    const struct Group * g1 = (const struct Group *) c1;
-    const struct Group * g2 = (const struct Group *) c2;
-
-    return g1->seed_task - g2->seed_task;
-}
 
 static void fof_seed_make_one(struct Group * g, int ThisTask, const double atime, const RandTable * const rnd) {
    if(g->seed_task != ThisTask) {
@@ -1373,7 +1307,9 @@ void fof_seed(FOFGroups * fof, ActiveParticles * act, double atime, const RandTa
     }
     myfree(Marked);
 
-    qsort_openmp(ExportGroups, Nexport, sizeof(ExportGroups[0]), cmp_seed_task);
+    std::sort(std::execution::par_unseq, ExportGroups, ExportGroups + Nexport, [](const Group& a, const Group& b) {
+        return a.seed_task < b.seed_task;
+    });
 
     int * Send_count = ta_malloc("Send_count", int, NTask);
     int * Recv_count = ta_malloc("Recv_count", int, NTask);
@@ -1448,49 +1384,6 @@ void fof_seed(FOFGroups * fof, ActiveParticles * act, double atime, const RandTa
     walltime_measure("/FOF/Seeding");
 }
 
-static int fof_compare_HaloLabel_MinID(const void *a, const void *b)
-{
-    if(((struct fof_particle_list *) a)->MinID < ((struct fof_particle_list *) b)->MinID)
-        return -1;
-
-    if(((struct fof_particle_list *) a)->MinID > ((struct fof_particle_list *) b)->MinID)
-        return +1;
-
-    return 0;
-}
-
-static int fof_compare_Group_MinID(const void *a, const void *b)
-
-{
-    if(((struct BaseGroup *) a)->MinID < ((struct BaseGroup *) b)->MinID)
-        return -1;
-
-    if(((struct BaseGroup *) a)->MinID > ((struct BaseGroup *) b)->MinID)
-        return +1;
-
-    return 0;
-}
-
-static int fof_compare_Group_MinIDTask(const void *a, const void *b)
-{
-    const struct BaseGroup * p1 = (const struct BaseGroup *) a;
-    const struct BaseGroup * p2 = (const struct BaseGroup *) b;
-    int t1 = p1->MinIDTask;
-    int t2 = p2->MinIDTask;
-    if(t1 == _fof_compare_Group_MinIDTask_ThisTask) t1 = -1;
-    if(t2 == _fof_compare_Group_MinIDTask_ThisTask) t2 = -1;
-
-    if(t1 < t2) return -1;
-    if(t1 > t2) return +1;
-    return 0;
-
-}
-
-static int fof_compare_Group_OriginalIndex(const void *a, const void *b)
-
-{
-    return ((struct BaseGroup *) a)->OriginalIndex - ((struct BaseGroup *) b)->OriginalIndex;
-}
 
 static void fof_radix_Group_TotalCountTaskDiffMinID(const void * a, void * radix, void * arg) {
     uint64_t * u = (uint64_t *) radix;
