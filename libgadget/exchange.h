@@ -4,8 +4,6 @@
 #include "partmanager.h"
 #include "slotsmanager.h"
 
-typedef int (*ExchangeLayoutFunc) (int p, const void * userdata);
-
 typedef struct PreExchangeList{
     /*List of particles to exchange*/
     int * ExchangeList;
@@ -15,7 +13,9 @@ typedef struct PreExchangeList{
     int64_t ngarbage;
 } PreExchangeList;
 
-int domain_exchange(ExchangeLayoutFunc, const void * layout_userdata, PreExchangeList * preexch, struct part_manager_type * pman, struct slots_manager_type * sman, int maxiter, MPI_Comm Comm);
+template <typename ExchangePlan>
+int domain_exchange(PreExchangeList * preexch, struct part_manager_type * pman, struct slots_manager_type * sman, int maxiter, MPI_Comm Comm);
+
 void domain_test_id_uniqueness(struct part_manager_type * pman);
 
 #endif
