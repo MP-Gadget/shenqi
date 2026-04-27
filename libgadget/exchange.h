@@ -1,8 +1,17 @@
 #ifndef __EXCHANGE_H
 #define __EXCHANGE_H
 
+#include <algorithm>
+#include <execution>
+#include <mpi.h>
+
 #include "partmanager.h"
 #include "slotsmanager.h"
+#include "walltime.h"
+
+#include "utils/endrun.h"
+#include "utils/mymalloc.h"
+#include "utils/system.h"
 
 typedef struct PreExchangeList{
     /*List of particles to exchange*/
@@ -13,6 +22,19 @@ typedef struct PreExchangeList{
     int64_t ngarbage;
 } PreExchangeList;
 
+/*Number of structure types for particles*/
+typedef struct {
+    int64_t base;
+    int64_t slots[6];
+} ExchangePlanEntry;
+
+/*Small struct to cache the layout function and particle data*/
+typedef struct {
+    unsigned int ptype;
+    unsigned int target;
+} ExchangePartCache;
+
+template <typename DerivedPlan>
 class ExchangePlan{
 public:
     ExchangePlanEntry * toGo;
@@ -30,8 +52,11 @@ public:
      * Exchange stops when last == nexchange.*/
     size_t last;
     ExchangePartCache * layouts;
+    MPI_Datatype MPI_TYPE_PLAN_ENTRY;
+    MPI_Datatype MPI_TYPE_PARTICLE;
+    MPI_Datatype MPI_TYPE_SLOT[6];
 
-    ExchangePlan(MPI_Comm Comm)
+    ExchangePlan(MPI_Comm Comm) : ExchangeList(NULL), nexchange(0)
     {
         MPI_Comm_size(Comm, &NTask);
         /*! toGo[0][task*NTask + partner] gives the number of particles in task 'task'
@@ -42,26 +67,105 @@ public:
         toGoOffset = ta_malloc("toGoOffSet", ExchangePlanEntry, NTask);
         toGet = ta_malloc("toGet", ExchangePlanEntry, NTask);
         toGetOffset = ta_malloc("toGetOffset", ExchangePlanEntry, NTask);
+        /* register the MPI types used in communication. */
+        MPI_Type_contiguous(sizeof(ExchangePlanEntry), MPI_BYTE, &MPI_TYPE_PLAN_ENTRY);
+        MPI_Type_commit(&MPI_TYPE_PLAN_ENTRY);
+        MPI_Type_contiguous(sizeof(struct particle_data), MPI_BYTE, &MPI_TYPE_PARTICLE);
+        MPI_Type_commit(&MPI_TYPE_PARTICLE);
     }
 
     ~ExchangePlan()
     {
+        MPI_Type_free(&MPI_TYPE_PLAN_ENTRY);
+        MPI_Type_free(&MPI_TYPE_PARTICLE);
         myfree(toGetOffset);
         myfree(toGet);
         myfree(toGoOffset);
         myfree(toGo);
     }
 
-    int layoutfunc(struct particle_data& pp)
+    int layoutfunc(const particle_data& pp) const
     {
         return 0;
     }
 
+    /*Plan and execute a domain exchange, also performing a garbage collection if requested*/
+    int
+    domain_exchange(PreExchangeList * preexch, struct part_manager_type * pman, struct slots_manager_type * sman, int maxiter, MPI_Comm Comm) {
+        int failure = 0;
+        for(int ptype = 0; ptype < 6; ptype++) {
+            if(!sman->info[ptype].enabled)
+                continue;
+            MPI_Type_contiguous(sman->info[ptype].elsize, MPI_BYTE, &MPI_TYPE_SLOT[ptype]);
+            MPI_Type_commit(&MPI_TYPE_SLOT[ptype]);
+        }
+
+        /* Use the pre-exchange list if we can*/
+        if(preexch && preexch->ExchangeList) {
+            nexchange = preexch->nexchange;
+            ExchangeList = preexch->ExchangeList;
+        }
+
+        int iter = 0;
+
+        do {
+            if(iter >= maxiter) {
+                failure = 1;
+                break;
+            }
+
+            if(!ExchangeList) {
+                nexchange = build_exchange_list(pman, sman, Comm);
+            }
+            walltime_measure("/Domain/exchange/togo");
+
+            /*Exit early if nothing to do*/
+            if(!MPIU_Any(nexchange > 0, Comm))
+            {
+                myfree(ExchangeList);
+                break;
+            }
+
+            /* determine for each rank how many particles have to be shifted to other ranks */
+            last = find_iter_space(pman, sman);
+            build_export_buffer(iter, pman, Comm);
+
+            failure = exchange_once(pman, sman, Comm);
+
+            myfree(ExchangeList);
+            ExchangeList = NULL;
+
+            if(failure)
+                break;
+            iter++;
+        }
+        while(MPIU_Any(last < nexchange, Comm));
+    #ifdef DEBUG
+        /* This does not apply for the FOF code, where the exchange list is pre-assigned
+        * and we only get one iteration. */
+        if(!failure && maxiter > 1) {
+            DerivedPlan plan9(Comm);
+            /* Do not drift again*/
+            int plan9exchange = build_exchange_list(pman, sman, Comm);
+            if(plan9exchange > 0)
+                endrun(5, "Still have %ld particles in exchange list\n", plan9exchange);
+            myfree(plan9.ExchangeList);
+        }
+    #endif
+        for(int ptype = 0; ptype < 6; ptype++) {
+            if(!sman->info[ptype].enabled)
+                continue;
+            MPI_Type_free(&MPI_TYPE_SLOT[ptype]);
+        }
+        return failure;
+    }
+
+private:
     /* This function builds the list of particles to be exchanged.
     * All particles are processed every time, space is not considered.
     * The exchange list needs to be rebuilt every time gc is run. */
-    void
-    domain_build_exchange_list(struct part_manager_type * pman, struct slots_manager_type * sman, MPI_Comm Comm)
+    int
+    build_exchange_list(struct part_manager_type * pman, struct slots_manager_type * sman, MPI_Comm Comm)
     {
         /*Garbage particles are counted so we have an accurate memory estimate*/
         int ThisTask;
@@ -71,17 +175,19 @@ public:
         std::iota(indices, indices + pman->NumPart, 0);
         const auto base = pman->Base;
         auto end = std::copy_if(std::execution::par, indices, indices + pman->NumPart, ExchangeList, [ThisTask, this, base](auto& ii) {
-            if(base[ii].IsGarbage || base[ii].Swallowed || static_cast<ExchangePlan *>(this)->layoutfunc(base[ii]) == ThisTask)
+            const int target = static_cast<DerivedPlan *>(this)->layoutfunc(base[ii]);
+            if(base[ii].IsGarbage || base[ii].Swallowed ||  target == ThisTask || target < 0)
                 return false;
             return true;
         } );
-        nexchange = end - indices;
+        nexchange = end - ExchangeList;
         myfree(indices);
+        return nexchange;
     }
 
     /*This function populates the toGo and toGet arrays*/
     void
-    domain_build_plan(int iter, struct part_manager_type * pman, MPI_Comm Comm)
+    build_export_buffer(int iter, struct part_manager_type * pman, MPI_Comm Comm)
     {
         int ptype;
         size_t n;
@@ -94,7 +200,7 @@ public:
         for(n = 0; n < last; n++)
         {
             const int i = ExchangeList[n];
-            const int target = static_cast<ExchangePlan *>(this)->layoutfunc(pman->Base[i]);
+            const int target = static_cast<DerivedPlan *>(this)->layoutfunc(pman->Base[i]);
             layouts[n].ptype = pman->Base[i].Type;
             layouts[n].target = target;
             if(target >= NTask || target < 0)
@@ -144,7 +250,7 @@ public:
 
     /*Find how many particles we can transfer in current exchange iteration*/
     size_t
-    domain_find_iter_space(const struct part_manager_type * pman, const struct slots_manager_type * sman) const
+    find_iter_space(const struct part_manager_type * pman, const struct slots_manager_type * sman) const
     {
         size_t nlimit = mymalloc_freebytes();
 
@@ -183,6 +289,7 @@ public:
             return nexchange;
         }
 
+        message(4, "nexch = %lu, nlimit %lu, maxsize %lu\n", nexchange, nlimit, maxsize);
         /*Find how many particles we have space for.*/
         size_t n = 0;
         for(; n < nexchange; n++)
@@ -216,7 +323,26 @@ public:
         MPI_Allreduce(lcompact, compact, 6, MPI_INT, MPI_LOR, Comm);
     }
 
-    int domain_exchange_once(struct part_manager_type * pman, struct slots_manager_type * sman, MPI_Comm Comm)
+    /* This function builds the count/displ arrays from
+    * the rows stored in the entry struct of the plan.
+    * MPI expects these numbers to be tightly packed in memory,
+    * but our struct stores them as different columns.
+    *
+    * Technically speaking, the operation is therefore a transpose.
+    * */
+    void
+    _transpose_plan_entries(ExchangePlanEntry * entries, int * count, int ptype)
+    {
+        for(int i = 0; i < NTask; i ++) {
+            if(ptype == -1) {
+                count[i] = entries[i].base;
+            } else {
+                count[i] = entries[i].slots[ptype];
+            }
+        }
+    }
+
+    int exchange_once(struct part_manager_type * pman, struct slots_manager_type * sman, MPI_Comm Comm)
     {
         size_t n;
         int ptype;
@@ -304,10 +430,10 @@ public:
         int * recvcounts = (int*) ta_malloc("recvcounts", int, NTask);
         int * recvdispls = (int*) ta_malloc("recvdispls", int, NTask);
 
-        _transpose_plan_entries(toGo, sendcounts, -1, NTask);
-        _transpose_plan_entries(toGoOffset, senddispls, -1, NTask);
-        _transpose_plan_entries(toGet, recvcounts, -1, NTask);
-        _transpose_plan_entries(toGetOffset, recvdispls, -1, NTask);
+        _transpose_plan_entries(toGo, sendcounts, -1);
+        _transpose_plan_entries(toGoOffset, senddispls, -1);
+        _transpose_plan_entries(toGet, recvcounts, -1);
+        _transpose_plan_entries(toGetOffset, recvdispls, -1);
 
     #ifdef DEBUG
         message(0, "Starting particle data exchange\n");
@@ -333,10 +459,10 @@ public:
             size_t elsize = sman->info[ptype].elsize;
             int N_slots = sman->info[ptype].size;
             char * ptr = sman->info[ptype].ptr;
-            _transpose_plan_entries(toGo, sendcounts, ptype, NTask);
-            _transpose_plan_entries(toGoOffset, senddispls, ptype, NTask);
-            _transpose_plan_entries(toGet, recvcounts, ptype, NTask);
-            _transpose_plan_entries(toGetOffset, recvdispls, ptype, NTask);
+            _transpose_plan_entries(toGo, sendcounts, ptype);
+            _transpose_plan_entries(toGoOffset, senddispls, ptype);
+            _transpose_plan_entries(toGet, recvcounts, ptype);
+            _transpose_plan_entries(toGetOffset, recvdispls, ptype);
 
     #ifdef DEBUG
             message(0, "Starting exchange for slot %d\n", ptype);
@@ -416,11 +542,7 @@ public:
 
         return 0;
     }
-
 };
-
-template <typename ExchangePlan>
-int domain_exchange(PreExchangeList * preexch, struct part_manager_type * pman, struct slots_manager_type * sman, int maxiter, MPI_Comm Comm);
 
 void domain_test_id_uniqueness(struct part_manager_type * pman);
 

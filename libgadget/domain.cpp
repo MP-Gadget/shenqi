@@ -141,10 +141,28 @@ static void
 domain_create_topleaves(DomainDecomp * ddecomp, int no, int * next);
 
 static int
-domain_layoutfunc(int n, const void * userdata);
-
-static int
 domain_policies_init(DomainDecompositionPolicy policies[], const int Npolicies);
+
+/*! This function determines which particles that are currently stored
+ *  on the local CPU have to be moved off according to the domain
+ *  decomposition.
+ *
+ *  layoutfunc decides the target Task of particle p
+ *  Uses the toptree, instead of the Peano key*/
+class DomainExchangePlan: public ExchangePlan<DomainExchangePlan>
+{
+public:
+    int NTopLeaves;
+    topleaf_data * TopLeaves;
+    DomainExchangePlan(DomainDecomp* ddecomp) : ExchangePlan(ddecomp->DomainComm), NTopLeaves(ddecomp->NTopLeaves), TopLeaves(ddecomp->TopLeaves){ }
+
+    int layoutfunc(const particle_data& pp) const {
+        const int topleaf = pp.TopLeaf;
+        if(topleaf < 0 || topleaf >= NTopLeaves)
+            return -1;
+        return TopLeaves[topleaf].Task;
+    }
+};
 
 /*! This is the main routine for the domain decomposition.  It acts as a
  *  driver routine that allocates various temporary buffers, maps the
@@ -227,7 +245,8 @@ void domain_decompose_full(DomainDecomp * ddecomp, MPI_Comm DomainComm)
           PartManager->Base[n].TopLeaf = domain_get_topleaf(key, ddecomp);
         }
 
-        if(domain_exchange(domain_layoutfunc, ddecomp, NULL, PartManager, SlotsManager, 10000, ddecomp->DomainComm)) {
+        DomainExchangePlan plan(ddecomp);
+        if(plan.domain_exchange(NULL, PartManager, SlotsManager, 10000, ddecomp->DomainComm)) {
             message(0,"Could not exchange particles\n");
             if(i == Npolicies - 1)
                 endrun(5, "Ran out of policies!\n");
@@ -294,6 +313,7 @@ int domain_maintain(DomainDecomp * ddecomp, struct DriftData * drift, double ddr
     gadget_thread_arrays gthread = gadget_setup_thread_arrays("exchangelist", 1, PartManager->NumPart);
 
     ForceTree tree = force_tree_top_build(ddecomp, 1);
+    DomainExchangePlan plan(ddecomp);
     /* flag the particles that need to be exported */
 #pragma omp parallel
     {
@@ -322,7 +342,7 @@ int domain_maintain(DomainDecomp * ddecomp, struct DriftData * drift, double ddr
             /* Set the topleaf for layoutfunc.*/
             PartManager->Base[i].TopLeaf = no;
         }
-        int target = domain_layoutfunc(i, ddecomp);
+        int target = plan.layoutfunc(PartManager->Base[i]);
         if(target != tree.ThisTask) {
             threx_local[nexthr_local] = i;
             nexthr_local++;
@@ -340,7 +360,7 @@ int domain_maintain(DomainDecomp * ddecomp, struct DriftData * drift, double ddr
     walltime_measure("/Domain/drift");
 
     /* Try a domain exchange. Note ExchangeList is freed inside.*/
-    int exchange_status = domain_exchange(domain_layoutfunc, ddecomp, ExchangeData, PartManager, SlotsManager, 10000, ddecomp->DomainComm);
+    int exchange_status = plan.domain_exchange(ExchangeData, PartManager, SlotsManager, 10000, ddecomp->DomainComm);
     return exchange_status;
 }
 
@@ -776,23 +796,6 @@ domain_set_task_leafs(const DomainDecomp * const ddecomp)
         endrun(0, "Assertion failed: we have %d MPI ranks but found domain entries for %d tasks.\n", NTask, ta);
     }
     return Tasks;
-}
-
-/*! This function determines which particles that are currently stored
- *  on the local CPU have to be moved off according to the domain
- *  decomposition.
- *
- *  layoutfunc decides the target Task of particle p (used by
- *  subfind_distribute).
- *  Uses the toptree, instead of the Peano key*/
-static int
-domain_layoutfunc(int n, const void * userdata) {
-    const DomainDecomp * ddecomp = (DomainDecomp *) userdata;
-    const int topleaf = PartManager->Base[n].TopLeaf;
-    if(topleaf < 0 || topleaf >= ddecomp->NTopLeaves)
-        endrun(6, "Invalid topleaf %d (ntop %d) for particle %d id %ld x-pos %g garbage %d\n",
-               topleaf, ddecomp->NTopLeaves, n, PartManager->Base[n].ID, PartManager->Base[n].Pos[0], PartManager->Base[n].IsGarbage);
-    return ddecomp->TopLeaves[topleaf].Task;
 }
 
 /*! This function walks the global top tree in order to establish the
