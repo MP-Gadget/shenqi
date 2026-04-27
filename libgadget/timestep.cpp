@@ -346,12 +346,10 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
     //grav_short_tree_build_tree(subact, pm, ddecomp, StoredGravAccel, times->Ti_Current, rho0, HybridNuGrav, EmergencyOutputDir);
 
     /* Find the largest timebin active this timestep.*/
-    const int nthread = omp_get_max_threads();
-    int64_t * timebincounts = ta_malloc("timebincounts", int64_t, TIMEBINS * nthread);
-    memset(timebincounts, 0, TIMEBINS * nthread * sizeof(int64_t));
+    int64_t timebincounts[TIMEBINS] = {0};
     /* Find the timesteps for all active particles.*/
     int i;
-    #pragma omp parallel for
+    #pragma omp parallel for reduction(+: timebincounts[:TIMEBINS])
     for(i = 0; i < subact->NumActiveParticle; i++) {
         const int pa = get_active_particle(subact, i);
         if(Part[pa].Swallowed || Part[pa].IsGarbage)
@@ -373,21 +371,13 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
         int bin = get_timestep_bin(dti_gravity);
         if(bin > largest_active)
             bin = largest_active;
-        int tid = omp_get_thread_num();
-        timebincounts[tid * TIMEBINS + bin] ++;
+        timebincounts[bin] ++;
         Part[pa].TimeBinGravity = bin;
     }
-    /* Count particles in timebins and find largest timestep with particles.*/
-    for(ti = largest_active; ti >= 1; ti--) {
-        for(i = 0; i < nthread; i++)
-            timebincounts[ti] += timebincounts [i * TIMEBINS + ti];
-    }
-    int64_t alltimebincounts[TIMEBINS];
-    MPI_Allreduce(timebincounts, alltimebincounts, TIMEBINS, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
-    myfree(timebincounts);
+    MPI_Allreduce(MPI_IN_PLACE, timebincounts, TIMEBINS, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     /* Find largest bin with particles in.*/
     for(ti = largest_active; ti >= 1; ti--)
-        if(alltimebincounts[ti] > 0) {
+        if(timebincounts[ti] > 0) {
             largest_active = ti;
             break;
         }
@@ -400,14 +390,14 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
     int push_down_bin = largest_active;
     if(subact->NumActiveParticle == PartManager->NumPart) {
         for(ti = largest_active; ti >= 1; ti--) {
-            if(alltimebincounts[ti] / 3 > alltimebincounts[ti-1])
+            if(timebincounts[ti] / 3 > timebincounts[ti-1])
                 break;
             push_down_bin = ti-1;
-            alltimebincounts[ti-1] += alltimebincounts[ti];
+            timebincounts[ti-1] += timebincounts[ti];
         }
     }
     if(push_down_bin == 0)
-        endrun(77, "Bad timestep with %ld particles inside\n", alltimebincounts[push_down_bin]);
+        endrun(77, "Bad timestep with %ld particles inside\n", timebincounts[push_down_bin]);
     if(push_down_bin != largest_active) {
         message(0, "Pushing down top bin from %d to %d\n", largest_active, push_down_bin);
         #pragma omp parallel for
