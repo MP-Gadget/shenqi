@@ -11,7 +11,7 @@
 #include "bigfile.h"
 #include "bigfile-mpi.h"
 #include "utils/mymalloc.h"
-#include "utils/interp.h"
+#include "utils/interp.hpp"
 #include "utils/endrun.h"
 #include "utils/paramset.h"
 
