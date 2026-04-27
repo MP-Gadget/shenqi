@@ -37,11 +37,11 @@ public:
 
         for(int d = 0; d < Ndim; d++) {
             double xd = (x[d] - Min[d]) / Step[d];
-            if (x[d] < Min[d]) {
+            if (x[d] <= Min[d]) {
                 xi[d] = 0;
                 f[d] = 0;
             } else
-            if (x[d] > Max[d]) {
+            if (x[d] >= Max[d]) {
                 xi[d] = dims[d] - 1;
                 f[d] = 0;
             } else {
