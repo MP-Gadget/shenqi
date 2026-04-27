@@ -6,7 +6,7 @@ CONFIG ?= ../Options.mk
 
 include $(CONFIG)
 
-UTILS_TESTED = peano memory #interp
+UTILS_TESTED = peano memory interp
 UTILS_MPI_TESTED = mpsort
 
 TESTED = cooling \
@@ -95,6 +95,9 @@ all: libgadget.a libgadget-utils.a
 
 #No .obj, header-only
 .objs/utils/test_mpsort: tests/test_mpsort.cpp libgadget-utils.a
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+
+.objs/utils/test_interp: tests/test_interp.cpp libgadget-utils.a
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_cosmology: tests/test_cosmology.cpp .objs/cosmology.o libgadget-utils.a
