@@ -97,7 +97,7 @@ BOOST_AUTO_TEST_CASE(test_exchange)
     setup_particles(newSlots);
 
     TestExchangePlan plan(MPI_COMM_WORLD);
-    int fail = plan.domain_exchange(NULL, PartManager, SlotsManager,10000, MPI_COMM_WORLD);
+    int fail = plan.domain_exchange(PartManager, SlotsManager,10000, MPI_COMM_WORLD);
 
     assert_all_true(!fail);
 #ifdef DEBUG
@@ -115,7 +115,7 @@ BOOST_AUTO_TEST_CASE(test_exchange_zero_slots)
     setup_particles(newSlots);
 
     TestExchangePlan plan(MPI_COMM_WORLD);
-    int fail = plan.domain_exchange(NULL, PartManager, SlotsManager,10000, MPI_COMM_WORLD);
+    int fail = plan.domain_exchange(PartManager, SlotsManager,10000, MPI_COMM_WORLD);
 
     assert_all_true(!fail);
 #ifdef DEBUG
@@ -136,7 +136,7 @@ BOOST_AUTO_TEST_CASE(test_exchange_with_garbage)
     slots_mark_garbage(0, PartManager, SlotsManager); /* watch out! this propagates the garbage flag to children */
     TotNumPart -= NTask;
     TestExchangePlan plan(MPI_COMM_WORLD);
-    int fail = plan.domain_exchange(NULL, PartManager, SlotsManager,10000, MPI_COMM_WORLD);
+    int fail = plan.domain_exchange(PartManager, SlotsManager,10000, MPI_COMM_WORLD);
 
     assert_all_true(!fail);
 
@@ -170,7 +170,7 @@ BOOST_AUTO_TEST_CASE(test_exchange_uneven)
 
     /* this will trigger a slot growth on slot type 0 due to the inbalance */
     TestUnevenExchangePlan plan(MPI_COMM_WORLD);
-    int fail = plan.domain_exchange(NULL, PartManager, SlotsManager,10000, MPI_COMM_WORLD);
+    int fail = plan.domain_exchange(PartManager, SlotsManager,10000, MPI_COMM_WORLD);
 
     assert_all_true(!fail);
 

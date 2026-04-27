@@ -360,7 +360,7 @@ fof_distribute_particles(struct part_manager_type * halo_pman, struct slots_mana
     }
     /* Do a domain exchange. No pre-computed list here. Maybe a different particle table.*/
     FOFExchangePlan fofplan(Comm);
-    if(fofplan.domain_exchange(NULL, halo_pman, halo_sman, 10000, Comm)) {
+    if(fofplan.domain_exchange(halo_pman, halo_sman, 10000, Comm)) {
         message(1930, "Failed to exchange and write particles for the FOF. This is non-fatal, continuing.\n");
         if(halo_pman != PartManager) {
             slots_free(halo_sman);

@@ -69,11 +69,11 @@ int domain_maintain(DomainDecomp * ddecomp, struct DriftData * drift, const doub
 
 /** This function determines the TopLeaves entry for the given key.*/
 static inline int
-domain_get_topleaf(const peano_t key, const DomainDecomp * ddecomp) {
+domain_get_topleaf(const peano_t key, const topnode_data * const TopNodes) {
     int no=0;
-    while(ddecomp->TopNodes[no].Daughter >= 0)
-        no = ddecomp->TopNodes[no].Daughter + ((key - ddecomp->TopNodes[no].StartKey) >> (ddecomp->TopNodes[no].Shift - 3));
-    no = ddecomp->TopNodes[no].Leaf;
+    while(TopNodes[no].Daughter >= 0)
+        no = TopNodes[no].Daughter + ((key - TopNodes[no].StartKey) >> (TopNodes[no].Shift - 3));
+    no = TopNodes[no].Leaf;
     return no;
 };
 

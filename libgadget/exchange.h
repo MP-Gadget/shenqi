@@ -13,15 +13,6 @@
 #include "utils/mymalloc.h"
 #include "utils/system.h"
 
-typedef struct PreExchangeList{
-    /*List of particles to exchange*/
-    int * ExchangeList;
-    /*Total number of exchanged particles*/
-    size_t nexchange;
-    /*Number of garbage particles*/
-    int64_t ngarbage;
-} PreExchangeList;
-
 /*Number of structure types for particles*/
 typedef struct {
     int64_t base;
@@ -93,19 +84,13 @@ public:
 
     /*Plan and execute a domain exchange, also performing a garbage collection if requested*/
     int
-    domain_exchange(PreExchangeList * preexch, struct part_manager_type * pman, struct slots_manager_type * sman, int maxiter, MPI_Comm Comm) {
+    domain_exchange(struct part_manager_type * pman, struct slots_manager_type * sman, int maxiter, MPI_Comm Comm) {
         int failure = 0;
         for(int ptype = 0; ptype < 6; ptype++) {
             if(!sman->info[ptype].enabled)
                 continue;
             MPI_Type_contiguous(sman->info[ptype].elsize, MPI_BYTE, &MPI_TYPE_SLOT[ptype]);
             MPI_Type_commit(&MPI_TYPE_SLOT[ptype]);
-        }
-
-        /* Use the pre-exchange list if we can*/
-        if(preexch && preexch->ExchangeList) {
-            nexchange = preexch->nexchange;
-            ExchangeList = preexch->ExchangeList;
         }
 
         int iter = 0;
