@@ -1,7 +1,7 @@
 #include <mpi.h>
 #include <omp.h>
 #include <string.h>
-#include "exchange.h"
+#include "exchange.hpp"
 
 #include "utils/endrun.h"
 #include "utils/mpsort.h"

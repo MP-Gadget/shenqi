@@ -2,7 +2,7 @@
 #define BOOST_TEST_MODULE exchange
 #include "booststub.h"
 
-#include <libgadget/exchange.h>
+#include <libgadget/exchange.hpp>
 #include <libgadget/domain.h>
 #include <libgadget/slotsmanager.h>
 #include <libgadget/partmanager.h>

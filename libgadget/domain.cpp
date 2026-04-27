@@ -12,7 +12,7 @@
 #include "domain.h"
 #include "forcetree.h"
 #include "timestep.h"
-#include "exchange.h"
+#include "exchange.hpp"
 #include "slotsmanager.h"
 #include "partmanager.h"
 #include "walltime.h"

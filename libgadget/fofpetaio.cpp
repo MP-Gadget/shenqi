@@ -14,7 +14,7 @@
 #include "partmanager.h"
 #include "slotsmanager.h"
 #include "petaio.h"
-#include "exchange.h"
+#include "exchange.hpp"
 #include "fof.h"
 #include "walltime.h"
 

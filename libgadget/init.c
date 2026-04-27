@@ -18,7 +18,7 @@
 #include "slotsmanager.h"
 #include "hydra2.h"
 #include "sfr_eff.h"
-#include "exchange.h"
+#include "exchange.hpp"
 #include "fof.h"
 #include "timestep.h"
 #include "timebinmgr.h"

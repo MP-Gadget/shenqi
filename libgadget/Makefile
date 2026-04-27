@@ -42,23 +42,24 @@ include ../Makefile.version
 #
 
 GADGET_C_SRCS =  hci.c\
-	 exchange.c partmanager.c \
+	 partmanager.c \
 	 blackhole.c bhinfo.c bhdynfric.c \
-	 run.c drift.c stats.c \
+	 drift.c stats.c \
 	 init.c checkpoint.c \
-	 sfr_eff.c cooling.c cooling_uvfluc.c \
+	 cooling.c cooling_uvfluc.c \
 	 veldisp.c density.c metal_return.c treewalk.c \
 	 gravshort-tree.c gravshort-pair.c hydra.c \
 	 gravpm.c powerspectrum.c \
 	 forcetree.c gravity.c \
 	 densitykernel.c \
-	 runtests.c config.c uvbg.c \
+	 config.c uvbg.c \
 	 lenstools.c
 
 GADGET_CPP_SRCS = hydra2.cpp density2.cpp gravshort-tree2.cpp walltime.cpp \
 cooling_rates.cpp cooling_qso_lightup.cpp cosmology.cpp neutrinos_lra.cpp omega_nu_single.cpp timebinmgr.cpp lightcone.cpp \
-fof.cpp fofpetaio.cpp petaio.cpp petapm.cpp\
-slotsmanager.cpp domain.cpp timestep.cpp  plane.cpp winds.cpp
+fof.cpp fofpetaio.cpp petaio.cpp petapm.cpp \
+slotsmanager.cpp domain.cpp timestep.cpp  plane.cpp winds.cpp \
+exchange.cpp sfr_eff.cpp runtests.cpp run.cpp
 
 GADGET_CUDA_SRCS = gravshortcuda.cu densitycuda.cu hydracuda.cu
 
