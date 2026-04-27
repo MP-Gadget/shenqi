@@ -6,7 +6,7 @@
 #include <omp.h>
 #include <execution>
 #include <algorithm>
-#include <numeric>
+#include <ranges>
 
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
@@ -1327,14 +1327,10 @@ build_active_particles(ActiveParticles * act, const DriftKickTimes * const times
     else {
         act->ActiveParticle = (int *) mymanagedmalloc("ActiveParticle", PartManager->MaxPart * sizeof(int));
         ActivePredicate pred{PartManager->Base, times->Ti_Current};
-        /* The GPU code equivalent uses a counting_iterator. There is an equivalent in boost::counting_iterator for the CPU, but
-         * it does not compile on nvc++, which does not accept it as an STL iterator. Therefore we just populate an index array.*/
-        int * indices = (int *) mymalloc("ActiveIndex", PartManager->NumPart * sizeof(int));
-        std::iota(indices, indices + PartManager->NumPart, 0);
-        auto end = std::copy_if(std::execution::par,
-            indices, indices + PartManager->NumPart, act->ActiveParticle, pred);
+        /* This is the C++20 equivalent of a counting_iterator.*/
+        auto iota = std::views::iota(0, (int) PartManager->NumPart);
+        auto end = std::copy_if(std::execution::par, iota.begin(), iota.end(), act->ActiveParticle, pred);
         act->NumActiveParticle = end - act->ActiveParticle;
-        myfree(indices);
         act->Particles = PartManager->Base;
         /* Need to count the active list for this.*/
         int64_t nactivegrav = 0;
@@ -1404,12 +1400,9 @@ build_active_sublist(const ActiveParticles * act, int maxtimebin, const inttime_
     }
     else {
         /* PM step: act->ActiveParticle is NULL and the active set is all particles 0..NumActiveParticle-1. */
-        int * indices = (int *) mymalloc("SubActiveIndex", act->NumActiveParticle * sizeof(int));
-        std::iota(indices, indices + act->NumActiveParticle, 0);
-        auto end = std::copy_if(std::execution::par,
-            indices, indices + act->NumActiveParticle, sub_act->ActiveParticle, pred);
+        auto iota = std::views::iota(0, (int) act->NumActiveParticle);
+        auto end = std::copy_if(std::execution::par, iota.begin(), iota.end(), sub_act->ActiveParticle, pred);
         sub_act->NumActiveParticle = end - sub_act->ActiveParticle;
-        myfree(indices);
     }
     sub_act->NumActiveGravity = sub_act->NumActiveParticle;
     sub_act->MaxActiveParticle = sub_act->NumActiveParticle;

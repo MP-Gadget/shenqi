@@ -12,7 +12,7 @@
 #include "utils/mymalloc.h"
 #include "utils/endrun.h"
 #include "utils/system.h"
-#include <numeric>
+#include <ranges>
 /* For the parallel execution policy.*/
 #include <execution>
 #include <algorithm>
@@ -404,14 +404,9 @@ public:
             return end - *WorkSet;
         }
         else { // Need to handle this separately.
-            /* The GPU code has a counting_iterator from thrust which avoids allocating the memory.
-             * There is nothing in the stl, but there is a counting_iterator in boost.
-             * However, nvc++ does not accept it as a copy_if argument. */
-            int * indices = (int *) mymalloc("ActiveIndex", PartManager->NumPart * sizeof(int));
-            std::iota(indices, indices + PartManager->NumPart, 0);
-            auto end = std::copy_if(std::execution::par,
-                indices, indices + size, *WorkSet, haswork);
-            myfree(indices);
+            /* The GPU code has a counting_iterator from thrust which avoids allocating the memory. This is the C++20 equivalent.*/
+            auto iota = std::views::iota(0, (int) size);
+            auto end = std::copy_if(std::execution::par, iota.begin(), iota.end(), *WorkSet, haswork);
             return end - *WorkSet;
         }
     }

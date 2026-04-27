@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <execution>
+#include <ranges>
 #include <mpi.h>
 
 #include "partmanager.h"
@@ -162,17 +163,15 @@ private:
         int ThisTask;
         MPI_Comm_rank(Comm, &ThisTask);
         ExchangeList = (int *) mymalloc("exchangelist", pman->NumPart * sizeof(int));
-        int * indices = (int *) mymalloc("exchangeindex", pman->NumPart * sizeof(int));
-        std::iota(indices, indices + pman->NumPart, 0);
+        auto iota = std::views::iota(0, (int) pman->NumPart);
         const auto base = pman->Base;
-        auto end = std::copy_if(std::execution::par, indices, indices + pman->NumPart, ExchangeList, [ThisTask, this, base](auto& ii) {
+        auto end = std::copy_if(std::execution::par, iota.begin(), iota.end(), ExchangeList, [ThisTask, this, base](const int ii) {
             const int target = static_cast<DerivedPlan *>(this)->layoutfunc(base[ii]);
             if(base[ii].IsGarbage || base[ii].Swallowed ||  target == ThisTask || target < 0)
                 return false;
             return true;
         } );
         nexchange = end - ExchangeList;
-        myfree(indices);
         return nexchange;
     }
 
