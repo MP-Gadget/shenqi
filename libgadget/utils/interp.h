@@ -40,10 +40,9 @@ public:
             if (x[d] <= Min[d]) {
                 xi[d] = 0;
                 f[d] = 0;
-            } else
-            if (x[d] >= Max[d]) {
-                xi[d] = dims[d] - 1;
-                f[d] = 0;
+            } else if (x[d] >= Max[d]) {
+                xi[d] = dims[d] - 2;
+                f[d] = 1;
             } else {
                 xi[d] = floor(xd);
                 f[d] = xd - xi[d];
@@ -51,35 +50,17 @@ public:
         }
 
         double ret = 0;
-        /* the origin, "this point" */
         ptrdiff_t l0 = linearindex(xi);
 
-        /* for each point covered by the filter */
         for(int i = 0; i < (1 << Ndim); i ++) {
             double filter = 1.0;
             ptrdiff_t l = l0;
-            int skip = 0;
             for(int d = 0; d < Ndim; d++ ) {
                 int foffset = (i & (1 << d))?1:0;
-                if(f[d] == 0 && foffset == 1) {
-                    /* on this dimension the second data point
-                    * is not needed */
-                    skip = 1;
-                    break;
-                }
-
-                /*
-                * are we on this point or next point?
-                *
-                * weight on next point is f[d]
-                * weight on this point is 1 - f[d]
-                * */
-                filter *= foffset?f[d] : (1 - f[d]);
+                filter *= foffset ? f[d] : (1 - f[d]);
                 l += foffset * strides[d];
             }
-            if(!skip) {
-                ret += ydata[l] * filter;
-            }
+            ret += ydata[l] * filter;
         }
         return ret;
     }
