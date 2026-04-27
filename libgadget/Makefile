@@ -72,7 +72,6 @@ endif
 GADGET_UTILS_OBJS= \
 utils/endrun.o \
 utils/peano.o \
-utils/interp.o \
 utils/memory.o \
 utils/mymalloc.o \
 utils/system.o \
