@@ -34,6 +34,8 @@ typedef struct {
     unsigned int target;
 } ExchangePartCache;
 
+void domain_test_id_uniqueness(struct part_manager_type * pman);
+
 template <typename DerivedPlan>
 class ExchangePlan{
 public:
@@ -144,12 +146,16 @@ public:
         /* This does not apply for the FOF code, where the exchange list is pre-assigned
         * and we only get one iteration. */
         if(!failure && maxiter > 1) {
-            DerivedPlan plan9(Comm);
-            /* Do not drift again*/
-            int plan9exchange = build_exchange_list(pman, sman, Comm);
-            if(plan9exchange > 0)
-                endrun(5, "Still have %ld particles in exchange list\n", plan9exchange);
-            myfree(plan9.ExchangeList);
+            int ThisTask;
+            MPI_Comm_rank(Comm, &ThisTask);
+            size_t ntodo = std::count_if(std::execution::par, pman->Base, pman->Base + pman->NumPart, [ThisTask, this](auto& pp) {
+                const int target = static_cast<DerivedPlan *>(this)->layoutfunc(pp);
+                if(pp.IsGarbage || pp.Swallowed || target == ThisTask || target < 0)
+                    return false;
+                return true;
+            } );
+            if(ntodo > 0)
+                endrun(5, "Still have %lu particles in exchange list\n", ntodo);
         }
     #endif
         for(int ptype = 0; ptype < 6; ptype++) {
@@ -543,7 +549,5 @@ private:
         return 0;
     }
 };
-
-void domain_test_id_uniqueness(struct part_manager_type * pman);
 
 #endif
