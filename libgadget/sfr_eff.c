@@ -19,6 +19,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ranges>
+#include <execution>
 #include <math.h>
 #include <omp.h>
 #include "libgadget/timebinmgr.h"
@@ -205,8 +207,6 @@ void
 cooling_and_starformation(ActiveParticles * act, double Time, double dloga, TimeBinMgr * timebinmgr, ForceTree * tree, struct grav_accel_store GravAccel, DomainDecomp * ddecomp, Cosmology *CP, MyFloat * GradRho, RandTable * rnd, FILE * FdSfr)
 {
     globalTimeBinMgr = timebinmgr;
-    /*This is a queue for the new stars and their parents, so we can reallocate the slots after the main cooling loop.*/
-    gadget_thread_arrays NewStarThread = {0}, NewParentThread = {0}, MaybeWindThread = {0};
 
     /*Need to capture this so that when NumActiveParticle increases during the loop
      * we don't add extra loop iterations on particles with invalid slots.*/
@@ -214,16 +214,11 @@ cooling_and_starformation(ActiveParticles * act, double Time, double dloga, Time
     const double a3inv = 1./(Time * Time * Time);
     const double hubble = hubble_function(CP, Time);
 
-    if(sfr_params.StarformationOn) {
-        /* Maximally we need the active gas particles*/
-        NewStarThread = gadget_setup_thread_arrays("NewStars", 0, act->NumActiveHydro);
-        NewParentThread = gadget_setup_thread_arrays("NewParents", 1, act->NumActiveHydro);
-    }
-
+    /* -1 if not star-forming, index of the new star (inc 0) if star-forming, -2 if wind-forming.*/
+    int * star_form_flag = (int *) mymanagedmalloc("starflag", nactive * sizeof(int));
     MyFloat * StellarMass = NULL;
     if(sfr_params.WindOn && winds_are_subgrid()) {
         StellarMass = (MyFloat *) mymalloc("StellarMass", SlotsManager->info[0].size * sizeof(MyFloat));
-        MaybeWindThread = gadget_setup_thread_arrays("MaybeWind", 0, act->NumActiveHydro);
     }
 
     /* Get the global UVBG for this redshift. */
@@ -231,64 +226,59 @@ cooling_and_starformation(ActiveParticles * act, double Time, double dloga, Time
     struct UVBG GlobalUVBG = get_global_UVBG(redshift);
     double sum_sm = 0, localsfr = 0, sum_dtime = 0;
     int64_t sum_sf_part = 0;
+    int64_t NumNewStar = 0, NumMaybeWind = 0;
 
     /* First decide which stars are cooling and which starforming. If star forming we add them to a list.
      * Note the dynamic scheduling: individual particles may have very different loop iteration lengths.
      * Cooling is much slower than sfr. I tried splitting it into a separate loop instead, but this was faster.*/
-    #pragma omp parallel reduction(+:localsfr) reduction(+: sum_sm) reduction(+:sum_dtime) reduction(+:sum_sf_part)
+    #pragma omp parallel for schedule(guided) reduction(+:localsfr) reduction(+: sum_sm) reduction(+:sum_dtime) reduction(+:sum_sf_part) reduction(+: NumMaybeWind) reduction(+: NumNewStar)
+    for(int i=0; i < nactive; i++)
     {
-        int i;
-        const int tid = omp_get_thread_num();
-        #pragma omp for schedule(static)
-        for(i=0; i < nactive; i++)
-        {
-            /*Use raw particle number if active_set is null, otherwise use active_set*/
-            const int p_i = act->ActiveParticle ? act->ActiveParticle[i] : i;
-            /* Skip non-gas or garbage particles */
-            if(Part[p_i].Type != 0 || Part[p_i].IsGarbage || Part[p_i].Mass <= 0)
-                continue;
+        star_form_flag[i] = -1;
+        /*Use raw particle number if active_set is null, otherwise use active_set*/
+        const int p_i = act->ActiveParticle ? act->ActiveParticle[i] : i;
+        /* Skip non-gas or garbage particles */
+        if(Part[p_i].Type != 0 || Part[p_i].IsGarbage || Part[p_i].Mass <= 0)
+            continue;
 
-            int shall_we_star_form = 0;
-            if(sfr_params.StarformationOn) {
-                /*Reduce delaytime for wind particles.*/
-                winds_evolve(p_i, a3inv, hubble, timebinmgr);
-                /* check whether we are star forming gas.*/
-                if(sfr_params.QuickLymanAlphaProbability > 0)
-                    shall_we_star_form = quicklyastarformation(p_i, a3inv, rnd);
-                else
-                    shall_we_star_form = sfreff_on_eeqos(&SPHP(p_i), a3inv);
-            }
-
-            if(shall_we_star_form) {
-                int newstar = -1;
-                MyFloat sm = 0;
-                sum_sf_part++;
-                if(sfr_params.QuickLymanAlphaProbability > 0) {
-                    /*New star is always the same particle as the parent for quicklya*/
-                    newstar = p_i;
-                    sum_sm += Part[p_i].Mass;
-                    sm = Part[p_i].Mass;
-                } else {
-                    newstar = starformation(p_i, &localsfr, &sm, &sum_sm, &sum_dtime, GradRho, redshift, a3inv, hubble, CP->GravInternal, timebinmgr, &GlobalUVBG, rnd);
-                }
-                /*Add this particle to the stellar conversion queue if necessary.*/
-                if(newstar >= 0) {
-                    NewStarThread.srcs[tid][NewStarThread.sizes[tid]] = newstar;
-                    NewStarThread.sizes[tid]++;
-                    NewParentThread.srcs[tid][NewParentThread.sizes[tid]] = p_i;
-                    NewParentThread.sizes[tid]++;
-                }
-                /* Add this particle to the queue for consideration to spawn a wind.
-                 * Only for subgrid winds. */
-                if(MaybeWindThread.sizes && newstar < 0) {
-                    MaybeWindThread.srcs[tid][MaybeWindThread.sizes[tid]] = p_i;
-                    StellarMass[Part[p_i].PI] = sm;
-                    MaybeWindThread.sizes[tid]++;
-                }
-            }
+        int shall_we_star_form = 0;
+        if(sfr_params.StarformationOn) {
+            /*Reduce delaytime for wind particles.*/
+            winds_evolve(p_i, a3inv, hubble, timebinmgr);
+            /* check whether we are star forming gas.*/
+            if(sfr_params.QuickLymanAlphaProbability > 0)
+                shall_we_star_form = quicklyastarformation(p_i, a3inv, rnd);
             else
-                cooling_direct(p_i, redshift, a3inv, hubble, timebinmgr, &GlobalUVBG);
+                shall_we_star_form = sfreff_on_eeqos(&SPHP(p_i), a3inv);
         }
+
+        if(shall_we_star_form) {
+            int newstar = -1;
+            MyFloat sm = 0;
+            sum_sf_part++;
+            if(sfr_params.QuickLymanAlphaProbability > 0) {
+                /*New star is always the same particle as the parent for quicklya*/
+                newstar = p_i;
+                sum_sm += Part[p_i].Mass;
+                sm = Part[p_i].Mass;
+            } else {
+                newstar = starformation(p_i, &localsfr, &sm, &sum_sm, &sum_dtime, GradRho, redshift, a3inv, hubble, CP->GravInternal, timebinmgr, &GlobalUVBG, rnd);
+            }
+            /*Add this particle to the stellar conversion queue if necessary.*/
+            if(newstar >= 0) {
+                star_form_flag[i] = newstar;
+                NumNewStar++;
+            }
+            /* Add this particle to the queue for consideration to spawn a wind.
+                * Only for subgrid winds. */
+            else if(StellarMass && newstar < 0) {
+                star_form_flag[i] = -2;
+                StellarMass[Part[p_i].PI] = sm;
+                NumMaybeWind++;
+            }
+        }
+        else
+            cooling_direct(p_i, redshift, a3inv, hubble, timebinmgr, &GlobalUVBG);
     }
 
     report_memory_usage("SFR");
@@ -297,26 +287,58 @@ cooling_and_starformation(ActiveParticles * act, double Time, double dloga, Time
 
     /* Do subgrid winds*/
     if(sfr_params.WindOn && winds_are_subgrid()) {
-        int * MaybeWind;
-        int64_t NumMaybeWind = gadget_compact_thread_arrays(&MaybeWind, &MaybeWindThread);
+        int * MaybeWind = (int *) mymanagedmalloc("MaybeWind", NumMaybeWind * sizeof(int));
+        auto iota = std::views::iota(0, nactive);
+        if(act->ActiveParticle) {
+            int * tmpidx = (int *) mymalloc("tmpidx", nactive * sizeof(int));
+            auto end = std::copy_if(std::execution::par, iota.begin(), iota.end(), tmpidx,
+                                [star_form_flag](int i){ return star_form_flag[i] == -2; });
+            if(NumMaybeWind != end - tmpidx)
+                endrun(5, "NumMaybeWind differs: %ld vs %ld\n", NumMaybeWind, end - tmpidx);
+            std::transform(std::execution::par, tmpidx, tmpidx + NumMaybeWind, MaybeWind,
+                [act](int i){ return act->ActiveParticle[i]; });
+            myfree(tmpidx);
+        }
+        else {
+            std::copy_if(std::execution::par, iota.begin(), iota.end(), MaybeWind,
+                            [star_form_flag](int i){ return star_form_flag[i] == -2; });
+        }
         winds_subgrid(MaybeWind, NumMaybeWind, Time, StellarMass, rnd);
         myfree(MaybeWind);
         myfree(StellarMass);
     }
 
-    int * NewStars = NewStarThread.dest;
-    int * NewParents = NewParentThread.dest;
-    int64_t NumNewStar = 0;
+    int * NewStars = NULL;
+    int * NewParents = NULL;
 
     /*Merge step for the queue.*/
-    if(NewStars) {
-        int64_t NumNewParent = gadget_compact_thread_arrays(&NewParents, &NewParentThread);
-        NumNewStar = gadget_compact_thread_arrays(&NewStars, &NewStarThread);
+    if(sfr_params.StarformationOn) {
+        NewParents = (int *) mymanagedmalloc("NewParents", NumNewStar * sizeof(int));
+        int64_t NumNewParent = 0;
+        auto iota = std::views::iota(0, nactive);
+        if(act->ActiveParticle) {
+            /* star_form_flag is indexing into the active queue, not the particle table,
+             * so we need to do a transform*/
+            int * tmpidx = (int *) mymanagedmalloc("tmpidx", nactive * sizeof(int));
+            auto end = std::copy_if(std::execution::par, iota.begin(), iota.end(), tmpidx,
+                [star_form_flag](int i){ return star_form_flag[i] >= 0; });
+            NumNewParent = end - tmpidx;
+            std::transform(std::execution::par, tmpidx, tmpidx + NumNewParent, NewParents,
+                [act](int i){ return act->ActiveParticle[i]; });
+            myfree(tmpidx);
+        } else {
+            auto end = std::copy_if(std::execution::par, iota.begin(), iota.end(), NewParents,
+                [star_form_flag](int i){ return star_form_flag[i] >= 0; });
+            NumNewParent = end - NewParents;
+        }
+        NewStars = (int *) mymanagedmalloc("NewStars", NumNewStar * sizeof(int));
+        std::copy_if(std::execution::par, star_form_flag, star_form_flag + nactive, NewStars,
+                     [](auto newstar){ return newstar >= 0;});
         if(NumNewStar != NumNewParent)
             endrun(3,"%lu new stars, but %lu new parents!\n",NumNewStar, NumNewParent);
-        /*Shrink star memory as we keep it for the wind model*/
-        NewStars = (int *) myrealloc(NewStars, sizeof(int) * NumNewStar);
     }
+
+    myfree(star_form_flag);
 
     if(!sfr_params.StarformationOn)
         return;
