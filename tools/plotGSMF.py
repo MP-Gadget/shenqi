@@ -53,7 +53,7 @@ def getbmf(pig,Lbox, hh):
 def plot_bhmf(pig, label=None):
     """Plot a black hole mass function from a FOF table."""
     bf = BigFile(pig)
-    redshift = 1/bf['Header'].attrs['Time']-1
+    redshift = 1/bf['Header'].attrs['Time'][0]-1
     hh = bf['Header'].attrs['HubbleParam']
     lbox = bf['Header'].attrs['BoxSize']/1000/hh
     lfm = getbmf(bf,lbox, hh)
@@ -69,7 +69,7 @@ def plot_bhmf(pig, label=None):
 def plot_gsmf(pig, label=None, plot_data=True):
     """Plot a galaxy stellar mass function from a FOF table, compared to some observations."""
     bf = BigFile(pig)
-    redshift = 1/bf['Header'].attrs['Time']-1
+    redshift = 1/bf['Header'].attrs['Time'][0]-1
     #Note! Assumes kpc units!
     hh = bf['Header'].attrs['HubbleParam']
     lbox = bf['Header'].attrs['BoxSize']/1000/hh
@@ -89,7 +89,7 @@ def plot_gsmf(pig, label=None, plot_data=True):
         obs = number_density(feature="GSMF",z_target=redshift,quiet=1,h=hh)
         for ii in range(obs.n_target_observation):
             data       = obs.target_observation['Data'][ii]
-            label      = obs.target_observation.index[ii]
+            label      = None #obs.target_observation.index[ii]
             datatype   = obs.target_observation['DataType'][ii]
 
             if datatype == 'data':
