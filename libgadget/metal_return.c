@@ -4,8 +4,7 @@
 #include <string.h>
 #include <math.h>
 #include <boost/math/quadrature/gauss_kronrod.hpp>
-#include <gsl/gsl_roots.h>
-#include <gsl/gsl_errno.h>
+#include <boost/math/tools/toms748_solve.hpp>
 #include <omp.h>
 
 #include "physconst.h"
@@ -178,32 +177,13 @@ massendlife (double mass, void *params)
 /* Solve the lifetime function to find the lowest and highest mass bin that dies this timestep*/
 double do_rootfinding(struct massbin_find_params *p, double mass_low, double mass_high)
 {
-    int iter = 0;
-    gsl_function F;
-
-    F.function = &massendlife;
-    F.params = p;
-
-    const gsl_root_fsolver_type *T = gsl_root_fsolver_falsepos;
-    gsl_root_fsolver * s = gsl_root_fsolver_alloc (T);
-    gsl_root_fsolver_set (s, &F, mass_low, mass_high);
-
-    /* Iterate until we have an idea of the mass bins dying this timestep.
-     * No check is done for success, but it should always be close enough.*/
-    for(iter = 0; iter < MAXITER; iter++)
-    {
-      gsl_root_fsolver_iterate (s);
-      mass_low = gsl_root_fsolver_x_lower (s);
-      mass_high = gsl_root_fsolver_x_upper (s);
-      int status = gsl_root_test_interval (mass_low, mass_high,
-                                       0, 0.005);
-      //message(4, "lo %g hi %g root %g val %g\n", mass_low, mass_high, gsl_root_fsolver_root(s), massendlife(gsl_root_fsolver_root(s), p));
-      if (status == GSL_SUCCESS)
-        break;
-  }
-  double root = gsl_root_fsolver_root(s);
-  gsl_root_fsolver_free (s);
-  return root;
+    auto f = [p](double mass) { return massendlife(mass, p); };
+    auto tol = [](double a, double b) {
+        return std::abs(a - b) < 0.005 * std::min(std::abs(a), std::abs(b));
+    };
+    std::uintmax_t max_iter = MAXITER;
+    auto [lo, hi] = boost::math::tools::toms748_solve(f, mass_low, mass_high, tol, max_iter);
+    return (lo + hi) / 2;
 }
 
 /* Find the mass bins which die in this timestep using the lifetime table.
@@ -220,7 +200,7 @@ void find_mass_bin_limits(double * masslow, double * masshigh, const double dtst
     if(stellarmetal > lifetime_metallicity[LIFE_NMET-1])
         stellarmetal = lifetime_metallicity[LIFE_NMET-1];
 
-    /* Find the root with GSL routines. */
+    /* Find the root with Boost TOMS 748. */
     struct massbin_find_params p;
     p.lifetime_tables = lifetime_tables;
     p.stellarmetal = stellarmetal;
