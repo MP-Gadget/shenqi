@@ -17,7 +17,7 @@ BOOST_AUTO_TEST_CASE(test_yields)
     setup_metal_table_interp(&interp);
     /* Compute factor to normalise the total mass in the IMF to unity.*/
     double imf_norm = compute_imf_norm();
-    BOOST_TEST(imf_norm == 0.624632, tt::tolerance(0.01));
+    BOOST_TEST(imf_norm == 0.936976167457, tt::tolerance(0.01));
 
     double agbyield = compute_agb_yield(&interp.agb_mass_interp, 0.01, 1, 40);
     double agbyield2 = compute_agb_yield(&interp.agb_mass_interp, 0.01, 1, SNAGBSWITCH);

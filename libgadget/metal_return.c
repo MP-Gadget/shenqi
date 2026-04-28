@@ -133,11 +133,11 @@ static void
 metal_return_reduce(const int place, TreeWalkResultMetals * remote, const enum TreeWalkReduceMode mode, TreeWalk * tw);
 
 /* The Chabrier IMF used for computing SnII and AGB yields.
- * See 1305.2913 eq 3*/
+ * See 1305.2913 eq 3. Note he writes 'log' where he means 'log10'.*/
 static double chabrier_imf(double mass)
 {
     if(mass <= 1) {
-        return 0.852464 / mass * exp(- pow(log(mass / 0.079)/ 0.69, 2)/2);
+        return 0.852464 / mass * exp(- pow(log10(mass / 0.079)/ 0.69, 2)/2);
     }
     else {
         return 0.237912 * pow(mass, -2.3);
