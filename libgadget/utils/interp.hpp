@@ -2,6 +2,30 @@
 #define INTERP_H
 
 #include <stdint.h>
+#include <algorithm>
+
+/* Non-uniform bilinear interpolation on a rectangular grid.
+ * zs is row-major: zs[i*ny + j] is the value at (xs[i], ys[j]). */
+struct Bilinear2D {
+    const double * xs;
+    int nx;
+    const double * ys;
+    int ny;
+    const double * zs;
+
+    double eval(double x, double y) const {
+        int i = (int)(std::upper_bound(xs, xs + nx, x) - xs) - 1;
+        int j = (int)(std::upper_bound(ys, ys + ny, y) - ys) - 1;
+        i = std::max(0, std::min(i, nx - 2));
+        j = std::max(0, std::min(j, ny - 2));
+        double tx = (x - xs[i]) / (xs[i+1] - xs[i]);
+        double ty = (y - ys[j]) / (ys[j+1] - ys[j]);
+        return (1.0 - tx) * (1.0 - ty) * zs[ j      * nx + i    ]
+             +        tx  * (1.0 - ty) * zs[ j      * nx + i + 1 ]
+             + (1.0 - tx) *        ty  * zs[(j + 1)  * nx + i    ]
+             +        tx  *        ty  * zs[(j + 1)  * nx + i + 1 ];
+    }
+};
 
 template <int Ndim>
 class InterpNLinear {

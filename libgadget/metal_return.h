@@ -4,18 +4,18 @@
 #include "forcetree.h"
 #include "timestep.h"
 #include "utils/paramset.h"
-#include <gsl/gsl_interp2d.h>
+#include "utils/interp.hpp"
 #include "slotsmanager.h"
 
 struct interps
 {
-    gsl_interp2d * lifetime_interp;
-    gsl_interp2d * agb_mass_interp;
-    gsl_interp2d * agb_metallicity_interp;
-    gsl_interp2d * agb_metals_interp[NMETALS];
-    gsl_interp2d * snii_mass_interp;
-    gsl_interp2d * snii_metallicity_interp;
-    gsl_interp2d * snii_metals_interp[NMETALS];
+    Bilinear2D lifetime_interp;
+    Bilinear2D agb_mass_interp;
+    Bilinear2D agb_metallicity_interp;
+    Bilinear2D agb_metals_interp[NMETALS];
+    Bilinear2D snii_mass_interp;
+    Bilinear2D snii_metallicity_interp;
+    Bilinear2D snii_metals_interp[NMETALS];
 };
 
 /* Build the interpolators for each yield table. We use bilinear interpolation
