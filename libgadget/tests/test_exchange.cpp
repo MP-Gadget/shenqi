@@ -2,7 +2,7 @@
 #define BOOST_TEST_MODULE exchange
 #include "booststub.h"
 
-#include <libgadget/exchange.h>
+#include <libgadget/exchange.hpp>
 #include <libgadget/domain.h>
 #include <libgadget/slotsmanager.h>
 #include <libgadget/partmanager.h>
@@ -80,11 +80,15 @@ teardown_particles(void)
 }
 
 
-static int
-test_exchange_layout_func(int i, const void * userdata)
+class TestExchangePlan: public ExchangePlan<TestExchangePlan>
 {
-    return PartManager->Base[i].ID % NTask;
-}
+public:
+    int
+    layoutfunc(const particle_data& pp) const
+    {
+        return pp.ID % NTask;
+    }
+};
 
 BOOST_AUTO_TEST_CASE(test_exchange)
 {
@@ -92,7 +96,8 @@ BOOST_AUTO_TEST_CASE(test_exchange)
 
     setup_particles(newSlots);
 
-    int fail = domain_exchange(&test_exchange_layout_func, NULL, NULL, PartManager, SlotsManager,10000, MPI_COMM_WORLD);
+    TestExchangePlan plan(MPI_COMM_WORLD);
+    int fail = plan.domain_exchange(PartManager, SlotsManager,10000, MPI_COMM_WORLD);
 
     assert_all_true(!fail);
 #ifdef DEBUG
@@ -109,7 +114,8 @@ BOOST_AUTO_TEST_CASE(test_exchange_zero_slots)
 
     setup_particles(newSlots);
 
-    int fail = domain_exchange(&test_exchange_layout_func, NULL, NULL, PartManager, SlotsManager, 10000, MPI_COMM_WORLD);
+    TestExchangePlan plan(MPI_COMM_WORLD);
+    int fail = plan.domain_exchange(PartManager, SlotsManager,10000, MPI_COMM_WORLD);
 
     assert_all_true(!fail);
 #ifdef DEBUG
@@ -129,7 +135,8 @@ BOOST_AUTO_TEST_CASE(test_exchange_with_garbage)
 
     slots_mark_garbage(0, PartManager, SlotsManager); /* watch out! this propagates the garbage flag to children */
     TotNumPart -= NTask;
-    int fail = domain_exchange(&test_exchange_layout_func, NULL, NULL, PartManager, SlotsManager, 10000, MPI_COMM_WORLD);
+    TestExchangePlan plan(MPI_COMM_WORLD);
+    int fail = plan.domain_exchange(PartManager, SlotsManager,10000, MPI_COMM_WORLD);
 
     assert_all_true(!fail);
 
@@ -141,13 +148,18 @@ BOOST_AUTO_TEST_CASE(test_exchange_with_garbage)
     return;
 }
 
-static int
-test_exchange_layout_func_uneven(int i, const void * userdata)
+class TestUnevenExchangePlan: public ExchangePlan<TestUnevenExchangePlan>
 {
-    if(PartManager->Base[i].Type == 0) return 0;
+public:
+    int
+    layoutfunc(const particle_data& pp) const
+    {
+        if(pp.Type == 0)
+            return 0;
+        return pp.ID % NTask;
+    }
+};
 
-    return PartManager->Base[i].ID % NTask;
-}
 
 BOOST_AUTO_TEST_CASE(test_exchange_uneven)
 {
@@ -157,7 +169,8 @@ BOOST_AUTO_TEST_CASE(test_exchange_uneven)
     int i;
 
     /* this will trigger a slot growth on slot type 0 due to the inbalance */
-    int fail = domain_exchange(&test_exchange_layout_func_uneven, NULL, NULL, PartManager, SlotsManager, 10000, MPI_COMM_WORLD);
+    TestUnevenExchangePlan plan(MPI_COMM_WORLD);
+    int fail = plan.domain_exchange(PartManager, SlotsManager,10000, MPI_COMM_WORLD);
 
     assert_all_true(!fail);
 

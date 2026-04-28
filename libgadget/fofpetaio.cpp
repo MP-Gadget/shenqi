@@ -14,7 +14,7 @@
 #include "partmanager.h"
 #include "slotsmanager.h"
 #include "petaio.h"
-#include "exchange.h"
+#include "exchange.hpp"
 #include "fof.h"
 #include "walltime.h"
 
@@ -164,11 +164,14 @@ struct PartIndex {
     };
 };
 
-static int fof_sorted_layout(int i, const void * userdata) {
-    struct part_manager_type * halo_pman = (struct part_manager_type *) userdata;
-    /* Reuse the topleaf info to be a task. We will regenerate it with a domain_maintain afterwards.*/
-    return halo_pman->Base[i].TopLeaf;
-}
+class FOFExchangePlan: public ExchangePlan<FOFExchangePlan>
+{
+public:
+    int layoutfunc(const particle_data& pp) const {
+        /* Reuse the topleaf info to be a task. We will regenerate it with a domain_maintain afterwards.*/
+        return pp.TopLeaf;
+    }
+};
 
 static void fof_radix_sortkey(const void * c1, void * out, void * arg) {
     uint64_t * u = (uint64_t *) out;
@@ -356,7 +359,8 @@ fof_distribute_particles(struct part_manager_type * halo_pman, struct slots_mana
             endrun(3, "Error in NpigLocal %ld != %ld!\n", NpigLocal, halo_pman->NumPart);
     }
     /* Do a domain exchange. No pre-computed list here. Maybe a different particle table.*/
-    if(domain_exchange(fof_sorted_layout, halo_pman, NULL, halo_pman, halo_sman, 10000, Comm)) {
+    FOFExchangePlan fofplan(Comm);
+    if(fofplan.domain_exchange(halo_pman, halo_sman, 10000, Comm)) {
         message(1930, "Failed to exchange and write particles for the FOF. This is non-fatal, continuing.\n");
         if(halo_pman != PartManager) {
             slots_free(halo_sman);

@@ -6,7 +6,7 @@
 #include <omp.h>
 #include <execution>
 #include <algorithm>
-#include <numeric>
+#include <ranges>
 
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
@@ -346,12 +346,10 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
     //grav_short_tree_build_tree(subact, pm, ddecomp, StoredGravAccel, times->Ti_Current, rho0, HybridNuGrav, EmergencyOutputDir);
 
     /* Find the largest timebin active this timestep.*/
-    const int nthread = omp_get_max_threads();
-    int64_t * timebincounts = ta_malloc("timebincounts", int64_t, TIMEBINS * nthread);
-    memset(timebincounts, 0, TIMEBINS * nthread * sizeof(int64_t));
+    int64_t timebincounts[TIMEBINS] = {0};
     /* Find the timesteps for all active particles.*/
     int i;
-    #pragma omp parallel for
+    #pragma omp parallel for reduction(+: timebincounts[:TIMEBINS])
     for(i = 0; i < subact->NumActiveParticle; i++) {
         const int pa = get_active_particle(subact, i);
         if(Part[pa].Swallowed || Part[pa].IsGarbage)
@@ -373,21 +371,13 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
         int bin = get_timestep_bin(dti_gravity);
         if(bin > largest_active)
             bin = largest_active;
-        int tid = omp_get_thread_num();
-        timebincounts[tid * TIMEBINS + bin] ++;
+        timebincounts[bin] ++;
         Part[pa].TimeBinGravity = bin;
     }
-    /* Count particles in timebins and find largest timestep with particles.*/
-    for(ti = largest_active; ti >= 1; ti--) {
-        for(i = 0; i < nthread; i++)
-            timebincounts[ti] += timebincounts [i * TIMEBINS + ti];
-    }
-    int64_t alltimebincounts[TIMEBINS];
-    MPI_Allreduce(timebincounts, alltimebincounts, TIMEBINS, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
-    myfree(timebincounts);
+    MPI_Allreduce(MPI_IN_PLACE, timebincounts, TIMEBINS, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     /* Find largest bin with particles in.*/
     for(ti = largest_active; ti >= 1; ti--)
-        if(alltimebincounts[ti] > 0) {
+        if(timebincounts[ti] > 0) {
             largest_active = ti;
             break;
         }
@@ -400,14 +390,14 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
     int push_down_bin = largest_active;
     if(subact->NumActiveParticle == PartManager->NumPart) {
         for(ti = largest_active; ti >= 1; ti--) {
-            if(alltimebincounts[ti] / 3 > alltimebincounts[ti-1])
+            if(timebincounts[ti] / 3 > timebincounts[ti-1])
                 break;
             push_down_bin = ti-1;
-            alltimebincounts[ti-1] += alltimebincounts[ti];
+            timebincounts[ti-1] += timebincounts[ti];
         }
     }
     if(push_down_bin == 0)
-        endrun(77, "Bad timestep with %ld particles inside\n", alltimebincounts[push_down_bin]);
+        endrun(77, "Bad timestep with %ld particles inside\n", timebincounts[push_down_bin]);
     if(push_down_bin != largest_active) {
         message(0, "Pushing down top bin from %d to %d\n", largest_active, push_down_bin);
         #pragma omp parallel for
@@ -1327,14 +1317,10 @@ build_active_particles(ActiveParticles * act, const DriftKickTimes * const times
     else {
         act->ActiveParticle = (int *) mymanagedmalloc("ActiveParticle", PartManager->MaxPart * sizeof(int));
         ActivePredicate pred{PartManager->Base, times->Ti_Current};
-        /* The GPU code equivalent uses a counting_iterator. There is an equivalent in boost::counting_iterator for the CPU, but
-         * it does not compile on nvc++, which does not accept it as an STL iterator. Therefore we just populate an index array.*/
-        int * indices = (int *) mymalloc("ActiveIndex", PartManager->NumPart * sizeof(int));
-        std::iota(indices, indices + PartManager->NumPart, 0);
-        auto end = std::copy_if(std::execution::par,
-            indices, indices + PartManager->NumPart, act->ActiveParticle, pred);
+        /* This is the C++20 equivalent of a counting_iterator.*/
+        auto iota = std::views::iota(0, (int) PartManager->NumPart);
+        auto end = std::copy_if(std::execution::par, iota.begin(), iota.end(), act->ActiveParticle, pred);
         act->NumActiveParticle = end - act->ActiveParticle;
-        myfree(indices);
         act->Particles = PartManager->Base;
         /* Need to count the active list for this.*/
         int64_t nactivegrav = 0;
@@ -1404,12 +1390,9 @@ build_active_sublist(const ActiveParticles * act, int maxtimebin, const inttime_
     }
     else {
         /* PM step: act->ActiveParticle is NULL and the active set is all particles 0..NumActiveParticle-1. */
-        int * indices = (int *) mymalloc("SubActiveIndex", act->NumActiveParticle * sizeof(int));
-        std::iota(indices, indices + act->NumActiveParticle, 0);
-        auto end = std::copy_if(std::execution::par,
-            indices, indices + act->NumActiveParticle, sub_act->ActiveParticle, pred);
+        auto iota = std::views::iota(0, (int) act->NumActiveParticle);
+        auto end = std::copy_if(std::execution::par, iota.begin(), iota.end(), sub_act->ActiveParticle, pred);
         sub_act->NumActiveParticle = end - sub_act->ActiveParticle;
-        myfree(indices);
     }
     sub_act->NumActiveGravity = sub_act->NumActiveParticle;
     sub_act->MaxActiveParticle = sub_act->NumActiveParticle;

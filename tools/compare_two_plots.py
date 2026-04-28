@@ -7,6 +7,7 @@
 import sys
 import os.path
 import numpy as np
+from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 import bigfile
 #from fake_spectra import spectra
@@ -38,7 +39,7 @@ def plot_mass_functions(output1, output2, atime):
     pig1 = plotGSMF.find_redshift(1/atime-1, output1)
     pig2 = plotGSMF.find_redshift(1/atime-1, output2)
     bff = bigfile.BigFile(pig1)
-    scalefactor = bff["Header"].attrs["Time"]
+    scalefactor = bff["Header"].attrs["Time"][0]
     lstart = len(os.path.commonpath([output1, output2]))
     plotGSMF.plot_gsmf(pig1, label=output1[lstart:], plot_data=False)
     plotGSMF.plot_gsmf(pig2, label=output2[lstart:], plot_data=True)
@@ -49,7 +50,7 @@ def plot_mass_functions(output1, output2, atime):
     plotGSMF.plot_bhmf(pig2, label=output2[lstart:])
     plt.savefig("bhmf-%.4f.pdf" % scalefactor)
     plt.clf()
-    lbox = float(bff["Header"].attrs["BoxSize"])
+    lbox = float(bff["Header"].attrs["BoxSize"][0])
     hh = bff["Header"].attrs["HubbleParam"]
     hmf1 = plotGSMF.get_hmf(bff, lbox, hh)
     bff2 = bigfile.BigFile(pig2)
@@ -57,7 +58,14 @@ def plot_mass_functions(output1, output2, atime):
     ax_abs, ax2_rel = make_figures()
     ax_abs.plot(hmf1[0], hmf1[1], label=output1[lstart:])
     ax_abs.plot(hmf2[0], hmf2[1], label=output2[lstart:])
-    ax2_rel.plot(hmf2[0], hmf2[1]/hmf1[1])
+    if np.size(hmf1[0]) > np.size(hmf2[0]):
+        hmfint = interp1d(hmf1[0], hmf1[1])
+        ax2_rel.plot(hmf2[0], hmf2[1]/hmfint(hmf2[0]))
+    elif np.size(hmf2[0]) > np.size(hmf1[0]):
+        hmfint = interp1d(hmf2[0], hmf2[1])
+        ax2_rel.plot(hmf1[0], hmfint(hmf1[0])/hmf1[1])
+    else:
+        ax2_rel.plot(hmf2[0], hmf2[1]/hmf1[1])
     ax_abs.legend()
     plt.savefig("hmf-%.4f.pdf" % scalefactor)
     plt.clf()

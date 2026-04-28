@@ -12,7 +12,7 @@
 #include "domain.h"
 #include "forcetree.h"
 #include "timestep.h"
-#include "exchange.h"
+#include "exchange.hpp"
 #include "slotsmanager.h"
 #include "partmanager.h"
 #include "walltime.h"
@@ -141,10 +141,28 @@ static void
 domain_create_topleaves(DomainDecomp * ddecomp, int no, int * next);
 
 static int
-domain_layoutfunc(int n, const void * userdata);
-
-static int
 domain_policies_init(DomainDecompositionPolicy policies[], const int Npolicies);
+
+/*! This function determines which particles that are currently stored
+ *  on the local CPU have to be moved off according to the domain
+ *  decomposition.
+ *
+ *  layoutfunc decides the target Task of particle p
+ *  Uses the toptree, instead of the Peano key*/
+class DomainExchangePlan: public ExchangePlan<DomainExchangePlan>
+{
+public:
+    int NTopLeaves;
+    topleaf_data * TopLeaves;
+    DomainExchangePlan(DomainDecomp* ddecomp) : ExchangePlan(ddecomp->DomainComm), NTopLeaves(ddecomp->NTopLeaves), TopLeaves(ddecomp->TopLeaves){ }
+
+    int layoutfunc(const particle_data& pp) const {
+        const int topleaf = pp.TopLeaf;
+        if(topleaf < 0 || topleaf >= NTopLeaves)
+            return -1;
+        return TopLeaves[topleaf].Task;
+    }
+};
 
 /*! This is the main routine for the domain decomposition.  It acts as a
  *  driver routine that allocates various temporary buffers, maps the
@@ -224,10 +242,11 @@ void domain_decompose_full(DomainDecomp * ddecomp, MPI_Comm DomainComm)
             continue;
           /* Store the topleaf in the header to avoid recomputing every tree build. */
           const peano_t key = PEANO(PartManager->Base[n].Pos, PartManager->BoxSize);
-          PartManager->Base[n].TopLeaf = domain_get_topleaf(key, ddecomp);
+          PartManager->Base[n].TopLeaf = domain_get_topleaf(key, ddecomp->TopNodes);
         }
 
-        if(domain_exchange(domain_layoutfunc, ddecomp, NULL, PartManager, SlotsManager, 10000, ddecomp->DomainComm)) {
+        DomainExchangePlan plan(ddecomp);
+        if(plan.domain_exchange(PartManager, SlotsManager, 10000, ddecomp->DomainComm)) {
             message(0,"Could not exchange particles\n");
             if(i == Npolicies - 1)
                 endrun(5, "Ran out of policies!\n");
@@ -257,27 +276,71 @@ void domain_decompose_full(DomainDecomp * ddecomp, MPI_Comm DomainComm)
     walltime_measure("/Domain/PeanoSort");
 }
 
-/*Check whether a particle is inside the volume covered by a node,
- * by checking whether each dimension is close enough to center (L1 metric).*/
-static inline int inside_topleaf(const int topleaf, const double Pos[3], const ForceTree * const tree)
+/*! This function determines which particles that are currently stored
+ *  on the local CPU have to be moved off according to the domain
+ *  decomposition.
+ *
+ *  layoutfunc decides the target Task of particle p
+ *  Uses the toptree, instead of the Peano key*/
+class DomainMaintainExchangePlan: public ExchangePlan<DomainMaintainExchangePlan>
 {
-    /* During fof particle exchange topleaf is over-written with the target task.
-     * This is usually fine: if the index of the target top leaf happens to be the
-     * same as the target task we just have nothing to do. But make sure we don't have a bad index,
-     * just in case. Usually we should have at least one topleaf per task so this should never happen. */
-    if(topleaf >= tree->NTopLeaves || topleaf < 0)
-        return 0;
-    /* Find treenode corresponding to this topleaf*/
-    const struct NODE * const node = &tree->Nodes[tree->TopLeaves[topleaf].treenode];
+public:
+    int NTopLeaves;
+    topleaf_data * TopLeaves;
+    topnode_data * TopNodes;
+    struct NODE * Nodes;
+    bool dmtree;
+    DomainMaintainExchangePlan(DomainDecomp* ddecomp, ForceTree * tree) : ExchangePlan(ddecomp->DomainComm), NTopLeaves(ddecomp->NTopLeaves),
+    TopLeaves(ddecomp->TopLeaves), TopNodes(ddecomp->TopNodes), Nodes(tree->Nodes), dmtree(blackhole_dynfric_treemask() & DMMASK)
+    { }
 
-    /*One can also use a loop, but the compiler unrolls it only at -O3,
-     *so this is a little faster*/
-    int inside =
-        (fabs(2*(Pos[0] - node->center[0])) <= node->len) *
-        (fabs(2*(Pos[1] - node->center[1])) <= node->len) *
-        (fabs(2*(Pos[2] - node->center[2])) <= node->len);
-    return inside;
-}
+    bool need_new_topleaf(const particle_data& pp) const {
+        /* If we aren't using DM for the dynamic friction, we don't need to build a tree with inactive DM particles.
+         * Velocity dispersions are computed on a PM step only.
+         * In this case, keep the particles on this processor.*/
+        if(!dmtree && pp.Type == 1 && !is_timebin_active(pp.TimeBinGravity, pp.Ti_drift))
+            return false;
+        /* Update the topleaf if we are no longer inside it*/
+        if(inside_topleaf(pp.TopLeaf, pp.Pos))
+            return false;
+        return true;
+    }
+
+    int layoutfunc(const particle_data& pp) const {
+        /* If we aren't using DM for the dynamic friction, we don't need to build a tree with inactive DM particles.
+         * Velocity dispersions are computed on a PM step only.
+         * In this case, keep the particles on this processor.*/
+        if(!dmtree && pp.Type == 1 && !is_timebin_active(pp.TimeBinGravity, pp.Ti_drift))
+            return -1;
+        int topleaf = pp.TopLeaf;
+        if(topleaf < 0 || topleaf >= NTopLeaves)
+            return -1;
+        return TopLeaves[topleaf].Task;
+    }
+
+private:
+    /*Check whether a particle is inside the volume covered by a node,
+     * by checking whether each dimension is close enough to center (L1 metric).*/
+    bool inside_topleaf(const int topleaf, const double Pos[3]) const
+    {
+        /* During fof particle exchange topleaf is over-written with the target task.
+        * This is usually fine: if the index of the target top leaf happens to be the
+        * same as the target task we just have nothing to do. But make sure we don't have a bad index,
+        * just in case. Usually we should have at least one topleaf per task so this should never happen. */
+        if(topleaf >= NTopLeaves || topleaf < 0)
+            return 0;
+        /* Find treenode corresponding to this topleaf*/
+        const struct NODE& node = Nodes[TopLeaves[topleaf].treenode];
+
+        /*One can also use a loop, but the compiler unrolls it only at -O3,
+        *so this is a little faster*/
+        bool inside =
+            (fabs(2*(Pos[0] - node.center[0])) <= node.len) &&
+            (fabs(2*(Pos[1] - node.center[1])) <= node.len) &&
+            (fabs(2*(Pos[2] - node.center[2])) <= node.len);
+        return inside;
+    }
+};
 
 /* This is a cut-down version of the domain decomposition that leaves the
  * domain grid intact, but exchanges the particles and rebuilds the tree */
@@ -285,62 +348,28 @@ int domain_maintain(DomainDecomp * ddecomp, struct DriftData * drift, double ddr
 {
     message(0, "Attempting a domain exchange\n");
 
+    ForceTree tree = force_tree_top_build(ddecomp, 1);
+    DomainMaintainExchangePlan plan(ddecomp, &tree);
+    /* flag the particles that need to be exported */
     /* Find drift factor*/
     /* Can't update the random shift without re-decomposing domain*/
     const double rel_random_shift[3] = {0};
-
-    /*Garbage particles are counted so we have an accurate memory estimate*/
-    int ngarbage = 0;
-    gadget_thread_arrays gthread = gadget_setup_thread_arrays("exchangelist", 1, PartManager->NumPart);
-
-    ForceTree tree = force_tree_top_build(ddecomp, 1);
-    /* flag the particles that need to be exported */
-#pragma omp parallel
-    {
-        size_t nexthr_local = 0;
-        const int tid = omp_get_thread_num();
-        int * threx_local = gthread.srcs[tid];
-    #pragma omp for schedule(static, gthread.schedsz) reduction(+: ngarbage)
+    #pragma omp parallel for
     for(int i=0; i < PartManager->NumPart; i++) {
+        struct particle_data& pp = PartManager->Base[i];
         if(drift) {
-            real_drift_particle(&PartManager->Base[i], SlotsManager, ddrift, PartManager->BoxSize, rel_random_shift);
-            PartManager->Base[i].Ti_drift = drift->ti1;
+            real_drift_particle(&pp, SlotsManager, ddrift, PartManager->BoxSize, rel_random_shift);
+            pp.Ti_drift = drift->ti1;
         }
-        /* Garbage is not in the tree*/
-        if(PartManager->Base[i].IsGarbage) {
-            ngarbage++;
+        if(pp.IsGarbage)
             continue;
-        }
-        /* If we aren't using DM for the dynamic friction, we don't need to build a tree with inactive DM particles.
-         * Velocity dispersions are computed on a PM step only.
-         * In this case, keep the particles on this processor.*/
-        if(!(blackhole_dynfric_treemask() & DMMASK))
-            if(PartManager->Base[i].Type == 1 && !is_timebin_active(PartManager->Base[i].TimeBinGravity, PartManager->Base[i].Ti_drift))
-                continue;
-        if(!inside_topleaf(PartManager->Base[i].TopLeaf, PartManager->Base[i].Pos, &tree)) {
-            const int no = domain_get_topleaf(PEANO(PartManager->Base[i].Pos, PartManager->BoxSize), ddecomp);
-            /* Set the topleaf for layoutfunc.*/
-            PartManager->Base[i].TopLeaf = no;
-        }
-        int target = domain_layoutfunc(i, ddecomp);
-        if(target != tree.ThisTask) {
-            threx_local[nexthr_local] = i;
-            nexthr_local++;
-        }
+        if(plan.need_new_topleaf(pp))
+            pp.TopLeaf = domain_get_topleaf(PEANO(pp.Pos, PartManager->BoxSize), ddecomp->TopNodes);
     }
-    gthread.sizes[tid] = nexthr_local;
-    }
-    force_tree_free(&tree);
-    PreExchangeList ExchangeData[1] = {0};
-    ExchangeData->ngarbage = ngarbage;
-    /*Merge step for the queue.*/
-    ExchangeData->nexchange = gadget_compact_thread_arrays(&ExchangeData->ExchangeList, &gthread);
-    /*Shrink memory*/
-    ExchangeData->ExchangeList = (int *) myrealloc(ExchangeData->ExchangeList, sizeof(int) * ExchangeData->nexchange);
     walltime_measure("/Domain/drift");
-
-    /* Try a domain exchange. Note ExchangeList is freed inside.*/
-    int exchange_status = domain_exchange(domain_layoutfunc, ddecomp, ExchangeData, PartManager, SlotsManager, 10000, ddecomp->DomainComm);
+    /* Try a domain exchange.*/
+    int exchange_status = plan.domain_exchange(PartManager, SlotsManager, 10000, ddecomp->DomainComm);
+    force_tree_free(&tree);
     return exchange_status;
 }
 
@@ -776,23 +805,6 @@ domain_set_task_leafs(const DomainDecomp * const ddecomp)
         endrun(0, "Assertion failed: we have %d MPI ranks but found domain entries for %d tasks.\n", NTask, ta);
     }
     return Tasks;
-}
-
-/*! This function determines which particles that are currently stored
- *  on the local CPU have to be moved off according to the domain
- *  decomposition.
- *
- *  layoutfunc decides the target Task of particle p (used by
- *  subfind_distribute).
- *  Uses the toptree, instead of the Peano key*/
-static int
-domain_layoutfunc(int n, const void * userdata) {
-    const DomainDecomp * ddecomp = (DomainDecomp *) userdata;
-    const int topleaf = PartManager->Base[n].TopLeaf;
-    if(topleaf < 0 || topleaf >= ddecomp->NTopLeaves)
-        endrun(6, "Invalid topleaf %d (ntop %d) for particle %d id %ld x-pos %g garbage %d\n",
-               topleaf, ddecomp->NTopLeaves, n, PartManager->Base[n].ID, PartManager->Base[n].Pos[0], PartManager->Base[n].IsGarbage);
-    return ddecomp->TopLeaves[topleaf].Task;
 }
 
 /*! This function walks the global top tree in order to establish the
@@ -1403,7 +1415,7 @@ domain_compute_costs(DomainDecomp * ddecomp, int64_t *TopLeafWork, int64_t *TopL
                 continue;
 
             /* This leaf is not final until the topnodes have been sorted and assigned. */
-            const int leaf = domain_get_topleaf(PEANO(PartManager->Base[n].Pos, PartManager->BoxSize), ddecomp);
+            const int leaf = domain_get_topleaf(PEANO(PartManager->Base[n].Pos, PartManager->BoxSize), ddecomp->TopNodes);
 
             if(local_TopLeafWork)
                 local_TopLeafWork[leaf + tid * ddecomp->NTopLeaves] += 1;

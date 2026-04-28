@@ -11,13 +11,13 @@
 #include "bigfile.h"
 #include "bigfile-mpi.h"
 #include "utils/mymalloc.h"
-#include "utils/interp.h"
+#include "utils/interp.hpp"
 #include "utils/endrun.h"
 #include "utils/paramset.h"
 
 static struct {
     int enabled;
-    Interp interp;
+    InterpNLinear<3> interp;
     double * Table;
     ptrdiff_t Nside;
 } UVF;
@@ -156,11 +156,10 @@ init_uvf_table(const char * UVFluctuationFile, const int UVFlucLen, const double
         endrun(0, "Corrupt UV Fluctuation table: Nside = %ld, but table is %d != %ld^3\n", UVF.Nside, size, UVF.Nside);
 
     int64_t dims[] = {UVF.Nside, UVF.Nside, UVF.Nside};
-    interp_init(&UVF.interp, 3, dims);
-    interp_init_dim(&UVF.interp, 0, 0, BoxSize);
-    interp_init_dim(&UVF.interp, 1, 0, BoxSize);
-    interp_init_dim(&UVF.interp, 2, 0, BoxSize);
-
+    double uvfmin[] = {0, 0, 0};
+    double uvfmax[] = {BoxSize, BoxSize, BoxSize};
+    InterpNLinear<3> interp(dims, uvfmin, uvfmax);
+    UVF.interp = interp;
     if(UVF.Table[0] < 0.01 || UVF.Table[0] > 100.0) {
         endrun(0, "UV Fluctuation out of range: %g\n", UVF.Table[0]);
     }
@@ -186,7 +185,7 @@ static struct UVBG get_local_UVBG_from_global(double redshift, const struct UVBG
     int i;
     for(i = 0; i < 3; i++)
         corrpos[i] = Pos[i] - PosOffset[i];
-    double zreion = interp_eval_periodic(&UVF.interp, corrpos, UVF.Table);
+    double zreion = UVF.interp.eval_periodic(corrpos, UVF.Table);
     if(zreion < redshift) {
         uvbg.zreion = zreion;
         return uvbg;
@@ -198,7 +197,7 @@ static struct UVBG get_local_UVBG_from_global(double redshift, const struct UVBG
 
 static struct UVBG get_local_UVBG_from_J21(double redshift, double J21, double zreion) {
     struct UVBG uvbg = {0};
-    
+
     // N.B. J21 must be in units of 1e-21 erg s-1 Hz-1 (proper cm)-2 sr-1
     uvbg.J_UV = J21;
     uvbg.zreion = zreion;
@@ -259,7 +258,7 @@ struct {
 
     double * Lmet_table; /* metal cooling @ one solar metalicity*/
 
-    Interp interp;
+    InterpNLinear<3> interp;
 } MetalCool;
 
 void
@@ -295,13 +294,11 @@ InitMetalCooling(const char * MetalCoolFile)
     MetalCool.Lmet_table = read_big_array(MetalCoolFile, "NetCoolingRate", &size);
 
     int64_t dims[] = {MetalCool.NRedshift_bins, MetalCool.NHydrogenNumberDensity_bins, MetalCool.NTemperature_bins};
+    double metalmin[] = {MetalCool.Redshift_bins[0], MetalCool.HydrogenNumberDensity_bins[0],  MetalCool.Temperature_bins[0]};
+    double metalmax[] = {MetalCool.Redshift_bins[MetalCool.NRedshift_bins - 1], MetalCool.HydrogenNumberDensity_bins[MetalCool.NHydrogenNumberDensity_bins - 1], MetalCool.Temperature_bins[MetalCool.NTemperature_bins - 1]};
 
-    interp_init(&MetalCool.interp, 3, dims);
-    interp_init_dim(&MetalCool.interp, 0, MetalCool.Redshift_bins[0], MetalCool.Redshift_bins[MetalCool.NRedshift_bins - 1]);
-    interp_init_dim(&MetalCool.interp, 1, MetalCool.HydrogenNumberDensity_bins[0],
-                    MetalCool.HydrogenNumberDensity_bins[MetalCool.NHydrogenNumberDensity_bins - 1]);
-    interp_init_dim(&MetalCool.interp, 2, MetalCool.Temperature_bins[0],
-                    MetalCool.Temperature_bins[MetalCool.NTemperature_bins - 1]);
+    InterpNLinear<3> interp(dims, metalmin, metalmax);
+    MetalCool.interp = interp;
 }
 
 double
@@ -314,8 +311,7 @@ TableMetalCoolingRate(double redshift, double temp, double nHcgs)
     double logT = log10(temp);
 
     double x[] = {redshift, lognH, logT};
-    int status[3];
-    double rate = interp_eval(&MetalCool.interp, x, MetalCool.Lmet_table, status);
+    double rate = MetalCool.interp.eval(x, MetalCool.Lmet_table);
     /* XXX: in case of very hot / very dense we just use whatever the table says at
      * the limit. should be OK. */
     return rate;
