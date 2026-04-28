@@ -5,7 +5,6 @@
 #include "timestep.h"
 #include "utils/paramset.h"
 #include <gsl/gsl_interp2d.h>
-#include <gsl/gsl_integration.h>
 #include "slotsmanager.h"
 
 struct interps
@@ -24,7 +23,6 @@ struct interps
 void setup_metal_table_interp(struct interps * interp);
 
 struct MetalReturnPriv {
-    gsl_integration_workspace ** gsl_work;
     MyFloat * StellarAges;
     MyFloat * MassReturn;
     MyFloat * LowDyingMass;
