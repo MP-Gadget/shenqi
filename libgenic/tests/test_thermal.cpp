@@ -45,10 +45,10 @@ BOOST_AUTO_TEST_CASE(test_thermal_vel)
     int nsample;
     float Vel[3] = {0};
     int64_t MaxID = 100000;
-    gsl_rng * g_rng = gsl_rng_alloc(gsl_rng_ranlxd1);
+    boost::random::ranlux48 rng(0);
     for (nsample=0; nsample < MaxID; nsample++)
     {
-        add_thermal_speeds(&nu_vels, g_rng, Vel);
+        add_thermal_speeds(&nu_vels, &rng, Vel);
         double v2 = sqrt(Vel[0]*Vel[0]+Vel[1]*Vel[1]+Vel[2]*Vel[2]);
         if(v2 > max)
             max = v2;
@@ -57,7 +57,6 @@ BOOST_AUTO_TEST_CASE(test_thermal_vel)
         mean+=v2;
         memset(Vel, 0, 3*sizeof(float));
     }
-    gsl_rng_free(g_rng);
     mean/=nsample;
     /*Mean should be roughly 3*zeta(4)/zeta(3)*7/8/(3/4)* m_vamp*/
     BOOST_TEST(fabs(mean - 3*pow(M_PI,4)/90./1.202057*(7./8)/(3/4.)*100) < 1);

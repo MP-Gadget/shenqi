@@ -55,7 +55,7 @@ init_thermalvel(struct thermalvel* thermals, const double v_amp, double max_fd,c
     for(i = 0; i < LENGTH_FERMI_DIRAC_TABLE; i++) {
         thermals->fermi_dirac_vel[i] = min_fd+(max_fd-min_fd)* i / (LENGTH_FERMI_DIRAC_TABLE - 1.0);
         thermals->fermi_dirac_cumprob[i] = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(fermi_dirac_kernel, min_fd, thermals->fermi_dirac_vel[i]);
-    //       printf("gsl_integration_qng in fermi_dirac_init_nu. Result %g, error: %g, intervals: %lu\n",fermi_dirac_cumprob[i], abserr,w->size);
+    //       printf("Integration in fermi_dirac_init_nu. Result %g, error: %g, intervals: %lu\n",fermi_dirac_cumprob[i], abserr,w->size);
     }
     /*Save the largest cum. probability, pre-normalisation,
      * divided by the total F-D probability (which is 3 Zeta(3)/2 ~ 1.8 if MAX_FERMI_DIRAC is large enough*/
@@ -79,31 +79,30 @@ unsigned int *
 init_rng(int Seed, int Nmesh)
 {
     unsigned int * seedtable = (unsigned int *) mymalloc("randseeds", Nmesh*Nmesh*sizeof(unsigned int));
-    gsl_rng * rng = gsl_rng_alloc(gsl_rng_ranlxd1);
-    gsl_rng_set(rng, Seed);
+    boost::random::ranlux48 rng(Seed);
 
     int i, j;
     for(i = 0; i < Nmesh; i++)
         for(j=0; j < Nmesh; j++)
         {
-            seedtable[i+Nmesh*j] = gsl_rng_get(rng);
+            seedtable[i+Nmesh*j] = (unsigned int) rng();
         }
-    gsl_rng_free(rng);
     return seedtable;
 }
 
 /* Add a randomly generated thermal speed in v_amp*(min_fd, max_fd) to a 3-velocity.
  * The particle Id is used as a seed for the RNG.*/
 void
-add_thermal_speeds(struct thermalvel * thermals, gsl_rng *g_rng, float Vel[])
+add_thermal_speeds(struct thermalvel * thermals, boost::random::ranlux48 *g_rng, float Vel[])
 {
-    const double p = gsl_rng_uniform (g_rng);
+    boost::random::uniform_01<double> uniform;
+    const double p = uniform(*g_rng);
     /*m_vamp multiples by the dimensional factor to get a velocity again.*/
     const double v = thermals->m_vamp * (*thermals->fd_intp)(p);
 
     /*Random phase*/
-    const double phi = 2 * M_PI * gsl_rng_uniform (g_rng);
-    const double theta = acos(2 * gsl_rng_uniform (g_rng) - 1);
+    const double phi = 2 * M_PI * uniform(*g_rng);
+    const double theta = acos(2 * uniform(*g_rng) - 1);
 
     Vel[0] += v * sin(theta) * cos(phi);
     Vel[1] += v * sin(theta) * sin(phi);
