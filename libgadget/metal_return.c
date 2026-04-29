@@ -259,14 +259,16 @@ double chabrier_imf_integ (double mass, const struct imf_integ_params& para)
     return weight * chabrier_imf(mass);
 }
 
-/* Compute factor to normalise the total mass in the IMF to unity.*/
+/* Compute factor to normalise the total mass in the IMF to unity.
+ * Split at mass=1 where the lognormal and power-law branches meet, since
+ * the derivative is discontinuous there even though the value is continuous.*/
 double compute_imf_norm()
 {
     auto chabrier_mass = [] (const double mass) {
         return mass * chabrier_imf(mass);
     };
-    const double norm = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(chabrier_mass, MINMASS, MAXMASS);
-    return norm;
+    return boost::math::quadrature::gauss_kronrod<double, 61>::integrate(chabrier_mass, MINMASS, 1.0)
+         + boost::math::quadrature::gauss_kronrod<double, 61>::integrate(chabrier_mass, 1.0, MAXMASS);
 }
 
 /* Compute number of Sn1a: has units of N0 = 1.3e-3, which is SN1A/(unit initial mass in M_sun).
