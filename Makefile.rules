@@ -8,8 +8,6 @@ LOW_PRECISION ?= double
 OPTIMIZE ?= -O2 -g -fopenmp -Wall
 #Explicitly set C++ standard
 OPTIMIZE += -std=gnu++20
-GSL_INCL ?= $(shell pkg-config --cflags gsl)
-GSL_LIBS ?= $(shell pkg-config --libs gsl)
 BOOST_INCL ?=
 BOOST_LIBS ?=
 
@@ -32,7 +30,7 @@ MPI_INCL = $(shell pkg-config --cflags ompi-c)
 NVOPTIONS = $(NVOPTIMIZE) $(OPT) $(MPI_INCL)
 GADGET_TESTDATA_ROOT = $(CURDIR)/../
 
-CFLAGS = $(OPTIONS) $(GSL_INCL) $(BOOST_INCL) $(FITSIO_INCL) $(CUDA_INCL)
+CFLAGS = $(OPTIONS) $(BOOST_INCL) $(FITSIO_INCL) $(CUDA_INCL)
 CFLAGS += -I../depends/include
 CFLAGS += -I../
 CFLAGS += "-DLOW_PRECISION=$(LOW_PRECISION)"
@@ -42,7 +40,7 @@ TCFLAGS = $(CFLAGS) -DGADGET_TESTDATA_ROOT=\"$(GADGET_TESTDATA_ROOT)\"
 TBB_LIBS := $(shell echo "int main(void){return 0;}" | $(MPICC) -x c++ - -ltbb -o /dev/null 2>/dev/null && echo "-ltbb")
 $(if $(TBB_LIBS),,$(warning TBB not found: building without TBB support))
 BUNDLEDLIBS = -lbigfile-mpi -lbigfile -lpfft_omp -lfftw3_mpi -lfftw3_omp -lfftw3 $(TBB_LIBS)
-LIBS  = -lm  $(BOOST_LIBS) $(GSL_LIBS) $(FITSIO_LIBS) $(CUDA_LIBS)
+LIBS  = -lm  $(BOOST_LIBS) $(FITSIO_LIBS) $(CUDA_LIBS)
 LIBS += -L../depends/lib $(BUNDLEDLIBS)
 V ?= 0
 

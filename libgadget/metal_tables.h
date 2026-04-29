@@ -424,8 +424,6 @@ static const double snii_yield[NSPECIES][SNII_NMET*SNII_NMASS] = {
 };
 
 /* These definitions are here for the tests*/
-#define GSL_WORKSPACE 1000
-
 double compute_imf_norm();
 double compute_agb_yield(const Bilinear2D * agb_interp, double stellarmetal, double masslow, double masshigh);
 double compute_snii_yield(const Bilinear2D * snii_interp, double stellarmetal, double masslow, double masshigh);
