@@ -1,7 +1,8 @@
 #ifndef THERMALVEL_H
 #define THERMALVEL_H
 
-#include <gsl/gsl_interp.h>
+#include <boost/math/interpolators/makima.hpp>
+#include <vector>
 #include <gsl/gsl_rng.h>
 /*Length of the table*/
 #define MAX_FERMI_DIRAC          17.0
@@ -12,8 +13,7 @@ struct thermalvel
     double fermi_dirac_vel[LENGTH_FERMI_DIRAC_TABLE];
     double fermi_dirac_cumprob[LENGTH_FERMI_DIRAC_TABLE];
     double m_vamp;
-    gsl_interp * fd_intp;
-    gsl_interp_accel * fd_intp_acc;
+    boost::math::interpolators::makima<std::vector<double>> * fd_intp;
 };
 
 /*Single parameter is the amplitude of the random velocities. All the physics is in here.

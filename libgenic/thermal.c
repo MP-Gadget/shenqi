@@ -1,4 +1,5 @@
 #include <boost/math/quadrature/gauss_kronrod.hpp>
+#include <vector>
 #include "thermal.h"
 /*For speed of light*/
 #include <libgadget/physconst.h>
@@ -67,10 +68,9 @@ init_thermalvel(struct thermalvel* thermals, const double v_amp, double max_fd,c
     for(i = 0; i < LENGTH_FERMI_DIRAC_TABLE; i++)
         thermals->fermi_dirac_cumprob[i] /= thermals->fermi_dirac_cumprob[LENGTH_FERMI_DIRAC_TABLE - 1];
 
-    /*Initialise the GSL table*/
-    thermals->fd_intp = gsl_interp_alloc(gsl_interp_cspline,LENGTH_FERMI_DIRAC_TABLE);
-    thermals->fd_intp_acc = gsl_interp_accel_alloc();
-    gsl_interp_init(thermals->fd_intp,thermals->fermi_dirac_cumprob, thermals->fermi_dirac_vel,LENGTH_FERMI_DIRAC_TABLE);
+    std::vector<double> xv(thermals->fermi_dirac_cumprob, thermals->fermi_dirac_cumprob + LENGTH_FERMI_DIRAC_TABLE);
+    std::vector<double> yv(thermals->fermi_dirac_vel,     thermals->fermi_dirac_vel     + LENGTH_FERMI_DIRAC_TABLE);
+    thermals->fd_intp = new boost::math::interpolators::makima<std::vector<double>>(std::move(xv), std::move(yv));
     return total_frac;
 }
 
@@ -99,7 +99,7 @@ add_thermal_speeds(struct thermalvel * thermals, gsl_rng *g_rng, float Vel[])
 {
     const double p = gsl_rng_uniform (g_rng);
     /*m_vamp multiples by the dimensional factor to get a velocity again.*/
-    const double v = thermals->m_vamp * gsl_interp_eval(thermals->fd_intp,thermals->fermi_dirac_cumprob, thermals->fermi_dirac_vel, p, thermals->fd_intp_acc);
+    const double v = thermals->m_vamp * (*thermals->fd_intp)(p);
 
     /*Random phase*/
     const double phi = 2 * M_PI * gsl_rng_uniform (g_rng);
