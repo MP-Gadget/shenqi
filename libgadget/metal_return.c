@@ -165,17 +165,15 @@ struct massbin_find_params
 
 /* This is the inverse of the lifetime function from the tables.
  * Need to find the stars with a given lifetime*/
-double
-massendlife (double mass, void *params)
+static double
+massendlife(double mass, const struct massbin_find_params * p)
 {
-  struct massbin_find_params *p = (struct massbin_find_params *) params;
-  double tlife = p->lifetime_tables->eval(p->stellarmetal, mass);
-  double tlifemyr = tlife/1e6;
-  return tlifemyr - p->dtfind;
+    double tlifemyr = p->lifetime_tables->eval(p->stellarmetal, mass) / 1e6;
+    return tlifemyr - p->dtfind;
 }
 
 /* Solve the lifetime function to find the lowest and highest mass bin that dies this timestep*/
-double do_rootfinding(struct massbin_find_params *p, double mass_low, double mass_high)
+static double do_rootfinding(struct massbin_find_params *p, double mass_low, double mass_high)
 {
     auto f = [p](double mass) { return massendlife(mass, p); };
     auto tol = [](double a, double b) {
@@ -207,14 +205,14 @@ void find_mass_bin_limits(double * masslow, double * masshigh, const double dtst
     /* First find stars that died before the end of this timebin*/
     p.dtfind = dtend;
     /* If no stars have died yet*/
-    if(massendlife (MAXMASS, &p) >= 0)
+    if(massendlife(MAXMASS, &p) >= 0)
     {
         *masslow = MAXMASS;
         *masshigh = MAXMASS;
         return;
     }
     /* All stars die before the end of this timestep*/
-    if(massendlife (agb_masses[0], &p) <= 0)
+    if(massendlife(agb_masses[0], &p) <= 0)
         *masslow = lifetime_masses[0];
     else
         *masslow = do_rootfinding(&p, agb_masses[0], MAXMASS);
@@ -223,11 +221,11 @@ void find_mass_bin_limits(double * masslow, double * masshigh, const double dtst
     p.dtfind = dtstart;
     /* Now we know that life(masslow) = dtend, so life(masslow) > dtstart, so life(masslow) - dtstart > 0
      * This is when no stars have died at the beginning of this timestep.*/
-    if(massendlife (MAXMASS, &p) >= 0)
+    if(massendlife(MAXMASS, &p) >= 0)
         *masshigh = MAXMASS;
     /* This can sometimes happen due to root finding inaccuracy.
      * Just do this star next timestep.*/
-    else if(massendlife (*masslow, &p) <= 0)
+    else if(massendlife(*masslow, &p) <= 0)
         *masshigh = *masslow;
     else
         *masshigh = do_rootfinding(&p, *masslow, MAXMASS);
