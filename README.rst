@@ -12,7 +12,7 @@ Description
 Shenqi is ultimately derived from P-Gadget / Gadget-2, with the gravity solver algorithm from Gadget-4,
 although there has been significant changes since then. Shenqi's predecessor, MP-Gadget, is the source code
 used to run the BlueTides and ASTRID simulations (http://bluetides-project.org).
-Shenqi makes heavy use of boost and also requires GSL and a C++ compiler with C++20 and OpenMP 4.5 support.
+Shenqi makes heavy use of boost and a C++ compiler with C++20 and OpenMP 4.5 support.
 
 The random number generator used in ShenqiIC is NOT THE SAME as the random number generator used in N-GenIC.
 As a result the same random seed will produce different structure than N-GenIC. If this is important, use
@@ -81,18 +81,6 @@ First time users:
     make -j
 
 The Makefile will automatically copy Options.mk.example to Options.mk. The default compile flags are appropriate for a linux using gcc, but may not be optimal.
-We will need gsl. On HPC systems with the modules command,
-usually it can be loaded with
-
-.. code:: bash
-
-    module load gsl
-
-    env | grep GSL  # check if GSL path is reasonable
-
-On a common PC/Linux system, refer to your package vendor how to
-install gsl and gsl-devel.
-
 If you wish to perform compile-time customisation (to, eg, change optimizations or use different compilers), you need an Options.mk file. The initial defaults are stored in Options.mk.example.
 
 For other systems you should use the customised Options.mk file in the
@@ -109,8 +97,6 @@ Compile-time options may be set in Options.mk. The remaining compile time option
 - DEBUG which enables various internal code consistency checks for debugging.
 - NO_OPENMP_SPINLOCK uses the OpenMP default locking routines. These are often much slower than the default pthread spinlocks. However, they are necessary for Mac, which does not provide pthreads.
 - USE_CFITSIO enables the output of lenstools compatible potential planes using cfitsio,
-
-If compilation fails with errors related to the GSL, you may also need to set the GSL_INC or GSL_LIB variables in Options.mk to the filesystem path containing the GSL headers and libraries.
 
 To run a N-Body sim, use IC files with no gas particles.
 
@@ -225,7 +211,7 @@ For usage of the code, here is a DOI for this repository that you can cite
 Licence
 -------
 
-MP-Gadget is distributed under the terms of a 3-clause BSD license or the GNU General Public License v2 or later, at the option of the user. The use of PFFT and GSL libraries usually forces distribution under the terms of the GNU General Public License v3.
+MP-Gadget is distributed under the terms of a 3-clause BSD license or the GNU General Public License v2 or later, at the option of the user. The use of PFFT libraries usually forces distribution under the terms of the GNU General Public License v3.
 
 Status
 ------

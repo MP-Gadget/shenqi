@@ -1,6 +1,8 @@
 #ifndef METAL_TABLES_H
 #define METAL_TABLES_H
 
+#include "utils/interp.hpp"
+
 /* Metals followed:
  * H, He, C, N, O, Ne, Mg, Si, Fe (9, following 1703.02970)
  */
@@ -422,18 +424,14 @@ static const double snii_yield[NSPECIES][SNII_NMET*SNII_NMASS] = {
 };
 
 /* These definitions are here for the tests*/
-#define GSL_WORKSPACE 1000
-
-double compute_imf_norm(gsl_integration_workspace * gsl_work);
-double compute_agb_yield(gsl_interp2d * agb_interp, const double * agb_weights, double stellarmetal, double masslow, double masshigh, gsl_integration_workspace * gsl_work );
-double compute_snii_yield(gsl_interp2d * snii_interp, const double * snii_weights, double stellarmetal, double masslow, double masshigh, gsl_integration_workspace * gsl_work );
-
-double chabrier_mass(double mass, void * params);
+double compute_imf_norm();
+double compute_agb_yield(const Bilinear2D * agb_interp, double stellarmetal, double masslow, double masshigh);
+double compute_snii_yield(const Bilinear2D * snii_interp, double stellarmetal, double masslow, double masshigh);
 
 double sn1a_number(double dtmyrstart, double dtmyrend, double hub);
 
 void set_metal_params(double Sn1aN0);
 
-void find_mass_bin_limits(double * masslow, double * masshigh, const double dtstart, const double dtend, double stellarmetal, gsl_interp2d * lifetime_tables);
+void find_mass_bin_limits(double * masslow, double * masshigh, const double dtstart, const double dtend, double stellarmetal, const Bilinear2D * lifetime_tables);
 
 #endif

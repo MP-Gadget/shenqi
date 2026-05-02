@@ -3,8 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <gsl/gsl_roots.h>
-#include <gsl/gsl_errno.h>
+#include <boost/math/quadrature/gauss_kronrod.hpp>
+#include <boost/math/tools/toms748_solve.hpp>
 #include <omp.h>
 
 #include "physconst.h"
@@ -74,25 +74,16 @@ set_metal_return_params(ParameterSet * ps)
  * so there is no extra memory allocation and we never free the tables*/
 void setup_metal_table_interp(struct interps * interp)
 {
-    interp->lifetime_interp = gsl_interp2d_alloc(gsl_interp2d_bilinear, LIFE_NMET, LIFE_NMASS);
-    gsl_interp2d_init(interp->lifetime_interp, lifetime_metallicity, lifetime_masses, lifetime, LIFE_NMET, LIFE_NMASS);
-    interp->agb_mass_interp = gsl_interp2d_alloc(gsl_interp2d_bilinear, AGB_NMET, AGB_NMASS);
-    gsl_interp2d_init(interp->agb_mass_interp, agb_metallicities, agb_masses, agb_total_mass, AGB_NMET, AGB_NMASS);
-    interp->agb_metallicity_interp = gsl_interp2d_alloc(gsl_interp2d_bilinear, AGB_NMET, AGB_NMASS);
-    gsl_interp2d_init(interp->agb_metallicity_interp, agb_metallicities, agb_masses, agb_total_metals, AGB_NMET, AGB_NMASS);
+    interp->lifetime_interp        = {lifetime_metallicity, LIFE_NMET,  lifetime_masses, LIFE_NMASS,  lifetime};
+    interp->agb_mass_interp        = {agb_metallicities,   AGB_NMET,   agb_masses,      AGB_NMASS,   agb_total_mass};
+    interp->agb_metallicity_interp = {agb_metallicities,   AGB_NMET,   agb_masses,      AGB_NMASS,   agb_total_metals};
     int i;
-    for(i=0; i<NMETALS; i++) {
-        interp->agb_metals_interp[i] = gsl_interp2d_alloc(gsl_interp2d_bilinear, AGB_NMET, AGB_NMASS);
-        gsl_interp2d_init(interp->agb_metals_interp[i], agb_metallicities, agb_masses, agb_yield[i], AGB_NMET, AGB_NMASS);
-    }
-    interp->snii_mass_interp = gsl_interp2d_alloc(gsl_interp2d_bilinear, SNII_NMET, SNII_NMASS);
-    gsl_interp2d_init(interp->snii_mass_interp, snii_metallicities, snii_masses, snii_total_mass, SNII_NMET, SNII_NMASS);
-    interp->snii_metallicity_interp = gsl_interp2d_alloc(gsl_interp2d_bilinear, SNII_NMET, SNII_NMASS);
-    gsl_interp2d_init(interp->snii_metallicity_interp, snii_metallicities, snii_masses, snii_total_metals, SNII_NMET, SNII_NMASS);
-    for(i=0; i<NMETALS; i++) {
-        interp->snii_metals_interp[i] = gsl_interp2d_alloc(gsl_interp2d_bilinear, SNII_NMET, SNII_NMASS);
-        gsl_interp2d_init(interp->snii_metals_interp[i], snii_metallicities, snii_masses, snii_yield[i], SNII_NMET, SNII_NMASS);
-    }
+    for(i=0; i<NMETALS; i++)
+        interp->agb_metals_interp[i] = {agb_metallicities, AGB_NMET,   agb_masses,      AGB_NMASS,   agb_yield[i]};
+    interp->snii_mass_interp        = {snii_metallicities, SNII_NMET,  snii_masses,     SNII_NMASS,  snii_total_mass};
+    interp->snii_metallicity_interp = {snii_metallicities, SNII_NMET,  snii_masses,     SNII_NMASS,  snii_total_metals};
+    for(i=0; i<NMETALS; i++)
+        interp->snii_metals_interp[i] = {snii_metallicities, SNII_NMET, snii_masses,    SNII_NMASS,  snii_yield[i]};
 }
 
 #define METALS_GET_PRIV(tw) ((struct MetalReturnPriv*) ((tw)->priv))
@@ -142,32 +133,25 @@ static void
 metal_return_reduce(const int place, TreeWalkResultMetals * remote, const enum TreeWalkReduceMode mode, TreeWalk * tw);
 
 /* The Chabrier IMF used for computing SnII and AGB yields.
- * See 1305.2913 eq 3*/
+ * See 1305.2913 eq 3. Note he writes 'log' where he means 'log10'.*/
 static double chabrier_imf(double mass)
 {
     if(mass <= 1) {
-        return 0.852464 / mass * exp(- pow(log(mass / 0.079)/ 0.69, 2)/2);
+        return 0.852464 / mass * exp(- pow(log10(mass / 0.079)/ 0.69, 2)/2);
     }
     else {
         return 0.237912 * pow(mass, -2.3);
     }
 }
 
-double atime_integ(double atime, void * params)
-{
-    Cosmology * CP = (Cosmology *) params;
-    return 1/(hubble_function(CP, atime) * atime);
-}
-
 /* Compute the difference in internal time units between two scale factors.*/
-static double atime_to_myr(Cosmology *CP, double atime1, double atime2, gsl_integration_workspace * gsl_work)
+static double atime_to_myr(Cosmology *CP, double atime1, double atime2)
 {
     /* t = dt/da da = 1/(Ha) da*/
-    /* Approximate hubble function as constant here: we only care
-     * about metal return over a single timestep*/
-    gsl_function ff = {atime_integ, CP};
-    double tmyr, abserr;
-    gsl_integration_qag(&ff, atime1, atime2, 1e-4, 0, GSL_WORKSPACE, GSL_INTEG_GAUSS61, gsl_work, &tmyr, &abserr);
+    auto atime_integ = [CP] (const double atime) {
+        return 1/(hubble_function(CP, atime) * atime);
+    };
+    double tmyr = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(atime_integ, atime1, atime2);
     return tmyr * CP->UnitTime_in_s / SEC_PER_MEGAYEAR;
 }
 
@@ -176,51 +160,28 @@ struct massbin_find_params
 {
     double dtfind;
     double stellarmetal;
-    gsl_interp2d * lifetime_tables;
-    gsl_interp_accel * metalacc;
-    gsl_interp_accel * massacc;
+    const Bilinear2D * lifetime_tables;
 };
 
 /* This is the inverse of the lifetime function from the tables.
  * Need to find the stars with a given lifetime*/
-double
-massendlife (double mass, void *params)
+static double
+massendlife(double mass, const struct massbin_find_params * p)
 {
-  struct massbin_find_params *p = (struct massbin_find_params *) params;
-  double tlife = gsl_interp2d_eval(p->lifetime_tables, lifetime_metallicity, lifetime_masses, lifetime, p->stellarmetal, mass, p->metalacc, p->massacc);
-  double tlifemyr = tlife/1e6;
-  return tlifemyr - p->dtfind;
+    double tlifemyr = p->lifetime_tables->eval(p->stellarmetal, mass) / 1e6;
+    return tlifemyr - p->dtfind;
 }
 
 /* Solve the lifetime function to find the lowest and highest mass bin that dies this timestep*/
-double do_rootfinding(struct massbin_find_params *p, double mass_low, double mass_high)
+static double do_rootfinding(struct massbin_find_params *p, double mass_low, double mass_high)
 {
-    int iter = 0;
-    gsl_function F;
-
-    F.function = &massendlife;
-    F.params = p;
-
-    const gsl_root_fsolver_type *T = gsl_root_fsolver_falsepos;
-    gsl_root_fsolver * s = gsl_root_fsolver_alloc (T);
-    gsl_root_fsolver_set (s, &F, mass_low, mass_high);
-
-    /* Iterate until we have an idea of the mass bins dying this timestep.
-     * No check is done for success, but it should always be close enough.*/
-    for(iter = 0; iter < MAXITER; iter++)
-    {
-      gsl_root_fsolver_iterate (s);
-      mass_low = gsl_root_fsolver_x_lower (s);
-      mass_high = gsl_root_fsolver_x_upper (s);
-      int status = gsl_root_test_interval (mass_low, mass_high,
-                                       0, 0.005);
-      //message(4, "lo %g hi %g root %g val %g\n", mass_low, mass_high, gsl_root_fsolver_root(s), massendlife(gsl_root_fsolver_root(s), p));
-      if (status == GSL_SUCCESS)
-        break;
-  }
-  double root = gsl_root_fsolver_root(s);
-  gsl_root_fsolver_free (s);
-  return root;
+    auto f = [p](double mass) { return massendlife(mass, p); };
+    auto tol = [](double a, double b) {
+        return std::abs(a - b) < 0.005 * std::min(std::abs(a), std::abs(b));
+    };
+    std::uintmax_t max_iter = MAXITER;
+    auto [lo, hi] = boost::math::tools::toms748_solve(f, mass_low, mass_high, tol, max_iter);
+    return (lo + hi) / 2;
 }
 
 /* Find the mass bins which die in this timestep using the lifetime table.
@@ -229,7 +190,7 @@ double do_rootfinding(struct massbin_find_params *p, double mass_low, double mas
  * lifetime_tables - 2D interpolation table of the lifetime.
  * masshigh, masslow - pointers in which to store the high and low lifetime limits
  */
-void find_mass_bin_limits(double * masslow, double * masshigh, const double dtstart, const double dtend, double stellarmetal, gsl_interp2d * lifetime_tables)
+void find_mass_bin_limits(double * masslow, double * masshigh, const double dtstart, const double dtend, double stellarmetal, const Bilinear2D * lifetime_tables)
 {
     /* Clamp metallicities to the table values.*/
     if(stellarmetal < lifetime_metallicity[0])
@@ -237,23 +198,21 @@ void find_mass_bin_limits(double * masslow, double * masshigh, const double dtst
     if(stellarmetal > lifetime_metallicity[LIFE_NMET-1])
         stellarmetal = lifetime_metallicity[LIFE_NMET-1];
 
-    /* Find the root with GSL routines. */
-    struct massbin_find_params p = {0};
-    p.metalacc = gsl_interp_accel_alloc();
-    p.massacc = gsl_interp_accel_alloc();
+    /* Find the root with Boost TOMS 748. */
+    struct massbin_find_params p;
     p.lifetime_tables = lifetime_tables;
     p.stellarmetal = stellarmetal;
     /* First find stars that died before the end of this timebin*/
     p.dtfind = dtend;
     /* If no stars have died yet*/
-    if(massendlife (MAXMASS, &p) >= 0)
+    if(massendlife(MAXMASS, &p) >= 0)
     {
         *masslow = MAXMASS;
         *masshigh = MAXMASS;
         return;
     }
     /* All stars die before the end of this timestep*/
-    if(massendlife (agb_masses[0], &p) <= 0)
+    if(massendlife(agb_masses[0], &p) <= 0)
         *masslow = lifetime_masses[0];
     else
         *masslow = do_rootfinding(&p, agb_masses[0], MAXMASS);
@@ -262,16 +221,14 @@ void find_mass_bin_limits(double * masslow, double * masshigh, const double dtst
     p.dtfind = dtstart;
     /* Now we know that life(masslow) = dtend, so life(masslow) > dtstart, so life(masslow) - dtstart > 0
      * This is when no stars have died at the beginning of this timestep.*/
-    if(massendlife (MAXMASS, &p) >= 0)
+    if(massendlife(MAXMASS, &p) >= 0)
         *masshigh = MAXMASS;
     /* This can sometimes happen due to root finding inaccuracy.
      * Just do this star next timestep.*/
-    else if(massendlife (*masslow, &p) <= 0)
+    else if(massendlife(*masslow, &p) <= 0)
         *masshigh = *masslow;
     else
         *masshigh = do_rootfinding(&p, *masslow, MAXMASS);
-    gsl_interp_accel_free(p.metalacc);
-    gsl_interp_accel_free(p.massacc);
 }
 
 /* Parameters of the interpolator
@@ -280,45 +237,38 @@ void find_mass_bin_limits(double * masslow, double * masshigh, const double dtst
  * for mass return, metal return and yield.*/
 struct imf_integ_params
 {
-    gsl_interp2d * interp;
-    const double * masses;
-    const double * metallicities;
-    const double * weights;
+    const Bilinear2D * interp;
     double metallicity;
 };
 
 /* Integrand for a function which computes a Chabrier IMF weighted quantity.*/
-double chabrier_imf_integ (double mass, void * params)
+double chabrier_imf_integ (double mass, const struct imf_integ_params& para)
 {
-    struct imf_integ_params * para = (struct imf_integ_params * ) params;
     /* This is needed so that the yield for SNII with masses between 8 and 13 Msun
      * are the same as the smallest mass in the table, 13 Msun,
      * but they still contribute their number density to the IMF.*/
     double intpmass = mass;
-    if(mass < para->masses[0])
-        intpmass = para->masses[0];
-    if(mass > para->masses[para->interp->ysize-1])
-        intpmass = para->masses[para->interp->ysize-1];
-    double weight = gsl_interp2d_eval(para->interp, para->metallicities, para->masses, para->weights, para->metallicity, intpmass, NULL, NULL);
+    if(mass < para.interp->ys[0])
+        intpmass = para.interp->ys[0];
+    if(mass > para.interp->ys[para.interp->ny - 1])
+        intpmass = para.interp->ys[para.interp->ny - 1];
+    double weight = para.interp->eval(para.metallicity, intpmass);
     /* This rescales the return by the original mass of the star, if it was outside the table.
      * It means that, for example, an 8 Msun star does not return more than 8 Msun. */
     weight *= (mass/intpmass);
     return weight * chabrier_imf(mass);
 }
 
-/* Helper for the IMF normalisation*/
-double chabrier_mass(double mass, void * params)
+/* Compute factor to normalise the total mass in the IMF to unity.
+ * Split at mass=1 where the lognormal and power-law branches meet, since
+ * the derivative is discontinuous there even though the value is continuous.*/
+double compute_imf_norm()
 {
-    return mass * chabrier_imf(mass);
-}
-
-/* Compute factor to normalise the total mass in the IMF to unity.*/
-double compute_imf_norm(gsl_integration_workspace * gsl_work)
-{
-    double norm, abserr;
-    gsl_function ff = {chabrier_mass, NULL};
-    gsl_integration_qag(&ff, MINMASS, MAXMASS, 1e-4, 1e-3, GSL_WORKSPACE, GSL_INTEG_GAUSS61, gsl_work, &norm, &abserr);
-    return norm;
+    auto chabrier_mass = [] (const double mass) {
+        return mass * chabrier_imf(mass);
+    };
+    return boost::math::quadrature::gauss_kronrod<double, 61>::integrate(chabrier_mass, MINMASS, 1.0)
+         + boost::math::quadrature::gauss_kronrod<double, 61>::integrate(chabrier_mass, 1.0, MAXMASS);
 }
 
 /* Compute number of Sn1a: has units of N0 = 1.3e-3, which is SN1A/(unit initial mass in M_sun).
@@ -341,11 +291,9 @@ double sn1a_number(double dtmyrstart, double dtmyrend, double hub)
 }
 
 /* Compute yield of AGB stars: this is normalised to the yield which has units of Msun / (unit Msun in the initial SSP and so is really dimensionless.)*/
-double compute_agb_yield(gsl_interp2d * agb_interp, const double * agb_weights, double stellarmetal, double masslow, double masshigh, gsl_integration_workspace * gsl_work )
+double compute_agb_yield(const Bilinear2D * agb_interp, double stellarmetal, double masslow, double masshigh)
 {
     struct imf_integ_params para;
-    gsl_function ff = {chabrier_imf_integ, &para};
-    double agbyield = 0, abserr;
     /* Only return AGB metals for the range of AGB stars*/
     if (masshigh > SNAGBSWITCH)
         masshigh = SNAGBSWITCH;
@@ -359,19 +307,20 @@ double compute_agb_yield(gsl_interp2d * agb_interp, const double * agb_weights, 
     if(masslow >= masshigh)
         return 0;
     para.interp = agb_interp;
-    para.masses = agb_masses;
-    para.metallicities = agb_metallicities;
     para.metallicity = stellarmetal;
-    para.weights = agb_weights;
-    gsl_integration_qag(&ff, masslow, masshigh, 1e-7, 1e-3, GSL_WORKSPACE, GSL_INTEG_GAUSS61, gsl_work, &agbyield, &abserr);
+    double abserr;
+    double agbyield = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(
+        [para] (const double mass){
+            return chabrier_imf_integ(mass, para);
+        },
+        masslow, masshigh, 15, 1e-4, &abserr);
     return agbyield;
 }
 
-double compute_snii_yield(gsl_interp2d * snii_interp, const double * snii_weights, double stellarmetal, double masslow, double masshigh, gsl_integration_workspace * gsl_work )
+double compute_snii_yield(const Bilinear2D * snii_interp, double stellarmetal, double masslow, double masshigh)
 {
     struct imf_integ_params para;
-    gsl_function ff = {chabrier_imf_integ, &para};
-    double yield = 0, abserr;
+    double abserr;
     /* Only return metals for the range of SNII stars.*/
     if (masshigh > snii_masses[SNII_NMASS-1])
         masshigh = snii_masses[SNII_NMASS-1];
@@ -382,23 +331,24 @@ double compute_snii_yield(gsl_interp2d * snii_interp, const double * snii_weight
     if (stellarmetal < snii_metallicities[0])
         stellarmetal = snii_metallicities[0];
     para.interp = snii_interp;
-    para.masses = snii_masses;
-    para.metallicities = snii_metallicities;
     para.metallicity = stellarmetal;
-    para.weights = snii_weights;
     /* This happens if no bins in range had dying stars this timestep*/
     if(masslow >= masshigh)
         return 0;
-    gsl_integration_qag(&ff, masslow, masshigh, 1e-7, 1e-3, GSL_WORKSPACE, GSL_INTEG_GAUSS61, gsl_work, &yield, &abserr);
+    double yield = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(
+    [para] (const double mass){
+        return chabrier_imf_integ(mass, para);
+    },
+    masslow, masshigh, 15, 1e-4, &abserr);
     return yield;
 }
 
 /* Compute the total mass yield for this star in this timestep*/
-static double mass_yield(double dtmyrstart, double dtmyrend, double stellarmetal, double hub, struct interps * interp, double imf_norm, gsl_integration_workspace * gsl_work, double masslow, double masshigh)
+static double mass_yield(double dtmyrstart, double dtmyrend, double stellarmetal, double hub, struct interps * interp, double imf_norm, double masslow, double masshigh)
 {
     /* Number of AGB stars/SnII by integrating the IMF*/
-    double agbyield = compute_agb_yield(interp->agb_mass_interp, agb_total_mass, stellarmetal, masslow, masshigh, gsl_work);
-    double sniiyield = compute_snii_yield(interp->snii_mass_interp, snii_total_mass, stellarmetal, masslow, masshigh, gsl_work);
+    double agbyield = compute_agb_yield(&interp->agb_mass_interp, stellarmetal, masslow, masshigh);
+    double sniiyield = compute_snii_yield(&interp->snii_mass_interp, stellarmetal, masslow, masshigh);
     /* Fraction of the IMF which goes off this timestep. Normalised by the total IMF so we get a fraction of the SSP.*/
     double massyield = (agbyield + sniiyield)/imf_norm;
     /* Mass yield from Sn1a*/
@@ -410,20 +360,20 @@ static double mass_yield(double dtmyrstart, double dtmyrend, double stellarmetal
 }
 
 /* Compute the total metal yield for this star in this timestep*/
-static double metal_yield(double dtmyrstart, double dtmyrend, double stellarmetal, double hub, struct interps * interp, MyFloat * MetalYields, double imf_norm, gsl_integration_workspace * gsl_work, double masslow, double masshigh)
+static double metal_yield(double dtmyrstart, double dtmyrend, double stellarmetal, double hub, struct interps * interp, MyFloat * MetalYields, double imf_norm, double masslow, double masshigh)
 {
     double MetalGenerated = 0;
     /* Number of AGB stars/SnII by integrating the IMF*/
-    MetalGenerated += compute_agb_yield(interp->agb_metallicity_interp, agb_total_metals, stellarmetal, masslow, masshigh, gsl_work);
-    MetalGenerated += compute_snii_yield(interp->snii_metallicity_interp, snii_total_metals, stellarmetal, masslow, masshigh, gsl_work);
+    MetalGenerated += compute_agb_yield(&interp->agb_metallicity_interp, stellarmetal, masslow, masshigh);
+    MetalGenerated += compute_snii_yield(&interp->snii_metallicity_interp, stellarmetal, masslow, masshigh);
     MetalGenerated /= imf_norm;
 
     int i;
     for(i = 0; i < NMETALS; i++)
     {
         MetalYields[i] = 0;
-        MetalYields[i] += compute_agb_yield(interp->agb_metals_interp[i], agb_yield[i], stellarmetal, masslow, masshigh, gsl_work);
-        MetalYields[i] += compute_snii_yield(interp->snii_metals_interp[i], snii_yield[i], stellarmetal, masslow, masshigh, gsl_work);
+        MetalYields[i] += compute_agb_yield(&interp->agb_metals_interp[i], stellarmetal, masslow, masshigh);
+        MetalYields[i] += compute_snii_yield(&interp->snii_metals_interp[i], stellarmetal, masslow, masshigh);
         MetalYields[i] /= imf_norm;
     }
     double Nsn1a = sn1a_number(dtmyrstart, dtmyrend, hub);
@@ -438,12 +388,6 @@ static double metal_yield(double dtmyrstart, double dtmyrend, double stellarmeta
 int64_t
 metal_return_init(const ActiveParticles * act, Cosmology * CP, struct MetalReturnPriv * priv, const double atime)
 {
-    int nthread = omp_get_max_threads();
-    priv->gsl_work = ta_malloc("gsl_work", gsl_integration_workspace *, nthread);
-    int i;
-    /* Allocate a workspace for each thread*/
-    for(i=0; i < nthread; i++)
-        priv->gsl_work[i] = gsl_integration_workspace_alloc(GSL_WORKSPACE);
     priv->hub = CP->HubbleParam;
 
     /* Initialize*/
@@ -454,27 +398,26 @@ metal_return_init(const ActiveParticles * act, Cosmology * CP, struct MetalRetur
     priv->HighDyingMass = (MyFloat *) mymalloc("HighDyingMass", SlotsManager->info[4].size * sizeof(MyFloat));
     priv->StarVolumeSPH = (MyFloat *) mymalloc("StarVolumeSPH", SlotsManager->info[4].size * sizeof(MyFloat));
 
-    priv->imf_norm = compute_imf_norm(priv->gsl_work[0]);
+    priv->imf_norm = compute_imf_norm();
     /* Maximum possible mass return for below*/
-    double maxmassfrac = mass_yield(0, 1/(CP->HubbleParam*HUBBLE * SEC_PER_MEGAYEAR), snii_metallicities[SNII_NMET-1], CP->HubbleParam, &priv->interp, priv->imf_norm, priv->gsl_work[0],agb_masses[0], MAXMASS);
+    double maxmassfrac = mass_yield(0, 1/(CP->HubbleParam*HUBBLE * SEC_PER_MEGAYEAR), snii_metallicities[SNII_NMET-1], CP->HubbleParam, &priv->interp, priv->imf_norm,agb_masses[0], MAXMASS);
 
     int64_t haswork = 0;
     /* First find the mass return as a fraction of the total mass and the age of the star.
      * This is done first so we can skip density computation for not active stars*/
     #pragma omp parallel for reduction(+: haswork)
-    for(i=0; i < act->NumActiveParticle;i++)
+    for(int i=0; i < act->NumActiveParticle;i++)
     {
         int p_i = act->ActiveParticle ? act->ActiveParticle[i] : i;
         if(Part[p_i].Type != 4)
             continue;
-        int tid = omp_get_thread_num();
         const int slot = Part[p_i].PI;
-        priv->StellarAges[slot] = atime_to_myr(CP, STARP(p_i).FormationTime, atime, priv->gsl_work[tid]);
+        priv->StellarAges[slot] = atime_to_myr(CP, STARP(p_i).FormationTime, atime);
         /* Note this takes care of units*/
         double initialmass = Part[p_i].Mass + STARP(p_i).TotalMassReturned;
-        find_mass_bin_limits(&priv->LowDyingMass[slot], &priv->HighDyingMass[slot], STARP(p_i).LastEnrichmentMyr, priv->StellarAges[Part[p_i].PI], STARP(p_i).Metallicity, priv->interp.lifetime_interp);
+        find_mass_bin_limits(&priv->LowDyingMass[slot], &priv->HighDyingMass[slot], STARP(p_i).LastEnrichmentMyr, priv->StellarAges[Part[p_i].PI], STARP(p_i).Metallicity, &priv->interp.lifetime_interp);
 
-        priv->MassReturn[slot] = initialmass * mass_yield(STARP(p_i).LastEnrichmentMyr, priv->StellarAges[Part[p_i].PI], STARP(p_i).Metallicity, CP->HubbleParam, &priv->interp, priv->imf_norm, priv->gsl_work[tid],priv->LowDyingMass[slot], priv->HighDyingMass[slot]);
+        priv->MassReturn[slot] = initialmass * mass_yield(STARP(p_i).LastEnrichmentMyr, priv->StellarAges[Part[p_i].PI], STARP(p_i).Metallicity, CP->HubbleParam, &priv->interp, priv->imf_norm, priv->LowDyingMass[slot], priv->HighDyingMass[slot]);
         //message(3, "Particle %d PI %d massgen %g mass %g initmass %g\n", p_i, Part[p_i].PI, priv->MassReturn[Part[p_i].PI], Part[p_i].Mass, initialmass);
         /* Guard against making a zero mass particle and warn since this should not happen.*/
         if(STARP(p_i).TotalMassReturned + priv->MassReturn[slot] > initialmass * maxmassfrac) {
@@ -488,7 +431,6 @@ metal_return_init(const ActiveParticles * act, Cosmology * CP, struct MetalRetur
             /* Ensure that we skip this step*/
             if(!metals_haswork(p_i, priv->MassReturn))
                 STARP(p_i).LastEnrichmentMyr = priv->StellarAges[Part[p_i].PI];
-
         }
         /* Keep count of how much work we need to do*/
         if(metals_haswork(p_i, priv->MassReturn))
@@ -506,12 +448,6 @@ metal_return_priv_free(struct MetalReturnPriv * priv)
     myfree(priv->LowDyingMass);
     myfree(priv->MassReturn);
     myfree(priv->StellarAges);
-
-    int i;
-    for(i=0; i < omp_get_max_threads(); i++)
-        gsl_integration_workspace_free(priv->gsl_work[i]);
-
-    ta_free(priv->gsl_work);
 }
 
 /*! This function is the driver routine for the calculation of metal return. */
@@ -588,12 +524,11 @@ metal_return_copy(int place, TreeWalkQueryMetals * input, TreeWalk * tw)
     double InitialMass = Part[place].Mass + STARP(place).TotalMassReturned;
     double dtmyrend = METALS_GET_PRIV(tw)->StellarAges[pi];
     double dtmyrstart = STARP(place).LastEnrichmentMyr;
-    int tid = omp_get_thread_num();
     /* This is the total mass returned from this stellar population this timestep. Note this is already in the desired units.*/
     input->MassGenerated = METALS_GET_PRIV(tw)->MassReturn[pi];
     /* This returns the total amount of metal produced this timestep, and also fills out MetalSpeciesGenerated, which is an
      * element by element table of the metal produced by dying stars this timestep.*/
-    double total_z_yield = metal_yield(dtmyrstart, dtmyrend, input->Metallicity, METALS_GET_PRIV(tw)->hub, &METALS_GET_PRIV(tw)->interp, input->MetalSpeciesGenerated, METALS_GET_PRIV(tw)->imf_norm, METALS_GET_PRIV(tw)->gsl_work[tid], METALS_GET_PRIV(tw)->LowDyingMass[pi], METALS_GET_PRIV(tw)->HighDyingMass[pi]);
+    double total_z_yield = metal_yield(dtmyrstart, dtmyrend, input->Metallicity, METALS_GET_PRIV(tw)->hub, &METALS_GET_PRIV(tw)->interp, input->MetalSpeciesGenerated, METALS_GET_PRIV(tw)->imf_norm, METALS_GET_PRIV(tw)->LowDyingMass[pi], METALS_GET_PRIV(tw)->HighDyingMass[pi]);
     /* The total metal returned is the metal ejected into the ISM this timestep. total_z_yield is given as a fraction of the initial SSP.*/
     input->MetalGenerated = InitialMass * total_z_yield;
     //message(3, "Particle %d PI %d z %g massgen %g metallicity %g\n", pi, Part[pi].PI, total_z_yield, METALS_GET_PRIV(tw)->MassReturn[pi], STARP(place).Metallicity);

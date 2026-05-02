@@ -173,20 +173,18 @@ int main(int argc, char **argv)
         struct thermalvel WDM;
         init_thermalvel(&WDM, v_th, 10000/v_th, 0);
         unsigned int * seedtable = init_rng(All2.Seed+1,All2.Ngrid);
-        gsl_rng * g_rng = gsl_rng_alloc(gsl_rng_ranlxd1);
-        /*Seed the random number table with the Id.*/
-        gsl_rng_set(g_rng, seedtable[0]);
+        boost::random::ranlux48 * g_rng = new boost::random::ranlux48(seedtable[0]);
 
         for(i = 0; i < NumPartCDM; i++) {
              /*Find the slab, and reseed if it has zero z rank*/
              if(i % All2.Ngrid == 0) {
                   uint64_t id = idgen_create_id_from_index(idgen_cdm, i);
                   /*Seed the random number table with x,y index.*/
-                  gsl_rng_set(g_rng, seedtable[id / All2.Ngrid]);
+                  g_rng->seed(seedtable[id / All2.Ngrid]);
              }
              add_thermal_speeds(&WDM, g_rng, ICP[i].Vel);
         }
-        gsl_rng_free(g_rng);
+        delete g_rng;
         myfree(seedtable);
     }
 
@@ -218,19 +216,17 @@ int main(int argc, char **argv)
 
       displacement_fields(pm, NuType, ICP, NumPartNu, &CP, All2, &powerspec);
       unsigned int * seedtable = init_rng(All2.Seed+2,All2.NGridNu);
-      gsl_rng * g_rng = gsl_rng_alloc(gsl_rng_ranlxd1);
-      /*Just in case*/
-      gsl_rng_set(g_rng, seedtable[0]);
+      boost::random::ranlux48 * g_rng = new boost::random::ranlux48(seedtable[0]);
       for(i = 0; i < NumPartNu; i++) {
            /*Find the slab, and reseed if it has zero z rank*/
            if(i % All2.NGridNu == 0) {
                 uint64_t id = idgen_create_id_from_index(idgen_nu, i);
                 /*Seed the random number table with x,y index.*/
-                gsl_rng_set(g_rng, seedtable[id / All2.NGridNu]);
+                g_rng->seed(seedtable[id / All2.NGridNu]);
            }
            add_thermal_speeds(&nu_therm, g_rng, ICP[i].Vel);
       }
-      gsl_rng_free(g_rng);
+      delete g_rng;
       myfree(seedtable);
 
       write_particle_data(idgen_nu, 2, &bf, TotNumPart+TotNumPartGas, All2.SavePrePos, All2.NumFiles, All2.NumWriters, ICP);
