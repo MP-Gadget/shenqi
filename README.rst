@@ -46,19 +46,17 @@ Deprecated Features
 -------------------
 
 These features may be removed from shenqi if they get in the way (they remain in MP-Gadget if we need them):
+
 - QuickLyaStarFormation
 - SH03 winds (the ones that do not depend on the local velocity dispersion)
 - Old-school SPH (ie, DensityIndependentSphOn = 0)
 - Black hole repositioning
-- The custom memory management stuff
 - lightcone.c
 - lenstools (depends on fftw3)
 - The Gadget-3-style non-hierarchical gravitational timestepping (HierGravOn = 0)
 - HeliumHeatOn model
-- H2 star formation, get_sfr_factor_due_to_h2
 
 Already removed:
-- EXCUR_REION
 
 GPU Porting
 -----------
@@ -201,7 +199,7 @@ http://web.mit.edu/6.005/www/fa15/classes/04-code-review/
 Citation
 --------
 
-MP-Gadget was described most recently in https://arxiv.org/abs/2111.01160 and https://arxiv.org/abs/2110.14154 with various submodules having their own papers.
+shenqi was described most recently in https://arxiv.org/abs/2111.01160 and https://arxiv.org/abs/2110.14154 with various submodules having their own papers.
 
 For usage of the code, here is a DOI for this repository that you can cite
 
@@ -211,7 +209,7 @@ For usage of the code, here is a DOI for this repository that you can cite
 Licence
 -------
 
-MP-Gadget is distributed under the terms of a 3-clause BSD license or the GNU General Public License v2 or later, at the option of the user. The use of PFFT libraries usually forces distribution under the terms of the GNU General Public License v3.
+shenqi is distributed under the terms of a 3-clause BSD license or the GNU General Public License v2 or later, at the option of the user. The use of PFFT libraries usually forces distribution under the terms of the GNU General Public License v3.
 
 Status
 ------
