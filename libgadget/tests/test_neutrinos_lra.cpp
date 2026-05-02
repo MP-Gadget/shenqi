@@ -2,7 +2,7 @@
 
 #include "booststub.h"
 #include <libgadget/neutrinos_lra.h>
-#include <libgadget/omega_nu_single.h>
+#include <libgadget/omega_nu_single.hpp>
 #include <libgadget/physconst.h>
 
 #define T_CMB0 2.7255

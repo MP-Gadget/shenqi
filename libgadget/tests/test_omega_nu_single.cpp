@@ -1,7 +1,7 @@
 #define BOOST_TEST_MODULE omega_nu_single
 
 #include "booststub.h"
-#include <libgadget/omega_nu_single.h>
+#include <libgadget/omega_nu_single.hpp>
 #include <libgadget/physconst.h>
 #include <boost/math/quadrature/gauss_kronrod.hpp>
 
