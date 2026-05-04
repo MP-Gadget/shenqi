@@ -2,7 +2,6 @@
 #define VELDISP_H
 
 #include "timestep.h"
-#include "cosmology.h"
 #include "timebinmgr.h"
 
 /* Find the 1D DM velocity dispersion of all nearly star-forming gas and black hole particles.
