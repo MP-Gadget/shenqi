@@ -246,7 +246,7 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
      * @param input  Query data
      * @param output Result accumulator
      */
-    MYCUDAFN void ngbiter(const HydroQuery& input, const particle_data& particle, HydroResult * output, const HydroPriv& priv)
+    MYCUDAFN void ngbiter(HydroQuery& input, const particle_data& particle, HydroResult * output, const HydroPriv& priv)
     {
         double dist[3];
         double r2 = this->get_distance(input, particle, priv.BoxSize, dist);

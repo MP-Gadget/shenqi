@@ -349,7 +349,7 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk<Density
         *  The neighbours of the particle in the Query are enumerated, and results
         *  are stored into the Result object.
         */
-        MYCUDAFN void ngbiter(const DensityQuery& input, const particle_data& particle, DensityResult * output, const DensityPriv& priv)
+        MYCUDAFN void ngbiter(DensityQuery& input, const particle_data& particle, DensityResult * output, const DensityPriv& priv)
         {
             double dist[3];
             double r2 = this->get_distance(input, particle, priv.BoxSize, dist);
