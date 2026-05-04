@@ -503,10 +503,11 @@ public:
             #pragma omp parallel for reduction(max: maxnumngb) reduction(min: minnumngb)
             for(int i = 0; i < size; i ++) {
                 const int p_i = CurQueue ? CurQueue[i] : i;
-                if(maxnumngb < output->NumNgb[p_i])
-                    maxnumngb = output->NumNgb[p_i];
-                if(minnumngb > output->NumNgb[p_i])
-                    minnumngb = output->NumNgb[p_i];
+                double numngb = output->GetNumNgb(p_i);
+                if(maxnumngb < numngb)
+                    maxnumngb = numngb;
+                if(minnumngb > numngb)
+                    minnumngb = numngb;
                 todo[i] = -1;
                 /* If we are done, postprocess returns 1, todo contains -1.
                  * If we need to repeat, postprocess returns 0, todo contains

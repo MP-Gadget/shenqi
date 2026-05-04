@@ -93,6 +93,11 @@ class DensityOutput {
         }
     }
 
+    double GetNumNgb(const int i)
+    {
+        return NumNgb[i];
+    }
+
     ~DensityOutput()
     {
         if(GradRho)
