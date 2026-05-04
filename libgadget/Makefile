@@ -47,7 +47,7 @@ GADGET_C_SRCS =  hci.c\
 	 drift.c stats.c \
 	 init.c checkpoint.c \
 	 cooling.c \
-	 veldisp.c density.c treewalk.c \
+	 density.c treewalk.c \
 	 gravshort-tree.c gravshort-pair.c hydra.c \
 	 gravpm.c powerspectrum.c \
 	 forcetree.c gravity.c \
