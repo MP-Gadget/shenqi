@@ -477,7 +477,7 @@ public:
 
         /* This function does treewalk_run in a loop, allocating a queue to allow some particles to be redone.
     * This loop is used primarily in density estimation.*/
-    void do_hsml_loop(int * queue, int64_t queuesize, const int update_hsml, particle_data * parts)
+    void do_hsml_loop(int * queue, int64_t queuesize, const bool update_hsml, particle_data * parts)
     {
         /* Build the first queue */
         double tstart = second();
@@ -515,9 +515,12 @@ public:
                 if(0 == output->postprocess(p_i, parts, &priv))
                     todo[i] = p_i;
                 /* If we are done repeating, update the hmax in the parent node,
-                * if that type is in the tree.*/
-                else if(tree->mask & (1<<parts[p_i].Type))
-                    update_tree_hmax_father(tree, p_i, parts[p_i].Pos, parts[p_i].Hsml);
+                 * Only do this when gas particles are in the tree, since we only need
+                 * it for a symmetric treewalk and that is just hydro and BH mergers.
+                 * Do it only for types in the tree.*/
+                else if constexpr(LocalTreeWalkType::tree_mask & GASMASK)
+                    if(update_hsml && (LocalTreeWalkType::tree_mask & (1<<parts[p_i].Type)))
+                        update_tree_hmax_father(tree, p_i, parts[p_i].Pos, parts[p_i].Hsml);
             }
             ReDoQueue = (int *) mymanagedmalloc("ReDoQueue", size * sizeof(int));
             /* Compact the redo queue to remove done items with todo = -1*/

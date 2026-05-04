@@ -340,6 +340,7 @@ template <typename DerivedType, typename QueryType, typename ResultType, typenam
 class LocalNgbTreeWalk
 {
 public:
+    static constexpr int tree_mask = mask;
     /* A pointer to the tree nodes to walk.*/
     const NODE * const Nodes;
 
