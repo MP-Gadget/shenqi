@@ -11,9 +11,6 @@
 #include "utils/mymalloc.h"
 #include "densitykernel.hpp"
 
-/* Compute the DM velocity dispersion for black holes*/
-static void blackhole_veldisp(const ActiveParticles * act, Cosmology * CP, ForceTree * tree, KickFactorData& kf);
-
 /* For the wind hsml loop*/
 #define NWINDHSML 5 /* Number of densities to evaluate for wind weight ngbiter*/
 #define NUMDMNGB 40 /*Number of DM ngb to evaluate vel dispersion */
@@ -161,8 +158,9 @@ class BHVelDispTreeWalkQuintic: public TreeWalk<BHVelDispTreeWalkQuintic, BHVelD
     using TreeWalk::TreeWalk;
 };
 
+/* Compute the DM velocity dispersion for black holes*/
 static void
-blackhole_veldisp(const ActiveParticles * act, Cosmology * CP, ForceTree * tree, KickFactorData& kf)
+blackhole_veldisp(const ActiveParticles * act, ForceTree * tree, KickFactorData& kf)
 {
     /* This treewalk uses only DM */
     if(!tree->tree_allocated_flag)
@@ -482,7 +480,7 @@ class WindVDispTreeWalk: public TreeWalk<WindVDispTreeWalk, WindVDispQuery, Wind
 /* Find the 1D DM velocity dispersion of all gas particles by running a density loop.
  * Stores it in VDisp in the slots structure.*/
 void
-winds_find_vel_disp(const ActiveParticles * act, const double Time, const double hubble, Cosmology * CP, DriftKickTimes * times, TimeBinMgr * timebinmgr, DomainDecomp * ddecomp)
+winds_find_vel_disp(const ActiveParticles * act, const double Time, const double hubble, DriftKickTimes * times, TimeBinMgr * timebinmgr, DomainDecomp * ddecomp)
 {
     int * ActiveVDisp = NULL;
     /* Build the queue to check that we have something to do before we rebuild the tree.*/
@@ -501,7 +499,7 @@ winds_find_vel_disp(const ActiveParticles * act, const double Time, const double
 
     /* Compute the black hole velocity dispersions if needed*/
     if(totbh)
-        blackhole_veldisp(act, CP, tree, kf);
+        blackhole_veldisp(act, tree, kf);
 
     if(totvdisp == 0) {
         force_tree_free(tree);
