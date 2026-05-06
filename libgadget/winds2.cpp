@@ -157,17 +157,17 @@ class WindWeightOutput {
         return tot_nvisited;
     }
 
-    void print_visited()
+    void print_visited(const int64_t NumNewStars)
     {
-        int64_t mean_nvisited = 0, max_nvisited = 0;
-        #pragma omp parallel for reduction(+: mean_nvisited) reduction(max: max_nvisited)
+        int64_t tot_nvisited = 0, max_nvisited = 0;
+        #pragma omp parallel for reduction(+: tot_nvisited) reduction(max: max_nvisited)
         for(int i = 0; i < winddata_sz; i++) {
-            mean_nvisited += nvisited[i];
+            tot_nvisited += nvisited[i];
             if(max_nvisited < nvisited[i])
                 max_nvisited = nvisited[i];
         }
-        mean_nvisited/= winddata_sz;
-        message(3, "Mean visited: %ld max: %ld\n", mean_nvisited, max_nvisited);
+        double mean_nvisited = static_cast<double>(tot_nvisited) / static_cast<double>(NumNewStars);
+        message(3, "WINDS: Mean visited: %g max: %ld\n", mean_nvisited, max_nvisited);
     }
 
     MYCUDAFN void postprocess(const int i, particle_data * const parts, const WindWeightPriv * priv){}
@@ -335,12 +335,14 @@ class WindKickOutput {
     }
 };
 
+#define NKICKS 75
+
 class WindKickResult : public TreeWalkResultBase<WindKickQuery, WindKickOutput> {
     public:
-    struct StarKick kicks[120];
+    struct StarKick kicks[NKICKS];
     int64_t nkicks;
     int64_t maxkicks;
-    WindKickResult(const WindKickQuery& input) : TreeWalkResultBase<WindKickQuery, WindKickOutput>(input), nkicks(0), maxkicks(std::min(120, input.nvisited))
+    WindKickResult(const WindKickQuery& input) : TreeWalkResultBase<WindKickQuery, WindKickOutput>(input), nkicks(0), maxkicks(std::min(NKICKS, input.nvisited))
     { }
     template<TreeWalkReduceMode mode>
     MYCUDAFN void reduce(int place, WindKickOutput * output, struct particle_data * const parts)
@@ -523,7 +525,7 @@ winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time,
 
     WindKickPriv privkick(PartManager->BoxSize, Time, output, rnd, *SlotsManager);
     WindKickOutput outputkick(output.get_tot_visited());
-    output.print_visited();
+    output.print_visited(NumNewStars);
 
     /* Then run feedback: types used: gas. */
     WindKickTreeWalk twkick("WIND_KICK", tree, privkick, &outputkick);
