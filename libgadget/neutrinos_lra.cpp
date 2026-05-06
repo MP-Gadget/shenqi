@@ -632,7 +632,6 @@ void get_delta_nu(Cosmology * CP, const _delta_tot_table * const d_tot, const do
   const int Na = d_tot->ia;
   const double mnubykT = mnu /d_tot->omnu->kBtnu;
   /*Tolerated integration error*/
-  double relerr = 1e-6;
 //       message(0,"Start get_delta_nu: a=%g Na =%d wavenum[0]=%g delta_tot[0]=%g m_nu=%g\n",a,Na,wavenum[0],d_tot->delta_tot[0][Na-1],mnu);
 
   fsl_A0a = fslength(CP, log(d_tot->TimeTransfer), log(a),d_tot->light);
@@ -659,8 +658,6 @@ void get_delta_nu(Cosmology * CP, const _delta_tot_table * const d_tot, const do
       if(1 - partnu < 1e-3)
           return;
       qc = d_tot->omnu->hybnu.vcrit * mnubykT;
-      /*More generous integration error for particle neutrinos*/
-      relerr /= (1.+1e-5-particle_nu_fraction(&d_tot->omnu->hybnu,a,0))*0.1;
   }
   /*If only one time given, we are still at the initial time*/
   /*If neutrino mass is zero, we are not accurate, just use the initial conditions piece*/
