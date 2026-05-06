@@ -16,6 +16,7 @@
 /* For the parallel execution policy.*/
 #include <execution>
 #include <algorithm>
+#include <numeric>
 
 #define MAXITER 400
 
@@ -404,9 +405,17 @@ public:
             return end - *WorkSet;
         }
         else { // Need to handle this separately.
+#ifndef __CUDACC__
             /* The GPU code has a counting_iterator from thrust which avoids allocating the memory. This is the C++20 equivalent.*/
             auto iota = std::views::iota(0, (int) size);
+#else
+            /* The CUDA compiler does not support std::views::iota at this time, and this header is included there.
+             * The code is never executed on the GPU as the function is over-ridden.*/
+            std::vector <int> iota(size);
+            std::iota(iota.begin(), iota.end(), 0);
+#endif
             auto end = std::copy_if(std::execution::par, iota.begin(), iota.end(), *WorkSet, haswork);
+
             return end - *WorkSet;
         }
     }
