@@ -272,8 +272,11 @@ begrun(const int RestartSnapNum, struct header_data * head)
 
     init_cooling_and_star_formation(All.CoolingOn, All.StarformationOn, &All.CP, head->MassTable[0], head->BoxSize, units);
 
-    if(All.LightconeOn)
-        lightcone_init(&All.CP, head->TimeSnapshot, head->UnitLength_in_cm, All.OutputDir);
+    if(All.LightconeOn) {
+        int ThisTask;
+        MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
+        lightcone_init(&All.CP, head->TimeSnapshot, head->UnitLength_in_cm, All.OutputDir, ThisTask);
+    }
 
     /* Ensure that the timeline runs at least to the current time*/
     if(head->TimeSnapshot > All.TimeMax)

@@ -1,9 +1,7 @@
-#include <mpi.h>
+#include <boost/math/quadrature/gauss_kronrod.hpp>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <math.h>
-#include <boost/math/quadrature/gauss_kronrod.hpp>
 /*For mkdir*/
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -74,27 +72,30 @@ static void lightcone_init_entry(Cosmology * CP, int i, const double UnitLength_
 //    printf("a = %g z = %g Dc = %g\n", a, z, result);
 }
 
-void lightcone_init(Cosmology * CP, double timeBegin, const double UnitLength_in_cm, const char * OutputDir)
+void lightcone_init(Cosmology * CP, double timeBegin, const double UnitLength_in_cm, const char * OutputDir, int ThisTask)
 {
-    int i;
     dloga = (0.0 - log(timeBegin)) / (NENTRY - 1);
-    for(i = 0; i < NENTRY; i ++) {
+    for(int i = 0; i < NENTRY; i ++) {
         lightcone_init_entry(CP, i, UnitLength_in_cm);
     };
-    char buf[1024];
     int chunk = 100;
-    int ThisTask;
-    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
 
-    sprintf(buf, "%s/lightcone/", OutputDir);
-    mkdir(buf, 02755);
-    sprintf(buf, "%s/lightcone/%03d/", OutputDir, (int)(ThisTask / chunk));
-    mkdir(buf, 02755);
-    sprintf(buf, "%s/lightcone/%03d/lightcone-%05d.raw", OutputDir, (int)(ThisTask / chunk), ThisTask);
+    auto zpad = [](int v, int w) {
+        std::ostringstream s;
+        s << std::setw(w) << std::setfill('0') << v;
+        return s.str();
+    };
 
-    fd_lightcone = fopen(buf, "a+");
+    std::string outdir(OutputDir);
+    outdir += "/lightcone/";
+    mkdir(outdir.c_str(), 02755);
+    outdir += zpad((int)(ThisTask/chunk), 3) + "/";
+    mkdir(outdir.c_str(), 02755);
+    std::string filename = outdir + "lightcone-" + zpad(ThisTask, 5) + ".raw";
+
+    fd_lightcone = fopen(filename.c_str(), "a+");
     if(fd_lightcone == NULL) {
-        endrun(1, "failed to open %s\n", buf);
+        endrun(1, "failed to open %s\n", filename.c_str());
     }
     HorizonDistanceRef = lightcone_get_horizon(1 / (1 + ReferenceRedshift));
     printf("lightcone reference redshift = %g distance = %g\n",
