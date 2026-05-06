@@ -56,7 +56,7 @@ GADGET_C_SRCS =  hci.c\
 	 lenstools.c
 
 GADGET_CPP_SRCS = hydra2.cpp gravshort-tree2.cpp walltime.cpp \
-	density2.cpp veldisp2.cpp \
+	density2.cpp veldisp2.cpp winds2.cpp \
 cooling_rates.cpp cooling_uvfluc.cpp cooling_qso_lightup.cpp cosmology.cpp neutrinos_lra.cpp omega_nu_single.cpp timebinmgr.cpp lightcone.cpp \
 fof.cpp fofpetaio.cpp petaio.cpp petapm.cpp \
 slotsmanager.cpp domain.cpp timestep.cpp  plane.cpp winds.cpp \
