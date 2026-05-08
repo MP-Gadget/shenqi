@@ -27,7 +27,7 @@ endif
 OPTIONS = $(OPTIMIZE) $(OPT)
 #nvcc needs the location of mpi.h, although no MPI calls are made
 MPI_INCL = $(shell pkg-config --cflags ompi-c)
-NVOPTIONS = $(NVOPTIMIZE) $(OPT) $(MPI_INCL)
+NVOPTIONS = -std=c++20 $(NVOPTIMIZE) $(OPT) $(MPI_INCL)
 GADGET_TESTDATA_ROOT = $(CURDIR)/../
 
 CFLAGS = $(OPTIONS) $(BOOST_INCL) $(FITSIO_INCL) $(CUDA_INCL)
