@@ -345,11 +345,12 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
      */
     //grav_short_tree_build_tree(subact, pm, ddecomp, StoredGravAccel, times->Ti_Current, rho0, HybridNuGrav, EmergencyOutputDir);
 
-    /* Find the largest timebin active this timestep.*/
-    int64_t timebincounts[TIMEBINS] = {0};
+    /* Find the largest timebin active this timestep.
+     * Note largest_active may be TIMEBINS and so we need an extra bin for the counts*/
+    int64_t timebincounts[TIMEBINS+1] = {0};
     /* Find the timesteps for all active particles.*/
     int i;
-    #pragma omp parallel for reduction(+: timebincounts[:TIMEBINS])
+    #pragma omp parallel for reduction(+: timebincounts[:TIMEBINS+1])
     for(i = 0; i < subact->NumActiveParticle; i++) {
         const int pa = get_active_particle(subact, i);
         if(Part[pa].Swallowed || Part[pa].IsGarbage)
@@ -374,7 +375,7 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
         timebincounts[bin] ++;
         Part[pa].TimeBinGravity = bin;
     }
-    MPI_Allreduce(MPI_IN_PLACE, timebincounts, TIMEBINS, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(MPI_IN_PLACE, timebincounts, TIMEBINS+1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     /* Find largest bin with particles in.*/
     for(ti = largest_active; ti >= 1; ti--)
         if(timebincounts[ti] > 0) {
