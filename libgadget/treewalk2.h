@@ -477,7 +477,7 @@ public:
 
         /* This function does treewalk_run in a loop, allocating a queue to allow some particles to be redone.
     * This loop is used primarily in density estimation.*/
-    void do_hsml_loop(int * queue, int64_t queuesize, const bool update_hsml, particle_data * parts)
+    void do_hsml_loop(int * queue, int64_t queuesize, const bool update_hsml, particle_data * parts, MPI_Comm comm)
     {
         /* Build the first queue */
         double tstart = second();
@@ -494,7 +494,7 @@ public:
 
             int * CurQueue = ReDoQueue;
             /* ev_postprocess is not done in run_on_queue, instead, done in this loop*/
-            run_on_queue(CurQueue, size, parts, MPI_COMM_WORLD, false);
+            run_on_queue(CurQueue, size, parts, comm, false);
 
             tstart = second();
             output->verbose = (Niteration >= MAXITER - 5);
@@ -535,14 +535,14 @@ public:
             size = end - ReDoQueue;
 
             /* We can stop if we are not updating hsml or if we are done.*/
-            if(!update_hsml || !MPIU_Any(size > 0, MPI_COMM_WORLD)) {
+            if(!update_hsml || !MPIU_Any(size > 0, comm)) {
                 myfree(ReDoQueue);
                 break;
             }
 
             double minngb, maxngb;
-            MPI_Reduce(&maxnumngb, &maxngb, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-            MPI_Reduce(&minnumngb, &minngb, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
+            MPI_Reduce(&maxnumngb, &maxngb, 1, MPI_DOUBLE, MPI_MAX, 0, comm);
+            MPI_Reduce(&minnumngb, &minngb, 1, MPI_DOUBLE, MPI_MIN, 0, comm);
             message(0, "Iter=%d Max ngb=%g, min ngb=%g\n", Niteration, maxngb, minngb);
     #ifdef DEBUG
             if(size < 10 && Niteration > 20 ) {

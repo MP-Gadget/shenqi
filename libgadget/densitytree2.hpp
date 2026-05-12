@@ -425,7 +425,7 @@ void do_density_walk(const ActiveParticles * act, const ForceTree * tree, Densit
 {
     TreeWalkType tw("DENSITY", tree, *priv, output);
     /* Do the treewalk with looping for hsml*/
-    tw.do_hsml_loop(act->ActiveParticle, act->NumActiveParticle, update_hsml, PartManager->Base);
+    tw.do_hsml_loop(act->ActiveParticle, act->NumActiveParticle, update_hsml, PartManager->Base, comm);
     tw.print_stats("/SPH/Density", MPI_COMM_WORLD);
 }
 

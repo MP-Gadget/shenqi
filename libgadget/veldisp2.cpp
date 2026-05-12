@@ -160,7 +160,7 @@ class BHVelDispTreeWalkQuintic: public TreeWalk<BHVelDispTreeWalkQuintic, BHVelD
 
 /* Compute the DM velocity dispersion for black holes*/
 static void
-blackhole_veldisp(const ActiveParticles * act, ForceTree * tree, KickFactorData& kf)
+blackhole_veldisp(const ActiveParticles * act, ForceTree * tree, KickFactorData& kf, MPI_Comm comm)
 {
     /* This treewalk uses only DM */
     if(!tree->tree_allocated_flag)
@@ -174,18 +174,18 @@ blackhole_veldisp(const ActiveParticles * act, ForceTree * tree, KickFactorData&
         case DENSITY_KERNEL_CUBIC_SPLINE:
             {
                 BHVelDispTreeWalkCubic tw("BH_VDISP", tree, priv, &output);
-                tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, MPI_COMM_WORLD);
+                tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, comm);
             }
             break;
         case DENSITY_KERNEL_QUARTIC_SPLINE:
             {
                 BHVelDispTreeWalkQuartic tw("BH_VDISP", tree, priv, &output);
-                tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, MPI_COMM_WORLD);
+                tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, comm);
             }
             break;
         default: //DENSITY_KERNEL_QUINTIC_SPLINE
             BHVelDispTreeWalkQuintic tw("BH_VDISP", tree, priv, &output);
-            tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, MPI_COMM_WORLD);
+            tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, comm);
     }
     walltime_measure("/BH/VDisp");
 
@@ -489,9 +489,9 @@ winds_find_vel_disp(const ActiveParticles * act, const double Time, const double
 
     int64_t totvdisp, totbh;
     /* Check for black holes*/
-    MPI_Allreduce(&SlotsManager->info[5].size, &totbh, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&SlotsManager->info[5].size, &totbh, 1, MPI_INT64, MPI_SUM, ddecomp->DomainComm);
     /* If this queue is empty, nothing to do for winds.*/
-    MPI_Allreduce(&NumVDisp, &totvdisp, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&NumVDisp, &totvdisp, 1, MPI_INT64, MPI_SUM, ddecomp->DomainComm);
 
     ForceTree tree[1] = {{0}};
     if(totvdisp > 0 || totbh > 0)
@@ -499,7 +499,7 @@ winds_find_vel_disp(const ActiveParticles * act, const double Time, const double
 
     /* Compute the black hole velocity dispersions if needed*/
     if(totbh)
-        blackhole_veldisp(act, tree, kf);
+        blackhole_veldisp(act, tree, kf, ddecomp->DomainComm);
 
     if(totvdisp == 0) {
         force_tree_free(tree);
@@ -511,7 +511,7 @@ winds_find_vel_disp(const ActiveParticles * act, const double Time, const double
     report_memory_usage("WIND_VDISP");
     /* Find densities*/
     WindVDispTreeWalk tw("WIND_VDISP", tree, priv, &output);
-    tw.do_hsml_loop(ActiveVDisp, NumVDisp, true, PartManager->Base);
+    tw.do_hsml_loop(ActiveVDisp, NumVDisp, true, PartManager->Base, ddecomp->DomainComm);
     force_tree_free(tree);
     myfree(ActiveVDisp);
     walltime_measure("/Cooling/VDisp");
