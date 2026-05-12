@@ -47,7 +47,7 @@ GADGET_C_SRCS =  hci.c\
 	 drift.c stats.c \
 	 init.c checkpoint.c \
 	 cooling.c \
-	 veldisp.c density.c treewalk.c \
+	 density.c treewalk.c \
 	 gravshort-tree.c gravshort-pair.c hydra.c \
 	 gravpm.c powerspectrum.c \
 	 forcetree.c gravity.c \
@@ -55,7 +55,8 @@ GADGET_C_SRCS =  hci.c\
 	 config.c uvbg.c \
 	 lenstools.c
 
-GADGET_CPP_SRCS = hydra2.cpp density2.cpp gravshort-tree2.cpp walltime.cpp \
+GADGET_CPP_SRCS = hydra2.cpp gravshort-tree2.cpp walltime.cpp \
+	density2.cpp veldisp2.cpp \
 cooling_rates.cpp cooling_uvfluc.cpp cooling_qso_lightup.cpp cosmology.cpp neutrinos_lra.cpp omega_nu_single.cpp timebinmgr.cpp lightcone.cpp \
 fof.cpp fofpetaio.cpp petaio.cpp petapm.cpp \
 slotsmanager.cpp domain.cpp timestep.cpp  plane.cpp winds.cpp \

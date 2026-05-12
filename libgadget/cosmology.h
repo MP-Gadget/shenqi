@@ -2,7 +2,7 @@
 #define COSMOLOGY_H
 
 #include <stddef.h>
-#include "omega_nu_single.h"
+#include "omega_nu_single.hpp"
 #include "utils/unitsystem.h"
 
 typedef struct {

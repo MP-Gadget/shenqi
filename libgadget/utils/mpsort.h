@@ -806,7 +806,6 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
     ptrdiff_t * myCLE = (ptrdiff_t *) mymalloc("myhistCLE", (o.NTask + 1) * sizeof(ptrdiff_t));
     ptrdiff_t * CLE = (ptrdiff_t *) mymalloc("CLE", (o.NTask + 1) * sizeof(ptrdiff_t));
 
-    int iter = 0;
     int done = 0;
     char * buffer;
     int i;
@@ -827,7 +826,6 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
     piter<T> pi(Pmin, Pmax, o.NTask - 1, &d);
 
     while(!done) {
-        iter ++;
         pi.bisect(P);
 
         _histogram<T>(P, o.NTask - 1, o.mybase, o.mynmemb, myCLT, myCLE, &d);

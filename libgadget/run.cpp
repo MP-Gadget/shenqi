@@ -272,8 +272,11 @@ begrun(const int RestartSnapNum, struct header_data * head)
 
     init_cooling_and_star_formation(All.CoolingOn, All.StarformationOn, &All.CP, head->MassTable[0], head->BoxSize, units);
 
-    if(All.LightconeOn)
-        lightcone_init(&All.CP, head->TimeSnapshot, head->UnitLength_in_cm, All.OutputDir);
+    if(All.LightconeOn) {
+        int ThisTask;
+        MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
+        lightcone_init(&All.CP, head->TimeSnapshot, head->UnitLength_in_cm, All.OutputDir, ThisTask);
+    }
 
     /* Ensure that the timeline runs at least to the current time*/
     if(head->TimeSnapshot > All.TimeMax)
@@ -673,7 +676,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             }
 
             if(is_PM && All.CoolingOn)
-                winds_find_vel_disp(&Act, atime, hubble_function(&All.CP, atime), &All.CP, &times, &timebinmgr, ddecomp);
+                winds_find_vel_disp(&Act, atime, hubble_function(&All.CP, atime), &times, &timebinmgr, ddecomp);
             /* Note that the tree here may be freed, if we are not a gravity-active timestep,
              * or if we are a PM step.*/
             /* If we didn't build a tree for gravity, we need to build one in BH or in winds.

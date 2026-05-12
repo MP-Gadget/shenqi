@@ -257,8 +257,6 @@ void powerspectrum_nu_save(struct _powerspectrum * PowerSpectrum, const char * O
 
 void petaio_save_neutrinos(BigFile * bf, int ThisTask)
 {
-#pragma omp master
-    {
     double * scalefact = delta_tot_table.scalefact;
     size_t nk = delta_tot_table.nk, ia = delta_tot_table.ia;
     size_t ik, i;
@@ -304,13 +302,10 @@ void petaio_save_neutrinos(BigFile * bf, int ThisTask)
     BigArray kvalue = {0};
     big_array_init(&kvalue, delta_tot_table.wavenum, "=f8", 2, dims, strides);
     petaio_save_block(bf, "Neutrino/kvalue", &kvalue, 1);
-    }
 }
 
 void petaio_read_icnutransfer(BigFile * bf, int ThisTask)
 {
-#pragma omp master
-    {
     t_init->NPowerTable = 2;
     BigBlock bn;
     /* Read the size of the ICTransfer block.
@@ -362,14 +357,11 @@ void petaio_read_icnutransfer(BigFile * bf, int ThisTask)
     myfree(T_cb);
     /*Broadcast the arrays.*/
     MPI_Bcast(t_init->logk,2*t_init->NPowerTable,MPI_DOUBLE,0,MPI_COMM_WORLD);
-    }
 }
 
 /*Read the neutrino data from the snapshot*/
 void petaio_read_neutrinos(BigFile * bf, int ThisTask)
 {
-#pragma omp master
-    {
     size_t nk, ia, ik, i;
     BigBlock bn;
     if(0 != big_file_mpi_open_block(bf, &bn, "Neutrino", MPI_COMM_WORLD)) {
@@ -433,7 +425,6 @@ void petaio_read_neutrinos(BigFile * bf, int ThisTask)
         /*Broadcast data for scalefact and delta_tot, Delta_tot is allocated as the same block of memory as scalefact.
           Not all this memory will actually have been used, but it is easiest to bcast all of it.*/
         MPI_Bcast(delta_tot_table.scalefact,delta_tot_table.namax*(delta_tot_table.nk+1),MPI_DOUBLE,0,MPI_COMM_WORLD);
-    }
     }
 }
 
@@ -641,7 +632,6 @@ void get_delta_nu(Cosmology * CP, const _delta_tot_table * const d_tot, const do
   const int Na = d_tot->ia;
   const double mnubykT = mnu /d_tot->omnu->kBtnu;
   /*Tolerated integration error*/
-  double relerr = 1e-6;
 //       message(0,"Start get_delta_nu: a=%g Na =%d wavenum[0]=%g delta_tot[0]=%g m_nu=%g\n",a,Na,wavenum[0],d_tot->delta_tot[0][Na-1],mnu);
 
   fsl_A0a = fslength(CP, log(d_tot->TimeTransfer), log(a),d_tot->light);
@@ -668,8 +658,6 @@ void get_delta_nu(Cosmology * CP, const _delta_tot_table * const d_tot, const do
       if(1 - partnu < 1e-3)
           return;
       qc = d_tot->omnu->hybnu.vcrit * mnubykT;
-      /*More generous integration error for particle neutrinos*/
-      relerr /= (1.+1e-5-particle_nu_fraction(&d_tot->omnu->hybnu,a,0))*0.1;
   }
   /*If only one time given, we are still at the initial time*/
   /*If neutrino mass is zero, we are not accurate, just use the initial conditions piece*/

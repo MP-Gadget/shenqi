@@ -1,10 +1,9 @@
-#include "omega_nu_single.h"
+#include "omega_nu_single.hpp"
 
 #include <boost/math/quadrature/gauss_kronrod.hpp>
 #include <boost/math/quadrature/tanh_sinh.hpp>
 
 #include "physconst.h"
-#include "utils/endrun.h"
 
 #define HBAR    6.582119e-16  /*hbar in units of eV s*/
 #define STEFAN_BOLTZMANN 5.670373e-5

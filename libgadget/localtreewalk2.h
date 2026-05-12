@@ -340,6 +340,7 @@ template <typename DerivedType, typename QueryType, typename ResultType, typenam
 class LocalNgbTreeWalk
 {
 public:
+    static constexpr int tree_mask = mask;
     /* A pointer to the tree nodes to walk.*/
     const NODE * const Nodes;
 
@@ -375,7 +376,7 @@ public:
      * @return number of particle-particle interactions.
      */
      template<TreeWalkReduceMode mode>
-     MYCUDAFN int64_t visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
+     MYCUDAFN int64_t visit(QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
      {
          static_assert(mode != TREEWALK_TOPTREE, "Toptree should call toptree_visit, not visit.");
          int64_t ninteractions = 0;
@@ -444,7 +445,7 @@ public:
     * @param iter   Neighbour iterator with distance info
     * @param lv     Thread-local walk state
     */
-    MYCUDAFN void ngbiter(const QueryType& input, const particle_data& particle, ResultType * output, const ParamType& priv) {};
+    MYCUDAFN void ngbiter(QueryType& input, const particle_data& particle, ResultType * output, const ParamType& priv) {};
 
     MYCUDAFN double get_distance(const QueryType& input, const particle_data& partother, const double BoxSize, double * dist)
     {
@@ -478,7 +479,7 @@ public:
      * Use this one if the treewalk modifies other particles.
      **/
     template<TreeWalkReduceMode mode>
-    MYCUDAFN int64_t visit(const QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
+    MYCUDAFN int64_t visit(QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
     {
         int64_t ninteractions = 0;
         int inode = 0;
@@ -524,7 +525,7 @@ protected:
     *
     * */
     template<TreeWalkReduceMode mode>
-    MYCUDAFN int ngb_treefind_threads(const QueryType& input, int startnode)
+    MYCUDAFN int ngb_treefind_threads(QueryType& input, int startnode)
     {
         int no;
         int numcand = 0;
