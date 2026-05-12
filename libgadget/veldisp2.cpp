@@ -240,7 +240,7 @@ class WindVDispOutput {
     bool verbose = false;
 
     WindVDispOutput(const double BoxSize, const int * WorkSet, const int64_t WorkSetSize, particle_data * parts_i, slots_manager_type * slotsmanager):
-    parts(parts_i), SphParts(reinterpret_cast<sph_particle_data *>(slotsmanager->info[0].ptr))
+    parts(parts_i), SphParts(slotsmanager->sph_slot())
     {
         Left = (MyFloat *) mymalloc("VDISP->Left", SlotsManager->info[0].size * sizeof(MyFloat));
         Right = (MyFloat *) mymalloc("VDISP->Right", SlotsManager->info[0].size * sizeof(MyFloat));
@@ -372,7 +372,7 @@ int64_t build_vdisp_queue(int ** WorkSet, int * active_set, int64_t size, const 
 {
     *WorkSet = (int *) mymanagedmalloc("ActiveQueue", size * sizeof(int));
     double ddrift = timebinmgr->get_exact_drift_factor(times->Ti_Current, times->Ti_Current + times->PM_length);
-    VDispWork haswork{PartManager->Base, reinterpret_cast<sph_particle_data *>(SlotsManager->info[0].ptr), ddrift, sfr_density_threshold(Time)};
+    VDispWork haswork{PartManager->Base, SlotsManager->sph_slot(), ddrift, sfr_density_threshold(Time)};
     /* This is a standard stream compaction algorithm. It evaluates the haswork function
     * for every particle in the active set, stores the results in an array of flags, counts the non-zero flags,
     * and then scatters each particle integer to the right index in the final array. All is parallelized. */

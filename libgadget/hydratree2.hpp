@@ -68,7 +68,7 @@ class HydroPriv : public ParamTypeBase {
     hubble_a2(hubble * atime * atime), kf(times, timebinmgr),
     ArtBulkViscConst(HydroPar.ArtBulkViscConst), DensityContrastLimit(HydroPar.DensityContrastLimit), DensityIndependentSphOn(HydroPar.DensityIndependentSphOn),
     WindSpeed(winds_get_speed()), WindFreeTravelDensThresh(winds_get_dens_thresh()),
-    SphParts(reinterpret_cast<sph_particle_data *>(SlotsManager->info[0].ptr))
+    SphParts(SlotsManager->sph_slot())
     {
         /* Cache the pressure for speed*/
         PressurePred = NULL;
@@ -107,7 +107,7 @@ class HydroOutput {
     /* Pointer to the SPH particle data array*/
     sph_particle_data * SphParts;
 
-    HydroOutput(slots_manager_type * SlotsManager): SphParts(reinterpret_cast<sph_particle_data *>(SlotsManager->info[0].ptr)) {}
+    HydroOutput(slots_manager_type * SlotsManager): SphParts(SlotsManager->sph_slot()) {}
 
     MYCUDAFN void postprocess(const int i, particle_data * const parts, const HydroPriv * priv)
     {

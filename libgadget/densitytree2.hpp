@@ -32,7 +32,7 @@ class DensityPriv : public ParamTypeBase {
     DensityPriv(const struct density_params DensityParams, const bool i_update_hsml, const bool i_DoEgyDensity, const bool i_BlackHoleOn, DriftKickTimes * times, TimeBinMgr * timebinmgr, const double BoxSize, Cosmology * CP, const ActiveParticles * const act, const part_manager_type * const PartManager, slots_manager_type * SlotsManager):
     ParamTypeBase(PartManager->BoxSize), update_hsml(i_update_hsml), BlackHoleOn(i_BlackHoleOn), DoEgyDensity(i_DoEgyDensity), WindsDecouple(winds_ever_decouple()),
     DesNumNgb(GetNumNgb(DensityParams.DensityKernelType)), DesNumNgbBH(DesNumNgb * DensityParams.BlackHoleNgbFactor),
-    MinGasHsml(DensityParams.MinGasHsml), kf(times, timebinmgr), EntVarPred(NULL), SphParts(reinterpret_cast<sph_particle_data *>(SlotsManager->info[0].ptr))
+    MinGasHsml(DensityParams.MinGasHsml), kf(times, timebinmgr), EntVarPred(NULL), SphParts(SlotsManager->sph_slot())
     {
         /* If enough particles are active, easiest to compute all the predicted velocities immediately*/
         if(!act->ActiveParticle || act->NumActiveHydro > (SlotsManager->info[0].size + SlotsManager->info[5].size) / DesNumNgb) {
@@ -71,7 +71,7 @@ class DensityOutput {
     bh_particle_data * BhParts;
 
     DensityOutput(const bool GradRho_mag, const int64_t NumPart, const double BoxSize, const double MaxNgbDeviation, slots_manager_type * slotsmanager):
-    MaxNumNgbDeviation(MaxNgbDeviation), verbose(false), SphParts(reinterpret_cast<sph_particle_data *>(slotsmanager->info[0].ptr)), BhParts(reinterpret_cast<bh_particle_data *>(slotsmanager->info[5].ptr))
+    MaxNumNgbDeviation(MaxNgbDeviation), verbose(false), SphParts(slotsmanager->sph_slot()), BhParts(slotsmanager->bh_slot())
     {
         Left = (MyFloat *) mymanagedmalloc("DENS_PRIV->Left", NumPart * sizeof(MyFloat));
         Right = (MyFloat *) mymanagedmalloc("DENS_PRIV->Right", NumPart * sizeof(MyFloat));
