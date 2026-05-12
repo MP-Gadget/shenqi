@@ -183,8 +183,10 @@ void write_plane(int snapnum, const double atime, Cosmology * CP, const char * O
         double comoving_distance_Mpc  = comoving_distance * UnitLength_in_cm / CM_PER_MPC;
         char * buf = fastpm_strdup_printf("%s/info.txt", OutputDir);
         FILE * fd = fopen(buf, "a");
-        fprintf(fd, "s=%d,d=%lf Mpc/h,z=%lf\n", snapnum, comoving_distance_Mpc, redshift);
-        fclose(fd);
+        if(fd) {
+            fprintf(fd, "s=%d,d=%lf Mpc/h,z=%lf\n", snapnum, comoving_distance_Mpc, redshift);
+            fclose(fd);
+        }
         myfree(buf);
     }
 }
