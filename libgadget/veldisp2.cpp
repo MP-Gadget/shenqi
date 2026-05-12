@@ -277,7 +277,8 @@ class WindVDispOutput {
 
     double GetNumNgb(const int i)
     {
-        return NumNgb[parts[i].PI][NWINDHSML-1];
+        int pi = parts[i].PI;
+        return NumNgb[pi][maxcmpte[pi]-1];
     }
 
     MYCUDAFN int
