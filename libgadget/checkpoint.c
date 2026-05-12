@@ -38,8 +38,10 @@ write_checkpoint(int snapnum, int WriteGroupID, int MetalReturnOn, double Time, 
     if(ThisTask == 0) {
         char * buf = fastpm_strdup_printf("%s/Snapshots.txt", OutputDir);
         FILE * fd = fopen(buf, "a");
-        fprintf(fd, "%03d %g\n", snapnum, Time);
-        fclose(fd);
+        if(fd) {
+            fprintf(fd, "%03d %g\n", snapnum, Time);
+            fclose(fd);
+        }
         myfree(buf);
     }
 }

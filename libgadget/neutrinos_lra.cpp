@@ -244,14 +244,16 @@ void powerspectrum_nu_save(struct _powerspectrum * PowerSpectrum, const char * O
     char * fname = fastpm_strdup_printf("%s/%s-%0.4f.txt", OutputDir, filename, Time);
     /* Now save the neutrino power spectrum*/
     FILE * fp = fopen(fname, "w");
-    fprintf(fp, "# in Mpc/h Units \n");
-    fprintf(fp, "# k P_nu(k) Nmodes\n");
-    fprintf(fp, "# a= %g\n", Time);
-    fprintf(fp, "# nk = %d\n", PowerSpectrum->nonzero);
-    for(i = 0; i < PowerSpectrum->nonzero; i++){
-        fprintf(fp, "%g %g %ld\n", PowerSpectrum->kk[i], pow(delta_tot_table.delta_nu_last[i],2), PowerSpectrum->Nmodes[i]);
+    if(fp) {
+        fprintf(fp, "# in Mpc/h Units \n");
+        fprintf(fp, "# k P_nu(k) Nmodes\n");
+        fprintf(fp, "# a= %g\n", Time);
+        fprintf(fp, "# nk = %d\n", PowerSpectrum->nonzero);
+        for(i = 0; i < PowerSpectrum->nonzero; i++){
+            fprintf(fp, "%g %g %ld\n", PowerSpectrum->kk[i], pow(delta_tot_table.delta_nu_last[i],2), PowerSpectrum->Nmodes[i]);
+        }
+        fclose(fp);
     }
-    fclose(fp);
     myfree(fname);
 }
 

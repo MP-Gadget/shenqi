@@ -469,8 +469,8 @@ public:
         if(BunchSize * query_type_elsize > MaxExportBufferBytes)
             BunchSize = MaxExportBufferBytes / query_type_elsize;
 
-        if(freebytes <= 4096 * bytesperbuffer || BunchSize < 100) {
-            endrun(1231245, "Not enough free memory to export particles: needed %ld bytes have %ld. Can export %ld \n", bytesperbuffer, freebytes, BunchSize);
+        if(freebytes <= 4096 || BunchSize < 20) {
+            endrun(1231245, "Not enough free memory to export particles: needed %ld bytes have %ld. Can export %ld\n", bytesperbuffer, freebytes, BunchSize);
         }
         return BunchSize;
     }
