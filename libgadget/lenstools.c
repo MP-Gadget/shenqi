@@ -11,8 +11,30 @@
 #include "partmanager.h"
 #include "cosmology.h"
 #include "physconst.h"
+#include "omega_nu_single.hpp"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
+
+static int
+lenstools_particle_is_active(const Cosmology * CP, const double atime, const int64_t i)
+{
+    if(Part[i].Swallowed)
+        return 0;
+    if(hybrid_nu_tracer(CP, atime) && Part[i].Type == 2)
+        return 0;
+    return 1;
+}
+
+static double
+lenstools_particle_omega_source(const Cosmology * CP, const double atime)
+{
+    double omega_source = CP->Omega0;
+    if(CP->MassiveNuLinRespOn)
+        omega_source -= pow(atime, 3) * get_omega_nu_nopart(&CP->ONu, atime);
+    if(omega_source <= 0)
+        endrun(1, "Non-positive particle matter density for potential plane: OmegaSource = %g\n", omega_source);
+    return omega_source;
+}
 
 void linspace(double start, double stop, int num, double *result) {
     double step = (stop - start) / (num - 1);
@@ -72,11 +94,13 @@ int find_bin(double value, double *bins, int resolution, const double L) { // L 
     }
 }
 
-void grid3d_ngb(const struct particle_data * Parts, int num_particles, double **binning, GridDimensions dims, double *density) { // adpated from grid3d_nfw in lenstools
+void grid3d_ngb(const struct particle_data * Parts, int64_t num_particles, double **binning, GridDimensions dims, const Cosmology * CP, const double atime, double *density) { // adpated from grid3d_nfw in lenstools
 
     #pragma omp parallel for
     // Process each particle
-    for (int p = 0; p < num_particles; p++) {
+    for (int64_t p = 0; p < num_particles; p++) {
+        if(!lenstools_particle_is_active(CP, atime, p))
+            continue;
         double position[3];
         // remove offset
         for(int d = 0; d < 3; d ++) {
@@ -222,7 +246,7 @@ int64_t cutPlaneGaussianGrid(int64_t num_particles_tot, double comoving_distance
 
     // cosmological normalization factor
     double H0 = 100 * CP->HubbleParam * 3.2407793e-20;  // Hubble constant in cgs units
-    double cosmo_normalization = 1.5 * pow(H0, 2) * CP->Omega0 / pow(LIGHTCGS, 2);
+    double cosmo_normalization = 1.5 * pow(H0, 2) * lenstools_particle_omega_source(CP, atime) / pow(LIGHTCGS, 2);
 
     // Binning for directions perpendicular to 'normal'
     double *binning[3];
@@ -256,13 +280,15 @@ int64_t cutPlaneGaussianGrid(int64_t num_particles_tot, double comoving_distance
 
     double *density = allocate_3d_array_as_1d(dims.nx, dims.ny, dims.nz);
 
-    grid3d_ngb(PartManager->Base, num_particles_rank, binning, dims, density);
+    grid3d_ngb(PartManager->Base, num_particles_rank, binning, dims, CP, atime, density);
 
     projectDensity(density, dims, normal);
 
     //number of particles on the plane
     int64_t num_particles_plane = 0;
     // normalize the density to the density fluctuation
+    if(num_particles_tot <= 0)
+        endrun(1, "Cannot build a potential plane from zero active particle count.\n");
     double density_norm_factor = 1. / num_particles_tot * (pow(Lbox,3) / (bin_resolution[0] * bin_resolution[1] * bin_resolution[2]));
 
     for (int i = 0; i < plane_resolution; i++) {
