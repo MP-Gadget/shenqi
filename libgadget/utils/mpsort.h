@@ -2,6 +2,7 @@
 #define _UTILS_MPSORT_H
 
 #include <algorithm>
+#include <array>
 #include <numeric>
 #include <vector>
 #include <execution>
