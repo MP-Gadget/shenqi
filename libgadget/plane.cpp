@@ -29,6 +29,7 @@ static struct plane_params
     std::vector<double> CutPoints;
     std::vector<int> Normals;
     int MassiveNuCorrection;
+    int DoubleOut;
 } PlaneParams;
 
 typedef struct {
@@ -495,6 +496,10 @@ set_plane_params(ParameterSet * ps)
     PlaneParams.MassiveNuCorrection = param_get_int(ps, "PlaneMassiveNuCorrection");
     if(PlaneParams.MassiveNuCorrection != 0 && PlaneParams.MassiveNuCorrection != 1)
         endrun(1, "PlaneMassiveNuCorrection must be 0 or 1, got %d\n", PlaneParams.MassiveNuCorrection);
+
+    PlaneParams.DoubleOut = param_get_int(ps, "PlaneDoubleOut");
+    if(PlaneParams.DoubleOut != 0 && PlaneParams.DoubleOut != 1)
+        endrun(1, "PlaneDoubleOut must be 0 or 1, got %d\n", PlaneParams.DoubleOut);
     // Plane normals
     PlaneParams.Normals = BuildOutputList<int>(param_get_string(ps, "PlaneNormals"));
     int nmax = *std::max_element(PlaneParams.Normals.begin(), PlaneParams.Normals.end());
@@ -588,7 +593,7 @@ void write_plane(int snapnum, const double atime, const double TimeIC, Cosmology
             if (ThisTask == 0) {
 #ifdef USE_CFITSIO
                 auto file_path = plane_get_output_fname(snapnum, OutputDir, i, PlaneParams.Normals[j]);
-                savePotentialPlane(summed_plane_result, plane_resolution, plane_resolution, file_path, BoxSize, CP, redshift, comoving_distance, num_particles_plane_tot, UnitLength_in_cm);
+                savePotentialPlane(summed_plane_result, plane_resolution, plane_resolution, file_path, BoxSize, CP, redshift, comoving_distance, num_particles_plane_tot, UnitLength_in_cm, PlaneParams.DoubleOut);
                 message(0, "Plane saved for cut %d and normal %d to %s\n", i, PlaneParams.Normals[j], file_path.c_str() + 1); // skip the '!' in the filename
 #endif
             }
