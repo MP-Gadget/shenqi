@@ -1,8 +1,7 @@
 #include "walltime.h"
 #include <mpi.h>
 #include <cstdio>
-
-#include "utils/mymalloc.h"
+#include <vector>
 
 static struct ClockTable * CT = NULL;
 
@@ -22,30 +21,26 @@ void walltime_init(struct ClockTable * ct) {
 }
 
 static void walltime_summary_clocks(std::map<std::string, struct Clock>& C, int root, MPI_Comm comm) {
-    double * t = ta_malloc("clocks", double, 4 * C.size());
-    double * min = t + C.size();
-    double * max = t + 2 * C.size();
-    double * sum = t + 3 * C.size();
-    int i = 0;
-    for (const auto& [key, clock] : C) {
-        t[i] = clock.time;
-        i++;
-    }
-    MPI_Reduce(t, min, C.size(), MPI_DOUBLE, MPI_MIN, root, comm);
-    MPI_Reduce(t, max, C.size(), MPI_DOUBLE, MPI_MAX, root, comm);
-    MPI_Reduce(t, sum, C.size(), MPI_DOUBLE, MPI_SUM, root, comm);
+    std::vector<double> t;
+    for (const auto& [key, clock] : C)
+        t.push_back(clock.time);
+    std::vector<double> min(t.size(), 1e50);
+    std::vector<double> max(t.size(), 0);
+    std::vector<double> sum(t.size(), 0);
+    MPI_Reduce(t.data(), min.data(), t.size(), MPI_DOUBLE, MPI_MIN, root, comm);
+    MPI_Reduce(t.data(), max.data(), t.size(), MPI_DOUBLE, MPI_MAX, root, comm);
+    MPI_Reduce(t.data(), sum.data(), t.size(), MPI_DOUBLE, MPI_SUM, root, comm);
 
     int NTask;
     MPI_Comm_size(comm, &NTask);
     /* min, max and mean are good only on process 0 */
-    i = 0;
+    int i = 0;
     for (const auto& [name, clock] : C) {
         C[name].min = min[i];
         C[name].max = max[i];
         C[name].mean = sum[i] / NTask;
         i++;
     }
-    ta_free(t);
 }
 
 static void walltime_update_parents() {
