@@ -380,8 +380,6 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
     struct OutputFD fds;
     open_outputfiles(RestartSnapNum, &fds, All.OutputDir, All.BlackHoleOn, All.StarformationOn);
 
-    write_cpu_log(NumCurrentTiStep, header->TimeSnapshot, fds.FdCPU, Clocks.ElapsedTime); /* produce some CPU usage info */
-
     DriftKickTimes times = init_driftkicktime(ti_init);
 
     double atime = timebinmgr.get_atime(times.Ti_Current);
