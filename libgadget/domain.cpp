@@ -612,13 +612,6 @@ struct topleaf_extdata {
     }
 };
 
-static bool
-topleaf_ext_order_by_key(const struct topleaf_extdata& p1, const struct topleaf_extdata& p2)
-{
-    if(p1.Key < p2.Key)
-        return true;
-    return false;
-}
 /**
  * This function assigns TopLeaves to Segments, trying to ensure uniform cost
  * by assigning TopLeaves (contiguously) until a Segment has a desired size.
@@ -657,7 +650,7 @@ domain_assign_topleaves_balanced(DomainDecomp * ddecomp, int64_t * cost, const i
     /* make sure TopLeaves are sorted by Key for locality of segments -
      * likely not necessary because when this function
      * is called it is already true */
-    //std::sort(std::execution::par_unseq, TopLeafExt, TopLeafExt + ddecomp->NTopLeaves, topleaf_ext_order_by_key);
+    std::sort(std::execution::par_unseq, TopLeafExt, TopLeafExt + ddecomp->NTopLeaves, [](const auto& p1, const auto& p2){ return p1.Key < p2.Key;});
 
     int64_t totalcost = 0;
     #pragma omp parallel for reduction(+ : totalcost)
