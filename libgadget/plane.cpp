@@ -17,11 +17,10 @@
 
 static struct plane_params
 {
-    int64_t NormalsLength;
-    int Normals[3];
     int Resolution;
     double Thickness; // in kpc/h
     std::vector<double> CutPoints;
+    std::vector<int> Normals;
 } PlaneParams;
 
 std::string
@@ -29,54 +28,6 @@ plane_get_output_fname(const int snapnum, const std::string OutputDir, const int
 {
     // Format the filename to include '!' to overwrite existing files
     return "!" + OutputDir + "/snap" + std::to_string(snapnum) + "_potentialPlane" + std::to_string(cut) + "_normal" + std::to_string(normal) + ".fits";
-}
-
-/* This is basically BuildOutputList but with an integer*/
-int set_plane_normals(ParameterSet* ps)
-{
-    char * Normals = param_get_string(ps, "PlaneNormals");
-    if(!Normals){
-        PlaneParams.NormalsLength = 0;
-        return 0;
-    }
-    char * strtmp = fastpm_strdup(Normals);
-    char * token;
-    int count;
-    // print string
-    //message(0,"Normals = %s\n", Normals);
-
-    /*First parse the string to get the number of outputs*/
-    for(count=0, token=strtok(strtmp,","); token; count++, token=strtok(NULL, ","))
-    {}
-
-    myfree(strtmp);
-
-    /*Allocate enough memory*/
-    PlaneParams.NormalsLength = count;
-    size_t maxcount = sizeof(PlaneParams.Normals) / sizeof(PlaneParams.Normals[0]);
-
-    if((size_t) PlaneParams.NormalsLength > maxcount) {
-        message(1, "Too many entries (%ld) in the Normals, can take no more than %lu.\n", PlaneParams.NormalsLength, maxcount);
-        return 1;
-    }
-    /*Now read in the values*/
-    for(count=0,token=strtok(Normals,","); count < PlaneParams.NormalsLength && token; count++, token=strtok(NULL,","))
-    {
-        /* Skip a leading quote if one exists.
-         * Extra characters are ignored by atof, so
-         * no need to skip matching char.*/
-        if(token[0] == '"')
-            token+=1;
-
-        int n = atoi(token);
-
-        if(n != 0 && n != 1 && n != 2) {
-            endrun(1, "Requesting a normal direction beyond 0, 1 and 2: %d\n", n);
-        }
-        PlaneParams.Normals[count] = n;
-/*         message(1, "Output at: %g\n", Sync.OutputListTimes[count]); */
-    }
-    return 0;
 }
 
 /*Set the plane parameters*/
@@ -92,18 +43,26 @@ set_plane_params(ParameterSet * ps)
         // plane thickness in internal units (kpc/h)
         PlaneParams.Thickness = param_get_double(ps, "PlaneThickness");
         // Plane normals
-        set_plane_normals(ps);
+        PlaneParams.Normals = BuildOutputList<int>(param_get_string(ps, "PlaneNormals"));
+        int nmax = *std::max_element(PlaneParams.Normals.begin(), PlaneParams.Normals.end());
+        int nmin = *std::min_element(PlaneParams.Normals.begin(), PlaneParams.Normals.end());
+        if(nmax > 2 || nmin < 0)
+            endrun(4, "Requesting a normal direction beyond 0, 1 and 2: max: %d, min %d\n", nmax, nmin);
         // Plane cut points
-        PlaneParams.CutPoints = BuildOutputList(param_get_string(ps, "PlaneCutPoints"));
+        PlaneParams.CutPoints = BuildOutputList<double>(param_get_string(ps, "PlaneCutPoints"));
     }
     // 1. Broadcast the POD members together
     MPI_Bcast(&PlaneParams, offsetof(struct plane_params, CutPoints), MPI_BYTE, 0, MPI_COMM_WORLD);
 
-    // 2. Broadcast the vector
+    // 2. Broadcast the vectors
     size_t len = PlaneParams.CutPoints.size();
     MPI_Bcast(&len, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
     PlaneParams.CutPoints.resize(len);
     MPI_Bcast(PlaneParams.CutPoints.data(), len, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    size_t nlen = PlaneParams.Normals.size();
+    MPI_Bcast(&nlen, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
+    PlaneParams.Normals.resize(nlen);
+    MPI_Bcast(PlaneParams.Normals.data(), nlen, MPI_INT, 0, MPI_COMM_WORLD);
 }
 
 void write_plane(int snapnum, const double atime, Cosmology * CP, const std::string OutputDir, const double UnitVelocity_in_cm_per_s, const double UnitLength_in_cm)
@@ -149,7 +108,7 @@ void write_plane(int snapnum, const double atime, Cosmology * CP, const std::str
 
     /* loop over cut points and normal directions to generate lensing potential planes */
     for (size_t i = 0; i < PlaneParams.CutPoints.size(); i++) {
-        for (int j = 0; j < PlaneParams.NormalsLength; j++) {
+        for (int j = 0; j < PlaneParams.Normals.size(); j++) {
             message(0, "Computing for cut point %g and normal %d\n", PlaneParams.CutPoints[i], PlaneParams.Normals[j]);
 
             double left_corner[3] = {0, 0, 0};
