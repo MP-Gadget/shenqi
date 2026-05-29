@@ -1,7 +1,7 @@
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <string>
 #include <dirent.h>
 #include <vector>
 #include "lenstools.h"
@@ -24,12 +24,11 @@ static struct plane_params
     std::vector<double> CutPoints;
 } PlaneParams;
 
-char *
-plane_get_output_fname(const int snapnum, const char * OutputDir, const int cut, const int normal)
+std::string
+plane_get_output_fname(const int snapnum, const std::string OutputDir, const int cut, const int normal)
 {
     // Format the filename to include '!' to overwrite existing files
-    char * fname = fastpm_strdup_printf("!%s/snap%d_potentialPlane%d_normal%d.fits", OutputDir, snapnum, cut, normal);
-    return fname;
+    return "!" + OutputDir + "/snap" + std::to_string(snapnum) + "_potentialPlane" + std::to_string(cut) + "_normal" + std::to_string(normal) + ".fits";
 }
 
 /* This is basically BuildOutputList but with an integer*/
@@ -107,7 +106,7 @@ set_plane_params(ParameterSet * ps)
     MPI_Bcast(PlaneParams.CutPoints.data(), len, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 }
 
-void write_plane(int snapnum, const double atime, Cosmology * CP, const char * OutputDir, const double UnitVelocity_in_cm_per_s, const double UnitLength_in_cm)
+void write_plane(int snapnum, const double atime, Cosmology * CP, const std::string OutputDir, const double UnitVelocity_in_cm_per_s, const double UnitLength_in_cm)
 {
     double BoxSize = PartManager->BoxSize;
 
@@ -166,10 +165,9 @@ void write_plane(int snapnum, const double atime, Cosmology * CP, const char * O
             /*saving planes*/
             if (ThisTask == 0) {
 #ifdef USE_CFITSIO
-                char * file_path = plane_get_output_fname(snapnum, OutputDir, i, PlaneParams.Normals[j]);
-                savePotentialPlane(summed_plane_result, plane_resolution, plane_resolution, file_path, BoxSize, CP, redshift, comoving_distance, num_particles_plane_tot, UnitLength_in_cm);
-                message(0, "Plane saved for cut %d and normal %d to %s\n", i, PlaneParams.Normals[j], file_path + 1); // skip the '!' in the filename
-                myfree(file_path);
+                auto file_path = plane_get_output_fname(snapnum, OutputDir, i, PlaneParams.Normals[j]);
+                savePotentialPlane(summed_plane_result, plane_resolution, plane_resolution, file_path.c_str(), BoxSize, CP, redshift, comoving_distance, num_particles_plane_tot, UnitLength_in_cm);
+                message(0, "Plane saved for cut %d and normal %d to %s\n", i, PlaneParams.Normals[j], file_path.c_str() + 1); // skip the '!' in the filename
 #endif
             }
             MPI_Barrier(MPI_COMM_WORLD);
@@ -181,10 +179,9 @@ void write_plane(int snapnum, const double atime, Cosmology * CP, const char * O
 
     if (ThisTask == 0) {
         double comoving_distance_Mpc  = comoving_distance * UnitLength_in_cm / CM_PER_MPC;
-        char * buf = fastpm_strdup_printf("%s/info.txt", OutputDir);
-        FILE * fd = fopen(buf, "a");
+        std::string buf = OutputDir + "/info.txt";
+        FILE * fd = fopen(buf.c_str(), "a");
         fprintf(fd, "s=%d,d=%lf Mpc/h,z=%lf\n", snapnum, comoving_distance_Mpc, redshift);
         fclose(fd);
-        myfree(buf);
     }
 }
