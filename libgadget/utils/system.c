@@ -186,19 +186,6 @@ MPIU_Tracev(MPI_Comm comm, int where, int error, const char * fmt, va_list va)
     }
 }
 
-/*
- * Write a trace message to the communicator.
- * if where > 0, write from all ranks.
- * if where == 0, only write from root rank.
- * */
-void MPIU_Trace(MPI_Comm comm, int where, const char * fmt, ...)
-{
-    va_list va;
-    va_start(va, fmt);
-    MPIU_Tracev(comm, where, 0, fmt, va);
-    va_end(va);
-}
-
 int64_t
 MPIU_cumsum(int64_t countLocal, MPI_Comm comm)
 {
@@ -429,58 +416,6 @@ get_physmem_bytes(void)
     }
 #endif
     return 64 * 1024 * 1024;
-}
-
-/**
- * A fancy MPI barrier (use MPIU_Barrier macro)
- *
- *  - aborts if barrier mismatch occurs
- *  - warn if some ranks are very imbalanced.
- *
- */
-int
-_MPIU_Barrier(const char * fn, const int line, MPI_Comm comm)
-{
-    int ThisTask, NTask;
-    MPI_Comm_size(comm, &NTask);
-    MPI_Comm_rank(comm, &ThisTask);
-    int * recvbuf = ta_malloc("tags", int, NTask);
-    int tag = 0;
-    int i;
-    for(i = 0; fn[i]; i ++) {
-        tag += (int)fn[i] * 8;
-    }
-    tag += line;
-
-    MPI_Request request;
-    MPI_Igather(&tag, 1, MPI_INT, recvbuf, 1, MPI_INT, 0, comm, &request);
-    i = 0;
-    int flag = 1;
-    int tsleep = 0;
-    while(flag) {
-        MPI_Test(&request, &flag, MPI_STATUS_IGNORE);
-        if(flag) break;
-        usleep(i * 1000);
-        tsleep += i * 1000;
-        i = i + 1;
-        if(i == 50) {
-            if(ThisTask == 0) {
-                MPIU_Trace(comm, 0, "Waited more than %g seconds during barrier %s : %d \n", tsleep / 1000000., fn, line);
-            }
-            break;
-        }
-    }
-    MPI_Wait(&request, MPI_STATUS_IGNORE);
-    /* now check if all ranks indeed hit the same barrier. Some MPIs do allow them to mix up! */
-    if (ThisTask == 0) {
-        for(i = 0; i < NTask; i ++) {
-            if(recvbuf[i] != tag) {
-                MPIU_Trace(comm, 0, "Task %d Did not hit barrier at %s : %d; expecting %d, got %d\n", i, fn, line, tag, recvbuf[i]);
-            }
-        }
-    }
-    ta_free(recvbuf);
-    return 0;
 }
 
 int

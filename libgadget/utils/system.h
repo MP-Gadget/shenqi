@@ -96,12 +96,6 @@ static inline int atomic_fetch_and_add(int * ptr, int value) {
     return k;
 }
 
-void MPIU_Trace(MPI_Comm comm, int where, const char * fmt, ...);
 void MPIU_Tracev(MPI_Comm comm, int where, int error, const char * fmt, va_list va);
-
-int _MPIU_Barrier(const char * fn, const int ln, MPI_Comm comm);
-
-/* Fancy barrier which warns if there is a lot of imbalance. */
-#define MPIU_Barrier(comm) _MPIU_Barrier(__FILE__, __LINE__, comm)
 
 #endif //_UTILS_SYSTEM_H
