@@ -268,7 +268,7 @@ void domain_decompose_full(DomainDecomp * ddecomp, MPI_Comm DomainComm)
     slots_gc_sorted(PartManager, SlotsManager);
 
     /*Ensure collective*/
-    MPIU_Barrier(ddecomp->DomainComm);
+    MPI_Barrier(ddecomp->DomainComm);
     message(0, "Domain decomposition done.\n");
 
     report_memory_usage("DOMAIN");
@@ -1293,18 +1293,6 @@ int domain_determine_global_toptree(DomainDecompositionPolicy * policy,
         message(1, "local TopTree Size =%d >> expected = %d; Usually this indicates very bad imbalance, due to a giant density peak.\n",
             *topTreeSize, policy->NTopLeaves);
     }
-
-#if 0
-    char buf[1000];
-    sprintf(buf, "topnodes.bin.%d", ThisTask);
-    FILE * fd = fopen(buf, "w");
-
-    fwrite(topTree, sizeof(struct local_topnode_data), *topTreeSize, fd);
-    fclose(fd);
-
-    //MPI_Barrier(DomainComm);
-    //MPI_Abort(DomainComm, 0);
-#endif
 
     /* we now need to exchange tree parts and combine them as needed */
     int combine_failed = domain_nonrecursively_combine_topTree(topTree, topTreeSize, MaxTopNodes, DomainComm);

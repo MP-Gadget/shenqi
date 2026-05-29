@@ -112,10 +112,6 @@ inttime_t init(int RestartSnapNum, const char * OutputDir, struct header_data * 
     if(RestartSnapNum >= 0)
         check_smoothing_length(PartManager, MeanSeparation);
 
-    /* As the above will mostly take place
-     * on Task 0, there will be a lot of imbalance*/
-    MPIU_Barrier(MPI_COMM_WORLD);
-
     gravshort_set_softenings(MeanSeparation[1]);
     fof_init(MeanSeparation[1]);
 

@@ -151,7 +151,7 @@ int fof_save_particles(FOFGroups * fof, char * fname, int SaveParticles, Cosmolo
     big_file_mpi_close(&bf, Comm);
 
     /* Done saving particles*/
-    MPIU_Barrier(Comm);
+    MPI_Barrier(Comm);
     message(0, "Group catalogues saved.\n");
     return domain_needed;
 }

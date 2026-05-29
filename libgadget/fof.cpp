@@ -242,7 +242,7 @@ fof_fof(DomainDecomp * ddecomp, const int StoreGrNr, MPI_Comm Comm)
 
     fof_compile_catalogue(&fof, NgroupsExt, HaloLabel, Comm);
 
-    MPIU_Barrier(Comm);
+    MPI_Barrier(Comm);
     message(0, "Finished FoF. Group properties are now allocated.. (presently allocated=%g MB)\n",
             mymalloc_usedbytes() / (1024.0 * 1024.0));
 
