@@ -3,6 +3,9 @@
 #include <math.h>
 #include <string.h>
 #include <omp.h>
+#include <string>
+#include <sstream>
+#include <iomanip>
 
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_real_distribution.hpp>
@@ -62,9 +65,10 @@ setup_glass(IDGenerator * idgen, PetaPM * pm, double shift, int seed, double mas
         ICP[i].Mass = mass;
     }
 
-    char * fn = fastpm_strdup_printf("powerspectrum-glass-%08X", seed);
-    glass_evolve(pm, 14, fn, ICP, idgen->NumPart, UnitLength_in_cm, OutputDir);
-    myfree(fn);
+    std::ostringstream ss;
+    ss << std::setw(8) << std::setfill('0') << std::hex << std::uppercase << (unsigned)seed;
+    std::string fn = "powerspectrum-glass-" + ss.str();
+    glass_evolve(pm, 14, fn.c_str(), ICP, idgen->NumPart, UnitLength_in_cm, OutputDir);
 
     return idgen->NumPart;
 }
