@@ -186,39 +186,6 @@ MPIU_Tracev(MPI_Comm comm, int where, int error, const char * fmt, va_list va)
     }
 }
 
-int64_t
-MPIU_cumsum(int64_t countLocal, MPI_Comm comm)
-{
-    int NTask;
-    int ThisTask;
-    MPI_Comm_size(comm, &NTask);
-    MPI_Comm_rank(comm, &ThisTask);
-
-    int64_t offsetLocal;
-    int64_t * count = ta_malloc("counts", int64_t, NTask);
-    int64_t * offset = ta_malloc("offsets", int64_t, NTask);
-    MPI_Gather(&countLocal, 1, MPI_INT64, &count[0], 1, MPI_INT64, 0, MPI_COMM_WORLD);
-    if(ThisTask == 0) {
-        offset[0] = 0;
-        int i;
-        for(i = 1; i < NTask; i ++) {
-            offset[i] = offset[i-1] + count[i-1];
-        }
-    }
-    MPI_Scatter(&offset[0], 1, MPI_INT64, &offsetLocal, 1, MPI_INT64, 0, MPI_COMM_WORLD);
-    ta_free(offset);
-    ta_free(count);
-    return offsetLocal;
-}
-
-size_t sizemax(size_t a, size_t b)
-{
-  if(a < b)
-    return b;
-  else
-    return a;
-}
-
 int MPI_Alltoallv_smart(void *sendbuf, int *sendcnts, int *sdispls,
         MPI_Datatype sendtype, void *recvbuf, int *recvcnts,
         int *rdispls, MPI_Datatype recvtype, MPI_Comm comm)
