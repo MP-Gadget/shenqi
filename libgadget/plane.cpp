@@ -166,7 +166,7 @@ void write_plane(int snapnum, const double atime, Cosmology * CP, const std::str
             if (ThisTask == 0) {
 #ifdef USE_CFITSIO
                 auto file_path = plane_get_output_fname(snapnum, OutputDir, i, PlaneParams.Normals[j]);
-                savePotentialPlane(summed_plane_result, plane_resolution, plane_resolution, file_path.c_str(), BoxSize, CP, redshift, comoving_distance, num_particles_plane_tot, UnitLength_in_cm);
+                savePotentialPlane(summed_plane_result, plane_resolution, plane_resolution, file_path, BoxSize, CP, redshift, comoving_distance, num_particles_plane_tot, UnitLength_in_cm);
                 message(0, "Plane saved for cut %d and normal %d to %s\n", i, PlaneParams.Normals[j], file_path.c_str() + 1); // skip the '!' in the filename
 #endif
             }
