@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string>
 
 #include <vector>
 #include <boost/math/interpolators/makima.hpp>
@@ -37,5 +38,5 @@ void powerspectrum_free(Power * ps);
 void powerspectrum_sum(Power * ps);
 
 /*Save the power spectrum to a file*/
-void powerspectrum_save(Power * ps, const char * OutputDir, const char * filename, const double Time, const double D1);
+void powerspectrum_save(Power * ps, const std::string OutputDir, const std::string filename, const double Time, const double D1);
 #endif
