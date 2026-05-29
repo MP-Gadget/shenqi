@@ -490,43 +490,6 @@ MPIU_Any(int condition, MPI_Comm comm)
     return condition;
 }
 
-void
-MPIU_write_pids(char * filename)
-{
-    MPI_Comm comm = MPI_COMM_WORLD;
-    int NTask;
-    int ThisTask;
-    MPI_Comm_size(comm, &NTask);
-    MPI_Comm_rank(comm, &ThisTask);
-
-    int my_pid = getpid();
-    int * pids = ta_malloc("pids", int, NTask);
-    /* Smaller buffer than in cluster_get_num_hosts because
-     * here an overflow is harmless but running out of memory isn't*/
-    int bufsz = 64;
-    char * hosts = ta_malloc("hosts", char, (NTask+1) * bufsz);
-    char * thishost = hosts + NTask * bufsz;
-    gethostname(thishost, bufsz);
-    thishost[bufsz - 1] = '\0';
-    /* MPI_IN_PLACE is not used here because the MPI on travis doesn't like it*/
-    MPI_Gather(thishost, bufsz, MPI_CHAR, hosts, bufsz, MPI_CHAR, 0, comm);
-    MPI_Gather(&my_pid, 1, MPI_INT, pids, 1, MPI_INT, 0, comm);
-
-    if(ThisTask == 0)
-    {
-        int i;
-        FILE *fd = fopen(filename, "w");
-        if(!fd)
-            endrun(5, "Could not open pidfile %s\n", filename);
-        for(i = 0; i < NTask; i++)
-            fprintf(fd, "host: %s pid: %d\n", hosts+i*bufsz, pids[i]);
-        fclose(fd);
-    }
-    myfree(hosts);
-    myfree(pids);
-}
-
-
 size_t
 gadget_compact_thread_arrays_managed(int ** dest, const char * name, gadget_thread_arrays * arrays)
 {

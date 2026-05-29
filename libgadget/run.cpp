@@ -261,13 +261,6 @@ begrun(const int RestartSnapNum, struct header_data * head)
         endrun(2,"You must turn on compile flag EXCUR_REION to run ExcursionSetReion!\n");
 #endif
 
-#ifdef DEBUG
-    char * pidfile = fastpm_strdup_printf("%s/%s", All.OutputDir, "PIDs.txt");
-    fastpm_path_ensure_dirname(pidfile);
-    MPIU_write_pids(pidfile);
-    myfree(pidfile);
-#endif
-
     init_forcetree_params(0.9);
 
     init_cooling_and_star_formation(All.CoolingOn, All.StarformationOn, &All.CP, head->MassTable[0], head->BoxSize, units);

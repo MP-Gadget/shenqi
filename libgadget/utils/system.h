@@ -44,8 +44,6 @@ void free_random_numbers(RandTable * rnd);
 /* Returns true if condition is true on ANY processor*/
 int MPIU_Any(int condition, MPI_Comm comm);
 
-void MPIU_write_pids(char * filename);
-
 typedef struct _gadget_thread_arrays {
   int * dest;
   int ** srcs;
