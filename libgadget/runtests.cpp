@@ -15,7 +15,6 @@
 #include "utils/endrun.h"
 #include "utils/system.h"
 #include "utils/mymalloc.h"
-#include "utils/string.h"
 
 SIMPLE_GETTER(GTGravAccel, FullTreeGravAccel[0], float, 3, struct particle_data)
 SIMPLE_GETTER(GTGravPM, GravPM[0], float, 3, struct particle_data)
@@ -234,7 +233,7 @@ void check_density(double * meanhserr_tot, double * maxhserr_tot, double * meand
 }
 
 void
-run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const int Nmesh, const inttime_t Ti_Current, const char * OutputDir, const struct header_data * header)
+run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const int Nmesh, const inttime_t Ti_Current, const std::string OutputDir, const struct header_data * header)
 {
     DomainDecomp ddecomp[1] = {0};
     domain_decompose_full(ddecomp, MPI_COMM_WORLD);
@@ -256,10 +255,10 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
     /* All particles are active*/
     ActiveParticles Act = init_empty_active_particles(PartManager);
 
-    gravpm_force(pm, ddecomp, CP, header->TimeSnapshot, header->UnitLength_in_cm, OutputDir, header->TimeIC);
+    gravpm_force(pm, ddecomp, CP, header->TimeSnapshot, header->UnitLength_in_cm, OutputDir.c_str(), header->TimeIC);
 
     ForceTree Tree = {0};
-    force_tree_full(&Tree, ddecomp, 0, OutputDir);
+    force_tree_full(&Tree, ddecomp, 0, OutputDir.c_str());
 
     struct gravshort_tree_params origtreeacc = get_gravshort_treepar();
     /* Reset to normal tree */
@@ -271,8 +270,7 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
     grav_short_pair(&Act, pm, &Tree, treeacc.Rcut, rho0);
 
     copy_and_mean_accn(PairAccn);
-    char * fname = fastpm_strdup_printf("%s/PART-pairs-%03d", OutputDir, RestartSnapNum);
-
+    std::string fname = OutputDir + "/PART-pairs-" + zpad(RestartSnapNum, 3);
     petaio_save_snapshot(fname, &IOTable, 0, header->TimeSnapshot, CP);
 
     treeacc.ErrTolForceAcc = 0;
@@ -288,7 +286,7 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
     if(maxerr > 0.1)
         endrun(2, "Fully open tree force does not agree with pairwise calculation! maxerr %g > 0.1!\n", maxerr);
 
-    fname = fastpm_strdup_printf("%s/PART-tree-open-%03d", OutputDir, RestartSnapNum);
+    fname = OutputDir + "/PART-tree-open-" + zpad(RestartSnapNum, 3);
     petaio_save_snapshot(fname, &IOTable, 0, header->TimeSnapshot, CP);
 
     /* This checks tree force against tree force with zero error (which always opens).*/
@@ -307,7 +305,7 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
     set_gravshort_treepar(treeacc);
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
-    fname = fastpm_strdup_printf("%s/PART-tree-%03d", OutputDir, RestartSnapNum);
+    fname = OutputDir + "/PART-tree-" + zpad(RestartSnapNum, 3);
     petaio_save_snapshot(fname, &IOTable, 0, header->TimeSnapshot, CP);
 
     check_accns(&meanerr,&maxerr,&meanangle, &maxangle, PairAccn);
@@ -323,7 +321,7 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
     set_gravshort_treepar(treeacc);
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
-    fname = fastpm_strdup_printf("%s/PART-tree-rcut-%03d", OutputDir, RestartSnapNum);
+    fname = OutputDir + "/PART-tree-rcut-" + zpad(RestartSnapNum, 3);
     petaio_save_snapshot(fname, &IOTable, 0, header->TimeSnapshot, CP);
 
     check_accns(&meanerr,&maxerr,&meanangle, &maxangle, PairAccn);
@@ -339,12 +337,12 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
     petapm_destroy(pm);
 
     gravpm_init_periodic(pm, PartManager->BoxSize, Asmth, Nmesh/2., CP->GravInternal);
-    gravpm_force(pm, ddecomp, CP, header->TimeSnapshot, header->UnitLength_in_cm, OutputDir, header->TimeIC);
-    force_tree_full(&Tree, ddecomp, 0, OutputDir);
+    gravpm_force(pm, ddecomp, CP, header->TimeSnapshot, header->UnitLength_in_cm, OutputDir.c_str(), header->TimeIC);
+    force_tree_full(&Tree, ddecomp, 0, OutputDir.c_str());
     set_gravshort_treepar(treeacc);
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
     grav_short_tree(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
-    fname = fastpm_strdup_printf("%s/PART-tree-nmesh2-%03d", OutputDir, RestartSnapNum);
+    fname = OutputDir + "/PART-tree-nmesh2-" + zpad(RestartSnapNum, 3);
     petaio_save_snapshot(fname, &IOTable, 0, header->TimeSnapshot, CP);
 
     check_accns(&meanerr,&maxerr,&meanangle, &maxangle, PairAccn);
@@ -364,7 +362,7 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
 
 /* Compute accelerations using two different routines, check they give the same answer. */
 void
-run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const double Asmth, const int Nmesh, const inttime_t Ti_Current, TimeBinMgr * timebinmgr, const char * OutputDir, const struct header_data * header)
+run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const double Asmth, const int Nmesh, const inttime_t Ti_Current, TimeBinMgr * timebinmgr, const std::string OutputDir, const struct header_data * header)
 {
     DomainDecomp ddecomp[1] = {0};
     domain_decompose_full(ddecomp, MPI_COMM_WORLD);
@@ -387,10 +385,10 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     ActiveParticles Act = init_empty_active_particles(PartManager);
     build_active_particles(&Act, &times, timebinmgr, 0, header->TimeSnapshot, PartManager);
 
-    gravpm_force(pm, ddecomp, CP, header->TimeSnapshot, header->UnitLength_in_cm, OutputDir, header->TimeIC);
+    gravpm_force(pm, ddecomp, CP, header->TimeSnapshot, header->UnitLength_in_cm, OutputDir.c_str(), header->TimeIC);
 
     ForceTree Tree = {0};
-    force_tree_full(&Tree, ddecomp, 0, OutputDir);
+    force_tree_full(&Tree, ddecomp, 0, OutputDir.c_str());
 
     struct gravshort_tree_params treeacc = get_gravshort_treepar();
     /* Use the BH tree on the first iteration for consistency */
@@ -454,7 +452,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     MyFloat * GradRho = (MyFloat *) mymalloc2("SPH_GradRho", sizeof(MyFloat) * 3 * SlotsManager->info[0].size);
     /*Allocate the memory for predicted SPH data.*/
     struct sph_pred_data sph_predicted = {0};
-    force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK, OutputDir);
+    force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK, OutputDir.c_str());
     /* computes GradRho with a treewalk. No hsml update as we are reading from a snapshot.*/
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
@@ -556,7 +554,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     force_tree_free(&gasTree);
     myfree(GradRho);
 
-    char * fname = fastpm_strdup_printf("%s/PART-consistent-%03d", OutputDir, RestartSnapNum);
+    std::string fname = OutputDir + "/PART-consistent-" + zpad(RestartSnapNum, 3);
     petaio_save_snapshot(fname, &IOTable, 0, header->TimeSnapshot, CP);
 
     destroy_io_blocks(&IOTable);

@@ -20,6 +20,7 @@
 #include "utils/paramset.h"
 #include "cosmology.h"
 #include "physconst.h"
+#include "utils/endrun.h"
 #include <functional>
 #include <boost/math/quadrature/gauss_kronrod.hpp>
 
@@ -240,9 +241,35 @@ inttime_t round_down_power_of_two(inttime_t ti);
  *  OutputList  0.1,0.3,0.5,1.0
  *
  *  We sort the input after reading it, so that the initial list need not be sorted.
- *  This function could be repurposed for reading generic arrays in future.
  */
-std::vector<double> BuildOutputList(std::string outputliststr);
+template <typename T>
+std::vector<T> BuildOutputList(std::string outputliststr)
+{
+    std::vector<T> outputlist;
+    if(outputliststr.empty()) {
+        return outputlist;
+    }
+    /* Note TimeInit and TimeMax not yet initialised here*/
+    std::istringstream ss(outputliststr);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+         std::string_view sv = token;
+         if (!sv.empty() && sv.front() == '"')
+             sv.remove_prefix(1);
+
+        T a;
+        try {
+            a = std::stod(std::string(sv));
+        } catch(const std::exception & e) {
+              endrun(1, "Could not parse '%s' in OutputList: %s\n", token.c_str(), e.what());
+        }
+        if (a < 0.0)
+            endrun(1, "Requesting a negative output scaling factor a = %s\n", std::to_string(a).c_str());
+        outputlist.push_back(a);
+    }
+    std::sort(outputlist.begin(), outputlist.end());
+    return outputlist;
+}
 
 void set_sync_params_test(int OutputListLength, double * OutputListTimes);
 void set_sync_params(ParameterSet * ps);

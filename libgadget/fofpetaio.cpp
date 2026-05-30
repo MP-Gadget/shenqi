@@ -35,7 +35,7 @@ int fof_select_func(int i, const struct particle_data * Parts)
     return Parts[i].GrNr >= 0 && Parts[i].Swallowed == 0;
 }
 
-int fof_save_particles(FOFGroups * fof, char * fname, int SaveParticles, Cosmology * CP, double atime, const double * MassTable, int MetalReturnOn, MPI_Comm Comm) {
+int fof_save_particles(FOFGroups * fof, const std::string fname, int SaveParticles, Cosmology * CP, double atime, const double * MassTable, int MetalReturnOn, MPI_Comm Comm) {
     int i;
     struct IOTable FOFIOTable = {0};
 
@@ -45,10 +45,9 @@ int fof_save_particles(FOFGroups * fof, char * fname, int SaveParticles, Cosmolo
             fof_radix_Group_GrNr, 8, NULL, Comm);
 
     BigFile bf = {0};
-    if(0 != big_file_mpi_create(&bf, fname, Comm)) {
-        endrun(0, "Failed to open file at %s\n", fname);
+    if(0 != big_file_mpi_create(&bf, fname.c_str(), Comm)) {
+        endrun(0, "Failed to open file at %s\n", fname.c_str());
     }
-    myfree(fname);
     struct conversions conv = {0};
     conv.atime = atime;
     conv.hubble = hubble_function(CP, atime);
@@ -151,7 +150,7 @@ int fof_save_particles(FOFGroups * fof, char * fname, int SaveParticles, Cosmolo
     big_file_mpi_close(&bf, Comm);
 
     /* Done saving particles*/
-    MPIU_Barrier(Comm);
+    MPI_Barrier(Comm);
     message(0, "Group catalogues saved.\n");
     return domain_needed;
 }

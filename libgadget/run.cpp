@@ -261,13 +261,6 @@ begrun(const int RestartSnapNum, struct header_data * head)
         endrun(2,"You must turn on compile flag EXCUR_REION to run ExcursionSetReion!\n");
 #endif
 
-#ifdef DEBUG
-    char * pidfile = fastpm_strdup_printf("%s/%s", All.OutputDir, "PIDs.txt");
-    fastpm_path_ensure_dirname(pidfile);
-    MPIU_write_pids(pidfile);
-    myfree(pidfile);
-#endif
-
     init_forcetree_params(0.9);
 
     init_cooling_and_star_formation(All.CoolingOn, All.StarformationOn, &All.CP, head->MassTable[0], head->BoxSize, units);
@@ -731,9 +724,10 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         }
 
         /* WriteFOF just reminds the checkpoint code to save GroupID*/
-        if(WriteSnapshot)
+        if(WriteSnapshot) {
             write_checkpoint(SnapshotFileCount, WriteFOF, All.MetalReturnOn, atime, &All.CP, All.OutputDir, All.OutputDebugFields);
-
+            walltime_measure("/WriteSnapshot");
+        }
         /* Save FOF tables after checkpoint so that if there is a FOF save bug we have particle tables available to debug it*/
         if(WriteFOF) {
             int domain_needed = fof_save_groups(&fof, All.OutputDir, All.FOFFileBase, SnapshotFileCount, &All.CP, atime, header->MassTable, All.MetalReturnOn, MPI_COMM_WORLD);

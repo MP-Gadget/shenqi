@@ -11,6 +11,7 @@
 #include "partmanager.h"
 #include "cosmology.h"
 #include "physconst.h"
+#include "petaio.h"
 
 #define NENTRY 4096
 static double tab_loga[NENTRY];
@@ -79,12 +80,6 @@ void lightcone_init(Cosmology * CP, double timeBegin, const double UnitLength_in
         lightcone_init_entry(CP, i, UnitLength_in_cm);
     };
     int chunk = 100;
-
-    auto zpad = [](int v, int w) {
-        std::ostringstream s;
-        s << std::setw(w) << std::setfill('0') << v;
-        return s.str();
-    };
 
     std::string outdir(OutputDir);
     outdir += "/lightcone/";

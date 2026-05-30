@@ -262,7 +262,6 @@ void displacement_fields(PetaPM * pm, enum TransferType Type, struct ic_part_dat
     message(0, "Max vel=%g km/s, vel_prefac= %g  hubble_a=%g fom=%g \n", sqrt(maxvel), vel_prefac, hubble_a, F_Omega(CP, GenicConfig.TimeIC));
 
     walltime_measure("/Disp/Finalize");
-    MPIU_Barrier(MPI_COMM_WORLD);
 }
 
 /********************
