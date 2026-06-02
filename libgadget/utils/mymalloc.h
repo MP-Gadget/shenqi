@@ -10,7 +10,7 @@ extern Allocator A_TEMP[1];
 void mymalloc_init(int UseGPU);
 /* Initialize the small temporary memory block*/
 void tamalloc_init(void);
-void report_detailed_memory_usage(const char *label, const char * fmt, ...);
+void report_detailed_memory_usage(const char *label, const char * file, int line);
 
 /* Memory allocated with this mechanism is tracked by our allocator framework and allocated with posix_memalign */
 #define  mymalloc(name, size)            allocator_alloc_host(A_MAIN, name, size)
@@ -26,7 +26,7 @@ void report_detailed_memory_usage(const char *label, const char * fmt, ...);
 #define  ta_reset()     allocator_reset(A_TEMP, 0)
 #define  ta_free(p) allocator_free(p)
 
-#define  report_memory_usage(x)    report_detailed_memory_usage(x, "%s:%d", __FILE__, __LINE__)
+#define  report_memory_usage(x)    report_detailed_memory_usage(x, __FILE__, __LINE__)
 #define  mymalloc_freebytes()       get_freemem_bytes()
 #define  mymalloc_usedbytes()       allocator_get_used_size_malloc(A_MAIN)
 
