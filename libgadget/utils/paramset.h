@@ -15,7 +15,6 @@ typedef struct ParameterEnum {
 } ParameterEnum;
 
 typedef struct ParameterSet ParameterSet;
-typedef int (*ParameterAction)(ParameterSet * ps, const char * name, void * userdata);
 
 void
 param_declare_int(ParameterSet * ps, const char * name, const enum ParameterFlag required, const int defvalue, const char * help);
@@ -28,9 +27,6 @@ param_declare_string(ParameterSet * ps, const char * name, const enum ParameterF
 
 void
 param_declare_enum(ParameterSet * ps, const char * name, ParameterEnum * enumtable, const enum ParameterFlag required, const char * defvalue, const char * help);
-
-void
-param_set_action(ParameterSet * ps, const char * name, ParameterAction action, void * userdata);
 
 int
 param_is_nil(ParameterSet * ps, const char * name);

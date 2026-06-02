@@ -86,8 +86,6 @@ typedef struct ParameterSchema {
     const char * help;
     enum ParameterFlag required;
     ParameterEnum * enumtable;
-    ParameterAction action;
-    void * action_data;
 } ParameterSchema;
 
 struct ParameterSet {
@@ -162,13 +160,6 @@ static int param_emit(ParameterSet * ps, char * start, int size, int lineno)
         return 1;
     }
     param_set_from_string(ps, name, value, lineno);
-    if(p->action) {
-        if(0 != p->action(ps, name, p->action_data)) {
-            message(0, "Triggering Action on `%s` failed.\n", name);
-            myfree(buf);
-            return 1;
-        }
-    }
     myfree(buf);
     return 0;
 }
@@ -252,8 +243,6 @@ param_declare(ParameterSet * ps, const char * name, const int type, const enum P
     ps->p[free].type = type;
     ps->p[free].index = free;
     ps->p[free].defvalue.nil = 1;
-    ps->p[free].action = NULL;
-    ps->p[free].defvalue.s = NULL;
     ps->p[free].defvalue.lineno = -1;
     if(help)
         ps->p[free].help = help;
@@ -313,14 +302,6 @@ param_declare_enum(ParameterSet * ps, const char * name, ParameterEnum * enumtab
     } else {
         p->defvalue.nil = 1;
     }
-}
-
-void
-param_set_action(ParameterSet * ps, const char * name, ParameterAction action, void * userdata)
-{
-    ParameterSchema * p = param_get_schema(ps, name);
-    p->action = action;
-    p->action_data = userdata;
 }
 
 int

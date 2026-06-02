@@ -98,6 +98,12 @@ void set_blackhole_params(ParameterSet * ps)
         blackhole_params.BlackHoleFeedbackFactor = param_get_double(ps, "BlackHoleFeedbackFactor");
 
         blackhole_params.BlackHoleFeedbackMethod = (enum BlackHoleFeedbackMethod) param_get_enum(ps, "BlackHoleFeedbackMethod");
+        if(HAS(blackhole_params.BlackHoleFeedbackMethod, BH_FEEDBACK_TOPHAT) == HAS(blackhole_params.BlackHoleFeedbackMethod, BH_FEEDBACK_SPLINE)) {
+            endrun(1, "error BlackHoleFeedbackMethod contains either tophat or spline, but both\n");
+        }
+        if(HAS(blackhole_params.BlackHoleFeedbackMethod, BH_FEEDBACK_MASS) ==  HAS(blackhole_params.BlackHoleFeedbackMethod, BH_FEEDBACK_VOLUME)) {
+            endrun(1, "error BlackHoleFeedbackMethod contains either volume or mass, but both\n");
+        }
 
         blackhole_params.BlackHoleKineticOn = param_get_int(ps,"BlackHoleKineticOn");
         blackhole_params.BHKE_EddingtonThrFactor = param_get_double(ps, "BHKE_EddingtonThrFactor");

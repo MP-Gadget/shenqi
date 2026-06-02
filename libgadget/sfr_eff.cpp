@@ -190,6 +190,8 @@ void set_sfr_params(ParameterSet * ps)
         param_get_string2(ps, "UVFluctuationfile", sfr_params.UVFluctuationFile, sizeof(sfr_params.UVFluctuationFile));
         param_get_string2(ps, "MetalCoolFile", sfr_params.MetalCoolFile, sizeof(sfr_params.MetalCoolFile));
         param_get_string2(ps, "ReionHistFile", sfr_params.ReionHistFile, sizeof(sfr_params.ReionHistFile));
+        if(!HAS(sfr_params.StarformationCriterion, SFR_CRITERION_DENSITY))
+            endrun(1, "error: StarFormationCriterion should use at least SFR_CRITERION_DENSITY\n");
     }
     MPI_Bcast(&sfr_params, sizeof(struct SFRParams), MPI_BYTE, 0, MPI_COMM_WORLD);
 }

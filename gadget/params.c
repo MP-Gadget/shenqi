@@ -21,32 +21,6 @@
 #include <libgadget/plane.h>
 #include <libgadget/utils/endrun.h>
 
-static int
-BlackHoleFeedbackMethodAction (ParameterSet * ps, const char * name, void * data)
-{
-    int v = param_get_enum(ps, name);
-    if(HAS(v, BH_FEEDBACK_TOPHAT) == HAS(v, BH_FEEDBACK_SPLINE)) {
-        message(1, "error BlackHoleFeedbackMethod contains either tophat or spline, but both\n");
-        return 1;
-    }
-    if(HAS(v, BH_FEEDBACK_MASS) ==  HAS(v, BH_FEEDBACK_VOLUME)) {
-        message(1, "error BlackHoleFeedbackMethod contains either volume or mass, but both\n");
-        return 1;
-    }
-    return 0;
-}
-
-static int
-StarformationCriterionAction(ParameterSet * ps, const char * name, void * data)
-{
-    int v = param_get_enum(ps, name);
-    if(!HAS(v, SFR_CRITERION_DENSITY)) {
-        message(1, "error: At least use SFR_CRITERION_DENSITY\n");
-        return 1;
-    }
-    return 0;
-}
-
 static ParameterSet *
 create_gadget_parameter_set()
 {
@@ -378,10 +352,6 @@ create_gadget_parameter_set()
     param_declare_int(ps, "ReionUseParticleSFR", OPTIONAL, 0, "Use the gas particle SFR instead of the usual excursion set stellar mass / timescale");
     param_declare_double(ps, "ReionSFRTimescale", OPTIONAL, 0.1, "timescale to calculate the SFR from stellar mass filtered grids (units of Hubble time)");
     /*End Parameters for the Excursion Set Algorithm*/
-
-    param_set_action(ps, "BlackHoleFeedbackMethod", BlackHoleFeedbackMethodAction, NULL);
-    param_set_action(ps, "StarformationCriterion", StarformationCriterionAction, NULL);
-
     return ps;
 }
 
