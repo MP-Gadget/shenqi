@@ -1,482 +1,210 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
-
+#include <fstream>
 #include "paramset.h"
-#include "string.h"
-#include "mymalloc.h"
 #include "endrun.h"
 
 #define INT 1
 #define DOUBLE 3
 #define STRING 5
 #define ENUM 10
-#define NAMESIZE 128
 
-static int parse_enum(ParameterEnum * table, const char * strchoices) {
-    int value = 0;
-    ParameterEnum * p = table;
-    const char * delim = "\",;&| \t";
-    char * token;
-
-    char * strchoices2 = fastpm_strdup(strchoices);
-    for(token = strtok(strchoices2, delim); token ; token = strtok(NULL, delim)) {
-        for(p = table; p->name; p++) {
-            if(strcasecmp(token, p->name) == 0) {
-                value |= p->value;
-                break;
-            }
-        }
-        if(p->name == NULL) {
-            /* error occured !*/
-            myfree(strchoices2);
-            return 0;
-        }
-    }
-    if(value == 0) {
-        /* none is specified, use default (NULL named entry) */
-        value = p->value;
-    }
-    myfree(strchoices2);
-    return value;
-}
-static char * format_enum(ParameterEnum * table, int value) {
-    int btotal = 200;
-    int bleft = btotal;
-    char * buffer = ta_malloc("formatbuffer", char, bleft);
-    ParameterEnum * p;
-    char * c = buffer;
-    int first = 1;
-    for(p = table; p->name && p->name[0]; p++) {
-        if((value & p->value) == p->value) {
-            if(!first) {
-                *(c++) = ' ';
-                *(c++) = '|';
-                *(c++) = ' ';
-            }
-            first = 0;
-            bleft-= strlen(p->name);
-            if (bleft <= 0) {
-                int extra = (- bleft) + btotal;
-                buffer = (char *) myrealloc(buffer, btotal + extra);
-                break;
-            }
-            /* The above ensures a large enough buffer*/
-            strcpy(c, p->name);
-            c += strlen(p->name);
-        }
-    }
-    return buffer;
+static int parse_enum(ParameterEnum& table, const std::string strchoices) {
+    int outvalue = 0;
+    const std::string delim = "\",;&| \t";
+    std::string::size_type startpos = 0;
+    auto sz = strchoices.find_first_of(delim);
+    do {
+        sz = strchoices.find_first_of(delim);
+        auto token = strchoices.substr(startpos, sz);
+        outvalue |= table[token];
+        startpos = sz;
+    } while (sz != std::string::npos);
+    return outvalue;
 }
 
-typedef struct ParameterValue {
-    int nil;
-    int i;
-    double d;
-    char * s;
-    int lineno;
-} ParameterValue;
-
-typedef struct ParameterSchema {
-    int index;
-    char name[NAMESIZE];
-    int type;
-    ParameterValue defvalue;
-    const char * help;
-    enum ParameterFlag required;
-    ParameterEnum * enumtable;
-} ParameterSchema;
-
-struct ParameterSet {
-    char * content;
-    int size;
-    ParameterSchema p[1024];
-    ParameterValue value[1024];
-};
-
-static ParameterSchema * param_get_schema(ParameterSet * ps, const char * name)
-{
-    int i;
-    for(i = 0; i < ps->size; i ++) {
-        if(!strcasecmp(ps->p[i].name, name)) {
-            return &ps->p[i];
-        }
-    }
-    return NULL;
-}
-
-static void
-param_set_from_string(ParameterSet * ps, const char * name, char * value, int lineno);
-
-
-static int param_emit(ParameterSet * ps, char * start, int size, int lineno)
-{
-    /* parse a line */
-    if (size == 0) return 0;
-    char * buf = ta_malloc2("line", char, size + 1);
-    static char blanks[] = " \t\r\n=";
-    static char comments[] =  "%#";
-    strncpy(buf, start, size);
-    buf[size] = 0;
-
-    /* blank lines are OK */
-    const char * name = NULL;
-    char * value = NULL;
-    char * ptr = buf;
-
-    /* parse name */
-    while(*ptr && strchr(blanks, *ptr)) ptr++;
-    if (*ptr == 0 || strchr(comments, *ptr)) {
-        /* This line is fully comment */
-        myfree(buf);
-        return 0;
-    }
-    name = ptr;
-    while(*ptr && !strchr(blanks, *ptr)) ptr++;
-    *ptr = 0;
-    ptr++;
-
-    /* parse value */
-    while(*ptr && strchr(blanks, *ptr)) ptr++;
-
-    if (*ptr == 0 || strchr(comments, *ptr)) {
-        /* This line is malformed, must have a value! */
-        strncpy(buf, start, size);
-        message(0, "Line %d : `%s` is malformed.\n", lineno, buf);
-        myfree(buf);
-        return 1;
-    }
-    value = ptr;
-    while(*ptr && !strchr(comments, *ptr)) ptr++;
-    *ptr = 0;
-    ptr++;
-
-    /* now this line is important */
-    ParameterSchema * p = param_get_schema(ps, name);
-    if(!p) {
-        message(0, "Line %d: Parameter `%s` is unknown.\n", lineno, name);
-        myfree(buf);
-        return 1;
-    }
-    param_set_from_string(ps, name, value, lineno);
-    myfree(buf);
-    return 0;
-}
 int param_validate(ParameterSet * ps)
 {
-    int i;
     int flag = 0;
     /* copy over the default values */
-    for(i = 0; i < ps->size; i ++) {
-        ParameterSchema * p = &ps->p[i];
-        if(p->required == REQUIRED && ps->value[p->index].nil) {
-            message(0, "Parameter `%s` is required, but not set.\n", p->name);
+    for(auto pp : ps->p) {
+        if(pp.second.required == REQUIRED && pp.second.lineno < 0) {
+            message(0, "Parameter `%s` is required, but not set.\n", pp.first.c_str());
             flag = 1;
         }
     }
     return flag;
 }
 
-void param_dump(ParameterSet * ps, FILE * stream)
+static void
+param_set_from_string(ParameterSet * ps, const std::string name, std::string value, int lineno)
 {
-    int i;
-    for(i = 0; i < ps->size; i ++) {
-        ParameterSchema * p = &ps->p[i];
-        char * v = param_format_value(ps, p->name);
-        if(ps->value[i].lineno >= 0) {
-            fprintf(stream, "%-31s %-20s # Line %03d # %s \n", p->name, v, ps->value[i].lineno, p->help);
-        } else {
-            fprintf(stream, "%-31s %-20s # Default  # %s \n", p->name, v, p->help);
-        }
-        myfree(v);
+    auto& pp = ps->p[name];
+    pp.lineno = lineno;
+    switch(pp.type) {
+        case INT:
+            pp.value = std::stoi(value);
+            break;
+        case DOUBLE:
+            pp.value = std::stod(value);
+            break;
+        case STRING:
+            pp.value = value;
+            break;
+        case ENUM:
+            pp.value = parse_enum(pp.enumtable, value);
+            break;
+        default:
+            endrun(4, "Unexpected type for parameter %s: %d\n", name.c_str(), pp.type);
     }
-    fflush(stream);
 }
 
-int param_parse (ParameterSet * ps, char * content)
+static int param_emit(ParameterSet * ps, std::string token, int lineno)
 {
-    int i;
-    /* copy over the default values, include nil values */
-    for(i = 0; i < ps->size; i ++) {
-        ps->value[ps->p[i].index] = ps->p[i].defvalue;
+    std::string limits(" \t=");
+    std::string comments("%#");
+    /* Remove comments*/
+    for(auto cc : comments) {
+        auto comment = token.find(cc);
+        if(comment != std::string::npos) {
+            token.erase(comment);
+        }
     }
-    char * p = content;
-    char * p1 = content; /* begining of a line */
+    if(token.size() == 0)
+        return 0;
+    /* Parse a line: find the key-value pair*/
+    auto key = token.find_first_not_of(limits);
+    if(key == std::string::npos) {
+        return 0;
+    }
+    auto sep = token.substr(key).find_first_of(limits) + key;
+    if(sep == std::string::npos) {
+        message(0, "Line %d : `%s` is malformed.\n", lineno, token.c_str());
+        return 1;
+    }
+    std::string name = token.substr(key, sep);
+    auto value = token.substr(sep).find_first_not_of(limits) + sep;
+    auto endvalue = token.substr(value).find_first_of(limits) + value;
+    std::string valuestr = token.substr(value, endvalue);
+    if(ps->p.contains(name))
+        param_set_from_string(ps, name, valuestr, lineno);
+    else
+        message(0, "Line %d: Parameter `%s` is unknown.\n", lineno, name.c_str());
+    return 0;
+}
+
+int param_parse_file (ParameterSet * ps, const std::string filename)
+{
+    std::ifstream content(filename);
+    if(!content.is_open()) {
+        endrun(1, "Could not read file: %s\n", filename.c_str());
+    }
+    std::string line;
     int flag = 0;
     int lineno = 0;
-    while(1) {
-        if(*p == '\n' || *p == 0) {
-            int flag1 = param_emit(ps, p1, p - p1, lineno);
-            flag |= flag1;
-            if(*p == 0) break;
-            p++;
-            p1 = p;
-            lineno ++;
-        } else {
-            p++;
-        }
+    while(std::getline(content, line)) {
+        flag |= param_emit(ps, line, lineno);
+        lineno ++;
     }
     return flag;
 }
 
-int param_parse_file (ParameterSet * ps, const char * filename)
+template <typename T> void
+param_declare(ParameterSet * ps, const std::string name, const int type, const enum ParameterFlag required, const T defvalue, const std::string help)
 {
-    char * content = fastpm_file_get_content(filename);
-    if(content == NULL) {
-        endrun(1, "Could not read file: %s\n", filename);
-    }
-    int val = param_parse(ps, content);
-
-    myfree(content);
-    return val;
-}
-
-static ParameterSchema *
-param_declare(ParameterSet * ps, const char * name, const int type, const enum ParameterFlag required, const char * help)
-{
-    int free = ps->size;
-    strncpy(ps->p[free].name, name, NAMESIZE);
-    //Make sure null terminated
-    ps->p[free].name[NAMESIZE-1] = '\0';
-    ps->p[free].required = required;
-    ps->p[free].type = type;
-    ps->p[free].index = free;
-    ps->p[free].defvalue.nil = 1;
-    ps->p[free].defvalue.lineno = -1;
-    if(help)
-        ps->p[free].help = help;
-    ps->size ++;
-    return &ps->p[free];
+    ParameterSchema pp;
+    pp.type = type;
+    pp.required = required;
+    pp.lineno = -1;
+    pp.help = help;
+    pp.defvalue = defvalue;
+    pp.value = defvalue;
+    ps->p[name] = pp;
 }
 
 void
-param_declare_int(ParameterSet * ps, const char * name, const enum ParameterFlag required, const int defvalue, const char * help)
+param_declare_int(ParameterSet * ps, const std::string name, const enum ParameterFlag required, const int defvalue, const std::string help)
 {
-    ParameterSchema * p = param_declare(ps, name, INT, required, help);
-    if(required == OPTIONAL) {
-        p->defvalue.i = defvalue;
-        p->defvalue.nil = 0;
-    } else {
-        p->defvalue.nil = 1;
-    }
+    param_declare<int>(ps, name, INT, required, defvalue, help);
 }
 void
-param_declare_double(ParameterSet * ps, const char * name, const enum ParameterFlag required, const double defvalue, const char * help)
+param_declare_double(ParameterSet * ps, const std::string name, const enum ParameterFlag required, const double defvalue, const std::string help)
 {
-    ParameterSchema * p = param_declare(ps, name, DOUBLE, required, help);
-    if(required == OPTIONAL) {
-        p->defvalue.d = defvalue;
-        p->defvalue.nil = 0;
-    } else {
-        p->defvalue.nil = 1;
-    }
-}
-void
-param_declare_string(ParameterSet * ps, const char * name, const enum ParameterFlag required, const char * defvalue, const char * help)
-{
-    ParameterSchema * p = param_declare(ps, name, STRING, required, help);
-    if(required == OPTIONAL) {
-        if(defvalue != NULL) {
-            p->defvalue.s = fastpm_strdup(defvalue);
-            p->defvalue.nil = 0;
-        } else {
-            /* The handling of nil is not consistent yet! Only string can be non-required and have nil value.
-             * blame bad function signature (noway to define nil for int and double. */
-            p->defvalue.s = NULL;
-            p->defvalue.nil = 1;
-        }
-    } else {
-        p->defvalue.nil = 1;
-    }
-}
-void
-param_declare_enum(ParameterSet * ps, const char * name, ParameterEnum * enumtable, const enum ParameterFlag required, const char * defvalue, const char * help)
-{
-    ParameterSchema * p = param_declare(ps, name, ENUM, required, help);
-    p->enumtable = enumtable;
-    if(required == OPTIONAL) {
-        p->defvalue.i = parse_enum(enumtable, defvalue);
-        /* Watch out, if enumtable is malloced we may core dump if it gets freed */
-        p->defvalue.nil = 0;
-    } else {
-        p->defvalue.nil = 1;
-    }
+    param_declare<double>(ps, name, DOUBLE, required, defvalue, help);
 }
 
-int
-param_is_nil(ParameterSet * ps, const char * name)
+void
+param_declare_string(ParameterSet * ps, const std::string name, const enum ParameterFlag required, const std::string defvalue, const std::string help)
 {
-    ParameterSchema * p = param_get_schema(ps, name);
-    return ps->value[p->index].nil;
+    param_declare<std::string>(ps, name, STRING, required, defvalue, help);
+}
+
+void
+param_declare_enum(ParameterSet * ps, const std::string name, ParameterEnum * enumtable, const enum ParameterFlag required, const std::string defvalue, const std::string help)
+{
+    param_declare<int>(ps, name, ENUM, required, parse_enum(*enumtable, defvalue), help);
+    ps->p[name].enumtable = *enumtable;
 }
 
 double
-param_get_double(ParameterSet * ps, const char * name)
+param_get_double(ParameterSet * ps, const std::string name)
 {
-    ParameterSchema * p = param_get_schema(ps, name);
-    if (param_is_nil(ps, name)) {
-        message(0, "Accessing an undefined parameter `%s`.\n", p->name);
-    }
-    return ps->value[p->index].d;
+    return std::get<double>(ps->p[name].value);
 }
 
-char *
-param_get_string(ParameterSet * ps, const char * name)
+std::string&
+param_get_string(ParameterSet * ps, const std::string name)
 {
-    ParameterSchema * p = param_get_schema(ps, name);
-    if (param_is_nil(ps, name)) {
-        message(0, "Accessing an undefined parameter `%s`.\n", p->name);
-        char empty[1] = {'\0'};
-        return fastpm_strdup(empty);
-    }
-    return ps->value[p->index].s;
-}
-void
-param_get_string2(ParameterSet * ps, const char * name, char * dst, size_t len)
-{
-    ParameterSchema * p = param_get_schema(ps, name);
-    if (param_is_nil(ps, name)) {
-        message(0, "Accessing an undefined parameter `%s`.\n", p->name);
-    }
-    if(strlen(ps->value[p->index].s) > len)
-        endrun(1, "Parameter string %s too long for storage (%ld)\n", ps->value[p->index].s, len);
-    strncpy(dst, ps->value[p->index].s, len);
-    dst[len-1]='\0';
+    return std::get<std::string>(ps->p[name].value);
 }
 
 int
-param_get_int(ParameterSet * ps, const char * name)
+param_get_int(ParameterSet * ps, const std::string name)
 {
-    ParameterSchema * p = param_get_schema(ps, name);
-    if (param_is_nil(ps, name)) {
-        message(0, "Accessing an undefined parameter `%s`.\n", p->name);
-    }
-    return ps->value[p->index].i;
+    return std::get<int>(ps->p[name].value);
 }
 
 int
-param_get_enum(ParameterSet * ps, const char * name)
+param_get_enum(ParameterSet * ps, const std::string name)
 {
-    ParameterSchema * p = param_get_schema(ps, name);
-    if (param_is_nil(ps, name)) {
-        message(0, "Accessing an undefined parameter `%s`.\n", p->name);
-    }
-    return ps->value[p->index].i;
+    return std::get<int>(ps->p[name].value);
 }
 
-char *
-param_format_value(ParameterSet * ps, const char * name)
+static std::string format_enum(ParameterEnum& table, int value) {
+    std::string formatted;
+    for(auto it = table.begin(); it != table.end(); ++it) {
+        if(value & it->second) {
+            if(formatted.size() > 0)
+                formatted += " | ";
+            formatted += it->first;
+        }
+    }
+    return formatted;
+}
+
+static std::string
+param_format_value(ParameterSchema& p)
 {
-    ParameterSchema * p = param_get_schema(ps, name);
-    if(ps->value[p->index].nil) {
-        return fastpm_strdup("UNDEFINED");
+    auto value = p.value;
+    if(p.lineno < 0)
+        value = p.defvalue;
+    if(p.type == ENUM) {
+        return format_enum(p.enumtable, std::get<int>(value));
     }
-    switch(p->type) {
-        case INT:
-        {
-            int i = ps->value[p->index].i;
-            char buf[128];
-            snprintf(buf, 128, "%d", i);
-            return fastpm_strdup(buf);
-        }
-        case DOUBLE:
-        {
-            double d = ps->value[p->index].d;
-            char buf[128];
-            snprintf(buf, 128, "%g", d);
-            return fastpm_strdup(buf);
-        }
-        case STRING:
-        {
-            return fastpm_strdup(ps->value[p->index].s);
-        }
-        case ENUM:
-        {
-            return format_enum(p->enumtable, ps->value[p->index].i);
-        }
-        default:
-            return fastpm_strdup("UNDEFINED TYPE");
-    }
+    else if(p.type == INT)
+        return std::to_string(std::get<int>(value));
+    else if(p.type == DOUBLE)
+        return std::to_string(std::get<double>(value));
+    return std::get<std::string>(value);
 }
 
-void
-param_set_from_string(ParameterSet * ps, const char * name, char * value, int lineno)
+void param_dump(ParameterSet * ps, FILE * stream)
 {
-    ParameterSchema * p = param_get_schema(ps, name);
-    ps->value[p->index].lineno = lineno;
-    switch(p->type) {
-        case INT:
-        {
-            int i;
-            sscanf(value, "%d", &i);
-            ps->value[p->index].i = i;
-            ps->value[p->index].nil = 0;
-        }
-        break;
-        case DOUBLE:
-        {
-            double d;
-            sscanf(value, "%lf", &d);
-            ps->value[p->index].d = d;
-            ps->value[p->index].nil = 0;
-        }
-        break;
-        case STRING:
-        {
-            while(*value == ' ') value ++;
-            ps->value[p->index].s = fastpm_strdup(value);
-            char * a = ps->value[p->index].s;
-            a += strlen(a) - 1;
-            while(*a == ' ') {
-                *a = 0;
-                a--;
-            }
-            ps->value[p->index].nil = 0;
-        }
-        break;
-        case ENUM:
-        {
-            char * v = fastpm_strdup(value);
-            ps->value[p->index].i = parse_enum(p->enumtable, v);
-            myfree(v);
-            ps->value[p->index].nil = 0;
-        }
-        break;
-    }
-}
-
-ParameterSet *
-parameter_set_new()
-{
-    ParameterSet * ps = ta_malloc("paramset", ParameterSet, 1);
-    ps->size = 0;
-    return ps;
-}
-
-void
-parameter_set_free(ParameterSet * ps) {
-    /* Just reset the temp heap,
-     * since that is where the paramset is allocated*/
-    ta_reset();
-    /*    int i;
-     for(i = 0; i < ps->size; i ++) {
-        if(ps->p[i].help) {
-            myfree(ps->p[i].help);
-        }
-        if(ps->p[i].type == STRING) {
-            if(ps->p[i].defvalue.s) {
-                // FIXME: memory corruption
-//                free(ps->p[i].defvalue.s);
-            }
-            if(ps->value[ps->p[i].index].s != ps->p[i].defvalue.s) {
-                if(ps->value[ps->p[i].index].s) {
-//                    free(ps->value[ps->p[i].index].s);
-                }
-            }
+    for(auto it = ps->p.begin(); it != ps->p.end(); ++it) {
+        std::string v = param_format_value(it->second);
+        if(it->second.lineno >= 0) {
+            fprintf(stream, "%-31s %-20s # Line %03d # %s \n", it->first.c_str(), v.c_str(), it->second.lineno, it->second.help.c_str());
+        } else {
+            fprintf(stream, "%-31s %-20s # Default  # %s \n", it->first.c_str(), v.c_str(), it->second.help.c_str());
         }
     }
-    myfree(ps);
-    */
+    fflush(stream);
 }
-
