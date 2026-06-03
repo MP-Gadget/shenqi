@@ -309,14 +309,14 @@ int PowerSpectrum::init_transfer_table(int ThisTask, double InitTime, const stru
 {
     int i, t;
     const int nnu = (CP->MNu[0] > 0) + (CP->MNu[1] > 0) + (CP->MNu[2] > 0);
-    if(strlen(ppar->FileWithTransferFunction) > 0) {
-        read_power_table(ThisTask, ppar->FileWithTransferFunction, MAXCOLS, &transfer_table, InitTime,
+    if(ppar->FileWithTransferFunction.size() > 0) {
+        read_power_table(ThisTask, ppar->FileWithTransferFunction.c_str(), MAXCOLS, &transfer_table, InitTime,
             [this](int i, double k, char * line, struct table *out_tab, int * InputInLog10, const double InitTime, int NumCol) {
                 parse_transfer(i, k, line, out_tab, InputInLog10, InitTime, NumCol);
             });
     }
     if(transfer_table.Nentry == 0) {
-        endrun(1, "Could not read transfer table at: '%s'\n",ppar->FileWithTransferFunction);
+        endrun(1, "Could not read transfer table at: '%s'\n",ppar->FileWithTransferFunction.c_str());
     }
     /*Normalise the transfer functions.*/
 
@@ -406,7 +406,7 @@ int PowerSpectrum::init_transfer_table(int ThisTask, double InitTime, const stru
 PowerSpectrum::PowerSpectrum(int ThisTask, double InitTime, double UnitLength_in_cm_in, Cosmology * CPin, struct power_params * ppar): WhichSpectrum(ppar->WhichSpectrum), PrimordialIndex(ppar->PrimordialIndex), UnitLength_in_cm(UnitLength_in_cm_in), CP(CPin)
 {
     if(ppar->WhichSpectrum == 2) {
-        read_power_table(ThisTask, ppar->FileWithInputSpectrum, 1, &power_table, InitTime, parse_power);
+        read_power_table(ThisTask, ppar->FileWithInputSpectrum.c_str(), 1, &power_table, InitTime, parse_power);
         std::vector<double> logk(power_table.logk, power_table.logk + power_table.Nentry);
         std::vector<double> logD(power_table.logD[0], power_table.logD[0]+ power_table.Nentry);
         power_table.mat_intp[0] = new boost::math::interpolators::makima(std::move(logk), std::move(logD));

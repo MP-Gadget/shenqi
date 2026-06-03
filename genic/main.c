@@ -78,10 +78,9 @@ int main(int argc, char **argv)
   }
 
   /*Write the header*/
-  char buf[4096];
-  snprintf(buf, 4096, "%s/%s", All2.OutputDir, All2.InitCondFile);
+  std::string outfile = All2.OutputDir + "/" + All2.InitCondFile;
   BigFile bf;
-  if(0 != big_file_mpi_create(&bf, buf, MPI_COMM_WORLD)) {
+  if(0 != big_file_mpi_create(&bf, outfile.c_str(), MPI_COMM_WORLD)) {
       endrun(0, "%s\n", big_file_get_error_message());
   }
   /*Massive neutrinos*/
@@ -250,35 +249,32 @@ int main(int argc, char **argv)
 
 void print_spec(int ThisTask, const int NumPart, struct genic_config All2, Cosmology * CP, PowerSpectrum * powerspec)
 {
-  if(ThisTask == 0)
-    {
-      double k, kstart, kend, DDD;
-      char buf[1000];
-      FILE *fd;
+    if(ThisTask != 0)
+      return;
+    double k, kstart, kend, DDD;
+    FILE *fd;
 
-      sprintf(buf, "%s/inputspec_%s.txt", All2.OutputDir, All2.InitCondFile);
+    std::string printfile = All2.OutputDir + "/inputspec_" + All2.InitCondFile + ".txt";
 
-      fd = fopen(buf, "w");
-      if (fd == NULL) {
-        message(1, "Failed to create powerspec file at:%s\n", buf);
-        return;
-      }
-      DDD = GrowthFactor(CP, All2.TimeIC, 1.0);
-
-      fprintf(fd, "# %12g %12g\n", 1/All2.TimeIC-1, DDD);
-      /* print actual starting redshift and linear growth factor for this cosmology */
-      double scale =  (CM_PER_MPC / All2.units.UnitLength_in_cm);
-      kstart = 2 * M_PI / (2*All2.BoxSize);	/* 2x box size Mpc/h */
-      kend = 2 * M_PI / (All2.BoxSize/(NumPart));	/* smallest power mode in sim*/
-
-      message(1,"kstart=%lg kend=%lg (h/Mpc)\n",kstart * scale,kend * scale);
-
-      for(k = kstart; k < kend; k *= 1.025)
-	  {
-		/* DeltaSpec takes k in internal units */
-	    double po = pow(powerspec->DeltaSpec(k, DELTA_TOT),2);
-	    fprintf(fd, "%12g %12g\n", k * scale, po);
-	  }
-      fclose(fd);
+    fd = fopen(printfile.c_str(), "w");
+    if (fd == NULL) {
+      message(1, "Failed to create powerspec file at:%s\n", printfile.c_str());
+      return;
     }
+    DDD = GrowthFactor(CP, All2.TimeIC, 1.0);
+
+    fprintf(fd, "# %12g %12g\n", 1/All2.TimeIC-1, DDD);
+    /* print actual starting redshift and linear growth factor for this cosmology */
+    double scale =  (CM_PER_MPC / All2.units.UnitLength_in_cm);
+    kstart = 2 * M_PI / (2*All2.BoxSize);	/* 2x box size Mpc/h */
+    kend = 2 * M_PI / (All2.BoxSize/(NumPart));	/* smallest power mode in sim*/
+
+    message(1,"kstart=%lg kend=%lg (h/Mpc)\n",kstart * scale,kend * scale);
+
+    for(k = kstart; k < kend; k *= 1.025) {
+        /* DeltaSpec takes k in internal units */
+        double po = pow(powerspec->DeltaSpec(k, DELTA_TOT),2);
+        fprintf(fd, "%12g %12g\n", k * scale, po);
+    }
+    fclose(fd);
 }
