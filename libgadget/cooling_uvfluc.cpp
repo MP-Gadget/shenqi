@@ -47,7 +47,7 @@ void set_uvf_params(ParameterSet * ps){
 /* Read a big array from filename/dataset into an array, allocating memory in buffer.
  * which is returned. Nread argument is set equal to number of elements read.*/
 static double *
-read_big_array(const char * filename, const char * dataset, int * Nread)
+read_big_array(const std::string& filename, const char * dataset, int * Nread)
 {
     int N;
     double * buffer=NULL;
@@ -60,17 +60,17 @@ read_big_array(const char * filename, const char * dataset, int * Nread)
         BigBlock bb[1];
         BigArray array[1];
         size_t dims[2];
-        if(0 != big_file_open(bf, filename)) {
-            endrun(1, "Cannot open %s: %s\n", filename, big_file_get_error_message());
+        if(0 != big_file_open(bf, filename.c_str())) {
+            endrun(1, "Cannot open %s: %s\n", filename.c_str(), big_file_get_error_message());
         }
         if(0 != big_file_open_block(bf, bb, dataset)) {
-            endrun(1, "Cannot open %s %s: %s\n", filename, dataset, big_file_get_error_message());
+            endrun(1, "Cannot open %s %s: %s\n", filename.c_str(), dataset, big_file_get_error_message());
         }
 
         N = bb->size;
 
         if(dtype_itemsize(bb->dtype) != sizeof(double))
-            endrun(1, "UVflucatuation file %s should contain double-precision data, contains %s\n", filename, bb->dtype);
+            endrun(1, "UVflucatuation file %s should contain double-precision data, contains %s\n", filename.c_str(), bb->dtype);
 
         buffer = (double *) mymalloc("cooling_data", N * dtype_itemsize(bb->dtype) * bb->nmemb);
         dims[0] = N;
@@ -78,10 +78,10 @@ read_big_array(const char * filename, const char * dataset, int * Nread)
 
         big_array_init(array, buffer, bb->dtype, 2, dims, NULL);
         if(0 != big_block_seek(bb, &ptr, 0))
-            endrun(1, "Failed to seek block %s %s: %s\n", filename, dataset, big_file_get_error_message());
+            endrun(1, "Failed to seek block %s %s: %s\n", filename.c_str(), dataset, big_file_get_error_message());
 
         if(0 != big_block_read(bb, &ptr, array))
-            endrun(1, "Failed to read %s %s: %s", filename, dataset, big_file_get_error_message());
+            endrun(1, "Failed to read %s %s: %s", filename.c_str(), dataset, big_file_get_error_message());
         /* steal the buffer */
         big_block_close(bb);
         big_file_close(bf);
@@ -113,9 +113,9 @@ read_big_array(const char * filename, const char * dataset, int * Nread)
  *
  * */
 void
-init_uvf_table(const char * UVFluctuationFile, const int UVFlucLen, const double BoxSize, const double UnitLength_in_cm)
+init_uvf_table(const std::string& UVFluctuationFile, const double BoxSize, const double UnitLength_in_cm)
 {
-    if(strnlen(UVFluctuationFile, UVFlucLen) == 0) {
+    if(UVFluctuationFile.size() == 0) {
         UVF.enabled = 0;
         return;
     }
@@ -123,8 +123,8 @@ init_uvf_table(const char * UVFluctuationFile, const int UVFlucLen, const double
     /* Open and validate the UV fluctuation file*/
     BigFile bf;
     BigBlock bh;
-    if(0 != big_file_mpi_open(&bf, UVFluctuationFile, MPI_COMM_WORLD)) {
-        endrun(0, "Failed to open snapshot at %s:%s\n", UVFluctuationFile,
+    if(0 != big_file_mpi_open(&bf, UVFluctuationFile.c_str(), MPI_COMM_WORLD)) {
+        endrun(0, "Failed to open snapshot at %s:%s\n", UVFluctuationFile.c_str(),
                     big_file_get_error_message());
     }
 
@@ -144,13 +144,13 @@ init_uvf_table(const char * UVFluctuationFile, const int UVFlucLen, const double
     big_file_mpi_close(&bf, MPI_COMM_WORLD);
     double BoxMpc = BoxSize * UnitLength_in_cm / CM_PER_MPC;
     if(fabs(TableBoxSize - BoxMpc) > BoxMpc * 1e-5)
-        endrun(0, "Wrong UV fluctuation file! %s is for box size %g Mpc/h, but current box is %g Mpc/h\n", UVFluctuationFile, TableBoxSize, BoxMpc);
+        endrun(0, "Wrong UV fluctuation file! %s is for box size %g Mpc/h, but current box is %g Mpc/h\n", UVFluctuationFile.c_str(), TableBoxSize, BoxMpc);
 
-    message(0, "Using NON-UNIFORM UV BG fluctuations from %s. Median reionization redshift is %g\n", UVFluctuationFile, ReionRedshift);
+    message(0, "Using NON-UNIFORM UV BG fluctuations from %s. Median reionization redshift is %g\n", UVFluctuationFile.c_str(), ReionRedshift);
     UVF.enabled = 1;
 
     int size;
-    UVF.Table = read_big_array(UVFluctuationFile, "Zreion_Table", &size);
+    UVF.Table = read_big_array(UVFluctuationFile.c_str(), "Zreion_Table", &size);
 
     if(UVF.Nside * UVF.Nside * UVF.Nside != size)
         endrun(0, "Corrupt UV Fluctuation table: Nside = %ld, but table is %d != %ld^3\n", UVF.Nside, size, UVF.Nside);
@@ -262,7 +262,7 @@ struct {
 } MetalCool;
 
 void
-InitMetalCooling(const char * MetalCoolFile)
+InitMetalCooling(const std::string& MetalCoolFile)
 {
     /* now initialize the metal cooling table from cloudy; we got this file
      * from vogelsberger's Arepo simulations; it is supposed to be
@@ -272,7 +272,7 @@ InitMetalCooling(const char * MetalCoolFile)
      *
      * */
     /* let's see if the Metal Cool File is magic NoMetal */
-    if(strlen(MetalCoolFile) == 0) {
+    if(MetalCoolFile.size() == 0) {
         MetalCool.CoolingNoMetal = 1;
         return;
     } else {
@@ -281,10 +281,10 @@ InitMetalCooling(const char * MetalCoolFile)
 
     int size;
     //This is never used if MetalCoolFile == ""
-    double * tabbedmet = read_big_array(MetalCoolFile, "MetallicityInSolar_bins", &size);
+    double * tabbedmet = read_big_array(MetalCoolFile.c_str(), "MetallicityInSolar_bins", &size);
 
     if(size != 1 || tabbedmet[0] != 0.0) {
-        endrun(123, "MetalCool file %s is wrongly tabulated\n", MetalCoolFile);
+        endrun(123, "MetalCool file %s is wrongly tabulated\n", MetalCoolFile.c_str());
     }
     myfree(tabbedmet);
 

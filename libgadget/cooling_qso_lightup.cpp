@@ -132,19 +132,22 @@ Q_inst(double Emax, double alpha_q)
  * and see the documentation to that file (tools/README_HeII_input_file_maker.py)
  * An example may be found in examples/HeIIReionizationTable
  * */
-static void
-load_heii_reion_hist(const char * reion_hist_file)
+void
+init_qso_lightup(const std::string& reion_hist_file)
 {
+    if(!QSOLightupParams.QSOLightupOn)
+        return;
+
     int ThisTask;
     FILE * fd = NULL;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
     int Nreionhist;
 
-    message(0, "HeII: Loading HeII reionization history from file: %s\n",reion_hist_file);
+    message(0, "HeII: Loading HeII reionization history from file: %s\n",reion_hist_file.c_str());
     if(ThisTask == 0) {
-        fd = fopen(reion_hist_file, "r");
+        fd = fopen(reion_hist_file.c_str(), "r");
         if(!fd)
-            endrun(456, "HeII: Could not open reionization history file at: '%s'\n", reion_hist_file);
+            endrun(456, "HeII: Could not open reionization history file at: '%s'\n", reion_hist_file.c_str());
 
         /*Find size of file*/
         Nreionhist = 0;
@@ -241,7 +244,7 @@ load_heii_reion_hist(const char * reion_hist_file)
 
     QSOLightupParams.heIIIreion_start = 1/He_zz[0]-1;
 
-    message(0, "HeII: Read %d lines z_reion = %g - %g from file %s\n", Nreionhist, 1/He_zz[0] -1, 1/He_zz[Nreionhist-1]-1, reion_hist_file);
+    message(0, "HeII: Read %d lines z_reion = %g - %g from file %s\n", Nreionhist, 1/He_zz[0] -1, 1/He_zz[Nreionhist-1]-1, reion_hist_file.c_str());
 
     /* we can't have helium reionisation start while the excursion set
      * is going, so we will stop the excursion set beforehand */
@@ -251,13 +254,6 @@ load_heii_reion_hist(const char * reion_hist_file)
         QSOLightupParams.ExcursionSetZStop = QSOLightupParams.heIIIreion_start;
     }
     myfree(He_zz);
-}
-
-void
-init_qso_lightup(char * reion_hist_file)
-{
-    if(QSOLightupParams.QSOLightupOn)
-        load_heii_reion_hist(reion_hist_file);
 }
 
 static double last_zz;

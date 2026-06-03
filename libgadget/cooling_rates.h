@@ -64,10 +64,10 @@ void set_coolpar(struct cooling_params cp);
 
 /*Initialize the cooling rate module. This builds a lot of interpolation tables.
  * Defaults: TCMB 2.7255, recomb = Verner96, cooling = Sherwood.*/
-void init_cooling_rates(const char * TreeCoolFile, const char * J21CoeffFile, const char * MetalCoolFile, Cosmology * CP);
+void init_cooling_rates(const std::string& TreeCoolFile, const std::string& J21CoeffFile, const std::string& MetalCoolFile, Cosmology * CP);
 
 /* Reads and initializes the cloudy metal cooling table. Called in init_cooling_rates. No need to call it separately.*/
-void InitMetalCooling(const char * MetalCoolFile);
+void InitMetalCooling(const std::string& MetalCoolFile);
 
 /*Get the metal cooling rate from the table.*/
 double TableMetalCoolingRate(double redshift, double temp, double nHcgs);

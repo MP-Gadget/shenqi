@@ -8,7 +8,7 @@
 void set_qso_lightup_params(ParameterSet * ps);
 
 /* Initialize the helium reionization cooling module*/
-void init_qso_lightup(char * reion_hist_file);
+void init_qso_lightup(const std::string& reion_hist_file);
 
 /* Starts reionization by selecting the first halo and flagging all particles in the first HeIII bubble*/
 void do_heiii_reionization(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmology * CP, RandTable * rnd, double uu_in_cgs, FILE * FdHelium);
