@@ -24,7 +24,7 @@
 static ParameterSet *
 create_gadget_parameter_set()
 {
-    ParameterSet * ps = parameter_set_new();
+    ParameterSet * ps = new ParameterSet;
 
     #ifdef USE_CUDA
     param_declare_int(ps,    "UseGPU", OPTIONAL, 1, "Should we enable GPU acceleration of the Treewalk.");
@@ -408,5 +408,5 @@ void read_parameter_file(char *fname, int * ShowBacktrace, double * MaxMemSizePe
     set_blackhole_params(ps);
     set_metal_return_params(ps);
     set_stats_params(ps);
-    parameter_set_free(ps);
+    delete ps;
 }
