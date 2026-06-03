@@ -108,7 +108,7 @@ force_tree_allocated(const ForceTree * tree)
 /* Build a tree structure using all particles, compute moments and allocate a father array.
  * This is the fattest tree constructor, allows moments and walking up and down.*/
 void
-force_tree_full(ForceTree * tree, DomainDecomp * ddecomp, const int HybridNuTracer, const char * EmergencyOutputDir)
+force_tree_full(ForceTree * tree, DomainDecomp * ddecomp, const int HybridNuTracer, const std::string EmergencyOutputDir)
 {
     if(force_tree_allocated(tree)) {
         force_tree_free(tree);

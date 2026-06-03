@@ -480,7 +480,7 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
 /* Computes short-range gravitational forces at the second half of the step and
  * does the gravitational half-step kicks. Stores the longest timestep in StoredGravAccel.
  * If this is NULL, uses FullTreeGravAccel.*/
-int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, TimeBinMgr * timebinmgr, int HybridNuGrav, Cosmology * CP, const char * EmergencyOutputDir, bool UseGPU)
+int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, TimeBinMgr * timebinmgr, int HybridNuGrav, Cosmology * CP, const std::string EmergencyOutputDir, bool UseGPU)
 {
     const double rho0 = CP->Omega0 * 3 * CP->Hubble * CP->Hubble / (8 * M_PI * CP->GravInternal);
     /* Find the longest active timebin.*/
