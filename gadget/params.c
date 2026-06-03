@@ -35,7 +35,7 @@ create_gadget_parameter_set()
     param_declare_string(ps, "InitCondFile", REQUIRED, NULL, "Path to the Initial Condition File");
     param_declare_string(ps, "OutputDir",    REQUIRED, NULL, "Prefix to the output files");
 
-    static ParameterEnum DensityKernelTypeEnum [] = {
+    ParameterEnum DensityKernelTypeEnum = {
         {"cubic", DENSITY_KERNEL_CUBIC_SPLINE},
         {"quintic", DENSITY_KERNEL_QUINTIC_SPLINE},
         {"quartic", DENSITY_KERNEL_QUARTIC_SPLINE},
@@ -98,7 +98,7 @@ create_gadget_parameter_set()
                                                       "Larger values suppresses grid anisotropy. ShortRangeForceWindowType = erfc supports any value. 'exact' only supports 1.5. ");
     param_declare_int(ps,    "Nmesh", OPTIONAL, -1, "Size of the PM grid on which to compute the long-range force.");
 
-    static ParameterEnum ShortRangeForceWindowTypeEnum [] = {
+    ParameterEnum ShortRangeForceWindowTypeEnum = {
         {"exact", SHORTRANGE_FORCE_WINDOW_TYPE_EXACT},
         {"erfc", SHORTRANGE_FORCE_WINDOW_TYPE_ERFC },
         {NULL, SHORTRANGE_FORCE_WINDOW_TYPE_EXACT },
@@ -134,13 +134,13 @@ create_gadget_parameter_set()
     param_declare_string(ps, "UVFluctuationFile", OPTIONAL, "", "Path to the UVFluctation Table. Refer to cooling.c.");
     param_declare_double(ps, "HIReionTemp", OPTIONAL, 0, "Boost the particle temperature to this value during the timestep when it undergoes HI reionization. Do not boost star-forming gas. 1807.09282 suggests a boost of 20000.");
     param_declare_double(ps, "UVRedshiftThreshold", OPTIONAL, -1.0, "Earliest Redshift that UV background is enabled. This modulates UVFluctuation and TreeCool globally. Default -1.0 means no modulation.");
-    static ParameterEnum CoolingTypeTable [] = {
+    ParameterEnum CoolingTypeTable = {
         {"KWH92", KWH92 },
         {"Enzo2Nyx", Enzo2Nyx },
         {"Sherwood", Sherwood },
         {NULL, Cen92 },
     };
-    static ParameterEnum RecombTypeTable [] = {
+    ParameterEnum RecombTypeTable = {
         {"Cen92", Cen92 },
         {"Verner96", Verner96 },
         {"Badnell06", Badnell06},
@@ -222,7 +222,7 @@ create_gadget_parameter_set()
     param_declare_int(ps,"MergeGravBound",OPTIONAL, 1, "If set to 1, apply gravitational bound criteria for merging event. This criteria would be automatically turned off if reposition is enabled.");
     param_declare_double(ps, "SeedBHDynMass", OPTIONAL, -1, "The initial dynamic mass of BH, default -1 will use the mass of gas particle. Larger Mdyn would help to stablize the BH in the early phase if turning off reposition.");
 
-    static ParameterEnum BlackHoleFeedbackMethodEnum [] = {
+    ParameterEnum BlackHoleFeedbackMethodEnum = {
         {"mass", BH_FEEDBACK_MASS},
         {"volume", BH_FEEDBACK_VOLUME},
         {"tophat", BH_FEEDBACK_TOPHAT},
@@ -234,7 +234,7 @@ create_gadget_parameter_set()
     /*End black holes*/
 
     /*Star formation parameters*/
-    static ParameterEnum StarformationCriterionEnum [] = {
+    ParameterEnum StarformationCriterionEnum = {
         {"density", SFR_CRITERION_DENSITY}, /* SH03 density model for star formation*/
         {"h2", SFR_CRITERION_MOLECULAR_H2}, /* Form stars depending on the computed
                                                molecular gas fraction as a function of metallicity. */
@@ -244,7 +244,7 @@ create_gadget_parameter_set()
         {NULL, SFR_CRITERION_DENSITY},
     };
 
-    static ParameterEnum WindModelEnum [] = {
+    ParameterEnum WindModelEnum = {
         {"subgrid", WIND_SUBGRID}, /* If this is true, winds are spawned from the star forming gas.
                                       If false, they are spawned from neighbours of the star particle.*/
         {"decouple", WIND_DECOUPLE_SPH}, /* Specifies that wind particles are created temporarily decoupled from the gas dynamics */
