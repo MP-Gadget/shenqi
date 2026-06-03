@@ -92,7 +92,7 @@ static void init_alloc_particle_slot_memory(struct part_manager_type * PartManag
 /*! This function reads the initial conditions, allocates storage for the
  *  particle data, validates and initialises the particle data.
  */
-inttime_t init(int RestartSnapNum, const char * OutputDir, struct header_data * header, Cosmology * CP, const inttime_t Ti_Current)
+inttime_t init(int RestartSnapNum, const std::string& OutputDir, struct header_data * header, Cosmology * CP, const inttime_t Ti_Current)
 {
     init_alloc_particle_slot_memory(PartManager, SlotsManager, InitParams.PartAllocFactor, header, MPI_COMM_WORLD);
 

@@ -87,7 +87,7 @@ void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, i
 int petaio_read_block(BigFile * bf, const char * blockname, BigArray * array, int required);
 
 void petaio_save_snapshot(const std::string fname, struct IOTable * IOTable, int verbose, const double atime, const Cosmology * CP);
-void petaio_read_snapshot(int num, const char * OutputDir, Cosmology * CP, struct header_data * header, struct part_manager_type * PartManager, struct slots_manager_type * SlotsManager, MPI_Comm Comm);
+void petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struct header_data * header, struct part_manager_type * PartManager, struct slots_manager_type * SlotsManager, MPI_Comm Comm);
 /* Returns a header struct. Note that this may also change the cosmology values in CP, if those are different from the ones in the parameter file*/
 struct header_data petaio_read_header(int num, const std::string OutputDir, Cosmology * CP);
 

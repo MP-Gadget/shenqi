@@ -20,7 +20,7 @@ hci_now(HCIManager * manager)
 }
 
 void
-hci_init(HCIManager * manager, char * prefix, const double WallClockTimeLimit, const double AutoCheckPointTime, const int FOFEnabled)
+hci_init(HCIManager * manager, std::string& prefix, const double WallClockTimeLimit, const double AutoCheckPointTime, const int FOFEnabled)
 {
     manager->prefix = prefix;
     manager->timer_begin = hci_now(manager);

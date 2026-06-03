@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <string.h>
+#include <string>
 #include <stdarg.h>
 #include <omp.h>
 #include <algorithm>
@@ -42,8 +42,8 @@ static struct petaio_params {
     int OutputPotential;        /*!< Flag whether to include the potential in snapshots*/
     int OutputHeliumFractions;  /*!< Flag whether to output the helium ionic fractions in snapshots*/
     int OutputTimebins;         /* Flag whether to save the timebins*/
-    char SnapshotFileBase[100]; /* Snapshots are written to OutputDir/SnapshotFileBase_$n*/
-    char InitCondFile[100]; /* Path to read ICs from is InitCondFile */
+    std::string SnapshotFileBase; /* Snapshots are written to OutputDir/SnapshotFileBase_$n*/
+    std::string InitCondFile; /* Path to read ICs from is InitCondFile */
 
     int ExcursionSetReionOn;
 
@@ -68,8 +68,8 @@ set_petaio_params(ParameterSet * ps)
         IO.OutputPotential = param_get_int(ps, "OutputPotential");
         IO.OutputTimebins = param_get_int(ps, "OutputTimebins");
         IO.OutputHeliumFractions = param_get_int(ps, "OutputHeliumFractions");
-        param_get_string2(ps, "SnapshotFileBase", IO.SnapshotFileBase, sizeof(IO.SnapshotFileBase));
-        param_get_string2(ps, "InitCondFile", IO.InitCondFile, sizeof(IO.InitCondFile));
+        IO.SnapshotFileBase = param_get_string(ps, "SnapshotFileBase");
+        IO.InitCondFile = param_get_string(ps, "InitCondFile");
         IO.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
     }
     MPI_Bcast(&IO, sizeof(struct petaio_params), MPI_BYTE, 0, MPI_COMM_WORLD);
@@ -205,8 +205,8 @@ std::string
 petaio_get_snapshot_fname(int num, const std::string OutputDir)
 {
     if(num == -1)
-        return std::string(IO.InitCondFile);
-    return  OutputDir + "/"+ std::string(IO.SnapshotFileBase) + "_" + zpad(num,3);
+        return IO.InitCondFile;
+    return  OutputDir + "/"+ IO.SnapshotFileBase + "_" + zpad(num,3);
 }
 
 struct header_data
@@ -245,7 +245,7 @@ struct header_data
 }
 
 void
-petaio_read_snapshot(int num, const char * OutputDir, Cosmology * CP, struct header_data * header, struct part_manager_type * PartManager, struct slots_manager_type * SlotsManager, MPI_Comm Comm)
+petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struct header_data * header, struct part_manager_type * PartManager, struct slots_manager_type * SlotsManager, MPI_Comm Comm)
 {
     auto fname = petaio_get_snapshot_fname(num, OutputDir);
     int i;
