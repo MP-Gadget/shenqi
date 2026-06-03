@@ -9,7 +9,7 @@
 static ParameterSet *
 create_parameters(void)
 {
-    ParameterSet * ps = parameter_set_new();
+    ParameterSet * ps = new ParameterSet;;
 
     param_declare_string(ps, "FileWithInputSpectrum", REQUIRED, 0, "File containing input power spectrum, from CLASS or CAMB.");
     param_declare_string(ps, "OutputDir", REQUIRED, 0, "Output directory in which to store the ICs");
@@ -203,4 +203,5 @@ void read_parameterfile(char *fname, struct genic_config * GenicConfig, int * Sh
     double UnitTime_in_s = GenicConfig->units.UnitLength_in_cm / GenicConfig->units.UnitVelocity_in_cm_per_s;
 
     CP->Hubble = HUBBLE * UnitTime_in_s;
+    delete ps;
 }
