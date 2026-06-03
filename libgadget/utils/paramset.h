@@ -41,7 +41,7 @@ void
 param_declare_string(ParameterSet * ps, const std::string name, const enum ParameterFlag required, const std::string defvalue, const std::string help);
 
 void
-param_declare_enum(ParameterSet * ps, const std::string name, ParameterEnum * enumtable, const enum ParameterFlag required, const std::string defvalue, const std::string help);
+param_declare_enum(ParameterSet * ps, const std::string name, ParameterEnum& enumtable, const enum ParameterFlag required, const std::string defvalue, const std::string help);
 
 double
 param_get_double(ParameterSet * ps, const std::string name);

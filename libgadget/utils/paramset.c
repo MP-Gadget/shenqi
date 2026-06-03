@@ -138,10 +138,10 @@ param_declare_string(ParameterSet * ps, const std::string name, const enum Param
 }
 
 void
-param_declare_enum(ParameterSet * ps, const std::string name, ParameterEnum * enumtable, const enum ParameterFlag required, const std::string defvalue, const std::string help)
+param_declare_enum(ParameterSet * ps, const std::string name, ParameterEnum& enumtable, const enum ParameterFlag required, const std::string defvalue, const std::string help)
 {
-    param_declare<int>(ps, name, ENUM, required, parse_enum(*enumtable, defvalue), help);
-    ps->p[name].enumtable = *enumtable;
+    param_declare<int>(ps, name, ENUM, required, parse_enum(enumtable, defvalue), help);
+    ps->p[name].enumtable = enumtable;
 }
 
 double
