@@ -878,7 +878,7 @@ void init_cooling_and_star_formation(int CoolingOn, int StarformationOn, Cosmolo
         return;
 
     /*Initialize the uv fluctuation table*/
-    init_uvf_table(sfr_params.UVFluctuationFile, sizeof(sfr_params.UVFluctuationFile), BoxSize, units.UnitLength_in_cm);
+    init_uvf_table(sfr_params.UVFluctuationFile, BoxSize, units.UnitLength_in_cm);
 
     sfr_params.StarformationOn = StarformationOn;
 
