@@ -233,7 +233,7 @@ force_tree_build(int mask, DomainDecomp * ddecomp, const ActiveParticles *act, c
 #ifdef DEBUG
     if(MPIU_Any(ForceTreeParams.TreeAllocFactor > 3.0, MPI_COMM_WORLD)) {
         /* Assume scale factor = 1 for dump as position is not affected.*/
-        if(EmergencyOutputDir) {
+        if(EmergencyOutputDir.size() > 0) {
             Cosmology CP = {0};
             CP.Omega0 = 0.3;
             CP.OmegaLambda = 0.7;
