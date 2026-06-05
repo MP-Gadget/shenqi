@@ -156,50 +156,39 @@ static double entropy_to_u(const double density, const double a3inv)
 /*Set the parameters of the SFR module*/
 void set_sfr_params(ParameterSet * ps)
 {
-    int ThisTask;
-    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-    if(ThisTask == 0) {
-        /*Star formation parameters*/
-        sfr_params.StarformationCriterion = (enum StarformationCriterion) param_get_enum(ps, "StarformationCriterion");
-        sfr_params.CritOverDensity = param_get_double(ps, "CritOverDensity");
-        sfr_params.CritPhysDensity = param_get_double(ps, "CritPhysDensity");
-        sfr_params.WindOn = param_get_int(ps, "WindOn");
-        sfr_params.BoostSFDenseGas = param_get_int(ps, "BoostSFDenseGas");
-        sfr_params.BoostSFOverDenseFactor = param_get_double(ps, "BoostSFOverDenseFactor");
-
-        sfr_params.FactorSN = param_get_double(ps, "FactorSN");
-        sfr_params.FactorEVP = param_get_double(ps, "FactorEVP");
-        sfr_params.TempSupernova = param_get_double(ps, "TempSupernova");
-        sfr_params.TempClouds = param_get_double(ps, "TempClouds");
-        sfr_params.MaxSfrTimescale = param_get_double(ps, "MaxSfrTimescale");
-        sfr_params.Generations = param_get_int(ps, "Generations");
-        if(sfr_params.Generations > 14)
-            endrun(0, "Generations is %d, only space in the bitfield for 14.\n", sfr_params.Generations);
-        sfr_params.MinGasTemp = param_get_double(ps, "MinGasTemp");
-        sfr_params.BHFeedbackUseTcool = param_get_int(ps, "BHFeedbackUseTcool");
-        if(sfr_params.BHFeedbackUseTcool > 3 || sfr_params.BHFeedbackUseTcool < 0)
-            endrun(0, "BHFeedbackUseTcool mode %d not supported\n", sfr_params.BHFeedbackUseTcool);
-        /*Lyman-alpha forest parameters*/
-        sfr_params.QuickLymanAlphaProbability = param_get_double(ps, "QuickLymanAlphaProbability");
-        sfr_params.QuickLymanAlphaTempThresh = param_get_double(ps, "QuickLymanAlphaTempThresh");
-        sfr_params.HIReionTemp = param_get_double(ps, "HIReionTemp");
-
-        /* File names*/
-        sfr_params.TreeCoolFile = param_get_string(ps, "TreeCoolFile");
-        sfr_params.J21CoeffFile = param_get_string(ps, "J21CoeffFile");
-        sfr_params.UVFluctuationFile = param_get_string(ps, "UVFluctuationfile");
-        sfr_params.MetalCoolFile = param_get_string(ps, "MetalCoolFile");
-        sfr_params.ReionHistFile = param_get_string(ps, "ReionHistFile");
-        if(!HAS(sfr_params.StarformationCriterion, SFR_CRITERION_DENSITY))
-            endrun(1, "error: StarFormationCriterion should use at least SFR_CRITERION_DENSITY\n");
-    }
-    /* Note for this to work the strings have to be at the end*/
-    MPI_Bcast(&sfr_params, offsetof(struct SFRParams, TreeCoolFile), MPI_BYTE, 0, MPI_COMM_WORLD);
-    MPIU_Bcast_string(&sfr_params.TreeCoolFile, 0, MPI_COMM_WORLD);
-    MPIU_Bcast_string(&sfr_params.J21CoeffFile, 0, MPI_COMM_WORLD);
-    MPIU_Bcast_string(&sfr_params.MetalCoolFile, 0, MPI_COMM_WORLD);
-    MPIU_Bcast_string(&sfr_params.UVFluctuationFile, 0, MPI_COMM_WORLD);
-    MPIU_Bcast_string(&sfr_params.ReionHistFile, 0, MPI_COMM_WORLD);
+     /*Star formation parameters*/
+    sfr_params.StarformationCriterion = (enum StarformationCriterion) param_get_enum(ps, "StarformationCriterion");
+    sfr_params.CritOverDensity = param_get_double(ps, "CritOverDensity");
+    sfr_params.CritPhysDensity = param_get_double(ps, "CritPhysDensity");
+    sfr_params.WindOn = param_get_int(ps, "WindOn");
+    sfr_params.BoostSFDenseGas = param_get_int(ps, "BoostSFDenseGas");
+    sfr_params.BoostSFOverDenseFactor = param_get_double(ps, "BoostSFOverDenseFactor");
+ 
+    sfr_params.FactorSN = param_get_double(ps, "FactorSN");
+    sfr_params.FactorEVP = param_get_double(ps, "FactorEVP");
+    sfr_params.TempSupernova = param_get_double(ps, "TempSupernova");
+    sfr_params.TempClouds = param_get_double(ps, "TempClouds");
+    sfr_params.MaxSfrTimescale = param_get_double(ps, "MaxSfrTimescale");
+    sfr_params.Generations = param_get_int(ps, "Generations");
+    if(sfr_params.Generations > 14)
+        endrun(0, "Generations is %d, only space in the bitfield for 14.\n", sfr_params.Generations);
+    sfr_params.MinGasTemp = param_get_double(ps, "MinGasTemp");
+    sfr_params.BHFeedbackUseTcool = param_get_int(ps, "BHFeedbackUseTcool");
+    if(sfr_params.BHFeedbackUseTcool > 3 || sfr_params.BHFeedbackUseTcool < 0)
+        endrun(0, "BHFeedbackUseTcool mode %d not supported\n", sfr_params.BHFeedbackUseTcool);
+    /*Lyman-alpha forest parameters*/
+    sfr_params.QuickLymanAlphaProbability = param_get_double(ps, "QuickLymanAlphaProbability");
+    sfr_params.QuickLymanAlphaTempThresh = param_get_double(ps, "QuickLymanAlphaTempThresh");
+    sfr_params.HIReionTemp = param_get_double(ps, "HIReionTemp");
+ 
+    /* File names*/
+    sfr_params.TreeCoolFile = param_get_string(ps, "TreeCoolFile");
+    sfr_params.J21CoeffFile = param_get_string(ps, "J21CoeffFile");
+    sfr_params.UVFluctuationFile = param_get_string(ps, "UVFluctuationfile");
+    sfr_params.MetalCoolFile = param_get_string(ps, "MetalCoolFile");
+    sfr_params.ReionHistFile = param_get_string(ps, "ReionHistFile");
+    if(!HAS(sfr_params.StarformationCriterion, SFR_CRITERION_DENSITY))
+        endrun(1, "error: StarFormationCriterion should use at least SFR_CRITERION_DENSITY\n");
 }
 
 /* This is for the IO helpers */
