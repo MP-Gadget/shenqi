@@ -216,14 +216,7 @@ create_gadget_parameter_set()
     param_declare_int(ps,"MergeGravBound",OPTIONAL, 1, "If set to 1, apply gravitational bound criteria for merging event. This criteria would be automatically turned off if reposition is enabled.");
     param_declare_double(ps, "SeedBHDynMass", OPTIONAL, -1, "The initial dynamic mass of BH, default -1 will use the mass of gas particle. Larger Mdyn would help to stablize the BH in the early phase if turning off reposition.");
 
-    ParameterEnum BlackHoleFeedbackMethodEnum = {
-        {"mass", BH_FEEDBACK_MASS},
-        {"volume", BH_FEEDBACK_VOLUME},
-        {"tophat", BH_FEEDBACK_TOPHAT},
-        {"spline", BH_FEEDBACK_SPLINE},
-    };
-    param_declare_enum(ps, "BlackHoleFeedbackMethod", BlackHoleFeedbackMethodEnum,
-            OPTIONAL, "spline, mass", "BH feedback method");
+    param_declare_string(ps, "BlackHoleFeedbackMethod", OPTIONAL, "spline, mass", "Unused");
     /*End black holes*/
 
     /*Star formation parameters*/
