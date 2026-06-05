@@ -478,7 +478,7 @@ setup_smoothinglengths(int RestartSnapNum, DomainDecomp * ddecomp, Cosmology * C
 
     ForceTree Tree = {0};
     /* Finds fathers for each gas and BH particle, so need BH*/
-    force_tree_rebuild_mask(&Tree, ddecomp, GASMASK+BHMASK, NULL);
+    force_tree_rebuild_mask(&Tree, ddecomp, GASMASK+BHMASK, "");
     /* Set the initial smoothing length for gas and DM, compute tree moments.*/
     set_init_hsml(&Tree, ddecomp, MeanGasSeparation, PartManager);
 
