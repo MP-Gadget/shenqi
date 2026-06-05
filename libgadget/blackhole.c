@@ -627,25 +627,19 @@ blackhole_accretion_ngbiter(TreeWalkQueryBHAccretion * I,
         if(r2 < iter->kernel.HH) {
             /* update the feedback weighting */
             double mass_j;
-            if(HAS(blackhole_params.BlackHoleFeedbackMethod, BH_FEEDBACK_OPTTHIN)) {
-                double redshift = 1./BH_GET_PRIV(lv->tw)->atime - 1;
-                double nh0 = get_neutral_fraction_sfreff(redshift, BH_GET_PRIV(lv->tw)->hubble, &Part[other], &SPHP(other));
-                if(r2 > 0)
-                    O->FeedbackWeightSum += (Part[other].Mass * nh0) / r2;
+            if(HAS(blackhole_params.BlackHoleFeedbackMethod, BH_FEEDBACK_MASS)) {
+                mass_j = Part[other].Mass;
             } else {
-                if(HAS(blackhole_params.BlackHoleFeedbackMethod, BH_FEEDBACK_MASS)) {
-                    mass_j = Part[other].Mass;
-                } else {
-                    mass_j = Part[other].Hsml * Part[other].Hsml * Part[other].Hsml;
-                }
-                if(HAS(blackhole_params.BlackHoleFeedbackMethod, BH_FEEDBACK_SPLINE)) {
-                    double u = r * iter->kernel.Hinv;
-                    O->FeedbackWeightSum += (mass_j *
-                          density_kernel_wk(&iter->kernel, u)
-                           );
-                } else {
-                    O->FeedbackWeightSum += (mass_j);
-                }
+                mass_j = Part[other].Hsml * Part[other].Hsml * Part[other].Hsml;
+            }
+            if(HAS(blackhole_params.BlackHoleFeedbackMethod, BH_FEEDBACK_SPLINE)) {
+                double u = r * iter->kernel.Hinv;
+                O->FeedbackWeightSum += (mass_j *
+                      density_kernel_wk(&iter->kernel, u)
+                       );
+            } else {
+                O->FeedbackWeightSum += (mass_j);
+            }
             }
         }
     }
