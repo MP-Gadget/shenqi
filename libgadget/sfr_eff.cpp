@@ -79,16 +79,16 @@ static struct SFRParams
      * density gradients were too small and Treion was only 10 K.
      */
     double HIReionTemp;
-    /* Input files for the various cooling modules*/
-    char TreeCoolFile[100];
-    char J21CoeffFile[100];
-    char MetalCoolFile[100];
-    char UVFluctuationFile[100];
     /* Boost SF for dense gas*/
     int BoostSFDenseGas;
     double BoostSFOverDenseFactor;
+    /* Input files for the various cooling modules*/
+    std::string TreeCoolFile;
+    std::string J21CoeffFile;
+    std::string MetalCoolFile;
+    std::string UVFluctuationFile;
     /* File with the helium reionization table*/
-    char ReionHistFile[100];
+    std::string ReionHistFile;
 } sfr_params;
 
 int get_generations(void)
@@ -185,15 +185,21 @@ void set_sfr_params(ParameterSet * ps)
         sfr_params.HIReionTemp = param_get_double(ps, "HIReionTemp");
 
         /* File names*/
-        param_get_string2(ps, "TreeCoolFile", sfr_params.TreeCoolFile, sizeof(sfr_params.TreeCoolFile));
-        param_get_string2(ps, "J21CoeffFile", sfr_params.J21CoeffFile, sizeof(sfr_params.J21CoeffFile));
-        param_get_string2(ps, "UVFluctuationfile", sfr_params.UVFluctuationFile, sizeof(sfr_params.UVFluctuationFile));
-        param_get_string2(ps, "MetalCoolFile", sfr_params.MetalCoolFile, sizeof(sfr_params.MetalCoolFile));
-        param_get_string2(ps, "ReionHistFile", sfr_params.ReionHistFile, sizeof(sfr_params.ReionHistFile));
+        sfr_params.TreeCoolFile = param_get_string(ps, "TreeCoolFile");
+        sfr_params.J21CoeffFile = param_get_string(ps, "J21CoeffFile");
+        sfr_params.UVFluctuationFile = param_get_string(ps, "UVFluctuationfile");
+        sfr_params.MetalCoolFile = param_get_string(ps, "MetalCoolFile");
+        sfr_params.ReionHistFile = param_get_string(ps, "ReionHistFile");
         if(!HAS(sfr_params.StarformationCriterion, SFR_CRITERION_DENSITY))
             endrun(1, "error: StarFormationCriterion should use at least SFR_CRITERION_DENSITY\n");
     }
-    MPI_Bcast(&sfr_params, sizeof(struct SFRParams), MPI_BYTE, 0, MPI_COMM_WORLD);
+    /* Note for this to work the strings have to be at the end*/
+    MPI_Bcast(&sfr_params, offsetof(struct SFRParams, TreeCoolFile), MPI_BYTE, 0, MPI_COMM_WORLD);
+    MPIU_Bcast_string(&sfr_params.TreeCoolFile, 0, MPI_COMM_WORLD);
+    MPIU_Bcast_string(&sfr_params.J21CoeffFile, 0, MPI_COMM_WORLD);
+    MPIU_Bcast_string(&sfr_params.MetalCoolFile, 0, MPI_COMM_WORLD);
+    MPIU_Bcast_string(&sfr_params.UVFluctuationFile, 0, MPI_COMM_WORLD);
+    MPIU_Bcast_string(&sfr_params.ReionHistFile, 0, MPI_COMM_WORLD);
 }
 
 /* This is for the IO helpers */
