@@ -6,8 +6,8 @@
 #include "powerspectrum.h"
 
 enum ShortRangeForceWindowType {
-    SHORTRANGE_FORCE_WINDOW_TYPE_EXACT = 0,
-    SHORTRANGE_FORCE_WINDOW_TYPE_ERFC = 1,
+    SHORTRANGE_FORCE_WINDOW_TYPE_EXACT = 1,
+    SHORTRANGE_FORCE_WINDOW_TYPE_ERFC = 2,
 };
 
 struct gravshort_tree_params
