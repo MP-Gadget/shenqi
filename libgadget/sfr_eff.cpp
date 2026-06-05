@@ -184,7 +184,7 @@ void set_sfr_params(ParameterSet * ps)
     /* File names*/
     sfr_params.TreeCoolFile = param_get_string(ps, "TreeCoolFile");
     sfr_params.J21CoeffFile = param_get_string(ps, "J21CoeffFile");
-    sfr_params.UVFluctuationFile = param_get_string(ps, "UVFluctuationfile");
+    sfr_params.UVFluctuationFile = param_get_string(ps, "UVFluctuationFile");
     sfr_params.MetalCoolFile = param_get_string(ps, "MetalCoolFile");
     sfr_params.ReionHistFile = param_get_string(ps, "ReionHistFile");
     if(!HAS(sfr_params.StarformationCriterion, SFR_CRITERION_DENSITY))
