@@ -7,17 +7,31 @@
 #define STRING 5
 #define ENUM 10
 
-static int parse_enum(ParameterEnum& table, const std::string strchoices) {
+static int parse_enum(ParameterEnum& table, const std::string strchoices, const std::string name) {
     int outvalue = 0;
+    bool valid = false;
     const std::string delim = "\",;&| \t";
-    std::string::size_type startpos = 0;
-    auto sz = strchoices.find_first_of(delim);
-    do {
-        sz = strchoices.find_first_of(delim);
-        auto token = strchoices.substr(startpos, sz);
-        outvalue |= table[token];
-        startpos = sz;
-    } while (sz != std::string::npos);
+    std::string remaining = strchoices;
+    auto startpos = remaining.find_first_not_of(delim);
+    while (startpos != std::string::npos) {
+        /*Trim extra chars from left*/
+        auto startpos = remaining.find_first_not_of(delim);
+        remaining = remaining.substr(startpos);
+        auto sz = remaining.find_first_of(delim);
+        auto token = remaining.substr(0, sz);
+        if(table.contains(token)) {
+            outvalue |= table[token];
+            valid = true;
+        }
+        /* We are done*/
+        if(sz == std::string::npos)
+            break;
+        /* Trim processed chars*/
+        remaining = remaining.substr(sz);
+    };
+//    message(0, "enum parse input %s out %s\n", strchoices.c_str(), format_enum(table, outvalue).c_str());
+    if(!valid)
+        endrun(6, "Parameter %s set with string %s had no valid entries\n", name.c_str(), strchoices.c_str());
     return outvalue;
 }
 
@@ -50,7 +64,7 @@ param_set_from_string(ParameterSet * ps, const std::string name, std::string val
             pp.value = value;
             break;
         case ENUM:
-            pp.value = parse_enum(pp.enumtable, value);
+            pp.value = parse_enum(pp.enumtable, value, name);
             break;
         default:
             endrun(4, "Unexpected type for parameter %s: %d\n", name.c_str(), pp.type);
@@ -77,15 +91,20 @@ static int param_emit(ParameterSet * ps, std::string token, int lineno)
     }
     auto sep = token.substr(key).find_first_of(limits) + key;
     if(sep == std::string::npos) {
-        message(0, "Line %d : `%s` is malformed.\n", lineno, token.c_str());
+        message(0, "line %d : `%s` is malformed.\n", lineno, token.c_str());
         return 1;
     }
     std::string name = token.substr(key, sep);
-    auto value = token.substr(sep).find_first_not_of(limits) + sep;
-    auto endvalue = token.substr(value).find_first_of(limits) + value;
-    std::string valuestr = token.substr(value, endvalue);
+    std::string valuestr = token.substr(sep);
+    auto value = valuestr.find_first_not_of(limits);
+    if(value == std::string::npos) {
+        message(0, "line %d : `%s` is malformed.\n", lineno, token.c_str());
+        return 1;
+    }
+    valuestr = valuestr.substr(value);
+    auto endvalue = valuestr.find_first_of(limits);
     if(ps->p.contains(name))
-        param_set_from_string(ps, name, valuestr, lineno);
+        param_set_from_string(ps, name, valuestr.substr(0, endvalue), lineno);
     else
         message(0, "Line %d: Parameter `%s` is unknown.\n", lineno, name.c_str());
     return 0;
@@ -140,7 +159,7 @@ param_declare_string(ParameterSet * ps, const std::string name, const enum Param
 void
 param_declare_enum(ParameterSet * ps, const std::string name, ParameterEnum& enumtable, const enum ParameterFlag required, const std::string defvalue, const std::string help)
 {
-    param_declare<int>(ps, name, ENUM, required, parse_enum(enumtable, defvalue), help);
+    param_declare<int>(ps, name, ENUM, required, parse_enum(enumtable, defvalue, name), help);
     ps->p[name].enumtable = enumtable;
 }
 
@@ -171,7 +190,7 @@ param_get_enum(ParameterSet * ps, const std::string name)
 static std::string format_enum(ParameterEnum& table, int value) {
     std::string formatted;
     for(auto it = table.begin(); it != table.end(); ++it) {
-        if(value & it->second) {
+        if((value & it->second) == it->second) {
             if(formatted.size() > 0)
                 formatted += " | ";
             formatted += it->first;
