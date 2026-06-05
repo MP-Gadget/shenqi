@@ -45,10 +45,7 @@ struct state_of_system
 
 static struct stats_params
 {
-    /* some filenames */
-    char EnergyFile[100];
-    char CpuFile[100];
-    /*Should we store the energy to EnergyFile on PM timesteps.*/
+    /*Should we store the energy to energy.txt on PM timesteps.*/
     int OutputEnergyDebug;
     int WriteBlackHoleDetails; /* write BH details every time step*/
     size_t MaxBlackHoleDetails; /* Max size of bh details file*/
@@ -60,8 +57,6 @@ set_stats_params(ParameterSet * ps)
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
     if(ThisTask == 0) {
-        param_get_string2(ps, "EnergyFile", StatsParams.EnergyFile, sizeof(StatsParams.EnergyFile));
-        param_get_string2(ps, "CpuFile", StatsParams.CpuFile, sizeof(StatsParams.CpuFile));
         StatsParams.OutputEnergyDebug = param_get_int(ps, "OutputEnergyDebug");
         StatsParams.WriteBlackHoleDetails = param_get_int(ps,"WriteBlackHoleDetails");
         StatsParams.MaxBlackHoleDetails = 1024L*1024L*1024L*param_get_int(ps, "MaxBlackHoleDetails");
@@ -115,13 +110,13 @@ open_outputfiles(int RestartSnapNum, struct OutputFD * fds, const std::string Ou
             endrun(1, "error in opening file '%s'\n", buf.c_str());
     }
 
-    buf = OutputDir + "/" + StatsParams.CpuFile + postfix;
+    buf = OutputDir + "/cpu.txt" + postfix;
     fastpm_path_ensure_dirname(buf.c_str());
     if(!(fds->FdCPU = fopen(buf.c_str(), mode)))
         endrun(1, "error in opening file '%s'\n", buf.c_str());
 
     if(StatsParams.OutputEnergyDebug) {
-        buf = OutputDir + "/" + StatsParams.EnergyFile + postfix;
+        buf = OutputDir + "/energy.txt" + postfix;
         fastpm_path_ensure_dirname(buf.c_str());
         if(!(fds->FdEnergy = fopen(buf.c_str(), mode)))
             endrun(1, "error in opening file '%s'\n", buf.c_str());
