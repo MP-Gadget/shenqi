@@ -46,10 +46,8 @@ struct BHPriv {
 #define BH_GET_PRIV(tw) ((struct BHPriv *) (tw->priv))
 
 enum BlackHoleFeedbackMethod {
-     BH_FEEDBACK_TOPHAT   = 0x2,
-     BH_FEEDBACK_SPLINE   = 0x4,
-     BH_FEEDBACK_MASS     = 0x8,
-     BH_FEEDBACK_VOLUME   = 0x10,
+     BH_FEEDBACK_SPLINE   = 1,
+     BH_FEEDBACK_MASS     = 2,
 };
 
 /*Set the parameters of the star formation module*/
