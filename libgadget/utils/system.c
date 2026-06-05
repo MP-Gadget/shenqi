@@ -392,16 +392,6 @@ MPIU_Any(int condition, MPI_Comm comm)
     return condition;
 }
 
-int
-MPIU_Bcast_string(std::string * send, int root, MPI_Comm Comm)
-{
-    size_t len = send->size();
-    MPI_Bcast(&len, 1, MPI_UNSIGNED_LONG, root, Comm);
-    send->resize(len);
-    MPI_Bcast(send->data(), len, MPI_CHAR, root, Comm);
-    return 0;
-}
-
 size_t
 gadget_compact_thread_arrays_managed(int ** dest, const char * name, gadget_thread_arrays * arrays)
 {

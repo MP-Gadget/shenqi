@@ -44,11 +44,6 @@ void free_random_numbers(RandTable * rnd);
 /* Returns true if condition is true on ANY processor*/
 int MPIU_Any(int condition, MPI_Comm comm);
 
-/* Broadcast a std::string. First the length then the actual data.
- * This is not very performant, use only in non-performance sensitive 
- * code (like startup).*/
-int MPIU_Bcast_string(std::string * send, int root, MPI_Comm Comm);
-
 typedef struct _gadget_thread_arrays {
   int * dest;
   int ** srcs;
