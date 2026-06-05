@@ -11,9 +11,9 @@ create_parameters(void)
 {
     ParameterSet * ps = new ParameterSet;
 
-    param_declare_string(ps, "FileWithInputSpectrum", REQUIRED, 0, "File containing input power spectrum, from CLASS or CAMB.");
-    param_declare_string(ps, "OutputDir", REQUIRED, 0, "Output directory in which to store the ICs");
-    param_declare_string(ps, "FileBase", REQUIRED, 0, "File name of the ICs.");
+    param_declare_string(ps, "FileWithInputSpectrum", REQUIRED, "", "File containing input power spectrum, from CLASS or CAMB.");
+    param_declare_string(ps, "OutputDir", REQUIRED, "", "Output directory in which to store the ICs");
+    param_declare_string(ps, "FileBase", REQUIRED, "", "File name of the ICs.");
 
     param_declare_double(ps, "Omega0", REQUIRED, 0.2814, "Total matter density, cdm + baryons + massive neutrinos at z=0.");
     param_declare_double(ps, "OmegaBaryon", REQUIRED, 0.0464, "Omega Baryon: note this may be used for transfer functions even if gas is not produced.");

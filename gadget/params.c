@@ -32,20 +32,19 @@ create_gadget_parameter_set()
     param_declare_int(ps,    "UseGPU", OPTIONAL, 0, "Should we enable GPU acceleration of the Treewalk.");
     #endif
 
-    param_declare_string(ps, "InitCondFile", REQUIRED, NULL, "Path to the Initial Condition File");
-    param_declare_string(ps, "OutputDir",    REQUIRED, NULL, "Prefix to the output files");
+    param_declare_string(ps, "InitCondFile", REQUIRED, "", "Path to the Initial Condition File");
+    param_declare_string(ps, "OutputDir",    REQUIRED, "", "Prefix to the output files");
 
     ParameterEnum DensityKernelTypeEnum = {
         {"cubic", DENSITY_KERNEL_CUBIC_SPLINE},
         {"quintic", DENSITY_KERNEL_QUINTIC_SPLINE},
         {"quartic", DENSITY_KERNEL_QUARTIC_SPLINE},
-        {NULL, DENSITY_KERNEL_QUARTIC_SPLINE},
     } ;
     param_declare_enum(ps,    "DensityKernelType", DensityKernelTypeEnum, OPTIONAL, "quintic", "SPH density kernel to use. Supported values are cubic, quartic and quintic.");
     param_declare_string(ps, "SnapshotFileBase", OPTIONAL, "PART", "Base name of the snapshot files, _%03d will be appended to the name.");
     param_declare_string(ps, "FOFFileBase", OPTIONAL, "PIG", "Base name of the fof files, _%03d will be appended to the name.");
     param_declare_int(ps,    "OutputEnergyDebug", OPTIONAL, 0, "Should we output energy statistics to energy.txt");
-    param_declare_string(ps, "OutputList", REQUIRED, NULL, "List of output scale factors.");
+    param_declare_string(ps, "OutputList", REQUIRED, "", "List of output scale factors.");
 
     /*Potential plane parameters*/
     param_declare_string(ps, "PlaneOutputList", OPTIONAL, "", "List of potential plane output scale factors.");
@@ -99,7 +98,6 @@ create_gadget_parameter_set()
     ParameterEnum ShortRangeForceWindowTypeEnum = {
         {"exact", SHORTRANGE_FORCE_WINDOW_TYPE_EXACT},
         {"erfc", SHORTRANGE_FORCE_WINDOW_TYPE_ERFC },
-        {NULL, SHORTRANGE_FORCE_WINDOW_TYPE_EXACT },
     };
     param_declare_enum(ps,    "ShortRangeForceWindowType", ShortRangeForceWindowTypeEnum, OPTIONAL, "exact", "type of shortrange window, exact or erfc (default is exact) ");
 
@@ -136,13 +134,11 @@ create_gadget_parameter_set()
         {"KWH92", KWH92 },
         {"Enzo2Nyx", Enzo2Nyx },
         {"Sherwood", Sherwood },
-        {NULL, Cen92 },
     };
     ParameterEnum RecombTypeTable = {
         {"Cen92", Cen92 },
         {"Verner96", Verner96 },
         {"Badnell06", Badnell06},
-        {NULL, Cen92 },
     };
     param_declare_enum(ps, "CoolingRates", CoolingTypeTable, OPTIONAL, "Sherwood", "Which cooling rate table to use. Options are KWH92 (old gadget default), Enzo2Nyx and Sherwood (new default).");
     param_declare_enum(ps, "RecombRates", RecombTypeTable, OPTIONAL, "Verner96", "Which recombination rate table to use. Options are Cen92 (old gadget default), Verner96 (new default), Badnell06");
@@ -225,10 +221,9 @@ create_gadget_parameter_set()
         {"volume", BH_FEEDBACK_VOLUME},
         {"tophat", BH_FEEDBACK_TOPHAT},
         {"spline", BH_FEEDBACK_SPLINE},
-        {NULL, BH_FEEDBACK_SPLINE | BH_FEEDBACK_MASS},
     };
     param_declare_enum(ps, "BlackHoleFeedbackMethod", BlackHoleFeedbackMethodEnum,
-            OPTIONAL, "spline, mass", "");
+            OPTIONAL, "spline, mass", "BH feedback method");
     /*End black holes*/
 
     /*Star formation parameters*/
@@ -239,7 +234,6 @@ create_gadget_parameter_set()
         {"selfgravity", SFR_CRITERION_SELFGRAVITY}, /* Form stars only when the gas is self-gravitating. From Phil Hopkins.*/
         {"convergent", SFR_CRITERION_CONVERGENT_FLOW}, /* Modify self-gravitating star formation to form stars only when the gas flow is convergent. From Phil Hopkins.*/
         {"continuous", SFR_CRITERION_CONTINUOUS_CUTOFF}, /* Modify self-gravitating star formation to smooth the star formation threshold. From Phil Hopkins.*/
-        {NULL, SFR_CRITERION_DENSITY},
     };
 
     ParameterEnum WindModelEnum = {
@@ -252,7 +246,6 @@ create_gadget_parameter_set()
         {"vs08", WIND_FIXED_EFFICIENCY},
         {"ofjt10", WIND_USE_HALO | WIND_DECOUPLE_SPH},
         {"isotropic", WIND_ISOTROPIC}, /*Does nothing: wind direction is always random and isotropic.*/
-        {NULL, WIND_USE_HALO | WIND_DECOUPLE_SPH }, /* Default is ofjt10*/
     };
 
     param_declare_int(ps, "StarformationOn", REQUIRED, 0, "Enables star formation");
