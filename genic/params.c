@@ -9,7 +9,7 @@
 static ParameterSet *
 create_parameters(void)
 {
-    ParameterSet * ps = new ParameterSet;;
+    ParameterSet * ps = new ParameterSet;
 
     param_declare_string(ps, "FileWithInputSpectrum", REQUIRED, 0, "File containing input power spectrum, from CLASS or CAMB.");
     param_declare_string(ps, "OutputDir", REQUIRED, 0, "Output directory in which to store the ICs");

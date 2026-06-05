@@ -10,12 +10,12 @@ struct power_params
     int WhichSpectrum;
     int DifferentTransferFunctions;
     int ScaleDepVelocity;
-    char * FileWithTransferFunction;
-    char * FileWithInputSpectrum;
     double Sigma8;
     double InputPowerRedshift;
     double PrimordialIndex;
     double PrimordialRunning;
+    std::string FileWithTransferFunction;
+    std::string FileWithInputSpectrum;
 };
 
 /*A note on gauge choice:
