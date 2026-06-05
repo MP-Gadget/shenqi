@@ -103,10 +103,6 @@ static struct run_params
     double Asmth;
     enum ShortRangeForceWindowType ShortRangeForceWindowType;
 
-    /* some filenames */
-    char OutputDir[100],
-         FOFFileBase[100];
-
     int SnapshotWithFOF; /*Flag that doing FOF for snapshot outputs is on*/
     int ParticlesAlwaysSorted; /*Flag that particles should be Peano sorted after every domain exchange.*/
     uint64_t RandomSeed; /*Initial seed for the random number table*/
@@ -114,6 +110,9 @@ static struct run_params
     int ExcursionSetReionOn; /*Flag for enabling the excursion set reionisation model*/
     int UVBGdim; /*Dimension of excursion set grids*/
 
+    /* some filenames */
+    std::string OutputDir;
+    std::string FOFFileBase;
 } All;
 
 /*Set the global parameters*/
@@ -124,8 +123,8 @@ set_all_global_params(ParameterSet * ps)
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
     if(ThisTask == 0) {
         /* Start reading the values */
-        param_get_string2(ps, "OutputDir", All.OutputDir, sizeof(All.OutputDir));
-        param_get_string2(ps, "FOFFileBase", All.FOFFileBase, sizeof(All.FOFFileBase));
+        All.OutputDir = param_get_string(ps, "OutputDir");
+        All.FOFFileBase = param_get_string(ps, "FOFFileBase");
 
         All.UseGPU = param_get_int(ps, "UseGPU");
         All.CP.CMBTemperature = param_get_double(ps, "CMBTemperature");
@@ -192,7 +191,10 @@ set_all_global_params(ParameterSet * ps)
         All.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
         All.UVBGdim = param_get_int(ps, "UVBGdim");
     }
-    MPI_Bcast(&All, sizeof(All), MPI_BYTE, 0, MPI_COMM_WORLD);
+    /* Note for this to work the strings have to be at the end*/
+    MPI_Bcast(&All, offsetof(struct run_params, OutputDir), MPI_BYTE, 0, MPI_COMM_WORLD);
+    MPIU_Bcast_string(&All.OutputDir, 0, MPI_COMM_WORLD);
+    MPIU_Bcast_string(&All.FOFFileBase, 0, MPI_COMM_WORLD);
 }
 
 int find_last_snapshot(void)
