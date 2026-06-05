@@ -54,7 +54,7 @@ set_init_params(ParameterSet * ps)
         InitParams.PartAllocFactor = param_get_double(ps, "PartAllocFactor");
 
         InitParams.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
-        InitParams.ExcursionSetZStart = param_get_int(ps,"ExcursionSetZStart");
+        InitParams.ExcursionSetZStart = param_get_double(ps,"ExcursionSetZStart");
     }
     MPI_Bcast(&InitParams, sizeof(InitParams), MPI_BYTE, 0, MPI_COMM_WORLD);
 }
