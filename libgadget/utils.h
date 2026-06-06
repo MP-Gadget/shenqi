@@ -15,7 +15,6 @@
 #include "utils/mymalloc.h"
 #include "utils/paramset.h"
 #include "utils/system.h"
-#include "utils/string.h"
 #include "utils/endrun.h"
 #include "utils/spinlocks.h"
 #endif

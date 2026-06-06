@@ -11,7 +11,6 @@
 
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
-#include "utils/string.h"
 
 #include "uvbg.h"
 #include "walltime.h"

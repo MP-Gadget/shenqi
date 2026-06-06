@@ -22,7 +22,6 @@
 #include "physconst.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
-#include "utils/string.h"
 /************
  *
  * The IO api , intented to replace io.c and read_ic.c

@@ -5,7 +5,6 @@
 #include <dirent.h>
 #include <vector>
 #include "lenstools.h"
-#include "utils/string.h"
 #include "utils/mymalloc.h"
 #include "cosmology.h"
 #include "plane.h"
