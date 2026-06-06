@@ -15,7 +15,6 @@ static int parse_enum(ParameterEnum& table, const std::string strchoices, const 
     auto startpos = remaining.find_first_not_of(delim);
     while (startpos != std::string::npos) {
         /*Trim extra chars from left*/
-        auto startpos = remaining.find_first_not_of(delim);
         remaining = remaining.substr(startpos);
         auto sz = remaining.find_first_of(delim);
         auto token = remaining.substr(0, sz);
@@ -28,6 +27,7 @@ static int parse_enum(ParameterEnum& table, const std::string strchoices, const 
             break;
         /* Trim processed chars*/
         remaining = remaining.substr(sz);
+        startpos = remaining.find_first_not_of(delim);
     };
 //    message(0, "enum parse input %s out %s\n", strchoices.c_str(), format_enum(table, outvalue).c_str());
     if(!valid)
@@ -61,7 +61,11 @@ param_set_from_string(ParameterSet * ps, const std::string name, std::string val
             pp.value = std::stod(value);
             break;
         case STRING:
-            pp.value = value;
+            {
+                /* Trim whitespace from end of string*/
+                auto endvalue = value.find_first_of(" \t");
+                pp.value = value.substr(0, endvalue);
+            }
             break;
         case ENUM:
             pp.value = parse_enum(pp.enumtable, value, name);
@@ -89,22 +93,21 @@ static int param_emit(ParameterSet * ps, std::string token, int lineno)
     if(key == std::string::npos) {
         return 0;
     }
-    auto sep = token.substr(key).find_first_of(limits) + key;
+    auto sep = token.substr(key).find_first_of(limits);
     if(sep == std::string::npos) {
         message(0, "line %d : `%s` is malformed.\n", lineno, token.c_str());
         return 1;
     }
     std::string name = token.substr(key, sep);
-    std::string valuestr = token.substr(sep);
+    std::string valuestr = token.substr(sep+key);
     auto value = valuestr.find_first_not_of(limits);
     if(value == std::string::npos) {
         message(0, "line %d : `%s` is malformed.\n", lineno, token.c_str());
         return 1;
     }
     valuestr = valuestr.substr(value);
-    auto endvalue = valuestr.find_first_of(limits);
     if(ps->p.contains(name))
-        param_set_from_string(ps, name, valuestr.substr(0, endvalue), lineno);
+        param_set_from_string(ps, name, valuestr, lineno);
     else
         message(0, "Line %d: Parameter `%s` is unknown.\n", lineno, name.c_str());
     return 0;
