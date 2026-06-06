@@ -25,7 +25,7 @@ double get_long_mean_free_path_heating(double redshift)
 }
 
 void
-init_qso_lightup(char * reion_hist_file)
+init_qso_lightup(const std::string& reion_hist_file)
 {
     return;
 }
@@ -171,8 +171,8 @@ BOOST_AUTO_TEST_CASE(testDoCooling)
     coolpar.HydrogenHeatAmp = 0;
     coolpar.rho_crit_baryon = 0.045 * 3.0 * pow(0.7*HUBBLE,2.0) /(8.0*M_PI*GRAVITY);
 
-    char TreeCool[] = GADGET_TESTDATA_ROOT "/examples/TREECOOL_ep_2018p";
-    char MetalCool[] = "";
+    std::string TreeCool(GADGET_TESTDATA_ROOT "/examples/TREECOOL_ep_2018p");
+    std::string MetalCool("");
 
     /*unit system*/
     double HubbleParam = 0.7;
@@ -199,7 +199,7 @@ BOOST_AUTO_TEST_CASE(testDoCooling)
     MinEgySpec /= coolunits.uu_in_cgs;
 
     set_coolpar(coolpar);
-    init_cooling(TreeCool, NULL, MetalCool, NULL, coolunits, &CP);
+    init_cooling(TreeCool, MetalCool, MetalCool, MetalCool, coolunits, &CP);
     struct UVBG uvbg = get_global_UVBG(0);
     BOOST_TEST(uvbg.epsH0 == 3.65296e-25, tt::tolerance(1e-5));
     BOOST_TEST(uvbg.epsHe0 == 3.98942e-25, tt::tolerance(1e-5));

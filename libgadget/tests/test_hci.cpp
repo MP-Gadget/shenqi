@@ -7,20 +7,20 @@
 
 #include <libgadget/hci.h>
 
-char prefix[1024] = ".";
+std::string prefix(".");
 
 static void
-touch(char * prefix, std::string b)
+touch(std::string prefix, std::string b)
 {
-    std::string fn = std::string(prefix)+ "/" +  b;
+    std::string fn = prefix+ "/" +  b;
     std::ofstream tfile(fn, std::ofstream::out);
     tfile.close();
 }
 
 static int
-exists(char * prefix, std::string b)
+exists(std::string prefix, std::string b)
 {
-    std::string fn = std::string(prefix)+ "/" +  b;
+    std::string fn = prefix+ "/" +  b;
     std::ifstream tfile(fn, std::ifstream::in);
     return tfile.good();
 }
