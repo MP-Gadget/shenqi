@@ -34,35 +34,19 @@ plane_get_output_fname(const int snapnum, const std::string OutputDir, const int
 void
 set_plane_params(ParameterSet * ps)
 {
-    int ThisTask;
-    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-    if(ThisTask == 0) {
-        // plane resolution
-        PlaneParams.Resolution = param_get_int(ps, "PlaneResolution");
+    // plane resolution
+    PlaneParams.Resolution = param_get_int(ps, "PlaneResolution");
 
-        // plane thickness in internal units (kpc/h)
-        PlaneParams.Thickness = param_get_double(ps, "PlaneThickness");
-        // Plane normals
-        PlaneParams.Normals = BuildOutputList<int>(param_get_string(ps, "PlaneNormals"));
-        int nmax = *std::max_element(PlaneParams.Normals.begin(), PlaneParams.Normals.end());
-        int nmin = *std::min_element(PlaneParams.Normals.begin(), PlaneParams.Normals.end());
-        if(nmax > 2 || nmin < 0)
-            endrun(4, "Requesting a normal direction beyond 0, 1 and 2: max: %d, min %d\n", nmax, nmin);
-        // Plane cut points
-        PlaneParams.CutPoints = BuildOutputList<double>(param_get_string(ps, "PlaneCutPoints"));
-    }
-    // 1. Broadcast the POD members together
-    MPI_Bcast(&PlaneParams, offsetof(struct plane_params, CutPoints), MPI_BYTE, 0, MPI_COMM_WORLD);
-
-    // 2. Broadcast the vectors
-    size_t len = PlaneParams.CutPoints.size();
-    MPI_Bcast(&len, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
-    PlaneParams.CutPoints.resize(len);
-    MPI_Bcast(PlaneParams.CutPoints.data(), len, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    size_t nlen = PlaneParams.Normals.size();
-    MPI_Bcast(&nlen, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
-    PlaneParams.Normals.resize(nlen);
-    MPI_Bcast(PlaneParams.Normals.data(), nlen, MPI_INT, 0, MPI_COMM_WORLD);
+    // plane thickness in internal units (kpc/h)
+    PlaneParams.Thickness = param_get_double(ps, "PlaneThickness");
+    // Plane normals
+    PlaneParams.Normals = BuildOutputList<int>(param_get_string(ps, "PlaneNormals"));
+    int nmax = *std::max_element(PlaneParams.Normals.begin(), PlaneParams.Normals.end());
+    int nmin = *std::min_element(PlaneParams.Normals.begin(), PlaneParams.Normals.end());
+    if(nmax > 2 || nmin < 0)
+        endrun(4, "Requesting a normal direction beyond 0, 1 and 2: max: %d, min %d\n", nmax, nmin);
+    // Plane cut points
+    PlaneParams.CutPoints = BuildOutputList<double>(param_get_string(ps, "PlaneCutPoints"));
 }
 
 void write_plane(int snapnum, const double atime, Cosmology * CP, const std::string OutputDir, const double UnitVelocity_in_cm_per_s, const double UnitLength_in_cm)

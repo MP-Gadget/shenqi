@@ -56,23 +56,18 @@ static struct header_data Header;
 void
 set_petaio_params(ParameterSet * ps)
 {
-    int ThisTask;
-    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-    if(ThisTask == 0) {
-        IO.MinBytesPerFile = param_get_int(ps, "BytesPerFile");
-        IO.UsePeculiarVelocity = 0; /* Will be set by the Initial Condition File */
-        IO.MaxIORanks = param_get_int(ps, "NumWriters");
-        if(IO.MaxIORanks <= 0)
-            MPI_Comm_size(MPI_COMM_WORLD, &IO.MaxIORanks);
+    IO.MinBytesPerFile = param_get_int(ps, "BytesPerFile");
+    IO.UsePeculiarVelocity = 0; /* Will be set by the Initial Condition File */
+    IO.MaxIORanks = param_get_int(ps, "NumWriters");
+    if(IO.MaxIORanks <= 0)
+        MPI_Comm_size(MPI_COMM_WORLD, &IO.MaxIORanks);
 
-        IO.OutputPotential = param_get_int(ps, "OutputPotential");
-        IO.OutputTimebins = param_get_int(ps, "OutputTimebins");
-        IO.OutputHeliumFractions = param_get_int(ps, "OutputHeliumFractions");
-        IO.SnapshotFileBase = param_get_string(ps, "SnapshotFileBase");
-        IO.InitCondFile = param_get_string(ps, "InitCondFile");
-        IO.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
-    }
-    MPI_Bcast(&IO, sizeof(struct petaio_params), MPI_BYTE, 0, MPI_COMM_WORLD);
+    IO.OutputPotential = param_get_int(ps, "OutputPotential");
+    IO.OutputTimebins = param_get_int(ps, "OutputTimebins");
+    IO.OutputHeliumFractions = param_get_int(ps, "OutputHeliumFractions");
+    IO.SnapshotFileBase = param_get_string(ps, "SnapshotFileBase");
+    IO.InitCondFile = param_get_string(ps, "InitCondFile");
+    IO.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
 }
 
 int GetUsePeculiarVelocity(void)
