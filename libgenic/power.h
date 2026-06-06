@@ -4,6 +4,7 @@
 #include <libgadget/cosmology.h>
 #include <bigfile-mpi.h>
 #include <boost/math/interpolators/makima.hpp>
+#include <vector>
 
 struct power_params
 {
@@ -63,8 +64,9 @@ struct table
     boost::math::interpolators::makima<std::vector<double>>* mat_intp[MAXCOLS];
 };
 
-/*Typedef for a function that parses the table from text*/
-typedef void (*_parse_fn)(int i, double k, char * line, struct table *, int *InputInLog10, const double InitTime, int NumCol);
+/*Typedef for a function that parses the table from text.
+ * vals contains all columns of the line, with vals[0] == k.*/
+typedef void (*_parse_fn)(int i, double k, const std::vector<double>& vals, struct table *, int *InputInLog10, const double InitTime, size_t NumCol);
 
 class PowerSpectrum
 {
@@ -83,7 +85,7 @@ private:
     double tk_eh(double k);
     double get_Tabulated(double k, enum TransferType Type);
     int init_transfer_table(int ThisTask, double InitTime, const struct power_params * const ppar);
-    void parse_transfer(int i, double k, char * line, struct table *out_tab, int * InputInLog10, const double InitTime, int NumCol);
+    void parse_transfer(int i, double k, const std::vector<double>& vals, struct table *out_tab, int * InputInLog10, const double InitTime, size_t NumCol);
     template <typename F>
     void read_power_table(int ThisTask, const char * inputfile, const int ncols, struct table * out_tab, const double InitTime, F parse_line);
 public:
