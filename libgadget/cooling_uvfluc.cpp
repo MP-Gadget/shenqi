@@ -44,58 +44,6 @@ void set_uvf_params(ParameterSet * ps){
     return;
 }
 
-/* Read a big array from filename/dataset into an array, allocating memory in buffer.
- * which is returned. Nread argument is set equal to number of elements read.*/
-static double *
-read_big_array(const std::string& filename, const char * dataset, int * Nread)
-{
-    int N;
-    double * buffer=NULL;
-    int ThisTask;
-    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-
-    if(ThisTask == 0) {
-        BigFile bf[1];
-        BigBlockPtr ptr;
-        BigBlock bb[1];
-        BigArray array[1];
-        size_t dims[2];
-        if(0 != big_file_open(bf, filename.c_str())) {
-            endrun(1, "Cannot open %s: %s\n", filename.c_str(), big_file_get_error_message());
-        }
-        if(0 != big_file_open_block(bf, bb, dataset)) {
-            endrun(1, "Cannot open %s %s: %s\n", filename.c_str(), dataset, big_file_get_error_message());
-        }
-
-        N = bb->size;
-
-        if(dtype_itemsize(bb->dtype) != sizeof(double))
-            endrun(1, "UVflucatuation file %s should contain double-precision data, contains %s\n", filename.c_str(), bb->dtype);
-
-        buffer = (double *) mymalloc("cooling_data", N * dtype_itemsize(bb->dtype) * bb->nmemb);
-        dims[0] = N;
-        dims[1] = bb->nmemb;
-
-        big_array_init(array, buffer, bb->dtype, 2, dims, NULL);
-        if(0 != big_block_seek(bb, &ptr, 0))
-            endrun(1, "Failed to seek block %s %s: %s\n", filename.c_str(), dataset, big_file_get_error_message());
-
-        if(0 != big_block_read(bb, &ptr, array))
-            endrun(1, "Failed to read %s %s: %s", filename.c_str(), dataset, big_file_get_error_message());
-        /* steal the buffer */
-        big_block_close(bb);
-        big_file_close(bf);
-    }
-
-    MPI_Bcast(&N, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    if(ThisTask != 0)
-        buffer = (double *) mymalloc("cooling_data",N * sizeof(double));
-
-    MPI_Bcast(buffer, N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-    *Nread = N;
-    return buffer;
-}
 
 /* The UV fluctation file is a bigfile with these tables:
  * ReionizedFraction: values of the reionized fraction as function of
@@ -136,24 +84,46 @@ init_uvf_table(const std::string& UVFluctuationFile, const double BoxSize, const
     double ReionRedshift;
     if ((0 != big_block_get_attr(&bh, "Nmesh", &UVF.Nside, "u8", 1)) ||
         (0 != big_block_get_attr(&bh, "BoxSize", &TableBoxSize, "f8", 1)) ||
-        (0 != big_block_get_attr(&bh, "Redshift", &ReionRedshift, "f8", 1)) ||
-        (0 != big_block_mpi_close(&bh, MPI_COMM_WORLD))) {
-        endrun(0, "Failed to close block: %s\n",
-                    big_file_get_error_message());
+        (0 != big_block_get_attr(&bh, "Redshift", &ReionRedshift, "f8", 1))) {
+        endrun(0, "Failed to read %s/Zreion_Table attributes: %s\n",
+                    UVFluctuationFile.c_str(), big_file_get_error_message());
     }
-    big_file_mpi_close(&bf, MPI_COMM_WORLD);
+
     double BoxMpc = BoxSize * UnitLength_in_cm / CM_PER_MPC;
     if(fabs(TableBoxSize - BoxMpc) > BoxMpc * 1e-5)
         endrun(0, "Wrong UV fluctuation file! %s is for box size %g Mpc/h, but current box is %g Mpc/h\n", UVFluctuationFile.c_str(), TableBoxSize, BoxMpc);
 
+    if(UVF.Nside * UVF.Nside * UVF.Nside != bh.size)
+        endrun(0, "Corrupt UV Fluctuation table: Nside = %ld, but table is %lu != %ld^3\n", UVF.Nside, bh.size, UVF.Nside);
+
     message(0, "Using NON-UNIFORM UV BG fluctuations from %s. Median reionization redshift is %g\n", UVFluctuationFile.c_str(), ReionRedshift);
     UVF.enabled = 1;
 
-    int size;
-    UVF.Table = read_big_array(UVFluctuationFile.c_str(), "Zreion_Table", &size);
+    int ThisTask;
+    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
 
-    if(UVF.Nside * UVF.Nside * UVF.Nside != size)
-        endrun(0, "Corrupt UV Fluctuation table: Nside = %ld, but table is %d != %ld^3\n", UVF.Nside, size, UVF.Nside);
+    if(ThisTask == 0) {
+        if(dtype_itemsize(bh.dtype) != sizeof(double))
+            endrun(1, "UVfluctuationFile %s should contain double-precision data, contains %s\n", UVFluctuationFile.c_str(), bh.dtype);
+
+        UVF.Table = (double *) mymalloc("UVFluctuationTable", bh.size * sizeof(double) * bh.nmemb);
+        size_t dims[2] = {bh.size, static_cast<size_t>(bh.nmemb)};
+
+        BigArray array[1];
+        BigBlockPtr ptr = {0};
+        big_array_init(array, UVF.Table, bh.dtype, 2, dims, NULL);
+        if(0 != big_block_seek(&bh, &ptr, 0))
+            endrun(1, "Failed to seek block %s %s: %s\n", UVFluctuationFile.c_str(), "Zreion_Table", big_file_get_error_message());
+        if(0 != big_block_read(&bh, &ptr, array))
+            endrun(1, "Failed to read %s %s: %s", UVFluctuationFile.c_str(), "Zreion_Table", big_file_get_error_message());
+    }
+    if(ThisTask != 0)
+        UVF.Table = (double *) mymalloc("UVFluctuationTable", bh.size * bh.nmemb * sizeof(double));
+
+    MPI_Bcast(UVF.Table, bh.size * bh.nmemb, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    big_block_mpi_close(&bh, MPI_COMM_WORLD);
+    big_file_mpi_close(&bf, MPI_COMM_WORLD);
 
     int64_t dims[] = {UVF.Nside, UVF.Nside, UVF.Nside};
     double uvfmin[] = {0, 0, 0};
@@ -247,19 +217,57 @@ struct UVBG get_local_UVBG(double redshift, const struct UVBG * const GlobalUVBG
 /*Here comes the Metal Cooling code*/
 struct {
     int CoolingNoMetal;
-    int NRedshift_bins;
-    double * Redshift_bins;
-
-    int NHydrogenNumberDensity_bins;
-    double * HydrogenNumberDensity_bins;
-
-    int NTemperature_bins;
-    double * Temperature_bins;
-
     double * Lmet_table; /* metal cooling @ one solar metalicity*/
 
     InterpNLinear<3> interp;
 } MetalCool;
+
+/* Read a big array from filename/dataset into an array, allocating memory in buffer.
+ * which is returned. Nread argument is set equal to number of elements read.*/
+static double *
+read_big_array(BigFile * bf, const char * dataset, int * Nread)
+{
+    size_t N = 0, nmemb = 0;
+    double * buffer=NULL;
+    int ThisTask;
+    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
+
+    if(ThisTask == 0) {
+        BigBlockPtr ptr = {0};
+        BigBlock bb[1];
+        BigArray array[1];
+        if(0 != big_file_open_block(bf, bb, dataset)) {
+            endrun(1, "Cannot open block %s: %s\n", dataset, big_file_get_error_message());
+        }
+        N = bb->size;
+        nmemb = bb->nmemb;
+
+        if(dtype_itemsize(bb->dtype) != sizeof(double))
+            endrun(1, "Block %s should contain double-precision data, contains %s\n", dataset, bb->dtype);
+
+        buffer = (double *) mymalloc(dataset, N  * bb->nmemb * sizeof(double));
+
+        size_t dims[2] = {N, nmemb};
+        big_array_init(array, buffer, bb->dtype, 2, dims, NULL);
+        if(0 != big_block_seek(bb, &ptr, 0))
+            endrun(1, "Failed to seek block %s: %s\n", dataset, big_file_get_error_message());
+
+        if(0 != big_block_read(bb, &ptr, array))
+            endrun(1, "Failed to read %s: %s", dataset, big_file_get_error_message());
+        /* steal the buffer */
+        big_block_close(bb);
+    }
+
+    N *= nmemb;
+    MPI_Bcast(&N, 1, MPI_UINT64_T, 0, MPI_COMM_WORLD);
+    if(ThisTask != 0)
+        buffer = (double *) mymalloc(dataset, N* sizeof(double));
+
+    MPI_Bcast(buffer, N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    *Nread = N;
+    return buffer;
+}
 
 void
 InitMetalCooling(const std::string& MetalCoolFile)
@@ -269,7 +277,6 @@ InitMetalCooling(const std::string& MetalCoolFile)
      * cloudy + UVB - H and He; look so.
      * the table contains only 1 Z_sun values. Need to be scaled to the
      * metallicity.
-     *
      * */
     /* let's see if the Metal Cool File is magic NoMetal */
     if(MetalCoolFile.size() == 0) {
@@ -279,23 +286,34 @@ InitMetalCooling(const std::string& MetalCoolFile)
         MetalCool.CoolingNoMetal = 0;
     }
 
+    BigFile bf[1];
+    if(0 != big_file_mpi_open(bf, MetalCoolFile.c_str(), MPI_COMM_WORLD))
+        endrun(1, "Cannot open %s: %s\n", MetalCoolFile.c_str(), big_file_get_error_message());
+
     int size;
     //This is never used if MetalCoolFile == ""
-    double * tabbedmet = read_big_array(MetalCoolFile.c_str(), "MetallicityInSolar_bins", &size);
+    double * tabbedmet = read_big_array(bf, "MetallicityInSolar_bins", &size);
 
     if(size != 1 || tabbedmet[0] != 0.0) {
         endrun(123, "MetalCool file %s is wrongly tabulated\n", MetalCoolFile.c_str());
     }
     myfree(tabbedmet);
 
-    MetalCool.Redshift_bins = read_big_array(MetalCoolFile, "Redshift_bins", &MetalCool.NRedshift_bins);
-    MetalCool.HydrogenNumberDensity_bins = read_big_array(MetalCoolFile, "HydrogenNumberDensity_bins", &MetalCool.NHydrogenNumberDensity_bins);
-    MetalCool.Temperature_bins = read_big_array(MetalCoolFile, "Temperature_bins", &MetalCool.NTemperature_bins);
-    MetalCool.Lmet_table = read_big_array(MetalCoolFile, "NetCoolingRate", &size);
+    int NRedshift_bins, NHydrogenNumberDensity_bins, NTemperature_bins;
+    double * Redshift_bins = read_big_array(bf, "Redshift_bins", &NRedshift_bins);
+    double * HydrogenNumberDensity_bins = read_big_array(bf, "HydrogenNumberDensity_bins", &NHydrogenNumberDensity_bins);
+    double * Temperature_bins = read_big_array(bf, "Temperature_bins", &NTemperature_bins);
+    MetalCool.Lmet_table = read_big_array(bf, "NetCoolingRate", &size);
 
-    int64_t dims[] = {MetalCool.NRedshift_bins, MetalCool.NHydrogenNumberDensity_bins, MetalCool.NTemperature_bins};
-    double metalmin[] = {MetalCool.Redshift_bins[0], MetalCool.HydrogenNumberDensity_bins[0],  MetalCool.Temperature_bins[0]};
-    double metalmax[] = {MetalCool.Redshift_bins[MetalCool.NRedshift_bins - 1], MetalCool.HydrogenNumberDensity_bins[MetalCool.NHydrogenNumberDensity_bins - 1], MetalCool.Temperature_bins[MetalCool.NTemperature_bins - 1]};
+    big_file_mpi_close(bf, MPI_COMM_WORLD);
+
+    int64_t dims[] = {NRedshift_bins, NHydrogenNumberDensity_bins, NTemperature_bins};
+    double metalmin[] = {Redshift_bins[0], HydrogenNumberDensity_bins[0],  Temperature_bins[0]};
+    double metalmax[] = {Redshift_bins[NRedshift_bins - 1], HydrogenNumberDensity_bins[NHydrogenNumberDensity_bins - 1], Temperature_bins[NTemperature_bins - 1]};
+
+    myfree(Temperature_bins);
+    myfree(HydrogenNumberDensity_bins);
+    myfree(Redshift_bins);
 
     InterpNLinear<3> interp(dims, metalmin, metalmax);
     MetalCool.interp = interp;
