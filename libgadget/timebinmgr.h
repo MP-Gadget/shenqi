@@ -2,6 +2,7 @@
 #define TIMEBINMGR_H
 
 #include <string>
+#include <vector>
 /* This file manages the integer timeline,
  * and converts from integers ti to double loga.*/
 
@@ -47,13 +48,10 @@ MYCUDAFN static inline inttime_t dti_from_timebin(int bin) {
 /*! table with desired sync points. All forces and phase space variables are synchonized to the same order. */
 class TimeBinMgr {
     public:
-    Cosmology * CP;
-    SyncPoint * SyncPoints;
-    int64_t NSyncPoints;    /* number of times stored in table of desired sync points */
 
     TimeBinMgr (Cosmology * CP, double TimeIC, double TimeMax, double no_snapshot_until_time, bool SnapshotWithFOF);
 
-    TimeBinMgr (): CP(NULL), SyncPoints(NULL), NSyncPoints(0) {};
+    TimeBinMgr (): CP(NULL) {};
 
     /*! this function returns the next output time that is in the future of
     *  ti_curr; if none is find it return NULL, indication the run shall terminate.
@@ -62,7 +60,7 @@ class TimeBinMgr {
     find_next_sync_point(inttime_t ti)
     {
         int64_t i;
-        for(i = 0; i < NSyncPoints; i ++) {
+        for(i = 0; i < (int64_t)SyncPoints.size(); i ++) {
             if(SyncPoints[i].ti > ti) {
                 return &SyncPoints[i];
             }
@@ -76,7 +74,7 @@ class TimeBinMgr {
     find_current_sync_point(inttime_t ti)
     {
         int64_t i;
-        for(i = 0; i < NSyncPoints; i ++) {
+        for(i = 0; i < (int64_t)SyncPoints.size(); i ++) {
             if(SyncPoints[i].ti == ti) {
                 return &SyncPoints[i];
             }
@@ -85,12 +83,12 @@ class TimeBinMgr {
     }
 
     /*Convert an integer to and from loga*/
-    MYCUDAFN double
+    double
     loga_from_ti(inttime_t ti)
     {
         inttime_t lastsnap = ti >> TIMEBINS;
-        if(lastsnap > NSyncPoints) {
-            lastsnap = NSyncPoints -1;
+        if(lastsnap > (inttime_t)SyncPoints.size()) {
+            lastsnap = (inttime_t)SyncPoints.size() - 1;
         }
         double last = SyncPoints[lastsnap].loga;
         inttime_t dti = ti & (TIMEBASE - 1);
@@ -98,12 +96,12 @@ class TimeBinMgr {
         return last + dti * logDTime;
     }
 
-    MYCUDAFN inttime_t
+    inttime_t
     ti_from_loga(double loga)
     {
         inttime_t i, ti;
         /* First syncpoint is simulation start*/
-        for(i = 1; i < NSyncPoints - 1; i++)
+        for(i = 1; i < (int64_t)SyncPoints.size() - 1; i++)
         {
             if(SyncPoints[i].loga > loga)
                 break;
@@ -118,7 +116,7 @@ class TimeBinMgr {
     }
 
     /*Convert changes in loga to and from ti*/
-    MYCUDAFN inttime_t
+    inttime_t
     dti_from_dloga(double loga, const inttime_t Ti_Current)
     {
         inttime_t ti = ti_from_loga(loga_from_ti(Ti_Current));
@@ -126,7 +124,7 @@ class TimeBinMgr {
         return tip - ti;
     }
 
-    MYCUDAFN double dloga_from_dti(inttime_t dti, const inttime_t Ti_Current)
+    double dloga_from_dti(inttime_t dti, const inttime_t Ti_Current)
     {
         double Dloga = Dloga_interval_ti(Ti_Current);
         int sign = 1;
@@ -140,14 +138,14 @@ class TimeBinMgr {
         return Dloga * dti * sign;
     }
     /*Get dloga from a timebin*/
-    MYCUDAFN double get_dloga_for_bin(int timebin, const inttime_t Ti_Current)
+    double get_dloga_for_bin(int timebin, const inttime_t Ti_Current)
     {
         double logDTime = Dloga_interval_ti(Ti_Current);
         return dti_from_timebin(timebin) * logDTime;
     }
 
     /* Get the current scale factor*/
-    MYCUDAFN double
+    double
     get_atime(const inttime_t Ti_Current) {
         return exp(loga_from_ti(Ti_Current));
     }
@@ -193,17 +191,19 @@ class TimeBinMgr {
     * Then the rest of the bits are the standard integer timeline,
     * which should be a power-of-two hierarchy. We use this bit trick to speed up
     * the dloga look up. But the additional math makes this quite fragile. */
+    std::vector<SyncPoint> SyncPoints;
+    Cosmology * CP;
 
     /*Gets Dloga / ti for the current integer timeline.
     * Valid up to the next snapshot, after which it will change*/
-    MYCUDAFN double Dloga_interval_ti(inttime_t ti)
+    double Dloga_interval_ti(inttime_t ti)
     {
         /* FIXME: This uses the bit tricks because it has to be fast
         * -- till we clean up the calls to loga_from_ti; then we can avoid bit tricks. */
 
         inttime_t lastsnap = ti >> TIMEBINS;
 
-        if(lastsnap >= NSyncPoints - 1) {
+        if(lastsnap >= (inttime_t)SyncPoints.size() - 1) {
             /* stop advancing loga after the last sync point. */
             return 0;
         }
