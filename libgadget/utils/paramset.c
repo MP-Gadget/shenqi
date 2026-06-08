@@ -63,7 +63,9 @@ param_set_from_string(ParameterSet * ps, const std::string name, std::string val
         case STRING:
             {
                 /* Trim whitespace from end of string*/
-                auto endvalue = value.find_first_of(" \t");
+                auto endvalue = value.find_last_not_of(" \t");
+                if(endvalue != std::string::npos)
+                    endvalue += 1;
                 pp.value = value.substr(0, endvalue);
             }
             break;
