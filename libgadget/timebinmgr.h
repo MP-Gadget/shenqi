@@ -117,16 +117,49 @@ class TimeBinMgr {
         return ti;
     }
 
-    /*Convert changes in loga to and from ti*/
-    MYCUDAFN inttime_t
-    dti_from_dloga(double loga, const inttime_t Ti_Current)
+    inttime_t
+    ti_from_loga_snap(double loga, inttime_t lastsnap)
     {
-        inttime_t ti = ti_from_loga(loga_from_ti(Ti_Current));
-        inttime_t tip = ti_from_loga(loga+loga_from_ti(Ti_Current));
+        /*If loop didn't trigger, i == All.NSyncPointTimes-1*/
+        double logDTime = (SyncPoints[lastsnap].loga - SyncPoints[lastsnap-1].loga)/TIMEBASE;
+        inttime_t ti = (lastsnap-1) << TIMEBINS;
+        /* Note this means if we overrun the end of the timeline,
+        * we still get something reasonable*/
+        ti += (loga - SyncPoints[lastsnap-1].loga)/logDTime;
+        return ti;
+    }
+
+    /*Convert changes in loga to and from ti*/
+    inttime_t
+    dti_from_dloga(double dloga, const inttime_t Ti_Current)
+    {
+        /* Find current segment*/
+        inttime_t lastsnap = Ti_Current >> TIMEBINS;
+        if(lastsnap >= NSyncPoints) {
+            lastsnap = NSyncPoints - 1;
+        }
+        double last = SyncPoints[lastsnap].loga;
+        inttime_t dti = Ti_Current & (TIMEBASE - 1);
+        double logDTime = Dloga_interval_ti(Ti_Current);
+        /* This is the same calculation as in loga_from_ti()*/
+        double loga = last + dti * logDTime;
+        /* ti_from_loga_snap() takes the upper syncpoint index of the segment
+         * (it uses index-1 as the segment base), whereas lastsnap is the lower
+         * index of the current segment. So the current segment is [lastsnap, lastsnap+1].
+         * We do this instead of using Ti_Current directly so that the floating
+         * point roundoff behaviour is the same.*/
+        inttime_t upper = lastsnap + 1;
+        if(upper >= NSyncPoints)
+            upper = NSyncPoints - 1;
+        inttime_t ti = ti_from_loga_snap(loga, upper);
+        /* If we cross into the next segment, advance to its upper index.*/
+        if(upper < NSyncPoints-1 && SyncPoints[upper].loga <= dloga + loga)
+            upper++;
+        inttime_t tip = ti_from_loga_snap(dloga+loga, upper);
         return tip - ti;
     }
 
-    MYCUDAFN double dloga_from_dti(inttime_t dti, const inttime_t Ti_Current)
+    double dloga_from_dti(inttime_t dti, const inttime_t Ti_Current)
     {
         double Dloga = Dloga_interval_ti(Ti_Current);
         int sign = 1;
