@@ -174,7 +174,7 @@ fof_fof(DomainDecomp * ddecomp, const int StoreGrNr, MPI_Comm Comm)
 
     /* We only need a tree containing primary linking particles only. No moments*/
     ForceTree dmtree = {0};
-    force_tree_rebuild_mask(&dmtree, ddecomp, fof_params.FOFPrimaryLinkTypes, NULL);
+    force_tree_rebuild_mask(&dmtree, ddecomp, fof_params.FOFPrimaryLinkTypes, "");
     walltime_measure("/FOF/Build");
 
     /* Fill FOFP_List of primary */

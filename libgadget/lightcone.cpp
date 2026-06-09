@@ -73,7 +73,7 @@ static void lightcone_init_entry(Cosmology * CP, int i, const double UnitLength_
 //    printf("a = %g z = %g Dc = %g\n", a, z, result);
 }
 
-void lightcone_init(Cosmology * CP, double timeBegin, const double UnitLength_in_cm, const char * OutputDir, int ThisTask)
+void lightcone_init(Cosmology * CP, double timeBegin, const double UnitLength_in_cm, const std::string& OutputDir, int ThisTask)
 {
     dloga = (0.0 - log(timeBegin)) / (NENTRY - 1);
     for(int i = 0; i < NENTRY; i ++) {

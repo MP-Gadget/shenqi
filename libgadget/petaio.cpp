@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <string.h>
+#include <string>
 #include <stdarg.h>
 #include <omp.h>
 #include <algorithm>
@@ -22,7 +22,6 @@
 #include "physconst.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
-#include "utils/string.h"
 /************
  *
  * The IO api , intented to replace io.c and read_ic.c
@@ -42,8 +41,8 @@ static struct petaio_params {
     int OutputPotential;        /*!< Flag whether to include the potential in snapshots*/
     int OutputHeliumFractions;  /*!< Flag whether to output the helium ionic fractions in snapshots*/
     int OutputTimebins;         /* Flag whether to save the timebins*/
-    char SnapshotFileBase[100]; /* Snapshots are written to OutputDir/SnapshotFileBase_$n*/
-    char InitCondFile[100]; /* Path to read ICs from is InitCondFile */
+    std::string SnapshotFileBase; /* Snapshots are written to OutputDir/SnapshotFileBase_$n*/
+    std::string InitCondFile; /* Path to read ICs from is InitCondFile */
 
     int ExcursionSetReionOn;
 
@@ -56,23 +55,18 @@ static struct header_data Header;
 void
 set_petaio_params(ParameterSet * ps)
 {
-    int ThisTask;
-    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-    if(ThisTask == 0) {
-        IO.MinBytesPerFile = param_get_int(ps, "BytesPerFile");
-        IO.UsePeculiarVelocity = 0; /* Will be set by the Initial Condition File */
-        IO.MaxIORanks = param_get_int(ps, "NumWriters");
-        if(IO.MaxIORanks <= 0)
-            MPI_Comm_size(MPI_COMM_WORLD, &IO.MaxIORanks);
+    IO.MinBytesPerFile = param_get_int(ps, "BytesPerFile");
+    IO.UsePeculiarVelocity = 0; /* Will be set by the Initial Condition File */
+    IO.MaxIORanks = param_get_int(ps, "NumWriters");
+    if(IO.MaxIORanks <= 0)
+        MPI_Comm_size(MPI_COMM_WORLD, &IO.MaxIORanks);
 
-        IO.OutputPotential = param_get_int(ps, "OutputPotential");
-        IO.OutputTimebins = param_get_int(ps, "OutputTimebins");
-        IO.OutputHeliumFractions = param_get_int(ps, "OutputHeliumFractions");
-        param_get_string2(ps, "SnapshotFileBase", IO.SnapshotFileBase, sizeof(IO.SnapshotFileBase));
-        param_get_string2(ps, "InitCondFile", IO.InitCondFile, sizeof(IO.InitCondFile));
-        IO.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
-    }
-    MPI_Bcast(&IO, sizeof(struct petaio_params), MPI_BYTE, 0, MPI_COMM_WORLD);
+    IO.OutputPotential = param_get_int(ps, "OutputPotential");
+    IO.OutputTimebins = param_get_int(ps, "OutputTimebins");
+    IO.OutputHeliumFractions = param_get_int(ps, "OutputHeliumFractions");
+    IO.SnapshotFileBase = param_get_string(ps, "SnapshotFileBase");
+    IO.InitCondFile = param_get_string(ps, "InitCondFile");
+    IO.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
 }
 
 int GetUsePeculiarVelocity(void)
@@ -205,8 +199,8 @@ std::string
 petaio_get_snapshot_fname(int num, const std::string OutputDir)
 {
     if(num == -1)
-        return std::string(IO.InitCondFile);
-    return  OutputDir + "/"+ std::string(IO.SnapshotFileBase) + "_" + zpad(num,3);
+        return IO.InitCondFile;
+    return  OutputDir + "/"+ IO.SnapshotFileBase + "_" + zpad(num,3);
 }
 
 struct header_data
@@ -245,7 +239,7 @@ struct header_data
 }
 
 void
-petaio_read_snapshot(int num, const char * OutputDir, Cosmology * CP, struct header_data * header, struct part_manager_type * PartManager, struct slots_manager_type * SlotsManager, MPI_Comm Comm)
+petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struct header_data * header, struct part_manager_type * PartManager, struct slots_manager_type * SlotsManager, MPI_Comm Comm)
 {
     auto fname = petaio_get_snapshot_fname(num, OutputDir);
     int i;

@@ -78,7 +78,6 @@ utils/mymalloc.o \
 utils/system.o \
 utils/paramset.o \
 utils/unitsystem.o \
-utils/string.o \
 utils/spinlocks.o
 
 GADGET_OBJS := $(GADGET_OBJS:%=.objs/%)

@@ -19,7 +19,7 @@
 static struct cooling_units coolunits;
 
 /*Do initialisation for the cooling module*/
-void init_cooling(const char * TreeCoolFile, const char * J21CoeffFile, const char * MetalCoolFile, char * reion_hist_file, struct cooling_units cu, Cosmology * CP)
+void init_cooling(const std::string& TreeCoolFile, const std::string& J21CoeffFile, const std::string& MetalCoolFile, std::string& reion_hist_file, struct cooling_units cu, Cosmology * CP)
 {
     coolunits = cu;
     /*Initialize the cooling rates*/

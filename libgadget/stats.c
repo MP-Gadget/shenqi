@@ -15,7 +15,7 @@
 #include "cooling_qso_lightup.h"
 #include "petaio.h"
 #include "utils/endrun.h"
-#include "utils/string.h"
+#include <filesystem>
 
 /* global state of system
 */
@@ -45,10 +45,7 @@ struct state_of_system
 
 static struct stats_params
 {
-    /* some filenames */
-    char EnergyFile[100];
-    char CpuFile[100];
-    /*Should we store the energy to EnergyFile on PM timesteps.*/
+    /*Should we store the energy to energy.txt on PM timesteps.*/
     int OutputEnergyDebug;
     int WriteBlackHoleDetails; /* write BH details every time step*/
     size_t MaxBlackHoleDetails; /* Max size of bh details file*/
@@ -60,8 +57,6 @@ set_stats_params(ParameterSet * ps)
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
     if(ThisTask == 0) {
-        param_get_string2(ps, "EnergyFile", StatsParams.EnergyFile, sizeof(StatsParams.EnergyFile));
-        param_get_string2(ps, "CpuFile", StatsParams.CpuFile, sizeof(StatsParams.CpuFile));
         StatsParams.OutputEnergyDebug = param_get_int(ps, "OutputEnergyDebug");
         StatsParams.WriteBlackHoleDetails = param_get_int(ps,"WriteBlackHoleDetails");
         StatsParams.MaxBlackHoleDetails = 1024L*1024L*1024L*param_get_int(ps, "MaxBlackHoleDetails");
@@ -98,7 +93,7 @@ open_outputfiles(int RestartSnapNum, struct OutputFD * fds, const std::string Ou
         std::ostringstream ss;
         ss << std::setw(6) << std::setfill('0') << std::hex << std::uppercase << ThisTask;
         std::string buf = OutputDir + "/BlackholeDetails" + postfix + "/" + ss.str();
-        fastpm_path_ensure_dirname(buf.c_str());
+        std::filesystem::create_directories(std::filesystem::path(buf).parent_path());
         if(!(fds->FdBlackholeDetails = fopen(buf.c_str(),"a")))
             endrun(1, "Failed to open blackhole detail %s\n", buf.c_str());
     }
@@ -110,26 +105,26 @@ open_outputfiles(int RestartSnapNum, struct OutputFD * fds, const std::string Ou
     std::string buf;
     if(BlackHoleOn) {
         buf = OutputDir + "/blackholes.txt" + postfix;
-        fastpm_path_ensure_dirname(buf.c_str());
+        std::filesystem::create_directories(std::filesystem::path(buf).parent_path());
         if(!(fds->FdBlackHoles = fopen(buf.c_str(), mode)))
             endrun(1, "error in opening file '%s'\n", buf.c_str());
     }
 
-    buf = OutputDir + "/" + StatsParams.CpuFile + postfix;
-    fastpm_path_ensure_dirname(buf.c_str());
+    buf = OutputDir + "/cpu.txt" + postfix;
+    std::filesystem::create_directories(std::filesystem::path(buf).parent_path());
     if(!(fds->FdCPU = fopen(buf.c_str(), mode)))
         endrun(1, "error in opening file '%s'\n", buf.c_str());
 
     if(StatsParams.OutputEnergyDebug) {
-        buf = OutputDir + "/" + StatsParams.EnergyFile + postfix;
-        fastpm_path_ensure_dirname(buf.c_str());
+        buf = OutputDir + "/energy.txt" + postfix;
+        std::filesystem::create_directories(std::filesystem::path(buf).parent_path());
         if(!(fds->FdEnergy = fopen(buf.c_str(), mode)))
             endrun(1, "error in opening file '%s'\n", buf.c_str());
     }
 
     if(StarformationOn) {
         buf = OutputDir + "/sfr.txt" + postfix;
-        fastpm_path_ensure_dirname(buf.c_str());
+        std::filesystem::create_directories(std::filesystem::path(buf).parent_path());
         if(!(fds->FdSfr = fopen(buf.c_str(), mode)))
             endrun(1, "error in opening file '%s'\n", buf.c_str());
         fprintf(fds->FdSfr, "# SFR.txt columns are:\n"
@@ -150,7 +145,7 @@ open_outputfiles(int RestartSnapNum, struct OutputFD * fds, const std::string Ou
 
     if(qso_lightup_on()) {
         buf = OutputDir + "/helium.txt" + postfix;
-        fastpm_path_ensure_dirname(buf.c_str());
+        std::filesystem::create_directories(std::filesystem::path(buf).parent_path());
         if(!(fds->FdHelium = fopen(buf.c_str(), mode)))
             endrun(1, "error in opening file '%s'\n", buf.c_str());
     }
@@ -173,7 +168,7 @@ rotate_bhdetails_file(struct OutputFD * fds, const std::string OutputDir, const 
     std::ostringstream ss;
     ss << std::setw(6) << std::setfill('0') << std::hex << std::uppercase << ThisTask;
     std::string buf = OutputDir + "/BlackholeDetails" + postfix + "." + std::to_string(fds->BHDetailNumber) + "/" + ss.str();
-    fastpm_path_ensure_dirname(buf.c_str());
+    std::filesystem::create_directories(std::filesystem::path(buf).parent_path());
     if(!(fds->FdBlackholeDetails = fopen(buf.c_str(),"a")))
         endrun(1, "Failed to open blackhole detail %s\n", buf.c_str());
     fds->TotalBHDetailsBytesWritten = 0;

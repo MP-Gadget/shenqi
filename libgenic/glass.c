@@ -42,7 +42,7 @@ static void glass_force(PetaPM * pm, double t_f, struct ic_part_data * ICP, cons
 static void glass_stats(struct ic_part_data * ICP, int NumPart);
 
 int
-setup_glass(IDGenerator * idgen, PetaPM * pm, double shift, int seed, double mass, struct ic_part_data * ICP, const double UnitLength_in_cm, const char * OutputDir)
+setup_glass(IDGenerator * idgen, PetaPM * pm, double shift, int seed, double mass, struct ic_part_data * ICP, const double UnitLength_in_cm, const std::string OutputDir)
 {
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
@@ -73,7 +73,7 @@ setup_glass(IDGenerator * idgen, PetaPM * pm, double shift, int seed, double mas
     return idgen->NumPart;
 }
 
-void glass_evolve(PetaPM * pm, int nsteps, const char * pkoutname, struct ic_part_data * ICP, const int NumPart, const double UnitLength_in_cm, const char * OutputDir)
+void glass_evolve(PetaPM * pm, int nsteps, const char * pkoutname, struct ic_part_data * ICP, const int NumPart, const double UnitLength_in_cm, const std::string OutputDir)
 {
     int i;
     int step = 0;

@@ -146,7 +146,7 @@ static void do_density_test(struct density_testdata * data, const int numpart, d
 
     ForceTree tree = {0};
     /* Finds fathers for each gas and BH particle, so need BH*/
-    force_tree_rebuild_mask(&tree, &ddecomp, GASMASK+BHMASK, NULL);
+    force_tree_rebuild_mask(&tree, &ddecomp, GASMASK+BHMASK, "");
     set_init_hsml(&tree, &ddecomp, PartManager->BoxSize, PartManager);
     /*Time doing the density finding*/
     double start, end;
@@ -166,7 +166,7 @@ static void do_density_test(struct density_testdata * data, const int numpart, d
     init_cosmology(&CP,0.01, units);
 
     /* Rebuild without moments to check it works*/
-    force_tree_rebuild_mask(&tree, &ddecomp, GASMASK, NULL);
+    force_tree_rebuild_mask(&tree, &ddecomp, GASMASK, "");
     density(&act, 1, 0, 0, kick, &data->timebinmgr, &CP, &(data->sph_pred.EntVarPred), NULL, &tree);
     end = MPI_Wtime();
     double ms = (end - start)*1000;

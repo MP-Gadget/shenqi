@@ -25,33 +25,15 @@ static struct sync_params
 } Sync;
 
 //set the other sync params we can't get using the action
-void set_sync_params(ParameterSet * ps){
-    int ThisTask;
-    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-    if(ThisTask==0)
-    {
-        Sync.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
-        Sync.ExcursionSetZStart = param_get_double(ps,"ExcursionSetZStart");
-        Sync.ExcursionSetZStop = param_get_double(ps,"ExcursionSetZStop");
-        Sync.UVBGTimestep = param_get_double(ps,"UVBGTimestep");
+void set_sync_params(ParameterSet * ps)
+{
+    Sync.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
+    Sync.ExcursionSetZStart = param_get_double(ps,"ExcursionSetZStart");
+    Sync.ExcursionSetZStop = param_get_double(ps,"ExcursionSetZStop");
+    Sync.UVBGTimestep = param_get_double(ps,"UVBGTimestep");
 
-        Sync.OutputListTimes = BuildOutputList<double>(param_get_string(ps, "OutputList"));
-        Sync.PlaneOutputListTimes = BuildOutputList<double>(param_get_string(ps, "PlaneOutputList"));
-    }
-
-    // 1. Broadcast the POD members together
-    MPI_Bcast(&Sync, offsetof(sync_params, OutputListTimes), MPI_BYTE, 0, MPI_COMM_WORLD);
-
-    // 2. Broadcast the vectors
-    size_t len = Sync.OutputListTimes.size();
-    MPI_Bcast(&len, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
-    Sync.OutputListTimes.resize(len);
-    MPI_Bcast(Sync.OutputListTimes.data(), len, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    len = Sync.PlaneOutputListTimes.size();
-    MPI_Bcast(&len, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
-    Sync.PlaneOutputListTimes.resize(len);
-    MPI_Bcast(Sync.PlaneOutputListTimes.data(), len, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    return;
+    Sync.OutputListTimes = BuildOutputList<double>(param_get_string(ps, "OutputList"));
+    Sync.PlaneOutputListTimes = BuildOutputList<double>(param_get_string(ps, "PlaneOutputList"));
 }
 
 #define SEC_PER_MEGAYEAR 3.155e13

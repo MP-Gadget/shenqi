@@ -124,17 +124,17 @@ void update_tree_hmax_father(const ForceTree * const tree, const int p_i, const 
 
 /* Build a tree structure using all particles, compute moments and allocate a father array.
  * This is the fattest tree constructor, allows moments and walking up and down.*/
-void force_tree_full(ForceTree * tree, DomainDecomp * ddecomp, const int HybridNuTracer, const char * EmergencyOutputDir);
+void force_tree_full(ForceTree * tree, DomainDecomp * ddecomp, const int HybridNuTracer, const std::string EmergencyOutputDir);
 
 /* Build a tree structure using only the active particles and compute moments.
  * This variant is for the gravity code*/
-void force_tree_active_moments(ForceTree * tree, DomainDecomp * ddecomp, const ActiveParticles *act, const int HybridNuTracer, const int alloc_father, const char * EmergencyOutputDir);
+void force_tree_active_moments(ForceTree * tree, DomainDecomp * ddecomp, const ActiveParticles *act, const int HybridNuTracer, const int alloc_father, const std::string EmergencyOutputDir);
 
 /* Main constructor with a mask argument.
  * Mask is a bitfield, specified as 1 for each type that should be included. Use ALLMASK for all particle types.
  * This is much faster than _full: because the particles are sorted by type the merge step is much faster than
  * with all particle types, and of course the tree is smaller.*/
-void force_tree_rebuild_mask(ForceTree * tree, DomainDecomp * ddecomp, int mask, const char * EmergencyOutputDir);
+void force_tree_rebuild_mask(ForceTree * tree, DomainDecomp * ddecomp, int mask, const std::string EmergencyOutputDir);
 
 /* Just construct a toptree for domain exchange. If alloc_high is true, allocate the toptree at the upper memory range. */
 ForceTree force_tree_top_build(DomainDecomp * ddecomp, const int alloc_high);

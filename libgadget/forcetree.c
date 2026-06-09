@@ -44,7 +44,7 @@ init_forcetree_params(const double treeallocfactor)
 }
 
 static ForceTree
-force_tree_build(int mask, DomainDecomp * ddecomp, const ActiveParticles * act, const int DoMoments, const int alloc_father, const char * EmergencyOutputDir);
+force_tree_build(int mask, DomainDecomp * ddecomp, const ActiveParticles * act, const int DoMoments, const int alloc_father, const std::string EmergencyOutputDir);
 
 static void
 force_treeupdate_pseudos(const int no, const int level, const ForceTree * const tree);
@@ -108,7 +108,7 @@ force_tree_allocated(const ForceTree * tree)
 /* Build a tree structure using all particles, compute moments and allocate a father array.
  * This is the fattest tree constructor, allows moments and walking up and down.*/
 void
-force_tree_full(ForceTree * tree, DomainDecomp * ddecomp, const int HybridNuTracer, const char * EmergencyOutputDir)
+force_tree_full(ForceTree * tree, DomainDecomp * ddecomp, const int HybridNuTracer, const std::string EmergencyOutputDir)
 {
     if(force_tree_allocated(tree)) {
         force_tree_free(tree);
@@ -128,7 +128,7 @@ force_tree_full(ForceTree * tree, DomainDecomp * ddecomp, const int HybridNuTrac
 }
 
 void
-force_tree_active_moments(ForceTree * tree, DomainDecomp * ddecomp, const ActiveParticles *act, const int HybridNuTracer, const int alloc_father, const char * EmergencyOutputDir)
+force_tree_active_moments(ForceTree * tree, DomainDecomp * ddecomp, const ActiveParticles *act, const int HybridNuTracer, const int alloc_father, const std::string EmergencyOutputDir)
 {
     //message(0, "Tree construction.  (presently allocated=%g MB)\n", mymalloc_usedbytes() / (1024.0 * 1024.0));
 
@@ -149,7 +149,7 @@ force_tree_active_moments(ForceTree * tree, DomainDecomp * ddecomp, const Active
 }
 
 void
-force_tree_rebuild_mask(ForceTree * tree, DomainDecomp * ddecomp, int mask, const char * EmergencyOutputDir)
+force_tree_rebuild_mask(ForceTree * tree, DomainDecomp * ddecomp, int mask, const std::string EmergencyOutputDir)
 {
     message(0, "Tree construction for types: %d.\n", mask);
 
@@ -194,7 +194,7 @@ force_tree_calc_moments(ForceTree * tree, DomainDecomp * ddecomp)
  *  different CPUs. If such a node needs to be opened, the corresponding
  *  particle must be exported to that CPU. */
 ForceTree
-force_tree_build(int mask, DomainDecomp * ddecomp, const ActiveParticles *act, const int DoMoments, const int alloc_father, const char * EmergencyOutputDir)
+force_tree_build(int mask, DomainDecomp * ddecomp, const ActiveParticles *act, const int DoMoments, const int alloc_father, const std::string EmergencyOutputDir)
 {
     ForceTree tree;
     int64_t maxnodes = ForceTreeParams.TreeAllocFactor * PartManager->NumPart + ddecomp->NTopNodes;
@@ -233,7 +233,7 @@ force_tree_build(int mask, DomainDecomp * ddecomp, const ActiveParticles *act, c
 #ifdef DEBUG
     if(MPIU_Any(ForceTreeParams.TreeAllocFactor > 3.0, MPI_COMM_WORLD)) {
         /* Assume scale factor = 1 for dump as position is not affected.*/
-        if(EmergencyOutputDir) {
+        if(EmergencyOutputDir.size() > 0) {
             Cosmology CP = {0};
             CP.Omega0 = 0.3;
             CP.OmegaLambda = 0.7;

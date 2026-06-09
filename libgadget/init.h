@@ -7,7 +7,7 @@
 #include "timebinmgr.h"
 
 /* Loads and validates a particle table and initialise properties of the particle distribution.*/
-inttime_t init(int RestartSnapNum, const char * OutputDir, struct header_data * header, Cosmology * CP, inttime_t Ti_Current);
+inttime_t init(int RestartSnapNum, const std::string& OutputDir, struct header_data * header, Cosmology * CP, inttime_t Ti_Current);
 
 /* Finds smoothing lengths and the energy weighted density*/
 void setup_smoothinglengths(int RestartSnapNum, DomainDecomp * ddecomp, Cosmology * CP, int BlackHoleOn, double MinEgySpec, double uu_in_cgs, const inttime_t Ti_Current, TimeBinMgr * timebinmgr, const double atime, const int64_t NTotGasInit);

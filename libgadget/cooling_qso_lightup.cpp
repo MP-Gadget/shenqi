@@ -28,8 +28,10 @@
 
 #include <math.h>
 #include <mpi.h>
-#include <string.h>
 #include <omp.h>
+#include <fstream>
+#include <sstream>
+#include <string>
 #include <boost/math/interpolators/makima.hpp>
 #include "physconst.h"
 #include "slotsmanager.h"
@@ -132,116 +134,81 @@ Q_inst(double Emax, double alpha_q)
  * and see the documentation to that file (tools/README_HeII_input_file_maker.py)
  * An example may be found in examples/HeIIReionizationTable
  * */
-static void
-load_heii_reion_hist(const char * reion_hist_file)
+void
+init_qso_lightup(const std::string& reion_hist_file)
 {
+    if(!QSOLightupParams.QSOLightupOn)
+        return;
+
     int ThisTask;
-    FILE * fd = NULL;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-    int Nreionhist;
+    size_t Nreionhist = 0;
 
-    message(0, "HeII: Loading HeII reionization history from file: %s\n",reion_hist_file);
+    message(0, "HeII: Loading HeII reionization history from file: %s\n", reion_hist_file.c_str());
+
+    std::vector<double> He_zz, XHeIII_v, LMFP_v;
+
     if(ThisTask == 0) {
-        fd = fopen(reion_hist_file, "r");
-        if(!fd)
-            endrun(456, "HeII: Could not open reionization history file at: '%s'\n", reion_hist_file);
+        std::ifstream fd(reion_hist_file);
+        if(!fd.is_open())
+            endrun(456, "HeII: Could not open reionization history file at: '%s'\n", reion_hist_file.c_str());
 
-        /*Find size of file*/
-        Nreionhist = 0;
-        while(1)
-        {
-            char buffer[1024];
-            char * retval = fgets(buffer, 1024, fd);
-            /*Happens on end of file*/
-            if(!retval)
-                break;
-            retval = strtok(buffer, " \t\n");
-            /*Discard comments*/
-            if(!retval || retval[0] == '#')
-                continue;
-            Nreionhist++;
-        }
-        rewind(fd);
-        /* Discard first two lines*/
-        Nreionhist -=2;
-    }
-
-    MPI_Bcast(&Nreionhist, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-    if(Nreionhist<= 2)
-        endrun(1, "HeII: Reionization history contains: %d entries, not enough.\n", Nreionhist);
-
-    /*Allocate memory for the reionization history table.*/
-    double * He_zz = (double *) mymalloc("ReionizationTable", 3 * Nreionhist * sizeof(double));
-    double * XHeIII = He_zz + Nreionhist;
-    double * LMFP = He_zz + 2 * Nreionhist;
-
-    if(ThisTask == 0)
-    {
         double qso_spectral_index = 0, photon_threshold_energy = 0;
         int prei = 0;
-        int i = 0;
-        while(i < Nreionhist)
-        {
-            char buffer[1024];
-            char * line = fgets(buffer, 1024, fd);
-            /*Happens on end of file*/
-            if(!line)
-                break;
-            char * retval = strtok(line, " \t\n");
-            if(!retval || retval[0] == '#')
+        std::string line;
+        while(std::getline(fd, line)) {
+            std::istringstream ss(line);
+            std::string first;
+            /* Skip blank lines and comments */
+            if(!(ss >> first) || first[0] == '#')
                 continue;
-            if(prei == 0)
-            {
-                qso_spectral_index = atof(retval);
+            if(prei == 0) {
+                qso_spectral_index = std::stod(first);
                 prei++;
-                continue;
-            }
-            else if(prei == 1)
-            {
-                photon_threshold_energy = atof(retval);
+            } else if(prei == 1) {
+                photon_threshold_energy = std::stod(first);
                 prei++;
-                continue;
+            } else {
+                /* First column: redshift. Convert to scale factor so it is increasing.*/
+                double xhe, lmfp;
+                if(!(ss >> xhe >> lmfp))
+                    endrun(12, "HeII: Line '%s' of reionization table was incomplete!\n", line.c_str());
+                He_zz.push_back(1.0 / (1.0 + std::stod(first)));
+                XHeIII_v.push_back(xhe);
+                LMFP_v.push_back(lmfp);
             }
-            /* First column: redshift. Convert to scale factor so it is increasing.*/
-            He_zz[i] = 1./(1+atof(retval));
-            /* Second column: HeIII fraction.*/
-            retval = strtok(NULL, " \t");
-            if(!retval)
-                endrun(12, "HeII: Line %s of reionization table was incomplete!\n", line);
-            XHeIII[i] = atof(retval);
-            /* Third column: long mean free path photons.*/
-            retval = strtok(NULL, " \t");
-            if(!retval)
-                endrun(12, "HeII: Line %s of reionization table was incomplete!\n", line);
-            LMFP[i] = atof(retval);
-            i++;
         }
-        fclose(fd);
+        Nreionhist = He_zz.size();
         qso_inst_heating = Q_inst(photon_threshold_energy, qso_spectral_index);
     }
-    /*Broadcast data to other processors*/
-    MPI_Bcast(He_zz, 3 * Nreionhist, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    MPI_Bcast(&Nreionhist, 1, MPI_INT64, 0, MPI_COMM_WORLD);
+
+    if(Nreionhist <= 2)
+        endrun(1, "HeII: Reionization history contains: %ld entries, not enough.\n", Nreionhist);
+
+    /* Resize on non-root tasks then broadcast all three columns */
+    He_zz.resize(Nreionhist);
+    XHeIII_v.resize(Nreionhist);
+    LMFP_v.resize(Nreionhist);
+    MPI_Bcast(He_zz.data(), Nreionhist, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(XHeIII_v.data(), Nreionhist, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(LMFP_v.data(), Nreionhist, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(&qso_inst_heating, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-    He_zz_final = He_zz[Nreionhist - 1];
-    std::vector<double> He_zz_i(Nreionhist);
-    std::vector<double> He_zz_i2(Nreionhist);
-    std::vector<double> XHeIII_v(Nreionhist);
-    std::vector<double> LMFP_v(Nreionhist);
-    for(int i = 0; i < Nreionhist; i++) {
-        He_zz_i[i] = He_zz[i];
-        He_zz_i2[i] = He_zz[i];
-        XHeIII_v[i] = XHeIII[i];
-        LMFP_v[i] = LMFP[i];
-    }
+    /* Save first/last scale factors before the vectors are moved into the interpolators */
+    const double He_zz_first = He_zz.front();
+    He_zz_final = He_zz.back();
+    /* makima takes ownership of its inputs; give it two copies of the x-axis */
+    std::vector<double> He_zz2(He_zz);
     // Initialize interpolation for the HeIII fraction and the long mean free path heating.
-    HeIII_intp = new boost::math::interpolators::makima<std::vector<double>>(std::move(He_zz_i), std::move(XHeIII_v));
-    LMFP_intp = new boost::math::interpolators::makima<std::vector<double>>(std::move(He_zz_i2), std::move(LMFP_v));
+    HeIII_intp = new boost::math::interpolators::makima<std::vector<double>>(std::move(He_zz), std::move(XHeIII_v));
+    LMFP_intp = new boost::math::interpolators::makima<std::vector<double>>(std::move(He_zz2), std::move(LMFP_v));
 
-    QSOLightupParams.heIIIreion_start = 1/He_zz[0]-1;
+    QSOLightupParams.heIIIreion_start = 1.0 / He_zz_first - 1.0;
 
-    message(0, "HeII: Read %d lines z_reion = %g - %g from file %s\n", Nreionhist, 1/He_zz[0] -1, 1/He_zz[Nreionhist-1]-1, reion_hist_file);
+    message(0, "HeII: Read %ld lines z_reion = %g - %g from file %s\n",
+            Nreionhist, 1.0 / He_zz_first - 1, 1.0 / He_zz_final - 1, reion_hist_file.c_str());
 
     /* we can't have helium reionisation start while the excursion set
      * is going, so we will stop the excursion set beforehand */
@@ -250,14 +217,6 @@ load_heii_reion_hist(const char * reion_hist_file)
                 QSOLightupParams.ExcursionSetZStop,QSOLightupParams.heIIIreion_start);
         QSOLightupParams.ExcursionSetZStop = QSOLightupParams.heIIIreion_start;
     }
-    myfree(He_zz);
-}
-
-void
-init_qso_lightup(char * reion_hist_file)
-{
-    if(QSOLightupParams.QSOLightupOn)
-        load_heii_reion_hist(reion_hist_file);
 }
 
 static double last_zz;

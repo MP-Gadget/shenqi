@@ -292,7 +292,7 @@ blackhole_minpot(int * ActiveBlackHoles, const int64_t NumActiveBlackHoles, Doma
     /* Repositioning uses all particles: in practice it will usually be stars, gas or BH.*/
     ForceTree tree[1] = {0};
     message(0, "Building tree with all particles for repositioning\n");
-    force_tree_rebuild_mask(tree, ddecomp, blackhole_dynfric_treemask(), NULL);
+    force_tree_rebuild_mask(tree, ddecomp, blackhole_dynfric_treemask(), "");
     walltime_measure("/BH/BuildRepos");
 
 
@@ -369,7 +369,7 @@ blackhole_dynfric(int * ActiveBlackHoles, int64_t NumActiveBlackHoles, DomainDec
     ForceTree tree[1] = {0};
     int treemask = blackhole_dynfric_treemask();
     message(0, "Building dynamic friction tree with types %d\n", treemask);
-    force_tree_rebuild_mask(tree, ddecomp, treemask, NULL);
+    force_tree_rebuild_mask(tree, ddecomp, treemask, "");
     walltime_measure("/BH/BuildDF");
 
     TreeWalk tw_dynfric[1] = {{0}};

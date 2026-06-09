@@ -54,7 +54,7 @@ set_init_params(ParameterSet * ps)
         InitParams.PartAllocFactor = param_get_double(ps, "PartAllocFactor");
 
         InitParams.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
-        InitParams.ExcursionSetZStart = param_get_int(ps,"ExcursionSetZStart");
+        InitParams.ExcursionSetZStart = param_get_double(ps,"ExcursionSetZStart");
     }
     MPI_Bcast(&InitParams, sizeof(InitParams), MPI_BYTE, 0, MPI_COMM_WORLD);
 }
@@ -92,7 +92,7 @@ static void init_alloc_particle_slot_memory(struct part_manager_type * PartManag
 /*! This function reads the initial conditions, allocates storage for the
  *  particle data, validates and initialises the particle data.
  */
-inttime_t init(int RestartSnapNum, const char * OutputDir, struct header_data * header, Cosmology * CP, const inttime_t Ti_Current)
+inttime_t init(int RestartSnapNum, const std::string& OutputDir, struct header_data * header, Cosmology * CP, const inttime_t Ti_Current)
 {
     init_alloc_particle_slot_memory(PartManager, SlotsManager, InitParams.PartAllocFactor, header, MPI_COMM_WORLD);
 
@@ -478,7 +478,7 @@ setup_smoothinglengths(int RestartSnapNum, DomainDecomp * ddecomp, Cosmology * C
 
     ForceTree Tree = {0};
     /* Finds fathers for each gas and BH particle, so need BH*/
-    force_tree_rebuild_mask(&Tree, ddecomp, GASMASK+BHMASK, NULL);
+    force_tree_rebuild_mask(&Tree, ddecomp, GASMASK+BHMASK, "");
     /* Set the initial smoothing length for gas and DM, compute tree moments.*/
     set_init_hsml(&Tree, ddecomp, MeanGasSeparation, PartManager);
 

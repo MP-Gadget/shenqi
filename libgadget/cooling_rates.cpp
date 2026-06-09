@@ -120,7 +120,7 @@ class TreeCoolData
             The Gamma's are in units of s^-1, and the Qdot's are in units of erg s^-1.
         */
         TreeCoolData() {};
-        TreeCoolData(const char * TreeCoolFile)
+        TreeCoolData(const std::string& TreeCoolFile)
         {
             if(!CoolingParams.PhotoIonizationOn)
                 return;
@@ -130,7 +130,7 @@ class TreeCoolData
             {
                 std::ifstream tcool(TreeCoolFile, std::ifstream::in);
                 if(!tcool.good())
-                    endrun(456, "Could not open photon background (TREECOOL) file at: '%s'\n", TreeCoolFile);
+                    endrun(456, "Could not open photon background (TREECOOL) file at: '%s'\n", TreeCoolFile.c_str());
                 while(tcool.good()) {
                     double zz, gHI, gHeI, gHeII, eHI, eHeI, eHeII;
                     tcool >> zz;
@@ -150,7 +150,7 @@ class TreeCoolData
                 }
                 if(!valid())
                     endrun(1, "Photon background contains: %ld entries, not enough.\n", Gamma_log1z.size());
-                message(0, "Read %ld lines z = %g - %g from file %s\n", Gamma_log1z.size(), pow(10, Gamma_log1z.front())-1, pow(10, Gamma_log1z.back())-1, TreeCoolFile);
+                message(0, "Read %ld lines z = %g - %g from file %s\n", Gamma_log1z.size(), pow(10, Gamma_log1z.front())-1, pow(10, Gamma_log1z.back())-1, TreeCoolFile.c_str());
             }
             size_t size = Gamma_log1z.size();
             MPI_Bcast(&size, 1, MPI_INT64, 0, MPI_COMM_WORLD);
@@ -958,7 +958,7 @@ set_cooling_params(ParameterSet * ps)
 /*Initialize the cooling rate module. This builds a lot of interpolation tables.
  * Defaults: TCMB 2.7255, recomb = Verner96, cooling = Sherwood.*/
 void
-init_cooling_rates(const char * TreeCoolFile, const char * J21CoeffFile, const char * MetalCoolFile, Cosmology * CP)
+init_cooling_rates(const std::string& TreeCoolFile, const std::string& J21CoeffFile, const std::string& MetalCoolFile, Cosmology * CP)
 {
     CoolingParams.fBar = CP->OmegaBaryon / CP->OmegaCDM;
     CoolingParams.rho_crit_baryon = CP->OmegaBaryon * 3.0 * pow(CP->HubbleParam*HUBBLE,2.0) /(8.0*M_PI*GRAVITY);
@@ -969,18 +969,18 @@ init_cooling_rates(const char * TreeCoolFile, const char * J21CoeffFile, const c
     /* Initialize the interpolation for the self-shielding module as a function of redshift.*/
     GrayOpac = LinearInterpolator(GrayOpac_zz, GrayOpac_ydata);
 
-    if(!TreeCoolFile || strnlen(TreeCoolFile,100) == 0) {
+    if(TreeCoolFile.size() == 0) {
         CoolingParams.PhotoIonizationOn = 0;
         message(0, "No TreeCool file is provided. Cooling is broken. OK for DM only runs. \n");
     }
     else {
-        message(0, "Using uniform UVB from file %s\n", TreeCoolFile);
+        message(0, "Using uniform UVB from file %s\n", TreeCoolFile.c_str());
         /* Load the TREECOOL into Gamma_HI->ydata, and initialise the interpolators*/
         tree_cool_data = TreeCoolData(TreeCoolFile);
     }
 
-    if(J21CoeffFile && strnlen(J21CoeffFile,100) > 0) {
-        message(0, "Using J21 coeffs UVB from file %s\n", J21CoeffFile);
+    if(J21CoeffFile.size() > 0) {
+        message(0, "Using J21 coeffs UVB from file %s\n", J21CoeffFile.c_str());
         /* Load the TREECOOL into Gamma_HI->ydata, and initialise the interpolators*/
         J21_data = TreeCoolData(J21CoeffFile);
     }

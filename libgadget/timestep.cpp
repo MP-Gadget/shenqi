@@ -289,7 +289,7 @@ apply_hierarchical_grav_kick(const ActiveParticles * subact, Cosmology * CP, Dri
 
 /* Build a tree and use it to compute the gravitational accelerations*/
 void
-grav_short_tree_build_tree(const ActiveParticles * subact, PetaPM * pm, DomainDecomp * ddecomp, MyFloat (* AccelStore)[3], inttime_t Ti_Current, const double rho0, int HybridNuGrav, const char * EmergencyOutputDir, bool UseGPU)
+grav_short_tree_build_tree(const ActiveParticles * subact, PetaPM * pm, DomainDecomp * ddecomp, MyFloat (* AccelStore)[3], inttime_t Ti_Current, const double rho0, int HybridNuGrav, const std::string EmergencyOutputDir, bool UseGPU)
 {
     /* Tree with only particle timesteps below this value*/
     ForceTree Tree = {0};
@@ -304,7 +304,7 @@ grav_short_tree_build_tree(const ActiveParticles * subact, PetaPM * pm, DomainDe
  * and does the gravitational half-step kicks. Uses the accelerations in StoredGravAccel
  * for the longest timestep if available, otherwise uses FullTreeGravAccel, */
 int
-hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, TimeBinMgr * timebinmgr, const double atime, int HybridNuGrav, int FastParticleType, Cosmology * CP, const char * EmergencyOutputDir, bool UseGPU)
+hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, TimeBinMgr * timebinmgr, const double atime, int HybridNuGrav, int FastParticleType, Cosmology * CP, const std::string EmergencyOutputDir, bool UseGPU)
 {
     /*Update the PM timestep size */
     const int isPM = is_PM_timestep(times);
@@ -480,7 +480,7 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
 /* Computes short-range gravitational forces at the second half of the step and
  * does the gravitational half-step kicks. Stores the longest timestep in StoredGravAccel.
  * If this is NULL, uses FullTreeGravAccel.*/
-int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, TimeBinMgr * timebinmgr, int HybridNuGrav, Cosmology * CP, const char * EmergencyOutputDir, bool UseGPU)
+int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm, DomainDecomp * ddecomp, struct grav_accel_store StoredGravAccel, DriftKickTimes * times, TimeBinMgr * timebinmgr, int HybridNuGrav, Cosmology * CP, const std::string EmergencyOutputDir, bool UseGPU)
 {
     const double rho0 = CP->Omega0 * 3 * CP->Hubble * CP->Hubble / (8 * M_PI * CP->GravInternal);
     /* Find the longest active timebin.*/

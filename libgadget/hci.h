@@ -10,7 +10,7 @@ typedef struct HCIManager {
     double timer_query_begin;
     double timer_begin;
     double _now;
-    char * prefix;
+    std::string prefix;
     int FOFEnabled;
     /* for debugging: */
     int OVERRIDE_NOW;
@@ -35,7 +35,7 @@ typedef struct HCIAction
 } HCIAction;
 
 void
-hci_init(HCIManager * manager, char * prefix, double TimeLimitCPU, double AutoCheckPointTime, int FOFEnabled);
+hci_init(HCIManager * manager, std::string& prefix, double TimeLimitCPU, double AutoCheckPointTime, int FOFEnabled);
 
 void
 hci_action_init(HCIAction * action);
