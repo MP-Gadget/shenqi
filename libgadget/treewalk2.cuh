@@ -194,7 +194,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         /* Explicitly deal with the case where the queue is zero and there is nothing to do.
          * Some OpenMP compilers (nvcc) seem to still execute the below loop in that case*/
         if(size == 0) {
-            *WorkSet = (int *) mymanagedmalloc("ActiveQueue", sizeof(int));
+            *WorkSet = mymanagedmalloc("ActiveQueue", int, 1);
             return size;
         }
 
@@ -267,7 +267,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         /* Handle the no work case explicitly */
         if(curSize == 0) {
             exportlist->Nexport = 0;
-            exportlist->ExportTable = (data_index *) mymalloc("DataIndexTable", sizeof(data_index));
+            exportlist->ExportTable = mymalloc("DataIndexTable", data_index, 1);
             return WorkSetStart;
         }
         exportcounts = exportcounts + WorkSetStart;
@@ -290,7 +290,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         /* Note that the exportcount is built on the first iteration
          * and so the indices are off for the second one. */
         exportlist->Nexport -= exportoffset;
-        exportlist->ExportTable = (data_index *) mymanagedmalloc("DataIndexTable", exportlist->Nexport * sizeof(data_index));
+        exportlist->ExportTable = mymanagedmalloc("DataIndexTable", data_index, exportlist->Nexport);
 
         if(BufferFull)
             message(1, "Tree export buffer full with %lu exports (%lu Mbytes). BunchSize %d. First particle %ld new start: %ld size %ld.\n",

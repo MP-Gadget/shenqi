@@ -260,7 +260,7 @@ void petaio_save_neutrinos(BigFile * bf, int ThisTask)
     double * scalefact = delta_tot_table.scalefact;
     size_t nk = delta_tot_table.nk, ia = delta_tot_table.ia;
     size_t ik, i;
-    double * delta_tot = (double *) mymalloc("tmp_delta",nk * ia * sizeof(double));
+    double * delta_tot = mymalloc("tmp_delta", double, nk * ia);
     /*Save a flat memory block*/
     for(ik=0;ik< nk;ik++)
         for(i=0;i< ia;i++)
@@ -317,7 +317,7 @@ void petaio_read_icnutransfer(BigFile * bf, int ThisTask)
             endrun(0, "Failed to close block %s\n",big_file_get_error_message());
     }
     message(0,"Found transfer function, using %d rows.\n", t_init->NPowerTable);
-    t_init->logk = (double *) mymalloc2("Transfer_functions", sizeof(double) * 2*t_init->NPowerTable);
+    t_init->logk = mymalloc2("Transfer_functions", double, 2*t_init->NPowerTable);
     t_init->T_nu=t_init->logk+t_init->NPowerTable;
 
     /*Defaults: a very small value*/
@@ -345,7 +345,7 @@ void petaio_read_icnutransfer(BigFile * bf, int ThisTask)
     petaio_read_block(bf, "ICTransfers/DELTA_NU", &Tnu, 0);
     petaio_read_block(bf, "ICTransfers/logk", &logk, 0);
     /*Also want d_{cdm+bar} / d_tot so we can get d_nu/(d_cdm+d_b)*/
-    double * T_cb = (double *) mymalloc("tmp1", t_init->NPowerTable* sizeof(double));
+    double * T_cb = mymalloc("tmp1", double, t_init->NPowerTable);
     T_cb[0] = 1;
     T_cb[t_init->NPowerTable-1] = 1;
     BigArray Tcb = {0};
@@ -374,7 +374,7 @@ void petaio_read_neutrinos(BigFile * bf, int ThisTask)
         endrun(0, "Failed to read attr: %s\n",
                     big_file_get_error_message());
     }
-    double *delta_tot = (double *) mymalloc("tmp_nusave",ia*nk*sizeof(double));
+    double *delta_tot = mymalloc("tmp_nusave", double, ia*nk);
     /*Allocate list of scale factors, and space for delta_tot, in one operation.*/
     if(0 != big_block_get_attr(&bn, "scalefact", delta_tot_table.scalefact, "f8", ia))
         endrun(0, "Failed to read attr: %s\n", big_file_get_error_message());
@@ -445,11 +445,11 @@ void init_neutrinos_lra(const int nk_in, const double TimeTransfer, const double
    /*Allocate pointers to each k-vector*/
    d_tot->namax=ceil((TimeMax-TimeTransfer)/0.008)+4;
    d_tot->ia=0;
-   d_tot->delta_tot =(double **) mymalloc("kspace_delta_tot",nk_in*sizeof(double *));
+   d_tot->delta_tot = mymalloc("kspace_delta_tot", double *, nk_in);
    /*Allocate list of scale factors, and space for delta_tot, in one operation.*/
-   d_tot->scalefact = (double *) mymalloc("kspace_scalefact",d_tot->namax*(nk_in+1)*sizeof(double));
+   d_tot->scalefact = mymalloc("kspace_scalefact", double, d_tot->namax*(nk_in+1));
    /*Allocate space for delta_nu and wavenumbers*/
-   d_tot->delta_nu_last = (double *) mymalloc("kspace_delta_nu", sizeof(double) * 3 * nk_in);
+   d_tot->delta_nu_last = mymalloc("kspace_delta_nu", double, 3 * nk_in);
    d_tot->delta_nu_init = d_tot->delta_nu_last + nk_in;
    d_tot->wavenum = d_tot->delta_nu_init + nk_in;
    /*Allocate actual data. Note that this means data can be accessed either as:
@@ -486,7 +486,7 @@ void get_delta_nu_combined(Cosmology * CP, const _delta_tot_table * const d_tot,
     for(mi=0; mi<NUSPECIES; mi++) {
             if(d_tot->omnu->nu_degeneracies[mi] > 0) {
                  int ik;
-                 double * delta_nu_single = (double *) mymalloc("delta_nu_single", sizeof(double) * d_tot->nk);
+                 double * delta_nu_single = mymalloc("delta_nu_single", double, d_tot->nk);
                  const double omeganu = d_tot->omnu->nu_degeneracies[mi] * omega_nu_single(d_tot->omnu, a, mi);
                  get_delta_nu(CP, d_tot, a, delta_nu_single,d_tot->omnu->RhoNuTab[mi].mnu);
                  for(ik=0; ik<d_tot->nk; ik++)

@@ -5,6 +5,7 @@
 
 #include "init.h"
 #include "libgadget/partmanager.h"
+#include "types.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
 
@@ -415,7 +416,7 @@ setup_density_indep_entropy(const ActiveParticles * act, ForceTree * Tree, Cosmo
     for(j = 0; j < SlotsManager->info[0].size; j++)
         SphP[j].EgyWtDensity = SphP[j].Density;
 
-    MyFloat * olddensity = (MyFloat *)mymalloc("olddensity ", SlotsManager->info[0].size * sizeof(MyFloat));
+    MyFloat * olddensity = mymalloc("olddensity ", MyFloat, SlotsManager->info[0].size);
     for(j = 0; j < 100; j++)
     {
         int i;

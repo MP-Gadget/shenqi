@@ -154,7 +154,7 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
         }
     }
     //z=20 to z=4 is ~150 syncpoints at 10 Myr spaces
-    SyncPoints = (SyncPoint *) mymalloc("SyncPoints", sizeof(SyncPoint) * NSyncPointsAlloc);
+    SyncPoints = mymalloc("SyncPoints", SyncPoint, NSyncPointsAlloc);
 
     /* Set up first and last entry to SyncPoints; TODO we can insert many more! */
     //NOTE(jdavies): these first syncpoints need to be in order

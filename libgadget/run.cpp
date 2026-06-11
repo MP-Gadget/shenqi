@@ -479,7 +479,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
 
         MyFloat * GradRho_mag = NULL;
         if(sfr_need_to_compute_sph_grad_rho())
-            GradRho_mag = (MyFloat *) mymalloc2("SPH_GradRho", sizeof(MyFloat) * SlotsManager->info[0].size);
+            GradRho_mag = mymalloc2("SPH_GradRho", MyFloat, SlotsManager->info[0].size);
 
         ForceTree gasTree = {0};
         /* density() happens before gravity because it also initializes the predicted variables.
@@ -568,7 +568,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             if(All.HierarchicalGravity) {
                 /* We need to store a GravAccel for new star particles as well, so we need extra memory.*/
                 GravAccel.nstore = PartManager->NumPart + SlotsManager->info[0].size;
-                GravAccel.GravAccel = (MyFloat (*) [3]) mymanagedmalloc("GravAccel", GravAccel.nstore * sizeof(GravAccel.GravAccel[0]));
+                GravAccel.GravAccel = mymanagedmalloc("GravAccel", My3Vec, GravAccel.nstore);
                 hierarchical_gravity_accelerations(&Act, &pm, ddecomp, GravAccel, &times, &timebinmgr, HybridNuTracer, &All.CP, All.OutputDir, All.UseGPU);
             }
             else if(All.TreeGravOn && totgravactive) {
@@ -861,7 +861,7 @@ runfof(const int RestartSnapNum, const inttime_t Ti_Current, const struct header
         MyFloat * GradRho = NULL;
         if(sfr_need_to_compute_sph_grad_rho()) {
             ForceTree gasTree = {0};
-            GradRho = (MyFloat *) mymalloc2("SPH_GradRho", sizeof(MyFloat) * 3 * SlotsManager->info[0].size);
+            GradRho = mymalloc2("SPH_GradRho", MyFloat, 3 * SlotsManager->info[0].size);
             /*Allocate the memory for predicted SPH data.*/
             struct sph_pred_data sph_predicted = {0};
             force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK, All.OutputDir);

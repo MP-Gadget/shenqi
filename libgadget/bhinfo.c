@@ -68,7 +68,7 @@ collect_BH_info(const int * const ActiveBlackHoles, const int64_t NumActiveBlack
 {
     int i;
 
-    struct BHinfo * infos = (struct BHinfo *) mymalloc("BHDetailCache", NumActiveBlackHoles * sizeof(struct BHinfo));
+    struct BHinfo * infos = mymalloc("BHDetailCache", struct BHinfo, NumActiveBlackHoles);
     memset(infos, 0, NumActiveBlackHoles*sizeof(struct BHinfo));
 
     report_memory_usage("BLACKHOLE");

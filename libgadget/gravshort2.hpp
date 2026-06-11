@@ -67,7 +67,7 @@ class GravTreeOutput
      {
          accelstorealloc = 0;
          if(!AccelStore) {
-             Accel = (MyFloat (*) [3]) mymanagedmalloc("GravAccel", NumPart * sizeof(Accel[0]));
+             Accel = mymanagedmalloc("GravAccel", My3Vec, NumPart);
              accelstorealloc = 1;
          }
      }

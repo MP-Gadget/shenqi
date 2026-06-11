@@ -175,7 +175,7 @@ static double RtoM(double R)
 //Simple region initialization (taken from zeldovich.c)
 //TODO: look into _prepare (gravpm.c) and see if its worth implementing anything there
 static PetaPMRegion * makeregion(PetaPM * pm, PetaPMParticleStruct * pstruct, void * userdata, int * Nregions) {
-    PetaPMRegion * regions = mymalloc2("Regions", sizeof(PetaPMRegion));
+    PetaPMRegion * regions = mymalloc2("Regions", PetaPMRegion, 1);
     int NumPart = PartManager->NumPart;
     int k;
     int r = 0;
@@ -558,9 +558,9 @@ void calculate_uvbg(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr, int Wri
         * pm_mass->real_space_region.size[1]
         * pm_mass->real_space_region.size[2];
 
-    UVBGgrids.J21 = mymalloc("J21", sizeof(float) * grid_n);
+    UVBGgrids.J21 = mymalloc("J21", float, grid_n);
     float * J21 = UVBGgrids.J21;
-    UVBGgrids.xHI = mymalloc("xHI", sizeof(float) * grid_n);
+    UVBGgrids.xHI = mymalloc("xHI", float, grid_n);
     float * xHI = UVBGgrids.xHI;
 
     for (int ii = 0; ii < grid_n; ii++) {

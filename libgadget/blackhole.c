@@ -14,6 +14,7 @@
 #include "timestep.h"
 #include "density.h"
 #include "sfr_eff.h"
+#include "types.h"
 #include "winds.h"
 #include "walltime.h"
 #include "bhinfo.h"
@@ -205,7 +206,7 @@ blackholes_active(const ActiveParticles * act, int ** ActiveBlackHoles, int64_t 
     /* Move the working set high so we can keep the tree we build after making the list and still free this active set.*/
     *NumActiveBlackHoles = tw_bh->WorkSetSize;
     if(totbh > 0) {
-        *ActiveBlackHoles = (int*)mymalloc2("activeBH", tw_bh->WorkSetSize * sizeof(int));
+        *ActiveBlackHoles = mymalloc2("activeBH", int, tw_bh->WorkSetSize);
         memcpy(*ActiveBlackHoles, tw_bh->WorkSet, tw_bh->WorkSetSize * sizeof(int));
     }
     myfree(tw_bh->WorkSet);
@@ -272,24 +273,24 @@ blackhole(const ActiveParticles * act, double atime, Cosmology * CP, ForceTree *
     priv->kf = &kf;
 
     /* Let's determine which gas particles may be swallowed and calculate total feedback weights */
-    priv->SPH_SwallowID = (MyIDType *) mymalloc("SPH_SwallowID", SlotsManager->info[0].size * sizeof(MyIDType));
+    priv->SPH_SwallowID = mymalloc("SPH_SwallowID", MyIDType,  SlotsManager->info[0].size);
     memset(priv->SPH_SwallowID, 0, SlotsManager->info[0].size * sizeof(MyIDType));
     /* Let's determine which BHs may be swallowed and calculate total feedback weights */
-    priv->BH_SwallowID = (MyIDType *) mymalloc("BH_SwallowID", SlotsManager->info[5].size * sizeof(MyIDType));
+    priv->BH_SwallowID = mymalloc("BH_SwallowID", MyIDType,  SlotsManager->info[5].size);
     memset(priv->BH_SwallowID, 0, SlotsManager->info[5].size * sizeof(MyIDType));
 
     /* Computed in accretion, used in feedback*/
-    priv->BH_FeedbackWeightSum = (MyFloat *) mymalloc("BH_FeedbackWeightSum", SlotsManager->info[5].size * sizeof(MyFloat));
+    priv->BH_FeedbackWeightSum = mymalloc("BH_FeedbackWeightSum", MyFloat, SlotsManager->info[5].size);
 
     /* Local to this treewalk*/
-    priv->BH_Entropy = (MyFloat *) mymalloc("BH_Entropy", SlotsManager->info[5].size * sizeof(MyFloat));
-    priv->BH_SurroundingGasVel = (MyFloat (*) [3]) mymalloc("BH_SurroundVel", 3* SlotsManager->info[5].size * sizeof(priv->BH_SurroundingGasVel[0]));
+    priv->BH_Entropy = mymalloc("BH_Entropy", MyFloat, SlotsManager->info[5].size);
+    priv->BH_SurroundingGasVel = mymalloc("BH_SurroundVel", My3Vec, SlotsManager->info[5].size);
 
     /* For AGN kinetic feedback */
-    priv->NumDM = (MyFloat *) mymalloc("NumDM", SlotsManager->info[5].size * sizeof(MyFloat));
-    priv->MgasEnc = (MyFloat *) mymalloc("MgasEnc", SlotsManager->info[5].size * sizeof(MyFloat));
+    priv->NumDM = mymalloc("NumDM", MyFloat, SlotsManager->info[5].size);
+    priv->MgasEnc = mymalloc("MgasEnc", MyFloat, SlotsManager->info[5].size);
     /* mark the state of AGN kinetic feedback */
-    priv->KEflag = (int *) mymalloc("KEflag", SlotsManager->info[5].size * sizeof(int));
+    priv->KEflag = mymalloc("KEflag", int, SlotsManager->info[5].size);
 
     /* Need hmax for the symmetric BH merger treewalk*/
     if(!tree->hmax_computed_flag)
@@ -323,9 +324,9 @@ blackhole(const ActiveParticles * act, double atime, Cosmology * CP, ForceTree *
 
     walltime_measure("/BH/Accretion");
 
-    priv->BH_accreted_Mass = (MyFloat *) mymalloc("BH_accretedmass", SlotsManager->info[5].size * sizeof(MyFloat));
-    priv->BH_accreted_BHMass = (MyFloat *) mymalloc("BH_accreted_BHMass", SlotsManager->info[5].size * sizeof(MyFloat));
-    priv->BH_accreted_momentum = (MyFloat (*) [3]) mymalloc("BH_accretemom", 3* SlotsManager->info[5].size * sizeof(priv->BH_accreted_momentum[0]));
+    priv->BH_accreted_Mass = mymalloc("BH_accretedmass", MyFloat,  SlotsManager->info[5].size);
+    priv->BH_accreted_BHMass = mymalloc("BH_accreted_BHMass", MyFloat, SlotsManager->info[5].size);
+    priv->BH_accreted_momentum = mymalloc("BH_accretemom", My3Vec, SlotsManager->info[5].size);
 
     /* Now do the swallowing of particles and dump feedback energy */
     /* We also merge BHs here. Only BHs which are not themselves

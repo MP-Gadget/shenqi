@@ -441,7 +441,7 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
 
         /* Allocate memory for the accelerations so we don't over-write the acceleration from the longest timestep.
          * Need all particles as the index in the tree is the particle index. */
-        MyFloat (*GravAccel)[3] = (MyFloat (*) [3]) mymanagedmalloc("GravAccel", PartManager->NumPart * sizeof(GravAccel[0]));
+        MyFloat (*GravAccel)[3] = mymanagedmalloc("GravAccel", My3Vec, PartManager->NumPart);
         /* Do the accelerations and build the tree*/
         grav_short_tree_build_tree(subact, pm, ddecomp, GravAccel, times->Ti_Current, rho0, HybridNuGrav, EmergencyOutputDir, UseGPU);
 
@@ -537,7 +537,7 @@ int hierarchical_gravity_accelerations(const ActiveParticles * act, PetaPM * pm,
             if(GravAccel)
                 myfree(GravAccel);
             /* Allocate memory for the accelerations so we don't over-write the acceleration from the longest timestep*/
-            GravAccel = (MyFloat (*) [3]) mymanagedmalloc("GravAccel", PartManager->NumPart * sizeof(GravAccel[0]));
+            GravAccel = mymanagedmalloc("GravAccel", My3Vec, PartManager->NumPart);
             /* Tree with moments but only particle timesteps below this value*/
             grav_short_tree_build_tree(&subact, pm, ddecomp, GravAccel, times->Ti_Current, rho0, HybridNuGrav, EmergencyOutputDir, UseGPU);
         }
@@ -1291,7 +1291,7 @@ static void print_timebin_statistics(const DriftKickTimes * const times, TimeBin
 void
 build_active_particles(ActiveParticles * act, const DriftKickTimes * const times, TimeBinMgr * timebinmgr, const int NumCurrentTiStep, const double Time, const struct part_manager_type * const PartManager)
 {
-    int * TimeBinCountType = (int *) mymalloc("TimeBinCountType", sizeof(int) * 6*(TIMEBINS+1));
+    int * TimeBinCountType = mymalloc("TimeBinCountType", int, 6*(TIMEBINS+1));
     memset(TimeBinCountType, 0, 6 * (TIMEBINS+1) * sizeof(int));
     act->MaxActiveParticle = PartManager->MaxPart;
 
@@ -1316,7 +1316,7 @@ build_active_particles(ActiveParticles * act, const DriftKickTimes * const times
         }
     }
     else {
-        act->ActiveParticle = (int *) mymanagedmalloc("ActiveParticle", PartManager->MaxPart * sizeof(int));
+        act->ActiveParticle = mymanagedmalloc("ActiveParticle", int, PartManager->MaxPart);
         ActivePredicate pred{PartManager->Base, times->Ti_Current};
         /* This is the C++20 equivalent of a counting_iterator.*/
         auto iota = std::views::iota(0, (int) PartManager->NumPart);
@@ -1381,7 +1381,7 @@ ActiveParticles
 build_active_sublist(const ActiveParticles * act, int maxtimebin, const inttime_t Ti_Current)
 {
     ActiveParticles sub_act[1] = {0};
-    sub_act->ActiveParticle = (int *) mymanagedmalloc("SubActiveParticle", act->NumActiveParticle * sizeof(int));
+    sub_act->ActiveParticle = mymanagedmalloc("SubActiveParticle", int, act->NumActiveParticle);
     //     message(0, "Building sublist containing particles up to bin %d\n", maxtimebin);
     const SubActivePredicate pred{act->Particles, Ti_Current, maxtimebin};
     if(act->ActiveParticle) {

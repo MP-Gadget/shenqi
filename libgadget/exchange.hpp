@@ -162,7 +162,7 @@ private:
         /*Garbage particles are counted so we have an accurate memory estimate*/
         int ThisTask;
         MPI_Comm_rank(Comm, &ThisTask);
-        ExchangeList = (int *) mymalloc("exchangelist", pman->NumPart * sizeof(int));
+        ExchangeList = mymalloc("exchangelist", int, pman->NumPart);
         auto iota = std::views::iota(0, (int) pman->NumPart);
         const auto base = pman->Base;
         auto end = std::copy_if(std::execution::par, iota.begin(), iota.end(), ExchangeList, [ThisTask, this, base](const int ii) {
@@ -184,7 +184,7 @@ private:
 
         memset(toGo, 0, sizeof(toGo[0]) * NTask);
 
-        layouts = (ExchangePartCache *) mymalloc("layoutcache",sizeof(ExchangePartCache) * last);
+        layouts = mymalloc("layoutcache", ExchangePartCache, last);
 
         #pragma omp parallel for
         for(n = 0; n < last; n++)
@@ -356,10 +356,10 @@ private:
 
         for(ptype = 0; ptype < 6; ptype++) {
             if(!sman->info[ptype].enabled) continue;
-            slotBuf[ptype] = (char *) mymalloc2("SlotBuf", toGoSum.slots[ptype] * sman->info[ptype].elsize);
+            slotBuf[ptype] = mymalloc2("SlotBuf", char, toGoSum.slots[ptype] * sman->info[ptype].elsize);
         }
 
-        partBuf = (struct particle_data *) mymalloc2("partBuf", toGoSum.base * sizeof(struct particle_data));
+        partBuf = mymalloc2("partBuf", particle_data, toGoSum.base);
 
         ExchangePlanEntry * toGoPtr = ta_malloc("toGoPtr", ExchangePlanEntry, NTask);
         memset(toGoPtr, 0, sizeof(toGoPtr[0]) * NTask);

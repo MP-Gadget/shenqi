@@ -72,7 +72,7 @@ read_big_array(const char * filename, const char * dataset, int * Nread)
         if(dtype_itemsize(bb->dtype) != sizeof(double))
             endrun(1, "UVflucatuation file %s should contain double-precision data, contains %s\n", filename, bb->dtype);
 
-        buffer = (double *) mymalloc("cooling_data", N * dtype_itemsize(bb->dtype) * bb->nmemb);
+        buffer = mymalloc("cooling_data", double, N * bb->nmemb);
         dims[0] = N;
         dims[1] = bb->nmemb;
 
@@ -89,7 +89,7 @@ read_big_array(const char * filename, const char * dataset, int * Nread)
 
     MPI_Bcast(&N, 1, MPI_INT, 0, MPI_COMM_WORLD);
     if(ThisTask != 0)
-        buffer = (double *) mymalloc("cooling_data",N * sizeof(double));
+        buffer = mymalloc("cooling_data", double, N);
 
     MPI_Bcast(buffer, N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 

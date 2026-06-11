@@ -221,9 +221,9 @@ void domain_decompose_full(DomainDecomp * ddecomp, MPI_Comm DomainComm)
         struct topleaf_data * OldTopLeaves = ddecomp->TopLeaves;
         struct topnode_data * OldTopNodes = ddecomp->TopNodes;
 
-        ddecomp->TopNodes  = (struct topnode_data *) mymalloc2("TopNodes", sizeof(ddecomp->TopNodes[0]) * ddecomp->NTopNodes);
+        ddecomp->TopNodes  = mymalloc2("TopNodes", topnode_data,  ddecomp->NTopNodes);
         /* add 1 extra to mark the end of TopLeaves; see assign */
-        ddecomp->TopLeaves = (struct topleaf_data *) mymanagedmalloc("TopLeaves", sizeof(ddecomp->TopLeaves[0]) * (ddecomp->NTopLeaves + 1));
+        ddecomp->TopLeaves = mymanagedmalloc("TopLeaves", topleaf_data,  ddecomp->NTopLeaves + 1);
 
         memcpy(ddecomp->TopLeaves, OldTopLeaves, ddecomp->NTopLeaves* sizeof(ddecomp->TopLeaves[0]));
         memcpy(ddecomp->TopNodes, OldTopNodes, ddecomp->NTopNodes * sizeof(ddecomp->TopNodes[0]));
@@ -406,7 +406,7 @@ domain_policies_init(DomainDecompositionPolicy policies[],
 static int
 domain_allocate(DomainDecomp * ddecomp, DomainDecompositionPolicy * policy, MPI_Comm DomainComm)
 {
-    size_t bytes, all_bytes = 0;
+    size_t all_bytes = 0;
 
     /* Number of local topnodes and local topleaves allowed.*/
     const int MaxTopNodes = domain_params.TopNodeAllocFactor * (PartManager->NumPart + 1);
@@ -416,15 +416,13 @@ domain_allocate(DomainDecomp * ddecomp, DomainDecompositionPolicy * policy, MPI_
     ddecomp->DomainComm = DomainComm;
 
     ddecomp->Tasks = NULL;
-    ddecomp->TopNodes = (struct topnode_data *) mymalloc("TopNodes",
-        bytes = (MaxTopNodes * (sizeof(ddecomp->TopNodes[0]))));
+    ddecomp->TopNodes = mymalloc("TopNodes", topnode_data, MaxTopNodes);
 
-    all_bytes += bytes;
+    all_bytes += MaxTopNodes * sizeof(topnode_data);
 
-    ddecomp->TopLeaves = (struct topleaf_data *) mymalloc("TopLeaves",
-        bytes = (MaxTopNodes * sizeof(ddecomp->TopLeaves[0])));
+    ddecomp->TopLeaves = mymalloc("TopLeaves", topleaf_data, MaxTopNodes);
 
-    all_bytes += bytes;
+    all_bytes += MaxTopNodes * sizeof(topleaf_data);
 
     message(0, "Allocated %g MByte for top-level domain structure\n", all_bytes / (1024.0 * 1024.0));
 
@@ -456,7 +454,7 @@ domain_attempt_decompose(DomainDecomp * ddecomp, DomainDecompositionPolicy * pol
 {
 
     /* points to the root node of the top-level tree */
-    struct local_topnode_data *topTree = (struct local_topnode_data *) mymalloc("LocaltopTree",  MaxTopNodes * sizeof(struct local_topnode_data));
+    struct local_topnode_data *topTree = mymalloc("LocaltopTree", local_topnode_data, MaxTopNodes);
     memset(topTree, 0, sizeof(topTree[0]) * MaxTopNodes);
 
     report_memory_usage("DOMAIN");
@@ -509,7 +507,7 @@ static int
 domain_balance(DomainDecomp * ddecomp)
 {
     /*!< a table that gives the total number of particles held by each processor */
-    int64_t * TopLeafCount = (int64_t *) mymalloc("TopLeafCount",  ddecomp->NTopLeaves * sizeof(TopLeafCount[0]));
+    int64_t * TopLeafCount = mymalloc("TopLeafCount",  int64_t, ddecomp->NTopLeaves);
 
     domain_compute_costs(ddecomp, NULL, TopLeafCount);
 
@@ -636,7 +634,7 @@ domain_assign_topleaves_balanced(DomainDecomp * ddecomp, int64_t * cost, const i
 
     /* A Segment is a subset of the TopLeaf nodes */
 
-    TopLeafExt = (struct topleaf_extdata *) mymalloc("TopLeafExt", ddecomp->NTopLeaves * sizeof(TopLeafExt[0]));
+    TopLeafExt = mymalloc("TopLeafExt", topleaf_extdata, ddecomp->NTopLeaves);
 
     /* copy the data over */
     int i;
@@ -776,7 +774,7 @@ domain_set_task_leafs(const DomainDecomp * const ddecomp)
     MPI_Comm_size(ddecomp->DomainComm, &NTask);
 
     /* Add a tail item to avoid special treatments */
-    struct task_data * Tasks = (struct task_data *) mymalloc2("Tasks", (NTask + 1)* sizeof(ddecomp->Tasks[0]));
+    struct task_data * Tasks = mymalloc2("Tasks", task_data, (NTask + 1));
     int i;
     int ta = 0;
     Tasks[ta].StartLeaf = 0;
@@ -1015,10 +1013,10 @@ domain_check_for_local_refine_subsample(
     int Nsample = PartManager->NumPart / policy->SubSampleDistance;
 
     if(Nsample == 0 && PartManager->NumPart != 0) Nsample = 1;
-    struct local_particle_data * LP = (struct local_particle_data*) mymalloc("LocalParticleData", Nsample * sizeof(LP[0]));
+    struct local_particle_data * LP = mymalloc("LocalParticleData", local_particle_data, Nsample);
 
     if(policy->PreSort) {
-        struct local_particle_data * LPfull = (struct local_particle_data*) mymalloc2("LocalParticleData", PartManager->NumPart * sizeof(LP[0]));
+        struct local_particle_data * LPfull = mymalloc2("LocalParticleData", local_particle_data, PartManager->NumPart);
         int64_t garbage = 0;
         #pragma omp parallel for reduction(+: garbage)
         for(i = 0; i < PartManager->NumPart; i ++)
@@ -1218,8 +1216,7 @@ domain_nonrecursively_combine_topTree(struct local_topnode_data * topTree, int *
                 int mergesize = ntopnodes_import;
                 if(ntopnodes_import < *topTreeSize)
                     mergesize = *topTreeSize;
-                struct local_topnode_data * topTree_import = (struct local_topnode_data *) mymalloc("topTree_import",
-                            mergesize * sizeof(struct local_topnode_data));
+                struct local_topnode_data * topTree_import = mymalloc("topTree_import", local_topnode_data, mergesize);
 
                 MPI_Recv(topTree_import,
                         ntopnodes_import * sizeof(struct local_topnode_data), MPI_BYTE,
@@ -1388,10 +1385,10 @@ domain_compute_costs(DomainDecomp * ddecomp, int64_t *TopLeafWork, int64_t *TopL
     int NumThreads = omp_get_max_threads();
     int64_t * local_TopLeafWork = NULL;
     if(TopLeafWork) {
-        local_TopLeafWork = (int64_t *) mymalloc("local_TopLeafWork", NumThreads * ddecomp->NTopLeaves * sizeof(local_TopLeafWork[0]));
+        local_TopLeafWork = mymalloc("local_TopLeafWork", int64_t, NumThreads * ddecomp->NTopLeaves);
         memset(local_TopLeafWork, 0, NumThreads * ddecomp->NTopLeaves * sizeof(local_TopLeafWork[0]));
     }
-    int64_t * local_TopLeafCount = (int64_t *) mymalloc("local_TopLeafCount", NumThreads * ddecomp->NTopLeaves * sizeof(local_TopLeafCount[0]));
+    int64_t * local_TopLeafCount = mymalloc("local_TopLeafCount", int64_t, NumThreads * ddecomp->NTopLeaves);
     memset(local_TopLeafCount, 0, NumThreads * ddecomp->NTopLeaves * sizeof(local_TopLeafCount[0]));
 
 #pragma omp parallel

@@ -115,7 +115,7 @@ int fof_save_particles(FOFGroups * fof, char * fname, int SaveParticles, Cosmolo
             return domain_needed;
         }
 
-        int * selection = (int *) mymalloc("Selection", sizeof(int) * halo_pman->NumPart);
+        int * selection = mymalloc("Selection", int, halo_pman->NumPart);
 
         int64_t ptype_offset[6]={0};
         int64_t ptype_count[6]={0};
@@ -280,7 +280,7 @@ fof_distribute_particles(struct part_manager_type * halo_pman, struct slots_mana
     MPI_Comm_rank(Comm, &ThisTask);
     const uint64_t task_origin_offset = PartManager->MaxPart + 1Lu;
 
-    struct PartIndex * pi = (struct PartIndex *) mymalloc2("PartIndex", sizeof(struct PartIndex) * NpigLocal);
+    struct PartIndex * pi = mymalloc2("PartIndex", PartIndex, NpigLocal);
     /* Build the index: unfortunately not parallel*/
     NpigLocal = 0;
     for(i = 0; i < PartManager->NumPart; i ++) {
@@ -307,7 +307,7 @@ fof_distribute_particles(struct part_manager_type * halo_pman, struct slots_mana
     /* Initialise the new halo structure*/
     if(halo_pman != PartManager) {
         halo_pman->MaxPart = NpigLocal * FOFPartAllocFactor;
-        struct particle_data * halopart = (struct particle_data *) mymalloc("HaloParticle", sizeof(struct particle_data) * halo_pman->MaxPart);
+        struct particle_data * halopart = mymalloc("HaloParticle", particle_data, halo_pman->MaxPart);
         halo_pman->Base = halopart;
         halo_pman->NumPart = NpigLocal;
         halo_pman->BoxSize = PartManager->BoxSize;
@@ -529,7 +529,7 @@ static void fof_register_io_blocks(int MetalReturnOn, struct IOTable * IOTable) 
     IOTable->allocated = 100;
     /* Allocate high so we can do a domain exchange,
      * potentially increasing the slots, around this*/
-    IOTable->ent = (struct IOTableEntry *) mymalloc2("IOTable", IOTable->allocated* sizeof(IOTableEntry));
+    IOTable->ent = mymalloc2("IOTable", IOTableEntry, IOTable->allocated);
 
     IO_REG(GroupID, "u4", 1, PTYPE_FOF_GROUP, IOTable);
     IO_REG(Mass, "f4", 1, PTYPE_FOF_GROUP, IOTable);

@@ -146,7 +146,7 @@ class CommBuffer
             if(cnts[target] == 0) continue;
             rqst_task.push_back(target);
         }
-        rdata_all = (MPI_Request *) mymalloc("MPI_requests", sizeof(MPI_Request) * rqst_task.size());
+        rdata_all = mymalloc("MPI_requests", MPI_Request, rqst_task.size());
         /* Do Send/Recv over all non-trivial tasks*/
         for(size_t i = 0; i < rqst_task.size(); i++)
         {
@@ -390,11 +390,11 @@ public:
         /* Explicitly deal with the case where the queue is zero and there is nothing to do.
          * Some OpenMP compilers (nvcc) seem to still execute the below loop in that case*/
         if(size == 0) {
-            *WorkSet = (int *) mymanagedmalloc("ActiveQueue", sizeof(int));
+            *WorkSet = mymanagedmalloc("ActiveQueue", int, 1);
             return size;
         }
 
-        *WorkSet = (int *) mymanagedmalloc("ActiveQueue", size * sizeof(int));
+        *WorkSet = mymanagedmalloc("ActiveQueue", int, size);
         HasWorkPredicate<QueryType> haswork{Parts};
         /* This is a standard stream compaction algorithm. It evaluates the haswork function
          * for every particle in the active set, stores the results in an array of flags, counts the non-zero flags,
@@ -499,7 +499,7 @@ public:
             tstart = second();
             output->verbose = (Niteration >= MAXITER - 5);
             /* Check which particles we need to repeat for. */
-            int * todo = (int *) mymalloc("Particle_todo", size * sizeof(int));
+            int * todo = mymalloc("Particle_todo", int, size);
             #pragma omp parallel for reduction(max: maxnumngb) reduction(min: minnumngb)
             for(int i = 0; i < size; i ++) {
                 const int p_i = CurQueue ? CurQueue[i] : i;
@@ -522,7 +522,7 @@ public:
                     if(update_hsml && (LocalTreeWalkType::tree_mask & (1<<parts[p_i].Type)))
                         update_tree_hmax_father(tree, p_i, parts[p_i].Pos, parts[p_i].Hsml);
             }
-            ReDoQueue = (int *) mymanagedmalloc("ReDoQueue", size * sizeof(int));
+            ReDoQueue = mymanagedmalloc("ReDoQueue", int, size);
             /* Compact the redo queue to remove done items with todo = -1*/
             auto end = std::copy_if(std::execution::par, todo, todo + size, ReDoQueue, [](int p_i){return p_i >= 0;});
             tend = second();
@@ -596,7 +596,7 @@ private:
 
     int * ev_count_exports(int * WorkSet, const int64_t WorkSetSize, particle_data * const parts)
     {
-        int * exportcounts = (int *) mymalloc("Export counts", sizeof(int) * WorkSetSize);
+        int * exportcounts = mymalloc("Export counts", int, WorkSetSize);
         /* Count all entries. */
         #pragma omp parallel
         {
@@ -625,7 +625,7 @@ private:
         /* Handle the no work case explicitly */
         if(curSize == 0) {
             exportlist->Nexport = 0;
-            exportlist->ExportTable = (data_index *) mymalloc("DataIndexTable", sizeof(data_index));
+            exportlist->ExportTable = mymalloc("DataIndexTable", data_index, 1);
             return WorkSetStart;
         }
         exportcounts = exportcounts + WorkSetStart;
@@ -644,7 +644,7 @@ private:
                 exportlist->Nexport, exportlist->Nexport*sizeof(QueryType)/1024/1024, BunchSize, WorkSetStart, WorkSetStart + curSize, WorkSetSize);
         }
         /* Note this is the sum including the current element. */
-        exportlist->ExportTable = (data_index *) mymalloc("DataIndexTable", exportlist->Nexport * sizeof(data_index));
+        exportlist->ExportTable = mymalloc("DataIndexTable", data_index, exportlist->Nexport);
 
         /* Now we run toptree_visit again with the export offsets to make the export table.
          * Likely most particles have zero exports, so this will be somewhat faster than the first run. */
@@ -697,13 +697,13 @@ private:
 
     void ev_wait_secondary(CommBuffer * res_imports, CommBuffer * imports, ImpExpCounts* counts, struct particle_data * const parts)
     {
-        res_imports->databuf = (char *) mymanagedmalloc("ImportResult", counts->Nimport * sizeof(ResultType));
+        res_imports->databuf = mymanagedmalloc("ImportResult", char, counts->Nimport * sizeof(ResultType));
 
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(ResultType), MPI_BYTE, &type);
         MPI_Type_commit(&type);
-        res_imports->rdata_all = (MPI_Request *) mymalloc("Import Return Requests", sizeof(MPI_Request) * imports->nrequest());
-        int * complete_array = (int *) mymalloc("completes", imports->nrequest() * sizeof(int));
+        res_imports->rdata_all = mymalloc("Import Return Requests", MPI_Request, imports->nrequest());
+        int * complete_array = mymalloc("completes", int, imports->nrequest());
 
         /* Test each request in turn until it completes*/
         while(res_imports->nrequest() < imports->nrequest()) {
@@ -741,8 +741,8 @@ private:
     /* Builds the list of exported particles and async sends the export queries. */
     void ev_send_recv_export_import(const ImpExpCounts * const counts, const ExportMemory2 * const exportlist, CommBuffer * exports, CommBuffer * imports, const particle_data * const parts)
     {
-        exports->databuf = (char *) mymalloc("ExportQuery", counts->Nexport * sizeof(QueryType));
-        imports->databuf = (char *) mymanagedmalloc("ImportQuery", counts->Nimport * sizeof(QueryType));
+        exports->databuf = mymalloc("ExportQuery", char, counts->Nexport * sizeof(QueryType));
+        imports->databuf = mymanagedmalloc("ImportQuery", char, counts->Nimport * sizeof(QueryType));
 
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(QueryType), MPI_BYTE, &type);
@@ -752,7 +752,7 @@ private:
         imports->MPI_fill(counts->Import_count, counts->Import_offset, type, COMM_RECV, 101922, counts->comm);
 
         /* prepare particle data for export */
-        int64_t * real_send_count = (int64_t *) mymalloc("tmp_send_count", sizeof(int64_t) * counts->NTask);
+        int64_t * real_send_count = mymalloc("tmp_send_count", int64_t, counts->NTask);
         memset(real_send_count, 0, sizeof(int64_t)*counts->NTask);
         QueryType * export_queries = reinterpret_cast<QueryType*>(exports->databuf);
         for(size_t k = 0; k < exportlist->Nexport; k++) {
@@ -781,7 +781,7 @@ private:
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(ResultType), MPI_BYTE, &type);
         MPI_Type_commit(&type);
-        exportbuf->databuf = (char*) mymalloc2("ExportResult", counts->Nexport * sizeof(ResultType));
+        exportbuf->databuf = mymalloc2("ExportResult", char, counts->Nexport * sizeof(ResultType));
         /* Post the receives first so we can hit a zero-copy fastpath.*/
         exportbuf->MPI_fill(counts->Export_count, counts->Export_offset, type, COMM_RECV, 101923, counts->comm);
         // alloc_commbuffer(&res_imports, counts.NTask, 0);
@@ -794,7 +794,7 @@ private:
     {
         /* Notice that we build the dataindex table individually
             * on each thread, so we are ordered by particle and have memory locality.*/
-        int * real_recv_count = (int *) mymalloc("tmp_recv_count", sizeof(int) * counts->NTask);
+        int * real_recv_count = mymalloc("tmp_recv_count", int, counts->NTask);
         memset(real_recv_count, 0, sizeof(int)*counts->NTask);
         for(size_t k = 0; k < exportlist->Nexport; k++) {
             const int place = exportlist->ExportTable[k].Index;

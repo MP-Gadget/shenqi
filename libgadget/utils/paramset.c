@@ -59,7 +59,7 @@ static char * format_enum(ParameterEnum * table, int value) {
             bleft-= strlen(p->name);
             if (bleft <= 0) {
                 int extra = (- bleft) + btotal;
-                buffer = (char *) myrealloc(buffer, btotal + extra);
+                buffer = myrealloc(buffer, char, btotal + extra);
                 break;
             }
             /* The above ensures a large enough buffer*/

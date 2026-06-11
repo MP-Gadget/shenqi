@@ -215,10 +215,10 @@ cooling_and_starformation(ActiveParticles * act, double Time, double dloga, Time
     const double hubble = hubble_function(CP, Time);
 
     /* -1 if not star-forming, index of the new star (inc 0) if star-forming, -2 if wind-forming.*/
-    int * star_form_flag = (int *) mymanagedmalloc("starflag", nactive * sizeof(int));
+    int * star_form_flag = mymanagedmalloc("starflag", int, nactive);
     MyFloat * StellarMass = NULL;
     if(sfr_params.WindOn && winds_are_subgrid()) {
-        StellarMass = (MyFloat *) mymalloc("StellarMass", SlotsManager->info[0].size * sizeof(MyFloat));
+        StellarMass = mymalloc("StellarMass", MyFloat, SlotsManager->info[0].size);
     }
 
     /* Get the global UVBG for this redshift. */
@@ -287,10 +287,10 @@ cooling_and_starformation(ActiveParticles * act, double Time, double dloga, Time
 
     /* Do subgrid winds*/
     if(sfr_params.WindOn && winds_are_subgrid()) {
-        int * MaybeWind = (int *) mymanagedmalloc("MaybeWind", NumMaybeWind * sizeof(int));
+        int * MaybeWind = mymanagedmalloc("MaybeWind", int, NumMaybeWind);
         auto iota = std::views::iota(0, nactive);
         if(act->ActiveParticle) {
-            int * tmpidx = (int *) mymalloc("tmpidx", nactive * sizeof(int));
+            int * tmpidx = mymalloc("tmpidx", int, nactive);
             auto end = std::copy_if(std::execution::par, iota.begin(), iota.end(), tmpidx,
                                 [star_form_flag](int i){ return star_form_flag[i] == -2; });
             if(NumMaybeWind != end - tmpidx)
@@ -313,13 +313,13 @@ cooling_and_starformation(ActiveParticles * act, double Time, double dloga, Time
 
     /*Merge step for the queue.*/
     if(sfr_params.StarformationOn) {
-        NewParents = (int *) mymanagedmalloc("NewParents", NumNewStar * sizeof(int));
+        NewParents = mymanagedmalloc("NewParents", int, NumNewStar);
         int64_t NumNewParent = 0;
         auto iota = std::views::iota(0, nactive);
         if(act->ActiveParticle) {
             /* star_form_flag is indexing into the active queue, not the particle table,
              * so we need to do a transform*/
-            int * tmpidx = (int *) mymanagedmalloc("tmpidx", nactive * sizeof(int));
+            int * tmpidx = mymanagedmalloc("tmpidx", int, nactive);
             auto end = std::copy_if(std::execution::par, iota.begin(), iota.end(), tmpidx,
                 [star_form_flag](int i){ return star_form_flag[i] >= 0; });
             NumNewParent = end - tmpidx;
@@ -331,7 +331,7 @@ cooling_and_starformation(ActiveParticles * act, double Time, double dloga, Time
                 [star_form_flag](int i){ return star_form_flag[i] >= 0; });
             NumNewParent = end - NewParents;
         }
-        NewStars = (int *) mymanagedmalloc("NewStars", NumNewStar * sizeof(int));
+        NewStars = mymanagedmalloc("NewStars", int, NumNewStar);
         std::copy_if(std::execution::par, star_form_flag, star_form_flag + nactive, NewStars,
                      [](auto newstar){ return newstar >= 0;});
         if(NumNewStar != NumNewParent)

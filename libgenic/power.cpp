@@ -168,7 +168,7 @@ void PowerSpectrum::parse_transfer(int i, double k, char * line, struct table *o
         endrun(2,"Transfer function has %d columns, expected maximum 22!\n", NumCol);
     int nnu = round((ncols - 15 - defld *2)/2);
 
-    double * transfers = (double *) mymalloc("transfers", sizeof(double) * ncols);
+    double * transfers = mymalloc("transfers", double, ncols);
     k = log10(k);
     out_tab->logk[i] = k;
     /* Note: the ncdm entries change depending on the number of neutrino species. The first row, k,
@@ -255,7 +255,7 @@ void PowerSpectrum::read_power_table(int ThisTask, const char * inputfile, const
 
     if(out_tab->Nentry < 2)
         endrun(1, "Input spectrum too short\n");
-    out_tab->logk = (double *) mymalloc("Powertable", (ncols+1)*out_tab->Nentry * sizeof(double));
+    out_tab->logk = mymalloc("Powertable", double, (ncols+1)*out_tab->Nentry);
     for(j=0; j<ncols; j++)
         out_tab->logD[j] = out_tab->logk + (j+1)*out_tab->Nentry;
 

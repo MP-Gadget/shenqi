@@ -170,7 +170,7 @@ hydro_force_old(const ActiveParticles * act, const double atime, struct sph_pred
      * For very small numbers of particles the memset is more expensive than just doing the exponential math,
      * so we don't pre-compute at all.*/
     if(HYDRA_GET_PRIV(tw)->EntVarPred) {
-        HYDRA_GET_PRIV(tw)->PressurePred = (double *) mymalloc("PressurePred", SlotsManager->info[0].size * sizeof(double));
+        HYDRA_GET_PRIV(tw)->PressurePred = mymalloc("PressurePred", double, SlotsManager->info[0].size);
         /* Do it in slot order for memory locality*/
         #pragma omp parallel for
         for(i = 0; i < SlotsManager->info[0].size; i++) {

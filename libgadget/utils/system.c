@@ -64,7 +64,7 @@ double get_random_number(const uint64_t id, const RandTable * const rnd)
 RandTable set_random_numbers(uint64_t seed, const size_t rndtablesize)
 {
     RandTable rnd;
-    rnd.Table = (double *) mymalloc2("Random", rndtablesize * sizeof(double));
+    rnd.Table = mymalloc2("Random", double, rndtablesize);
     rnd.tablesize = rndtablesize;
     /* start-up seed */
 
@@ -328,7 +328,7 @@ int MPI_Alltoallv_sparse(void *sendbuf, int *sendcnts, int *sdispls,
     MPI_Type_get_extent(recvtype, &lb, &recv_elsize);
 
     int n_requests;
-    MPI_Request *requests = (MPI_Request *) mymalloc("requests", NTask * 2 * sizeof(MPI_Request));
+    MPI_Request *requests = mymalloc("requests", MPI_Request, NTask * 2);
     n_requests = 0;
 
     for(ngrp = 0; ngrp < (1 << PTask); ngrp++)
@@ -539,7 +539,7 @@ gadget_compact_thread_arrays_managed(int ** dest, const char * name, gadget_thre
         asize += arrays->sizes[i];
     }
     /* Allocate the destination array as managed memory. */
-    int * destarr = (int *) mymanagedmalloc(name, sizeof(int) * asize);
+    int * destarr = mymanagedmalloc(name, int, asize);
 
     #pragma omp parallel for
     for(i = 0; i < arrays->narrays; i++)
@@ -583,9 +583,9 @@ gadget_thread_arrays gadget_setup_thread_arrays(const char * destname, const int
     gadget_thread_arrays threadarray = {0};
     const int narrays = omp_get_max_threads();
     if (alloc_high)
-        threadarray.dest = (int *) mymalloc2(destname, sizeof(int) * total_size);
+        threadarray.dest = mymalloc2(destname, int, total_size);
     else
-        threadarray.dest = (int *) mymalloc(destname, sizeof(int) * total_size);
+        threadarray.dest = mymalloc(destname, int, total_size);
     threadarray.sizes = ta_malloc("nexthr", size_t, narrays);
     threadarray.srcs = ta_malloc("threx", int *, narrays);
     threadarray.total_size = total_size;
@@ -596,9 +596,9 @@ gadget_thread_arrays gadget_setup_thread_arrays(const char * destname, const int
     threadarray.sizes[0] = 0;
     for(i=1; i < narrays; i++) {
         if(alloc_high)
-            threadarray.srcs[i] = (int*) mymalloc2("threx", sizeof(int) * total_size);
+            threadarray.srcs[i] = mymalloc2("threx", int, total_size);
         else
-            threadarray.srcs[i] = (int*) mymalloc("threx", sizeof(int) * total_size);
+            threadarray.srcs[i] = mymalloc("threx", int, total_size);
         threadarray.sizes[i] = 0;
     }
     return threadarray;

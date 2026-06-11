@@ -72,7 +72,7 @@ static MPI_Datatype MPI_PENCIL;
 pfft_complex *
 petapm_alloc_rhok(PetaPM * pm)
 {
-    pfft_complex * rho_k = (pfft_complex * ) mymalloc("PMrho_k", pm->priv->fftsize * sizeof(double));
+    pfft_complex * rho_k = (pfft_complex *) mymalloc("PMrho_k", double, pm->priv->fftsize);
     memset(rho_k, 0, pm->priv->fftsize * sizeof(double));
     return rho_k;
 }
@@ -139,7 +139,7 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
     int ThisTask;
     int NTask;
 
-    pm->Mesh2Task[0] = (int *) mymalloc2("Mesh2Task", 2*sizeof(int) * Nmesh);
+    pm->Mesh2Task[0] = mymalloc2("Mesh2Task", int, 2 * Nmesh);
     pm->Mesh2Task[1] = pm->Mesh2Task[0] + Nmesh;
 
     MPI_Comm_rank(comm, &ThisTask);
@@ -192,9 +192,9 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
 
     /* planning the fft; need temporary arrays */
 
-    double * real = (double * ) mymalloc("PMreal", pm->priv->fftsize * sizeof(double));
-    pfft_complex * rho_k = (pfft_complex * ) mymalloc("PMrho_k", pm->priv->fftsize * sizeof(double));
-    pfft_complex * complx = (pfft_complex *) mymalloc("PMcomplex", pm->priv->fftsize * sizeof(double));
+    double * real = mymalloc("PMreal", double, pm->priv->fftsize);
+    pfft_complex * rho_k = (pfft_complex * ) mymalloc("PMrho_k", double, pm->priv->fftsize);
+    pfft_complex * complx = (pfft_complex *) mymalloc("PMcomplex", double, pm->priv->fftsize);
 
     pm->priv->plan_forw = pfft_plan_dft_r2c_3d(
         n, real, rho_k, pm->priv->comm_cart_2d, PFFT_FORWARD,
@@ -219,7 +219,7 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
             pm->real_space_region.size[2]);
 #endif
 
-    int * tmp = (int *) mymalloc("tmp", sizeof(int) * Nmesh);
+    int * tmp = mymalloc("tmp", int, Nmesh);
     for(k = 0; k < 2; k ++) {
         for(i = 0; i < Nmesh; i ++) {
             tmp[i] = 0;
@@ -308,7 +308,7 @@ pfft_complex * petapm_force_r2c(PetaPM * pm,
      * CFT = DFT * dx **3
      * CFT[rho] = DFT [rho * dx **3] = DFT[CIC]
      * */
-    double * real = (double * ) mymalloc2("PMreal", pm->priv->fftsize * sizeof(double));
+    double * real = mymalloc2("PMreal", double, pm->priv->fftsize);
     memset(real, 0, sizeof(double) * pm->priv->fftsize);
     layout_build_and_exchange_cells_to_pfft(pm, &pm->priv->layout, pm->priv->meshbuf, real);
     walltime_measure("/PMgrav/comm2");
@@ -318,11 +318,11 @@ pfft_complex * petapm_force_r2c(PetaPM * pm,
     walltime_measure("/PMgrav/Verify");
 #endif
 
-    pfft_complex * complx = (pfft_complex *) mymalloc("PMcomplex", pm->priv->fftsize * sizeof(double));
+    pfft_complex * complx = (pfft_complex *) mymalloc("PMcomplex", double, pm->priv->fftsize);
     pfft_execute_dft_r2c(pm->priv->plan_forw, real, complx);
     myfree(real);
 
-    pfft_complex * rho_k = (pfft_complex * ) mymalloc2("PMrho_k", pm->priv->fftsize * sizeof(double));
+    pfft_complex * rho_k = (pfft_complex * ) mymalloc2("PMrho_k", double, pm->priv->fftsize);
 
     /*Do any analysis that may be required before the transfer function is applied*/
     petapm_transfer_func global_readout = global_functions->global_readout;
@@ -352,12 +352,12 @@ petapm_force_c2r(PetaPM * pm,
         petapm_transfer_func transfer = f->transfer;
         petapm_readout_func readout = f->readout;
 
-        pfft_complex * complx = (pfft_complex *) mymalloc("PMcomplex", pm->priv->fftsize * sizeof(double));
+        pfft_complex * complx = (pfft_complex *) mymalloc("PMcomplex", double, pm->priv->fftsize);
         /* apply the greens function turn rho_k into potential in fourier space */
         pm_apply_transfer_function(pm, rho_k, complx, transfer);
         walltime_measure("/PMgrav/calc");
 
-        double * real = (double * ) mymalloc2("PMreal", pm->priv->fftsize * sizeof(double));
+        double * real = mymalloc2("PMreal", double, pm->priv->fftsize);
         pfft_execute_dft_c2r(pm->priv->plan_back, complx, real);
 
         walltime_measure("/PMgrav/c2r");
@@ -446,7 +446,7 @@ petapm_reion_c2r(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr,
     petapm_readout_func readout = f->readout;
 
     /* TODO: seriously re-think the allocation ordering in this function */
-    double * mass_real = (double * ) mymalloc2("mass_real", pm_mass->priv->fftsize * sizeof(double));
+    double * mass_real = mymalloc2("mass_real", double, pm_mass->priv->fftsize);
 
     //TODO: add CellLengthFactor for lowres (>1Mpc, see old find_HII_bubbles function)
     while(!last_step) {
@@ -465,11 +465,11 @@ petapm_reion_c2r(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr,
         if(use_sfr)pm_sfr->G = R;
 
         //TODO: maybe allocate and free these outside the loop
-        pfft_complex * mass_filtered = (pfft_complex *) mymalloc("mass_filtered", pm_mass->priv->fftsize * sizeof(double));
-        pfft_complex * star_filtered = (pfft_complex *) mymalloc("star_filtered", pm_star->priv->fftsize * sizeof(double));
+        pfft_complex * mass_filtered = (pfft_complex *) mymalloc("mass_filtered", double, pm_mass->priv->fftsize);
+        pfft_complex * star_filtered = (pfft_complex *) mymalloc("star_filtered", double, pm_star->priv->fftsize);
         pfft_complex * sfr_filtered;
         if(use_sfr){
-            sfr_filtered = (pfft_complex *) mymalloc("sfr_filtered", pm_sfr->priv->fftsize * sizeof(double));
+            sfr_filtered = (pfft_complex *) mymalloc("sfr_filtered", double, pm_sfr->priv->fftsize);
         }
 
         /* apply the filtering at this radius */
@@ -485,13 +485,13 @@ petapm_reion_c2r(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr,
         }
         walltime_measure("/PMreion/calc");
 
-        double * star_real = (double * ) mymalloc2("star_real", pm_star->priv->fftsize * sizeof(double));
+        double * star_real = mymalloc2("star_real", double, pm_star->priv->fftsize);
         /* back to real space */
         pfft_execute_dft_c2r(pm_mass->priv->plan_back, mass_filtered, mass_real);
         pfft_execute_dft_c2r(pm_star->priv->plan_back, star_filtered, star_real);
         double * sfr_real = NULL;
         if(use_sfr){
-            sfr_real = (double * ) mymalloc2("sfr_real", pm_sfr->priv->fftsize * sizeof(double));
+            sfr_real = mymalloc2("sfr_real", double, pm_sfr->priv->fftsize);
             pfft_execute_dft_c2r(pm_sfr->priv->plan_back, sfr_filtered, sfr_real);
             myfree(sfr_filtered);
         }
@@ -613,7 +613,7 @@ layout_prepare (PetaPM * pm,
 
     MPI_Comm_size(L->comm, &NTask);
 
-    L->ibuffer = (int *) mymalloc("PMlayout", sizeof(int) * NTask * 8);
+    L->ibuffer = mymalloc("PMlayout", int, NTask * 8);
 
     memset(L->ibuffer, 0, sizeof(int) * NTask * 8);
     L->NpSend = &L->ibuffer[NTask * 0];
@@ -636,7 +636,7 @@ layout_prepare (PetaPM * pm,
         NpAlloc += regions[r].size[0] * regions[r].size[1];
     }
 
-    L->PencilSend = (struct Pencil *) mymalloc("PencilSend", NpAlloc * sizeof(struct Pencil));
+    L->PencilSend = mymalloc("PencilSend", Pencil, NpAlloc);
 
     layout_build_pencils(pm, L, meshbuf, regions, Nregions);
 
@@ -697,7 +697,7 @@ layout_prepare (PetaPM * pm,
 
     /* exchange the pencils */
     message(0, "PetaPM:  %010ld/%010ld Pencils and %010ld Cells\n", totNpExport, totNpAlloc, totNcExport);
-    L->PencilRecv = (struct Pencil *) mymalloc("PencilRecv", L->NpImport * sizeof(struct Pencil));
+    L->PencilRecv = mymalloc("PencilRecv", Pencil, L->NpImport);
     memset(L->PencilRecv, 0xfc, L->NpImport * sizeof(struct Pencil));
     layout_exchange_pencils(L);
 }
@@ -813,8 +813,8 @@ layout_build_and_exchange_cells_to_pfft(
         double * meshbuf,
         double * real)
 {
-    L->BufSend = (double *) mymalloc("PMBufSend", L->NcExport * sizeof(double));
-    L->BufRecv = (double *) mymalloc("PMBufRecv", L->NcImport * sizeof(double));
+    L->BufSend = mymalloc("PMBufSend", double, L->NcExport);
+    L->BufRecv = mymalloc("PMBufRecv", double, L->NcImport);
 
     int64_t i;
     int64_t offset;
@@ -869,7 +869,7 @@ layout_build_and_exchange_cells_to_local(
         double * meshbuf,
         double * real)
 {
-    L->BufRecv = (double *) mymalloc("PMBufRecv", L->NcImport * sizeof(double));
+    L->BufRecv = mymalloc("PMBufRecv", double, L->NcImport);
     int64_t i;
     int64_t offset;
 
@@ -879,7 +879,7 @@ layout_build_and_exchange_cells_to_local(
     /*Real is done now: reuse the memory for BufSend*/
     myfree(real);
     /*Now allocate BufSend, which is confusingly used to receive data*/
-    L->BufSend = (double *) mymalloc("PMBufSend", L->NcExport * sizeof(double));
+    L->BufSend = mymalloc("PMBufSend", double, L->NcExport);
 
     /* exchange cells */
     /* notice the order is reversed from to_pfft */
@@ -957,7 +957,7 @@ pm_init_regions(PetaPM * pm, PetaPMRegion * regions, const int Nregions)
         }
         pm->priv->meshbufsize = size;
         if ( size == 0 ) return;
-        pm->priv->meshbuf = (double *) mymalloc("PMmesh", size * sizeof(double));
+        pm->priv->meshbuf = mymalloc("PMmesh", double, size);
         /* this takes care of the padding */
         memset(pm->priv->meshbuf, 0, size * sizeof(double));
         size = 0;

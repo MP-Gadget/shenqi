@@ -73,7 +73,7 @@ write_particle_data(IDGenerator * idgen,
     saveblock(bf, &curICP[0].Pos, Type, "Position", "f8", 3, idgen->NumPart, sizeof(curICP[0]), NumFiles, NumWriters);
     saveblock(bf, &curICP[0].Vel, Type, "Velocity", "f4", 3, idgen->NumPart, sizeof(curICP[0]), NumFiles, NumWriters);
     /*Generate and write IDs*/
-    uint64_t * ids = (uint64_t *) mymalloc("IDs", idgen->NumPart * sizeof(uint64_t));
+    uint64_t * ids = mymalloc("IDs", uint64_t, idgen->NumPart);
     memset(ids, 0, idgen->NumPart * sizeof(uint64_t));
     int i;
     #pragma omp parallel for
