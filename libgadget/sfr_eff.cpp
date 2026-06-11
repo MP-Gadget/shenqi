@@ -79,16 +79,16 @@ static struct SFRParams
      * density gradients were too small and Treion was only 10 K.
      */
     double HIReionTemp;
-    /* Input files for the various cooling modules*/
-    char TreeCoolFile[100];
-    char J21CoeffFile[100];
-    char MetalCoolFile[100];
-    char UVFluctuationFile[100];
     /* Boost SF for dense gas*/
     int BoostSFDenseGas;
     double BoostSFOverDenseFactor;
+    /* Input files for the various cooling modules*/
+    std::string TreeCoolFile;
+    std::string J21CoeffFile;
+    std::string MetalCoolFile;
+    std::string UVFluctuationFile;
     /* File with the helium reionization table*/
-    char ReionHistFile[100];
+    std::string ReionHistFile;
 } sfr_params;
 
 int get_generations(void)
@@ -156,42 +156,39 @@ static double entropy_to_u(const double density, const double a3inv)
 /*Set the parameters of the SFR module*/
 void set_sfr_params(ParameterSet * ps)
 {
-    int ThisTask;
-    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-    if(ThisTask == 0) {
-        /*Star formation parameters*/
-        sfr_params.StarformationCriterion = (enum StarformationCriterion) param_get_enum(ps, "StarformationCriterion");
-        sfr_params.CritOverDensity = param_get_double(ps, "CritOverDensity");
-        sfr_params.CritPhysDensity = param_get_double(ps, "CritPhysDensity");
-        sfr_params.WindOn = param_get_int(ps, "WindOn");
-        sfr_params.BoostSFDenseGas = param_get_int(ps, "BoostSFDenseGas");
-        sfr_params.BoostSFOverDenseFactor = param_get_double(ps, "BoostSFOverDenseFactor");
-
-        sfr_params.FactorSN = param_get_double(ps, "FactorSN");
-        sfr_params.FactorEVP = param_get_double(ps, "FactorEVP");
-        sfr_params.TempSupernova = param_get_double(ps, "TempSupernova");
-        sfr_params.TempClouds = param_get_double(ps, "TempClouds");
-        sfr_params.MaxSfrTimescale = param_get_double(ps, "MaxSfrTimescale");
-        sfr_params.Generations = param_get_int(ps, "Generations");
-        if(sfr_params.Generations > 14)
-            endrun(0, "Generations is %d, only space in the bitfield for 14.\n", sfr_params.Generations);
-        sfr_params.MinGasTemp = param_get_double(ps, "MinGasTemp");
-        sfr_params.BHFeedbackUseTcool = param_get_int(ps, "BHFeedbackUseTcool");
-        if(sfr_params.BHFeedbackUseTcool > 3 || sfr_params.BHFeedbackUseTcool < 0)
-            endrun(0, "BHFeedbackUseTcool mode %d not supported\n", sfr_params.BHFeedbackUseTcool);
-        /*Lyman-alpha forest parameters*/
-        sfr_params.QuickLymanAlphaProbability = param_get_double(ps, "QuickLymanAlphaProbability");
-        sfr_params.QuickLymanAlphaTempThresh = param_get_double(ps, "QuickLymanAlphaTempThresh");
-        sfr_params.HIReionTemp = param_get_double(ps, "HIReionTemp");
-
-        /* File names*/
-        param_get_string2(ps, "TreeCoolFile", sfr_params.TreeCoolFile, sizeof(sfr_params.TreeCoolFile));
-        param_get_string2(ps, "J21CoeffFile", sfr_params.J21CoeffFile, sizeof(sfr_params.J21CoeffFile));
-        param_get_string2(ps, "UVFluctuationfile", sfr_params.UVFluctuationFile, sizeof(sfr_params.UVFluctuationFile));
-        param_get_string2(ps, "MetalCoolFile", sfr_params.MetalCoolFile, sizeof(sfr_params.MetalCoolFile));
-        param_get_string2(ps, "ReionHistFile", sfr_params.ReionHistFile, sizeof(sfr_params.ReionHistFile));
-    }
-    MPI_Bcast(&sfr_params, sizeof(struct SFRParams), MPI_BYTE, 0, MPI_COMM_WORLD);
+     /*Star formation parameters*/
+    sfr_params.StarformationCriterion = (enum StarformationCriterion) param_get_enum(ps, "StarformationCriterion");
+    sfr_params.CritOverDensity = param_get_double(ps, "CritOverDensity");
+    sfr_params.CritPhysDensity = param_get_double(ps, "CritPhysDensity");
+    sfr_params.WindOn = param_get_int(ps, "WindOn");
+    sfr_params.BoostSFDenseGas = param_get_int(ps, "BoostSFDenseGas");
+    sfr_params.BoostSFOverDenseFactor = param_get_double(ps, "BoostSFOverDenseFactor");
+ 
+    sfr_params.FactorSN = param_get_double(ps, "FactorSN");
+    sfr_params.FactorEVP = param_get_double(ps, "FactorEVP");
+    sfr_params.TempSupernova = param_get_double(ps, "TempSupernova");
+    sfr_params.TempClouds = param_get_double(ps, "TempClouds");
+    sfr_params.MaxSfrTimescale = param_get_double(ps, "MaxSfrTimescale");
+    sfr_params.Generations = param_get_int(ps, "Generations");
+    if(sfr_params.Generations > 14)
+        endrun(0, "Generations is %d, only space in the bitfield for 14.\n", sfr_params.Generations);
+    sfr_params.MinGasTemp = param_get_double(ps, "MinGasTemp");
+    sfr_params.BHFeedbackUseTcool = param_get_int(ps, "BHFeedbackUseTcool");
+    if(sfr_params.BHFeedbackUseTcool > 3 || sfr_params.BHFeedbackUseTcool < 0)
+        endrun(0, "BHFeedbackUseTcool mode %d not supported\n", sfr_params.BHFeedbackUseTcool);
+    /*Lyman-alpha forest parameters*/
+    sfr_params.QuickLymanAlphaProbability = param_get_double(ps, "QuickLymanAlphaProbability");
+    sfr_params.QuickLymanAlphaTempThresh = param_get_double(ps, "QuickLymanAlphaTempThresh");
+    sfr_params.HIReionTemp = param_get_double(ps, "HIReionTemp");
+ 
+    /* File names*/
+    sfr_params.TreeCoolFile = param_get_string(ps, "TreeCoolFile");
+    sfr_params.J21CoeffFile = param_get_string(ps, "J21CoeffFile");
+    sfr_params.UVFluctuationFile = param_get_string(ps, "UVFluctuationFile");
+    sfr_params.MetalCoolFile = param_get_string(ps, "MetalCoolFile");
+    sfr_params.ReionHistFile = param_get_string(ps, "ReionHistFile");
+    if(!HAS(sfr_params.StarformationCriterion, SFR_CRITERION_DENSITY))
+        endrun(1, "error: StarFormationCriterion should use at least SFR_CRITERION_DENSITY\n");
 }
 
 /* This is for the IO helpers */
@@ -876,7 +873,7 @@ void init_cooling_and_star_formation(int CoolingOn, int StarformationOn, Cosmolo
         return;
 
     /*Initialize the uv fluctuation table*/
-    init_uvf_table(sfr_params.UVFluctuationFile, sizeof(sfr_params.UVFluctuationFile), BoxSize, units.UnitLength_in_cm);
+    init_uvf_table(sfr_params.UVFluctuationFile, BoxSize, units.UnitLength_in_cm);
 
     sfr_params.StarformationOn = StarformationOn;
 

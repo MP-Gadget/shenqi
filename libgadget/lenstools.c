@@ -1,7 +1,7 @@
 #include <mpi.h>
 #include <math.h>
 #include <fftw3.h>
-#include <string.h>
+#include <string>
 
 #ifdef USE_CFITSIO
 #include "fitsio.h"
@@ -276,14 +276,14 @@ int64_t cutPlaneGaussianGrid(int num_particles_tot, double comoving_distance, do
 }
 
 #ifdef USE_CFITSIO
-void savePotentialPlane(double *data, int rows, int cols, const char * const filename, double Lbox, Cosmology * CP, double redshift, double comoving_distance, int64_t num_particles, const double UnitLength_in_cm) {
+void savePotentialPlane(double *data, int rows, int cols, const std::string filename, double Lbox, Cosmology * CP, double redshift, double comoving_distance, int64_t num_particles, const double UnitLength_in_cm) {
     fitsfile *fptr;       // Pointer to the FITS file; defined in fitsio.h
     int status = 0;       // Status must be initialized to zero.
     long naxes[2] = {cols, rows};  // image dimensions
 
     // Create the file
-    if (fits_create_file(&fptr, filename, &status)) {
-        message(0, "Error creating FITS file: %s\n", filename+1);
+    if (fits_create_file(&fptr, filename.c_str(), &status)) {
+        message(0, "Error creating FITS file: %s\n", filename.c_str()+1);
         fits_report_error(stderr, status);
         return;
     }

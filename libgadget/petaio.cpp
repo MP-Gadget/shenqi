@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <string.h>
+#include <string>
 #include <stdarg.h>
 #include <omp.h>
 #include <algorithm>
@@ -22,7 +22,6 @@
 #include "physconst.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
-#include "utils/string.h"
 /************
  *
  * The IO api , intented to replace io.c and read_ic.c
@@ -42,8 +41,8 @@ static struct petaio_params {
     int OutputPotential;        /*!< Flag whether to include the potential in snapshots*/
     int OutputHeliumFractions;  /*!< Flag whether to output the helium ionic fractions in snapshots*/
     int OutputTimebins;         /* Flag whether to save the timebins*/
-    char SnapshotFileBase[100]; /* Snapshots are written to OutputDir/SnapshotFileBase_$n*/
-    char InitCondFile[100]; /* Path to read ICs from is InitCondFile */
+    std::string SnapshotFileBase; /* Snapshots are written to OutputDir/SnapshotFileBase_$n*/
+    std::string InitCondFile; /* Path to read ICs from is InitCondFile */
 
     int ExcursionSetReionOn;
 
@@ -56,23 +55,18 @@ static struct header_data Header;
 void
 set_petaio_params(ParameterSet * ps)
 {
-    int ThisTask;
-    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-    if(ThisTask == 0) {
-        IO.MinBytesPerFile = param_get_int(ps, "BytesPerFile");
-        IO.UsePeculiarVelocity = 0; /* Will be set by the Initial Condition File */
-        IO.MaxIORanks = param_get_int(ps, "NumWriters");
-        if(IO.MaxIORanks <= 0)
-            MPI_Comm_size(MPI_COMM_WORLD, &IO.MaxIORanks);
+    IO.MinBytesPerFile = param_get_int(ps, "BytesPerFile");
+    IO.UsePeculiarVelocity = 0; /* Will be set by the Initial Condition File */
+    IO.MaxIORanks = param_get_int(ps, "NumWriters");
+    if(IO.MaxIORanks <= 0)
+        MPI_Comm_size(MPI_COMM_WORLD, &IO.MaxIORanks);
 
-        IO.OutputPotential = param_get_int(ps, "OutputPotential");
-        IO.OutputTimebins = param_get_int(ps, "OutputTimebins");
-        IO.OutputHeliumFractions = param_get_int(ps, "OutputHeliumFractions");
-        param_get_string2(ps, "SnapshotFileBase", IO.SnapshotFileBase, sizeof(IO.SnapshotFileBase));
-        param_get_string2(ps, "InitCondFile", IO.InitCondFile, sizeof(IO.InitCondFile));
-        IO.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
-    }
-    MPI_Bcast(&IO, sizeof(struct petaio_params), MPI_BYTE, 0, MPI_COMM_WORLD);
+    IO.OutputPotential = param_get_int(ps, "OutputPotential");
+    IO.OutputTimebins = param_get_int(ps, "OutputTimebins");
+    IO.OutputHeliumFractions = param_get_int(ps, "OutputHeliumFractions");
+    IO.SnapshotFileBase = param_get_string(ps, "SnapshotFileBase");
+    IO.InitCondFile = param_get_string(ps, "InitCondFile");
+    IO.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
 }
 
 int GetUsePeculiarVelocity(void)
@@ -134,13 +128,13 @@ petaio_build_selection(int * selection,
 }
 
 void
-petaio_save_snapshot(const char * fname, struct IOTable * IOTable, int verbose, const double atime, const Cosmology * CP)
+petaio_save_snapshot(const std::string fname, struct IOTable * IOTable, int verbose, const double atime, const Cosmology * CP)
 {
-    message(0, "saving snapshot into %s\n", fname);
+    message(0, "saving snapshot into %s\n", fname.c_str());
 
     BigFile bf = {0};
-    if(0 != big_file_mpi_create(&bf, fname, MPI_COMM_WORLD)) {
-        endrun(0, "Failed to create snapshot at %s:%s\n", fname,
+    if(0 != big_file_mpi_create(&bf, fname.c_str(), MPI_COMM_WORLD)) {
+        endrun(0, "Failed to create snapshot at %s:%s\n", fname.c_str(),
                     big_file_get_error_message());
     }
 
@@ -185,37 +179,40 @@ petaio_save_snapshot(const char * fname, struct IOTable * IOTable, int verbose, 
         petaio_save_neutrinos(&bf, ThisTask);
     }
     if(0 != big_file_mpi_close(&bf, MPI_COMM_WORLD)){
-        endrun(0, "Failed to close snapshot at %s:%s\n", fname,
+        endrun(0, "Failed to close snapshot at %s:%s\n", fname.c_str(),
                     big_file_get_error_message());
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
-    message(0, "Finished saving snapshot into %s\n", fname);
+    message(0, "Finished saving snapshot into %s\n", fname.c_str());
     myfree(selection);
 }
 
-char *
-petaio_get_snapshot_fname(int num, const char * OutputDir)
+std::string zpad(int v, int w)
 {
-    char * fname;
-    if(num == -1) {
-        fname = fastpm_strdup_printf("%s", IO.InitCondFile);
-    } else {
-        fname = fastpm_strdup_printf("%s/%s_%03d", OutputDir, IO.SnapshotFileBase, num);
-    }
-    return fname;
+    std::ostringstream s;
+    s << std::setw(w) << std::setfill('0') << v;
+    return s.str();
+}
+
+std::string
+petaio_get_snapshot_fname(int num, const std::string OutputDir)
+{
+    if(num == -1)
+        return IO.InitCondFile;
+    return  OutputDir + "/"+ IO.SnapshotFileBase + "_" + zpad(num,3);
 }
 
 struct header_data
-    petaio_read_header(int num, const char * OutputDir, Cosmology * CP)
+    petaio_read_header(int num, const std::string OutputDir, Cosmology * CP)
 {
     BigFile bf = {0};
 
-    char * fname = petaio_get_snapshot_fname(num, OutputDir);
-    message(0, "Probing Header of snapshot file: %s\n", fname);
+    auto fname = petaio_get_snapshot_fname(num, OutputDir);
+    message(0, "Probing Header of snapshot file: %s\n", fname.c_str());
 
-    if(0 != big_file_mpi_open(&bf, fname, MPI_COMM_WORLD)) {
-        endrun(0, "Failed to open snapshot at %s:%s\n", fname,
+    if(0 != big_file_mpi_open(&bf, fname.c_str(), MPI_COMM_WORLD)) {
+        endrun(0, "Failed to open snapshot at %s:%s\n", fname.c_str(),
                     big_file_get_error_message());
     }
 
@@ -234,25 +231,24 @@ struct header_data
     }
 
     if(0 != big_file_mpi_close(&bf, MPI_COMM_WORLD)) {
-        endrun(0, "Failed to close snapshot at %s:%s\n", fname,
+        endrun(0, "Failed to close snapshot at %s:%s\n", fname.c_str(),
                     big_file_get_error_message());
     }
-    myfree(fname);
     Header = head;
     return head;
 }
 
 void
-petaio_read_snapshot(int num, const char * OutputDir, Cosmology * CP, struct header_data * header, struct part_manager_type * PartManager, struct slots_manager_type * SlotsManager, MPI_Comm Comm)
+petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struct header_data * header, struct part_manager_type * PartManager, struct slots_manager_type * SlotsManager, MPI_Comm Comm)
 {
-    char * fname = petaio_get_snapshot_fname(num, OutputDir);
+    auto fname = petaio_get_snapshot_fname(num, OutputDir);
     int i;
     const int ic = (num == -1);
     BigFile bf = {0};
-    message(0, "Reading snapshot %s\n", fname);
+    message(0, "Reading snapshot %s\n", fname.c_str());
 
-    if(0 != big_file_mpi_open(&bf, fname, Comm)) {
-        endrun(0, "Failed to open snapshot at %s:%s\n", fname,
+    if(0 != big_file_mpi_open(&bf, fname.c_str(), Comm)) {
+        endrun(0, "Failed to open snapshot at %s:%s\n", fname.c_str(),
                     big_file_get_error_message());
     }
 
@@ -316,12 +312,11 @@ petaio_read_snapshot(int num, const char * OutputDir, Cosmology * CP, struct hea
     destroy_io_blocks(IOTable);
 
     if(0 != big_file_mpi_close(&bf, Comm)) {
-        endrun(0, "Failed to close snapshot at %s:%s\n", fname,
+        endrun(0, "Failed to close snapshot at %s:%s\n", fname.c_str(),
                     big_file_get_error_message());
     }
     /* now we have IDs, set up the ID consistency between slots. */
     slots_setup_id(PartManager, SlotsManager);
-    myfree(fname);
 
     if(ic) {
         /*

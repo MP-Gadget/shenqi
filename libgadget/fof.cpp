@@ -17,6 +17,7 @@
 #include "blackhole.h"
 #include "domain.h"
 #include "winds.h"
+#include "petaio.h"
 
 #include "forcetree.h"
 #include "treewalk.h"
@@ -25,7 +26,6 @@
 #include "densitykernel.h"
 #include "utils/mymalloc.h"
 #include "utils/spinlocks.h"
-#include "utils/string.h"
 
 /*! \file fof.c
  *  \brief parallel FoF group finder
@@ -175,7 +175,7 @@ fof_fof(DomainDecomp * ddecomp, const int StoreGrNr, MPI_Comm Comm)
 
     /* We only need a tree containing primary linking particles only. No moments*/
     ForceTree dmtree = {0};
-    force_tree_rebuild_mask(&dmtree, ddecomp, fof_params.FOFPrimaryLinkTypes, NULL);
+    force_tree_rebuild_mask(&dmtree, ddecomp, fof_params.FOFPrimaryLinkTypes, "");
     walltime_measure("/FOF/Build");
 
     /* Fill FOFP_List of primary */
@@ -243,7 +243,7 @@ fof_fof(DomainDecomp * ddecomp, const int StoreGrNr, MPI_Comm Comm)
 
     fof_compile_catalogue(&fof, NgroupsExt, HaloLabel, Comm);
 
-    MPIU_Barrier(Comm);
+    MPI_Barrier(Comm);
     message(0, "Finished FoF. Group properties are now allocated.. (presently allocated=%g MB)\n",
             mymalloc_usedbytes() / (1024.0 * 1024.0));
 
@@ -1095,10 +1095,10 @@ static void fof_assign_grnr(struct BaseGroup * base, const int NgroupsExt, MPI_C
 }
 
 int
-fof_save_groups(FOFGroups * fof, const char * OutputDir, const char * FOFFileBase, int num, Cosmology * CP, double atime, const double * MassTable, int MetalReturnOn, MPI_Comm Comm)
+fof_save_groups(FOFGroups * fof, const std::string OutputDir, const std::string FOFFileBase, int num, Cosmology * CP, double atime, const double * MassTable, int MetalReturnOn, MPI_Comm Comm)
 {
-    char * fname = fastpm_strdup_printf("%s/%s_%03d", OutputDir, FOFFileBase, num);
-    message(0, "Saving particle groups into %s\n", fname);
+    auto fname = OutputDir + "/" + FOFFileBase + "_" + zpad(num, 3);
+    message(0, "Saving particle groups into %s\n", fname.c_str());
 
     return fof_save_particles(fof, fname, fof_params.FOFSaveParticles, CP, atime, MassTable, MetalReturnOn, Comm);
 }

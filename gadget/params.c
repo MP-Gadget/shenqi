@@ -21,36 +21,10 @@
 #include <libgadget/plane.h>
 #include <libgadget/utils/endrun.h>
 
-static int
-BlackHoleFeedbackMethodAction (ParameterSet * ps, const char * name, void * data)
-{
-    int v = param_get_enum(ps, name);
-    if(HAS(v, BH_FEEDBACK_TOPHAT) == HAS(v, BH_FEEDBACK_SPLINE)) {
-        message(1, "error BlackHoleFeedbackMethod contains either tophat or spline, but both\n");
-        return 1;
-    }
-    if(HAS(v, BH_FEEDBACK_MASS) ==  HAS(v, BH_FEEDBACK_VOLUME)) {
-        message(1, "error BlackHoleFeedbackMethod contains either volume or mass, but both\n");
-        return 1;
-    }
-    return 0;
-}
-
-static int
-StarformationCriterionAction(ParameterSet * ps, const char * name, void * data)
-{
-    int v = param_get_enum(ps, name);
-    if(!HAS(v, SFR_CRITERION_DENSITY)) {
-        message(1, "error: At least use SFR_CRITERION_DENSITY\n");
-        return 1;
-    }
-    return 0;
-}
-
 static ParameterSet *
 create_gadget_parameter_set()
 {
-    ParameterSet * ps = parameter_set_new();
+    ParameterSet * ps = new ParameterSet;
 
     #ifdef USE_CUDA
     param_declare_int(ps,    "UseGPU", OPTIONAL, 1, "Should we enable GPU acceleration of the Treewalk.");
@@ -58,22 +32,19 @@ create_gadget_parameter_set()
     param_declare_int(ps,    "UseGPU", OPTIONAL, 0, "Should we enable GPU acceleration of the Treewalk.");
     #endif
 
-    param_declare_string(ps, "InitCondFile", REQUIRED, NULL, "Path to the Initial Condition File");
-    param_declare_string(ps, "OutputDir",    REQUIRED, NULL, "Prefix to the output files");
+    param_declare_string(ps, "InitCondFile", REQUIRED, "", "Path to the Initial Condition File");
+    param_declare_string(ps, "OutputDir",    REQUIRED, "", "Prefix to the output files");
 
-    static ParameterEnum DensityKernelTypeEnum [] = {
+    ParameterEnum DensityKernelTypeEnum = {
         {"cubic", DENSITY_KERNEL_CUBIC_SPLINE},
         {"quintic", DENSITY_KERNEL_QUINTIC_SPLINE},
         {"quartic", DENSITY_KERNEL_QUARTIC_SPLINE},
-        {NULL, DENSITY_KERNEL_QUARTIC_SPLINE},
     } ;
     param_declare_enum(ps,    "DensityKernelType", DensityKernelTypeEnum, OPTIONAL, "quintic", "SPH density kernel to use. Supported values are cubic, quartic and quintic.");
     param_declare_string(ps, "SnapshotFileBase", OPTIONAL, "PART", "Base name of the snapshot files, _%03d will be appended to the name.");
     param_declare_string(ps, "FOFFileBase", OPTIONAL, "PIG", "Base name of the fof files, _%03d will be appended to the name.");
-    param_declare_string(ps, "EnergyFile", OPTIONAL, "energy.txt", "File to output energy statistics.");
     param_declare_int(ps,    "OutputEnergyDebug", OPTIONAL, 0, "Should we output energy statistics to energy.txt");
-    param_declare_string(ps, "CpuFile", OPTIONAL, "cpu.txt", "File to output cpu usage information");
-    param_declare_string(ps, "OutputList", REQUIRED, NULL, "List of output scale factors.");
+    param_declare_string(ps, "OutputList", REQUIRED, "", "List of output scale factors.");
 
     /*Potential plane parameters*/
     param_declare_string(ps, "PlaneOutputList", OPTIONAL, "", "List of potential plane output scale factors.");
@@ -124,10 +95,9 @@ create_gadget_parameter_set()
                                                       "Larger values suppresses grid anisotropy. ShortRangeForceWindowType = erfc supports any value. 'exact' only supports 1.5. ");
     param_declare_int(ps,    "Nmesh", OPTIONAL, -1, "Size of the PM grid on which to compute the long-range force.");
 
-    static ParameterEnum ShortRangeForceWindowTypeEnum [] = {
+    ParameterEnum ShortRangeForceWindowTypeEnum = {
         {"exact", SHORTRANGE_FORCE_WINDOW_TYPE_EXACT},
         {"erfc", SHORTRANGE_FORCE_WINDOW_TYPE_ERFC },
-        {NULL, SHORTRANGE_FORCE_WINDOW_TYPE_EXACT },
     };
     param_declare_enum(ps,    "ShortRangeForceWindowType", ShortRangeForceWindowTypeEnum, OPTIONAL, "exact", "type of shortrange window, exact or erfc (default is exact) ");
 
@@ -160,17 +130,15 @@ create_gadget_parameter_set()
     param_declare_string(ps, "UVFluctuationFile", OPTIONAL, "", "Path to the UVFluctation Table. Refer to cooling.c.");
     param_declare_double(ps, "HIReionTemp", OPTIONAL, 0, "Boost the particle temperature to this value during the timestep when it undergoes HI reionization. Do not boost star-forming gas. 1807.09282 suggests a boost of 20000.");
     param_declare_double(ps, "UVRedshiftThreshold", OPTIONAL, -1.0, "Earliest Redshift that UV background is enabled. This modulates UVFluctuation and TreeCool globally. Default -1.0 means no modulation.");
-    static ParameterEnum CoolingTypeTable [] = {
+    ParameterEnum CoolingTypeTable = {
         {"KWH92", KWH92 },
         {"Enzo2Nyx", Enzo2Nyx },
         {"Sherwood", Sherwood },
-        {NULL, Cen92 },
     };
-    static ParameterEnum RecombTypeTable [] = {
+    ParameterEnum RecombTypeTable = {
         {"Cen92", Cen92 },
         {"Verner96", Verner96 },
         {"Badnell06", Badnell06},
-        {NULL, Cen92 },
     };
     param_declare_enum(ps, "CoolingRates", CoolingTypeTable, OPTIONAL, "Sherwood", "Which cooling rate table to use. Options are KWH92 (old gadget default), Enzo2Nyx and Sherwood (new default).");
     param_declare_enum(ps, "RecombRates", RecombTypeTable, OPTIONAL, "Verner96", "Which recombination rate table to use. Options are Cen92 (old gadget default), Verner96 (new default), Badnell06");
@@ -248,29 +216,20 @@ create_gadget_parameter_set()
     param_declare_int(ps,"MergeGravBound",OPTIONAL, 1, "If set to 1, apply gravitational bound criteria for merging event. This criteria would be automatically turned off if reposition is enabled.");
     param_declare_double(ps, "SeedBHDynMass", OPTIONAL, -1, "The initial dynamic mass of BH, default -1 will use the mass of gas particle. Larger Mdyn would help to stablize the BH in the early phase if turning off reposition.");
 
-    static ParameterEnum BlackHoleFeedbackMethodEnum [] = {
-        {"mass", BH_FEEDBACK_MASS},
-        {"volume", BH_FEEDBACK_VOLUME},
-        {"tophat", BH_FEEDBACK_TOPHAT},
-        {"spline", BH_FEEDBACK_SPLINE},
-        {NULL, BH_FEEDBACK_SPLINE | BH_FEEDBACK_MASS},
-    };
-    param_declare_enum(ps, "BlackHoleFeedbackMethod", BlackHoleFeedbackMethodEnum,
-            OPTIONAL, "spline, mass", "");
+    param_declare_string(ps, "BlackHoleFeedbackMethod", OPTIONAL, "spline, mass", "Unused");
     /*End black holes*/
 
     /*Star formation parameters*/
-    static ParameterEnum StarformationCriterionEnum [] = {
+    ParameterEnum StarformationCriterionEnum = {
         {"density", SFR_CRITERION_DENSITY}, /* SH03 density model for star formation*/
         {"h2", SFR_CRITERION_MOLECULAR_H2}, /* Form stars depending on the computed
                                                molecular gas fraction as a function of metallicity. */
         {"selfgravity", SFR_CRITERION_SELFGRAVITY}, /* Form stars only when the gas is self-gravitating. From Phil Hopkins.*/
         {"convergent", SFR_CRITERION_CONVERGENT_FLOW}, /* Modify self-gravitating star formation to form stars only when the gas flow is convergent. From Phil Hopkins.*/
         {"continuous", SFR_CRITERION_CONTINUOUS_CUTOFF}, /* Modify self-gravitating star formation to smooth the star formation threshold. From Phil Hopkins.*/
-        {NULL, SFR_CRITERION_DENSITY},
     };
 
-    static ParameterEnum WindModelEnum [] = {
+    ParameterEnum WindModelEnum = {
         {"subgrid", WIND_SUBGRID}, /* If this is true, winds are spawned from the star forming gas.
                                       If false, they are spawned from neighbours of the star particle.*/
         {"decouple", WIND_DECOUPLE_SPH}, /* Specifies that wind particles are created temporarily decoupled from the gas dynamics */
@@ -280,7 +239,6 @@ create_gadget_parameter_set()
         {"vs08", WIND_FIXED_EFFICIENCY},
         {"ofjt10", WIND_USE_HALO | WIND_DECOUPLE_SPH},
         {"isotropic", WIND_ISOTROPIC}, /*Does nothing: wind direction is always random and isotropic.*/
-        {NULL, WIND_USE_HALO | WIND_DECOUPLE_SPH }, /* Default is ofjt10*/
     };
 
     param_declare_int(ps, "StarformationOn", REQUIRED, 0, "Enables star formation");
@@ -378,10 +336,6 @@ create_gadget_parameter_set()
     param_declare_int(ps, "ReionUseParticleSFR", OPTIONAL, 0, "Use the gas particle SFR instead of the usual excursion set stellar mass / timescale");
     param_declare_double(ps, "ReionSFRTimescale", OPTIONAL, 0.1, "timescale to calculate the SFR from stellar mass filtered grids (units of Hubble time)");
     /*End Parameters for the Excursion Set Algorithm*/
-
-    param_set_action(ps, "BlackHoleFeedbackMethod", BlackHoleFeedbackMethodAction, NULL);
-    param_set_action(ps, "StarformationCriterion", StarformationCriterionAction, NULL);
-
     return ps;
 }
 
@@ -438,5 +392,5 @@ void read_parameter_file(char *fname, int * ShowBacktrace, double * MaxMemSizePe
     set_blackhole_params(ps);
     set_metal_return_params(ps);
     set_stats_params(ps);
-    parameter_set_free(ps);
+    delete ps;
 }

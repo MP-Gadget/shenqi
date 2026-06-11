@@ -30,7 +30,6 @@ struct BlackholeParams
 {
     double BlackHoleAccretionFactor;	/*!< Fraction of BH bondi accretion rate */
     double BlackHoleFeedbackFactor;	/*!< Fraction of the black luminosity feed into thermal feedback */
-    enum BlackHoleFeedbackMethod BlackHoleFeedbackMethod;	/*!< method of the feedback*/
     double BlackHoleEddingtonFactor;	/*! Factor above Eddington */
 
     int BlackHoleKineticOn; /*If 1, perform AGN kinetic feedback when the Eddington accretion rate is low */
@@ -97,8 +96,6 @@ void set_blackhole_params(ParameterSet * ps)
         blackhole_params.BlackHoleAccretionFactor = param_get_double(ps, "BlackHoleAccretionFactor");
         blackhole_params.BlackHoleEddingtonFactor = param_get_double(ps, "BlackHoleEddingtonFactor");
         blackhole_params.BlackHoleFeedbackFactor = param_get_double(ps, "BlackHoleFeedbackFactor");
-
-        blackhole_params.BlackHoleFeedbackMethod = (enum BlackHoleFeedbackMethod) param_get_enum(ps, "BlackHoleFeedbackMethod");
 
         blackhole_params.BlackHoleKineticOn = param_get_int(ps,"BlackHoleKineticOn");
         blackhole_params.BHKE_EddingtonThrFactor = param_get_double(ps, "BHKE_EddingtonThrFactor");
@@ -621,27 +618,9 @@ blackhole_accretion_ngbiter(TreeWalkQueryBHAccretion * I,
 
         if(r2 < iter->kernel.HH) {
             /* update the feedback weighting */
-            double mass_j;
-            if(HAS(blackhole_params.BlackHoleFeedbackMethod, BH_FEEDBACK_OPTTHIN)) {
-                double redshift = 1./BH_GET_PRIV(lv->tw)->atime - 1;
-                double nh0 = get_neutral_fraction_sfreff(redshift, BH_GET_PRIV(lv->tw)->hubble, &Part[other], &SPHP(other));
-                if(r2 > 0)
-                    O->FeedbackWeightSum += (Part[other].Mass * nh0) / r2;
-            } else {
-                if(HAS(blackhole_params.BlackHoleFeedbackMethod, BH_FEEDBACK_MASS)) {
-                    mass_j = Part[other].Mass;
-                } else {
-                    mass_j = Part[other].Hsml * Part[other].Hsml * Part[other].Hsml;
-                }
-                if(HAS(blackhole_params.BlackHoleFeedbackMethod, BH_FEEDBACK_SPLINE)) {
-                    double u = r * iter->kernel.Hinv;
-                    O->FeedbackWeightSum += (mass_j *
-                          density_kernel_wk(&iter->kernel, u)
-                           );
-                } else {
-                    O->FeedbackWeightSum += (mass_j);
-                }
-            }
+            double mass_j = Part[other].Mass;
+            double u = r * iter->kernel.Hinv;
+            O->FeedbackWeightSum += (mass_j * density_kernel_wk(&iter->kernel, u));
         }
     }
 
@@ -833,16 +812,8 @@ blackhole_feedback_ngbiter(TreeWalkQueryBHFeedback * I,
             O->BH_minTimeBin = Part[other].TimeBinHydro;
 
         double u = r * iter->kernel.Hinv;
-        double wk = 1.0;
-        double mass_j;
-
-        if(HAS(blackhole_params.BlackHoleFeedbackMethod, BH_FEEDBACK_MASS)) {
-            mass_j = Part[other].Mass;
-        } else {
-            mass_j = Part[other].Hsml * Part[other].Hsml * Part[other].Hsml;
-        }
-        if(HAS(blackhole_params.BlackHoleFeedbackMethod, BH_FEEDBACK_SPLINE))
-            wk = density_kernel_wk(&iter->kernel, u);
+        double mass_j = Part[other].Mass;
+        double wk = density_kernel_wk(&iter->kernel, u);
 
         /* thermal feedback */
         if(I->FeedbackWeightSum > 0 && I->FeedbackEnergy > 0 && I->FdbkChannel == 0 && Part[other].Mass > 0){

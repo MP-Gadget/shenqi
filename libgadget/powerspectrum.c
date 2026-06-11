@@ -2,13 +2,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <string.h>
+#include <string>
+#include <cstring>
+#include <sstream>
+#include <iomanip>
 #include <math.h>
 
 #include "powerspectrum.h"
 #include "physconst.h"
 #include "utils/mymalloc.h"
-#include "utils/string.h"
 #include "utils/endrun.h"
 #include "utils/system.h"
 
@@ -86,32 +88,32 @@ void powerspectrum_sum(Power * ps)
 }
 
 /*Save the power spectrum to a file*/
-void powerspectrum_save(Power * ps, const char * OutputDir, const char * filename, const double Time, const double D1)
+void powerspectrum_save(Power * ps, const std::string OutputDir, const std::string filename, const double Time, const double D1)
 {
-        int i;
         int ThisTask;
         MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
         if(ThisTask != 0)
             return;
-        char * fname = fastpm_strdup_printf("%s/%s-%0.4f.txt", OutputDir, filename, Time);
+        std::ostringstream ss;
         /* Avoid -0.0000.txt at high z*/
-        if(Time <= 1e-4) {
-            myfree(fname);
-            fname = fastpm_strdup_printf("%s/%s-%0.4e.txt", OutputDir, filename, Time);
+        if(Time > 1e-4)
+            ss << std::fixed;
+        else
+            ss << std::scientific;
+        ss << std::setprecision(4) << Time;
+        std::string fname = OutputDir + "/" + filename + "-" + ss.str() + ".txt";
+        message(1, "Writing Power Spectrum to %s\n", fname.c_str());
+        FILE * fp = fopen(fname.c_str(), "w");
+        if(!fp) {
+            message(1, "Could not open %s for writing\n", fname.c_str());
+            return;
         }
-        message(1, "Writing Power Spectrum to %s\n", fname);
-        FILE * fp = fopen(fname, "w");
-        if(!fp)
-            message(1, "Could not open %s for writing\n", fname);
-        else {
-            fprintf(fp, "# in Mpc/h Units \n");
-            fprintf(fp, "# D1 = %g \n", D1);
-            fprintf(fp, "# k P N P(z=0)\n");
-            for(i = 0; i < ps->nonzero; i ++) {
-                fprintf(fp, "%g %g %ld %g\n", ps->kk[i], ps->Power[i], ps->Nmodes[i],
-                            ps->Power[i] / (D1 * D1));
-            }
-            fclose(fp);
+        fprintf(fp, "# in Mpc/h Units \n");
+        fprintf(fp, "# D1 = %g \n", D1);
+        fprintf(fp, "# k P N P(z=0)\n");
+        for(int i = 0; i < ps->nonzero; i ++) {
+            fprintf(fp, "%g %g %ld %g\n", ps->kk[i], ps->Power[i], ps->Nmodes[i],
+                        ps->Power[i] / (D1 * D1));
         }
-        myfree(fname);
+        fclose(fp);
 }

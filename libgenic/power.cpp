@@ -1,8 +1,10 @@
-#include <stdio.h>
-#include <string.h>
 #include <math.h>
 #include <stddef.h>
 #include <mpi.h>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
 #include <boost/math/interpolators/makima.hpp>
 #include <boost/math/quadrature/gauss_kronrod.hpp>
 
@@ -18,9 +20,6 @@
 /* Small factor so a zero in the power spectrum is not
  * a log(0) = -INF*/
 #define NUGGET 1e-30
-
-/*Typedef for a function that parses the table from text*/
-typedef void (*_parse_fn)(int i, double k, char * line, struct table *, int *InputInLog10, const double InitTime, int NumCol);
 
 static const char * tnames[MAXCOLS] = {"DELTA_BAR", "DELTA_CDM", "DELTA_NU", "DELTA_CB", "VEL_BAR", "VEL_CDM", "VEL_NU", "VEL_CB", "VEL_TOT"};
 
@@ -134,9 +133,8 @@ void PowerSpectrum::save_all_transfer_tables(BigFile * bf, int ThisTask)
 }
 
 
-void parse_power(int i, double k, char * line, struct table *out_tab, int * InputInLog10, const double InitTime, int NumCol)
+void parse_power(int i, double k, const std::vector<double>& vals, struct table *out_tab, int * InputInLog10, const double InitTime, size_t NumCol)
 {
-    char * retval;
     if((*InputInLog10) == 0) {
         if(k < 0) {
             message(1, "some input k is negative, guessing the file is in log10 units\n");
@@ -146,17 +144,16 @@ void parse_power(int i, double k, char * line, struct table *out_tab, int * Inpu
             k = log10(k);
     }
     out_tab->logk[i] = k;
-    retval = strtok(NULL, " \t");
-    if(!retval)
-        endrun(1,"Incomplete line in power spectrum: %s\n",line);
-    double p = atof(retval);
+    if(vals.size() < 2)
+        endrun(1,"Incomplete line in power spectrum at row %d\n", i);
+    double p = vals[1];
     if ((*InputInLog10) == 0)
         p = log10(p+NUGGET);
     /*Store delta, square root of power*/
     out_tab->logD[0][i] = p/2;
 }
 
-void PowerSpectrum::parse_transfer(int i, double k, char * line, struct table *out_tab, int * InputInLog10, const double InitTime, int NumCol)
+void PowerSpectrum::parse_transfer(int i, double k, const std::vector<double>& vals, struct table *out_tab, int * InputInLog10, const double InitTime, size_t NumCol)
 {
     int j;
     int ncols = NumCol - 1; /* The first column k is already read in read_power_table. */
@@ -165,10 +162,15 @@ void PowerSpectrum::parse_transfer(int i, double k, char * line, struct table *o
     if(NumCol > 22)
         defld = 1;
     else if(NumCol > 24)
-        endrun(2,"Transfer function has %d columns, expected maximum 22!\n", NumCol);
+        endrun(2,"Transfer function has %lu columns, expected maximum 22!\n", NumCol);
     int nnu = round((ncols - 15 - defld *2)/2);
 
-    double * transfers = mymalloc("transfers", double, ncols);
+    if(vals.size() < NumCol)
+        endrun(1,"Incomplete line in transfer table (row %d): only %lu columns, expecting %lu. Did you remember to set extra metric transfer functions=y?\n", i, vals.size(), NumCol);
+    /* vals[0] == k; vals[1..NumCol-1] are the transfer function columns, matching the
+     * layout that was previously read into the local 'transfers' array via strtok. */
+    const double * transfers = vals.data() + 1;
+
     k = log10(k);
     out_tab->logk[i] = k;
     /* Note: the ncdm entries change depending on the number of neutrino species. The first row, k,
@@ -179,13 +181,6 @@ void PowerSpectrum::parse_transfer(int i, double k, char * line, struct table *o
      * 11:psi                   12:h                     13:h_prime               14:eta                   15:eta_prime
      * 16:t_g                   17:t_b                   18:t_ur                  (19:t_fld)
      * 19:t_ncdm[0]             20:t_ncdm[1]             21:t_ncdm[2]             22:t_tot*/
-    for(j = 0; j< ncols; j++) {
-        char * retval = strtok(NULL, " \t");
-        /*This happens if we do not have as many neutrino species as we expect, or we don't find h_prime.*/
-        if(!retval)
-            endrun(1,"Incomplete line in power spectrum: only %d columns, expecting %d. Did you remember to set extra metric transfer functions=y?\n",j, ncols);
-        transfers[j] = atof(retval);
-    }
     /*Order of the transfer table matches the particle types:
      * 0 is baryons, 1 is CDM, 2 is massive neutrinos (we use the most massive neutrino species).
      * 3 is growth function for baryons, 4 is growth function for CDM, 5 is growth function for massive neutrinos.
@@ -221,85 +216,58 @@ void PowerSpectrum::parse_transfer(int i, double k, char * line, struct table *o
     /*Should be weighted by omega_nu*/
     if(onu > 0)
         out_tab->logD[VEL_NU][i] /= onu;
-    myfree(transfers);
 }
 
 template <typename F>
 void PowerSpectrum::read_power_table(int ThisTask, const char * inputfile, const int ncols, struct table * out_tab, const double InitTime, F parse_line)
 {
-    FILE *fd = NULL;
     int j;
     int InputInLog10 = 0;
 
-    if(ThisTask == 0) {
-        if(!(fd = fopen(inputfile, "r")))
-            endrun(1, "can't read input spectrum in file '%s' on task %d\n", inputfile, ThisTask);
+    /* Collect all data rows on rank 0 in a single pass, then broadcast. */
+    std::vector<std::vector<double>> rows;
+    int Ncolumns = 0;
 
-        out_tab->Nentry = 0;
-        do
-        {
-            char buffer[1024];
-            char * retval = fgets(buffer, 1024, fd);
-            /*Happens on end of file*/
-            if(!retval)
-                break;
-            retval = strtok(buffer, " \t");
-            if(!retval || retval[0] == '#')
+    if(ThisTask == 0) {
+        std::ifstream fd(inputfile);
+        if(!fd.is_open())
+            endrun(1, "can't read input spectrum in file '%s'\n", inputfile);
+
+        std::string line;
+        while(std::getline(fd, line)) {
+            std::istringstream ss(line);
+            std::string first;
+            if(!(ss >> first) || first[0] == '#')
                 continue;
-            out_tab->Nentry++;
+            std::vector<double> row;
+            row.push_back(std::stod(first));
+            double v;
+            while(ss >> v)
+                row.push_back(v);
+            /* Column count is fixed by the first non-comment data line. */
+            if(Ncolumns == 0) {
+                Ncolumns = (int)row.size();
+                message(0, "Detected %d columns in file '%s'.\n", Ncolumns, inputfile);
+            }
+            rows.push_back(std::move(row));
         }
-        while(1);
-        rewind(fd);
+        out_tab->Nentry = (int)rows.size();
     }
+
     MPI_Bcast(&(out_tab->Nentry), 1, MPI_INT, 0, MPI_COMM_WORLD);
 
     if(out_tab->Nentry < 2)
         endrun(1, "Input spectrum too short\n");
+
     out_tab->logk = mymalloc("Powertable", double, (ncols+1)*out_tab->Nentry);
-    for(j=0; j<ncols; j++)
+    for(j = 0; j<ncols; j++)
         out_tab->logD[j] = out_tab->logk + (j+1)*out_tab->Nentry;
 
-    if(ThisTask == 0)
-    {
-        /* detect the columns of the input file */
-        char line1[1024];
-
-        while(fgets(line1,1024,fd))
-        {
-            char * content = strtok(line1, " \t");
-            if(content[0] != '#') /*Find the first line*/
-                break;
+    if(ThisTask == 0) {
+        for(int i = 0; i < out_tab->Nentry; i++) {
+            double k = rows[i][0];
+            parse_line(i, k, rows[i], out_tab, &InputInLog10, InitTime, Ncolumns);
         }
-        int Ncolumns = 0;
-        char *c;
-        do
-        {
-            Ncolumns++;
-            c = strtok(NULL," \t");
-        }
-        while(c != NULL);
-
-        rewind(fd);
-        message(0, "Detected %d columns in file '%s'. \n", Ncolumns, inputfile);
-
-        int i = 0;
-        do
-        {
-            char buffer[1024];
-            char * line = fgets(buffer, 1024, fd);
-            /*Happens on end of file*/
-            if(!line)
-                break;
-            char * retval = strtok(line, " \t");
-            if(!retval || retval[0] == '#')
-                continue;
-            double k = atof(retval);
-            parse_line(i, k, line, out_tab, &InputInLog10, InitTime, Ncolumns);
-            i++;
-        }
-        while(1);
-
-        fclose(fd);
     }
 
     MPI_Bcast(out_tab->logk, (ncols+1)*out_tab->Nentry, MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -309,14 +277,14 @@ int PowerSpectrum::init_transfer_table(int ThisTask, double InitTime, const stru
 {
     int i, t;
     const int nnu = (CP->MNu[0] > 0) + (CP->MNu[1] > 0) + (CP->MNu[2] > 0);
-    if(strlen(ppar->FileWithTransferFunction) > 0) {
-        read_power_table(ThisTask, ppar->FileWithTransferFunction, MAXCOLS, &transfer_table, InitTime,
-            [this](int i, double k, char * line, struct table *out_tab, int * InputInLog10, const double InitTime, int NumCol) {
-                parse_transfer(i, k, line, out_tab, InputInLog10, InitTime, NumCol);
+    if(ppar->FileWithTransferFunction.size() > 0) {
+        read_power_table(ThisTask, ppar->FileWithTransferFunction.c_str(), MAXCOLS, &transfer_table, InitTime,
+            [this](int i, double k, const std::vector<double>& vals, struct table *out_tab, int * InputInLog10, const double InitTime, size_t NumCol) {
+                parse_transfer(i, k, vals, out_tab, InputInLog10, InitTime, NumCol);
             });
     }
     if(transfer_table.Nentry == 0) {
-        endrun(1, "Could not read transfer table at: '%s'\n",ppar->FileWithTransferFunction);
+        endrun(1, "Could not read transfer table at: '%s'\n",ppar->FileWithTransferFunction.c_str());
     }
     /*Normalise the transfer functions.*/
 
@@ -406,7 +374,7 @@ int PowerSpectrum::init_transfer_table(int ThisTask, double InitTime, const stru
 PowerSpectrum::PowerSpectrum(int ThisTask, double InitTime, double UnitLength_in_cm_in, Cosmology * CPin, struct power_params * ppar): WhichSpectrum(ppar->WhichSpectrum), PrimordialIndex(ppar->PrimordialIndex), UnitLength_in_cm(UnitLength_in_cm_in), CP(CPin)
 {
     if(ppar->WhichSpectrum == 2) {
-        read_power_table(ThisTask, ppar->FileWithInputSpectrum, 1, &power_table, InitTime, parse_power);
+        read_power_table(ThisTask, ppar->FileWithInputSpectrum.c_str(), 1, &power_table, InitTime, parse_power);
         std::vector<double> logk(power_table.logk, power_table.logk + power_table.Nentry);
         std::vector<double> logD(power_table.logD[0], power_table.logD[0]+ power_table.Nentry);
         power_table.mat_intp[0] = new boost::math::interpolators::makima(std::move(logk), std::move(logD));

@@ -268,7 +268,7 @@ void domain_decompose_full(DomainDecomp * ddecomp, MPI_Comm DomainComm)
     slots_gc_sorted(PartManager, SlotsManager);
 
     /*Ensure collective*/
-    MPIU_Barrier(ddecomp->DomainComm);
+    MPI_Barrier(ddecomp->DomainComm);
     message(0, "Domain decomposition done.\n");
 
     report_memory_usage("DOMAIN");
@@ -645,9 +645,8 @@ domain_assign_topleaves_balanced(DomainDecomp * ddecomp, int64_t * cost, const i
         TopLeafExt[i].cost = cost[i];
     }
 
-    /* make sure TopLeaves are sorted by Key for locality of segments -
-     * likely not necessary because when this function
-     * is called it is already true */
+    /* make sure TopLeaves are sorted by Key for locality of segments:
+     * this makes the gravity faster by reducing communication.*/
     std::sort(std::execution::par_unseq, TopLeafExt, TopLeafExt + ddecomp->NTopLeaves, [](const auto& p1, const auto& p2){ return p1.Key < p2.Key;});
 
     int64_t totalcost = 0;
@@ -1291,18 +1290,6 @@ int domain_determine_global_toptree(DomainDecompositionPolicy * policy,
         message(1, "local TopTree Size =%d >> expected = %d; Usually this indicates very bad imbalance, due to a giant density peak.\n",
             *topTreeSize, policy->NTopLeaves);
     }
-
-#if 0
-    char buf[1000];
-    sprintf(buf, "topnodes.bin.%d", ThisTask);
-    FILE * fd = fopen(buf, "w");
-
-    fwrite(topTree, sizeof(struct local_topnode_data), *topTreeSize, fd);
-    fclose(fd);
-
-    //MPI_Barrier(DomainComm);
-    //MPI_Abort(DomainComm, 0);
-#endif
 
     /* we now need to exchange tree parts and combine them as needed */
     int combine_failed = domain_nonrecursively_combine_topTree(topTree, topTreeSize, MaxTopNodes, DomainComm);

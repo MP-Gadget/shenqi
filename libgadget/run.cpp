@@ -11,7 +11,6 @@
 
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
-#include "utils/string.h"
 
 #include "uvbg.h"
 #include "walltime.h"
@@ -103,10 +102,6 @@ static struct run_params
     double Asmth;
     enum ShortRangeForceWindowType ShortRangeForceWindowType;
 
-    /* some filenames */
-    char OutputDir[100],
-         FOFFileBase[100];
-
     int SnapshotWithFOF; /*Flag that doing FOF for snapshot outputs is on*/
     int ParticlesAlwaysSorted; /*Flag that particles should be Peano sorted after every domain exchange.*/
     uint64_t RandomSeed; /*Initial seed for the random number table*/
@@ -114,85 +109,83 @@ static struct run_params
     int ExcursionSetReionOn; /*Flag for enabling the excursion set reionisation model*/
     int UVBGdim; /*Dimension of excursion set grids*/
 
+    /* some filenames */
+    std::string OutputDir;
+    std::string FOFFileBase;
 } All;
 
 /*Set the global parameters*/
 void
 set_all_global_params(ParameterSet * ps)
 {
-    int ThisTask;
-    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-    if(ThisTask == 0) {
-        /* Start reading the values */
-        param_get_string2(ps, "OutputDir", All.OutputDir, sizeof(All.OutputDir));
-        param_get_string2(ps, "FOFFileBase", All.FOFFileBase, sizeof(All.FOFFileBase));
+   /* Start reading the values */
+   All.OutputDir = param_get_string(ps, "OutputDir");
+   All.FOFFileBase = param_get_string(ps, "FOFFileBase");
 
-        All.UseGPU = param_get_int(ps, "UseGPU");
-        All.CP.CMBTemperature = param_get_double(ps, "CMBTemperature");
-        All.CP.RadiationOn = param_get_int(ps, "RadiationOn");
-        All.CP.Omega0 = param_get_double(ps, "Omega0");
-        All.CP.OmegaBaryon = param_get_double(ps, "OmegaBaryon");
-        All.CP.OmegaLambda = param_get_double(ps, "OmegaLambda");
-        All.CP.Omega_fld = param_get_double(ps, "Omega_fld");
-        if(All.CP.OmegaLambda > 0 && All.CP.Omega_fld > 0)
-            endrun(0, "Cannot have OmegaLambda and Omega_fld (evolving dark energy) at the same time!\n");
-        All.CP.w0_fld = param_get_double(ps,"w0_fld");
-        All.CP.wa_fld = param_get_double(ps,"wa_fld");
-        All.CP.Omega_ur = param_get_double(ps, "Omega_ur");
-        All.CP.HubbleParam = param_get_double(ps, "HubbleParam");
+   All.UseGPU = param_get_int(ps, "UseGPU");
+   All.CP.CMBTemperature = param_get_double(ps, "CMBTemperature");
+   All.CP.RadiationOn = param_get_int(ps, "RadiationOn");
+   All.CP.Omega0 = param_get_double(ps, "Omega0");
+   All.CP.OmegaBaryon = param_get_double(ps, "OmegaBaryon");
+   All.CP.OmegaLambda = param_get_double(ps, "OmegaLambda");
+   All.CP.Omega_fld = param_get_double(ps, "Omega_fld");
+   if(All.CP.OmegaLambda > 0 && All.CP.Omega_fld > 0)
+       endrun(0, "Cannot have OmegaLambda and Omega_fld (evolving dark energy) at the same time!\n");
+   All.CP.w0_fld = param_get_double(ps,"w0_fld");
+   All.CP.wa_fld = param_get_double(ps,"wa_fld");
+   All.CP.Omega_ur = param_get_double(ps, "Omega_ur");
+   All.CP.HubbleParam = param_get_double(ps, "HubbleParam");
 
-        All.OutputDebugFields = param_get_int(ps, "OutputDebugFields");
+   All.OutputDebugFields = param_get_int(ps, "OutputDebugFields");
 
-        All.TimeMax = param_get_double(ps, "TimeMax");
-        All.Asmth = param_get_double(ps, "Asmth");
-        All.ShortRangeForceWindowType = (enum ShortRangeForceWindowType) param_get_enum(ps, "ShortRangeForceWindowType");
-        All.Nmesh = param_get_int(ps, "Nmesh");
+   All.TimeMax = param_get_double(ps, "TimeMax");
+   All.Asmth = param_get_double(ps, "Asmth");
+   All.ShortRangeForceWindowType = (enum ShortRangeForceWindowType) param_get_enum(ps, "ShortRangeForceWindowType");
+   All.Nmesh = param_get_int(ps, "Nmesh");
 
-        All.CoolingOn = param_get_int(ps, "CoolingOn");
-        All.HydroOn = param_get_int(ps, "HydroOn");
-        All.DensityOn = param_get_int(ps, "DensityOn");
-        All.TreeGravOn = param_get_int(ps, "TreeGravOn");
-        All.LightconeOn = param_get_int(ps, "LightconeOn");
-        All.HierarchicalGravity = param_get_int(ps, "SplitGravityTimestepsOn");
-        All.FastParticleType = param_get_int(ps, "FastParticleType");
-        All.TimeLimitCPU = param_get_double(ps, "TimeLimitCPU");
-        All.AutoSnapshotTime = param_get_double(ps, "AutoSnapshotTime");
-        All.TimeBetweenSeedingSearch = param_get_double(ps, "TimeBetweenSeedingSearch");
-        All.RandomParticleOffset = param_get_double(ps, "RandomParticleOffset");
+   All.CoolingOn = param_get_int(ps, "CoolingOn");
+   All.HydroOn = param_get_int(ps, "HydroOn");
+   All.DensityOn = param_get_int(ps, "DensityOn");
+   All.TreeGravOn = param_get_int(ps, "TreeGravOn");
+   All.LightconeOn = param_get_int(ps, "LightconeOn");
+   All.HierarchicalGravity = param_get_int(ps, "SplitGravityTimestepsOn");
+   All.FastParticleType = param_get_int(ps, "FastParticleType");
+   All.TimeLimitCPU = param_get_double(ps, "TimeLimitCPU");
+   All.AutoSnapshotTime = param_get_double(ps, "AutoSnapshotTime");
+   All.TimeBetweenSeedingSearch = param_get_double(ps, "TimeBetweenSeedingSearch");
+   All.RandomParticleOffset = param_get_double(ps, "RandomParticleOffset");
 
-        All.SlotsIncreaseFactor = param_get_double(ps, "SlotsIncreaseFactor");
+   All.SlotsIncreaseFactor = param_get_double(ps, "SlotsIncreaseFactor");
 
-        All.SnapshotWithFOF = param_get_int(ps, "SnapshotWithFOF");
-        All.ParticlesAlwaysSorted = param_get_int(ps, "ParticlesAlwaysSorted");
-        All.RandomSeed = param_get_int(ps, "RandomSeed");
+   All.SnapshotWithFOF = param_get_int(ps, "SnapshotWithFOF");
+   All.ParticlesAlwaysSorted = param_get_int(ps, "ParticlesAlwaysSorted");
+   All.RandomSeed = param_get_int(ps, "RandomSeed");
 
-        All.BlackHoleOn = param_get_int(ps, "BlackHoleOn");
+   All.BlackHoleOn = param_get_int(ps, "BlackHoleOn");
 
-        All.StarformationOn = param_get_int(ps, "StarformationOn");
-        All.MetalReturnOn = param_get_int(ps, "MetalReturnOn");
-        All.MaxDomainTimeBinDepth = param_get_int(ps, "MaxDomainTimeBinDepth");
+   All.StarformationOn = param_get_int(ps, "StarformationOn");
+   All.MetalReturnOn = param_get_int(ps, "MetalReturnOn");
+   All.MaxDomainTimeBinDepth = param_get_int(ps, "MaxDomainTimeBinDepth");
 
-        /*Massive neutrino parameters*/
-        All.CP.MassiveNuLinRespOn = param_get_int(ps, "MassiveNuLinRespOn");
-        All.CP.HybridNeutrinosOn = param_get_int(ps, "HybridNeutrinosOn");
-        All.CP.MNu[0] = param_get_double(ps, "MNue");
-        All.CP.MNu[1] = param_get_double(ps, "MNum");
-        All.CP.MNu[2] = param_get_double(ps, "MNut");
-        All.CP.HybridVcrit = param_get_double(ps, "Vcrit");
-        All.CP.HybridNuPartTime = param_get_double(ps, "NuPartTime");
-        if(All.CP.MassiveNuLinRespOn && !All.CP.RadiationOn)
-            message(0, "WARNING: You have enabled (kspace) massive neutrinos without radiation, but this may give an inconsistent cosmology!\n");
-        /*End massive neutrino parameters*/
+   /*Massive neutrino parameters*/
+   All.CP.MassiveNuLinRespOn = param_get_int(ps, "MassiveNuLinRespOn");
+   All.CP.HybridNeutrinosOn = param_get_int(ps, "HybridNeutrinosOn");
+   All.CP.MNu[0] = param_get_double(ps, "MNue");
+   All.CP.MNu[1] = param_get_double(ps, "MNum");
+   All.CP.MNu[2] = param_get_double(ps, "MNut");
+   All.CP.HybridVcrit = param_get_double(ps, "Vcrit");
+   All.CP.HybridNuPartTime = param_get_double(ps, "NuPartTime");
+   if(All.CP.MassiveNuLinRespOn && !All.CP.RadiationOn)
+       message(0, "WARNING: You have enabled (kspace) massive neutrinos without radiation, but this may give an inconsistent cosmology!\n");
+   /*End massive neutrino parameters*/
 
-        if(All.StarformationOn != 0 && All.CoolingOn == 0)
-        {
-                endrun(1, "You try to use the code with star formation enabled,\n"
-                          "but you did not switch on cooling.\nThis mode is not supported.\n");
-        }
-        All.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
-        All.UVBGdim = param_get_int(ps, "UVBGdim");
-    }
-    MPI_Bcast(&All, sizeof(All), MPI_BYTE, 0, MPI_COMM_WORLD);
+   if(All.StarformationOn != 0 && All.CoolingOn == 0)
+   {
+           endrun(1, "You try to use the code with star formation enabled,\n"
+                     "but you did not switch on cooling.\nThis mode is not supported.\n");
+   }
+   All.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
+   All.UVBGdim = param_get_int(ps, "UVBGdim");
 }
 
 int find_last_snapshot(void)
@@ -259,13 +252,6 @@ begrun(const int RestartSnapNum, struct header_data * head)
 #ifndef EXCUR_REION
     if(All.ExcursionSetReionOn)
         endrun(2,"You must turn on compile flag EXCUR_REION to run ExcursionSetReion!\n");
-#endif
-
-#ifdef DEBUG
-    char * pidfile = fastpm_strdup_printf("%s/%s", All.OutputDir, "PIDs.txt");
-    fastpm_path_ensure_dirname(pidfile);
-    MPIU_write_pids(pidfile);
-    myfree(pidfile);
 #endif
 
     init_forcetree_params(0.9);
@@ -379,8 +365,6 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
 
     struct OutputFD fds;
     open_outputfiles(RestartSnapNum, &fds, All.OutputDir, All.BlackHoleOn, All.StarformationOn);
-
-    write_cpu_log(NumCurrentTiStep, header->TimeSnapshot, fds.FdCPU, Clocks.ElapsedTime); /* produce some CPU usage info */
 
     DriftKickTimes times = init_driftkicktime(ti_init);
 
@@ -733,9 +717,10 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         }
 
         /* WriteFOF just reminds the checkpoint code to save GroupID*/
-        if(WriteSnapshot)
+        if(WriteSnapshot) {
             write_checkpoint(SnapshotFileCount, WriteFOF, All.MetalReturnOn, atime, &All.CP, All.OutputDir, All.OutputDebugFields);
-
+            walltime_measure("/WriteSnapshot");
+        }
         /* Save FOF tables after checkpoint so that if there is a FOF save bug we have particle tables available to debug it*/
         if(WriteFOF) {
             int domain_needed = fof_save_groups(&fof, All.OutputDir, All.FOFFileBase, SnapshotFileCount, &All.CP, atime, header->MassTable, All.MetalReturnOn, MPI_COMM_WORLD);

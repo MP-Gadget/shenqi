@@ -1,6 +1,7 @@
 #ifndef PLANE_H
 #define PLANE_H
 
+#include <string>
 #include "cosmology.h"
 #include "utils/paramset.h"
 
@@ -8,6 +9,6 @@
 void set_plane_params(ParameterSet * ps);
 
 /* The write_plane function computes and writes the lensing potential planes. It reads the simulation parameters and variables, the plane parameters, and the cosmological parameters. It computes the comoving distance, loops over the cut points and normal directions to generate lensing potential planes, and saves the potential plane data. */
-void write_plane(int snapnum, const double atime, Cosmology * CP, const char * OutputDir, const double UnitVelocity_in_cm_per_s, const double UnitLength_in_cm);
+void write_plane(int snapnum, const double atime, Cosmology * CP, const std::string OutputDir, const double UnitVelocity_in_cm_per_s, const double UnitLength_in_cm);
 
 #endif

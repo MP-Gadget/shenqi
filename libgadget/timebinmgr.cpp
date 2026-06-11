@@ -24,71 +24,16 @@ static struct sync_params
     std::vector<double> PlaneOutputListTimes;
 } Sync;
 
-/*! This function parses a string containing a comma-separated list of variables,
- *  each of which is interpreted as a double.
- *  The purpose is to read an array of output times into the code.
- *  So specifying the output list now looks like:
- *  OutputList  0.1,0.3,0.5,1.0
- *
- *  We sort the input after reading it, so that the initial list need not be sorted.
- *  This function could be repurposed for reading generic arrays in future.
- */
-std::vector<double> BuildOutputList(std::string outputliststr)
-{
-    std::vector<double> outputlist;
-    if(outputliststr.empty()) {
-        return outputlist;
-    }
-    /* Note TimeInit and TimeMax not yet initialised here*/
-    std::istringstream ss(outputliststr);
-    std::string token;
-    while (std::getline(ss, token, ',')) {
-         std::string_view sv = token;
-         if (!sv.empty() && sv.front() == '"')
-             sv.remove_prefix(1);
-
-        double a;
-        try {
-            a = std::stod(std::string(sv));
-        } catch(const std::exception & e) {
-              endrun(1, "Could not parse '%s' in OutputList: %s\n", token.c_str(), e.what());
-        }
-        if (a < 0.0)
-            endrun(1, "Requesting a negative output scaling factor a = %g\n", a);
-        outputlist.push_back(a);
-    }
-    std::sort(outputlist.begin(), outputlist.end());
-    return outputlist;
-}
-
 //set the other sync params we can't get using the action
-void set_sync_params(ParameterSet * ps){
-    int ThisTask;
-    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-    if(ThisTask==0)
-    {
-        Sync.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
-        Sync.ExcursionSetZStart = param_get_double(ps,"ExcursionSetZStart");
-        Sync.ExcursionSetZStop = param_get_double(ps,"ExcursionSetZStop");
-        Sync.UVBGTimestep = param_get_double(ps,"UVBGTimestep");
+void set_sync_params(ParameterSet * ps)
+{
+    Sync.ExcursionSetReionOn = param_get_int(ps,"ExcursionSetReionOn");
+    Sync.ExcursionSetZStart = param_get_double(ps,"ExcursionSetZStart");
+    Sync.ExcursionSetZStop = param_get_double(ps,"ExcursionSetZStop");
+    Sync.UVBGTimestep = param_get_double(ps,"UVBGTimestep");
 
-        Sync.OutputListTimes = BuildOutputList(param_get_string(ps, "OutputList"));
-        Sync.PlaneOutputListTimes = BuildOutputList(param_get_string(ps, "PlaneOutputList"));
-    }
-
-    // 1. Broadcast the POD members together
-    MPI_Bcast(&Sync, offsetof(sync_params, OutputListTimes), MPI_BYTE, 0, MPI_COMM_WORLD);
-
-    // 2. Broadcast the vectors
-    size_t len = Sync.OutputListTimes.size();
-    MPI_Bcast(&len, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
-    Sync.OutputListTimes.resize(len);
-    MPI_Bcast(Sync.OutputListTimes.data(), len, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    len = Sync.PlaneOutputListTimes.size();
-    MPI_Bcast(&len, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
-    Sync.PlaneOutputListTimes.resize(len);
-    MPI_Bcast(Sync.PlaneOutputListTimes.data(), len, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    return;
+    Sync.OutputListTimes = BuildOutputList<double>(param_get_string(ps, "OutputList"));
+    Sync.PlaneOutputListTimes = BuildOutputList<double>(param_get_string(ps, "PlaneOutputList"));
 }
 
 #define SEC_PER_MEGAYEAR 3.155e13

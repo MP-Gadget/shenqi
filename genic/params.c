@@ -9,11 +9,11 @@
 static ParameterSet *
 create_parameters(void)
 {
-    ParameterSet * ps = parameter_set_new();
+    ParameterSet * ps = new ParameterSet;
 
-    param_declare_string(ps, "FileWithInputSpectrum", REQUIRED, 0, "File containing input power spectrum, from CLASS or CAMB.");
-    param_declare_string(ps, "OutputDir", REQUIRED, 0, "Output directory in which to store the ICs");
-    param_declare_string(ps, "FileBase", REQUIRED, 0, "File name of the ICs.");
+    param_declare_string(ps, "FileWithInputSpectrum", REQUIRED, "", "File containing input power spectrum, from CLASS or CAMB.");
+    param_declare_string(ps, "OutputDir", REQUIRED, "", "Output directory in which to store the ICs");
+    param_declare_string(ps, "FileBase", REQUIRED, "", "File name of the ICs.");
 
     param_declare_double(ps, "Omega0", REQUIRED, 0.2814, "Total matter density, cdm + baryons + massive neutrinos at z=0.");
     param_declare_double(ps, "OmegaBaryon", REQUIRED, 0.0464, "Omega Baryon: note this may be used for transfer functions even if gas is not produced.");
@@ -166,8 +166,8 @@ void read_parameterfile(char *fname, struct genic_config * GenicConfig, int * Sh
     GenicConfig->Max_nuvel = param_get_double(ps, "Max_nuvel") * (1+Redshift) * (GenicConfig->units.UnitVelocity_in_cm_per_s/1e5);
     GenicConfig->Seed = param_get_int(ps, "Seed");
     GenicConfig->UnitaryAmplitude = param_get_int(ps, "UnitaryAmplitude");
-    param_get_string2(ps, "OutputDir", GenicConfig->OutputDir, sizeof(GenicConfig->OutputDir));
-    param_get_string2(ps, "FileBase", GenicConfig->InitCondFile, sizeof(GenicConfig->InitCondFile));
+    GenicConfig->OutputDir = param_get_string(ps, "OutputDir");
+    GenicConfig->InitCondFile = param_get_string(ps, "FileBase");
     GenicConfig->MakeGlassGas = param_get_int(ps, "MakeGlassGas");
     /* We want to use a baryon glass by default if we have different transfer functions,
      * since that is the way we reproduce the linear growth. Otherwise use a grid by default.*/
@@ -190,7 +190,7 @@ void read_parameterfile(char *fname, struct genic_config * GenicConfig, int * Sh
         && (GenicConfig->ProduceGas || CP->MNu[0] + CP->MNu[1] + CP->MNu[2]))
         message(0, "WARNING: Using different transfer functions but also rescaling power to account for linear growth. NOT what you want!\n");
     if((CP->MNu[0] + CP->MNu[1] + CP->MNu[2] > 0) || GenicConfig->PowerP.DifferentTransferFunctions || GenicConfig->PowerP.ScaleDepVelocity)
-        if(0 == strlen(GenicConfig->PowerP.FileWithTransferFunction))
+        if(0 == GenicConfig->PowerP.FileWithTransferFunction.size())
             endrun(0,"For massive neutrinos, different transfer functions, or scale dependent growth functions you must specify a transfer function file\n");
     if(!CP->RadiationOn && (CP->MNu[0] + CP->MNu[1] + CP->MNu[2] > 0))
         endrun(0,"You want massive neutrinos but no background radiation: this will give an inconsistent cosmology.\n");
@@ -203,4 +203,5 @@ void read_parameterfile(char *fname, struct genic_config * GenicConfig, int * Sh
     double UnitTime_in_s = GenicConfig->units.UnitLength_in_cm / GenicConfig->units.UnitVelocity_in_cm_per_s;
 
     CP->Hubble = HUBBLE * UnitTime_in_s;
+    delete ps;
 }

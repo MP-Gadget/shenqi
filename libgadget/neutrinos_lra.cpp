@@ -7,7 +7,10 @@
  */
 
 #include <math.h>
-#include <string.h>
+#include <cstring>
+#include <string>
+#include <sstream>
+#include <iomanip>
 #include <bigfile-mpi.h>
 #include <boost/math/interpolators/makima.hpp>
 #include <boost/math/special_functions/bessel.hpp>
@@ -17,7 +20,6 @@
 
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
-#include "utils/string.h"
 #include "petaio.h"
 #include "cosmology.h"
 #include "powerspectrum.h"
@@ -233,7 +235,7 @@ void delta_nu_from_power(struct _powerspectrum * PowerSpectrum, Cosmology * CP, 
 }
 
 /*Save the neutrino power spectrum to a file*/
-void powerspectrum_nu_save(struct _powerspectrum * PowerSpectrum, const char * OutputDir, const char * filename, const double Time)
+void powerspectrum_nu_save(struct _powerspectrum * PowerSpectrum, const std::string OutputDir, const std::string filename, const double Time)
 {
     int i;
     int ThisTask;
@@ -241,9 +243,11 @@ void powerspectrum_nu_save(struct _powerspectrum * PowerSpectrum, const char * O
     if(ThisTask != 0)
         return;
 
-    char * fname = fastpm_strdup_printf("%s/%s-%0.4f.txt", OutputDir, filename, Time);
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(4) << Time;
+    std::string fname = OutputDir + "/" + filename + "-" + ss.str() + ".txt";
     /* Now save the neutrino power spectrum*/
-    FILE * fp = fopen(fname, "w");
+    FILE * fp = fopen(fname.c_str(), "w");
     fprintf(fp, "# in Mpc/h Units \n");
     fprintf(fp, "# k P_nu(k) Nmodes\n");
     fprintf(fp, "# a= %g\n", Time);
@@ -252,7 +256,6 @@ void powerspectrum_nu_save(struct _powerspectrum * PowerSpectrum, const char * O
         fprintf(fp, "%g %g %ld\n", PowerSpectrum->kk[i], pow(delta_tot_table.delta_nu_last[i],2), PowerSpectrum->Nmodes[i]);
     }
     fclose(fp);
-    myfree(fname);
 }
 
 void petaio_save_neutrinos(BigFile * bf, int ThisTask)

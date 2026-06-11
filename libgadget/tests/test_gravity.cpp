@@ -196,7 +196,7 @@ static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int di
 
     gravpm_force(&pm, &ddecomp, &CP, 0.1, CM_PER_MPC/1000., ".", 0.01);
     ForceTree Tree = {0};
-    force_tree_full(&Tree, &ddecomp, 1, NULL);
+    force_tree_full(&Tree, &ddecomp, 1, "");
     const double rho0 = CP.Omega0 * 3 * CP.Hubble * CP.Hubble / (8 * M_PI * G);
 
     /* Barnes-Hut on first iteration*/

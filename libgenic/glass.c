@@ -3,6 +3,9 @@
 #include <math.h>
 #include <string.h>
 #include <omp.h>
+#include <string>
+#include <sstream>
+#include <iomanip>
 
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_real_distribution.hpp>
@@ -39,7 +42,7 @@ static void glass_force(PetaPM * pm, double t_f, struct ic_part_data * ICP, cons
 static void glass_stats(struct ic_part_data * ICP, int NumPart);
 
 int
-setup_glass(IDGenerator * idgen, PetaPM * pm, double shift, int seed, double mass, struct ic_part_data * ICP, const double UnitLength_in_cm, const char * OutputDir)
+setup_glass(IDGenerator * idgen, PetaPM * pm, double shift, int seed, double mass, struct ic_part_data * ICP, const double UnitLength_in_cm, const std::string OutputDir)
 {
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
@@ -62,14 +65,15 @@ setup_glass(IDGenerator * idgen, PetaPM * pm, double shift, int seed, double mas
         ICP[i].Mass = mass;
     }
 
-    char * fn = fastpm_strdup_printf("powerspectrum-glass-%08X", seed);
-    glass_evolve(pm, 14, fn, ICP, idgen->NumPart, UnitLength_in_cm, OutputDir);
-    myfree(fn);
+    std::ostringstream ss;
+    ss << std::setw(8) << std::setfill('0') << std::hex << std::uppercase << (unsigned)seed;
+    std::string fn = "powerspectrum-glass-" + ss.str();
+    glass_evolve(pm, 14, fn.c_str(), ICP, idgen->NumPart, UnitLength_in_cm, OutputDir);
 
     return idgen->NumPart;
 }
 
-void glass_evolve(PetaPM * pm, int nsteps, const char * pkoutname, struct ic_part_data * ICP, const int NumPart, const double UnitLength_in_cm, const char * OutputDir)
+void glass_evolve(PetaPM * pm, int nsteps, const char * pkoutname, struct ic_part_data * ICP, const int NumPart, const double UnitLength_in_cm, const std::string OutputDir)
 {
     int i;
     int step = 0;

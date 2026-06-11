@@ -498,7 +498,7 @@ winds_find_vel_disp(const ActiveParticles * act, const double Time, const double
 
     ForceTree tree[1] = {{0}};
     if(totvdisp > 0 || totbh > 0)
-        force_tree_rebuild_mask(tree, ddecomp, DMMASK, NULL);
+        force_tree_rebuild_mask(tree, ddecomp, DMMASK, "");
 
     /* Compute the black hole velocity dispersions if needed*/
     if(totbh)

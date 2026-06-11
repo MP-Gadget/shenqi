@@ -2,6 +2,7 @@
 #define _GENIC_ALLVARS_H
 
 #include "power.h"
+#include <string>
 #include <libgadget/utils/unitsystem.h>
 
 struct ic_part_data
@@ -33,8 +34,8 @@ struct genic_config {
     int SavePrePos;
     struct power_params PowerP;
     struct UnitSystem units;
-    char OutputDir[100];
-    char InitCondFile[100];
+    std::string OutputDir;
+    std::string InitCondFile;
     double TimeIC;
     int UsePeculiarVelocity;
 };

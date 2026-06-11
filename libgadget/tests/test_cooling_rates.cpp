@@ -3,6 +3,7 @@
 
 #include "booststub.h"
 
+#include <string>
 #include <math.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -51,8 +52,8 @@ BOOST_AUTO_TEST_CASE(test_recomb_rates)
 {
     struct cooling_params coolpar = get_test_coolpar();
     int i;
-    const char * TreeCool = GADGET_TESTDATA_ROOT "/examples/TREECOOL_ep_2018p";
-    const char * MetalCool = "";
+    const std::string TreeCool = GADGET_TESTDATA_ROOT "/examples/TREECOOL_ep_2018p";
+    const std::string MetalCool = "";
 
     Cosmology CP = {0};
     CP.OmegaCDM = 0.3;
@@ -60,14 +61,14 @@ BOOST_AUTO_TEST_CASE(test_recomb_rates)
     CP.HubbleParam = 0.7;
 
     set_coolpar(coolpar);
-    init_cooling_rates(TreeCool,NULL,MetalCool,&CP);
+    init_cooling_rates(TreeCool,MetalCool,MetalCool,&CP);
     for(i=0; i< NEXACT; i++) {
         BOOST_TEST(recomb_alphaHp(temps[i]) == (f92g2[i]+f92n1[i]), tt::tolerance(0.01));
     }
 
     coolpar.recomb = Cen92;
     set_coolpar(coolpar);
-    init_cooling_rates(TreeCool,NULL,MetalCool,&CP);
+    init_cooling_rates(TreeCool,MetalCool,MetalCool,&CP);
     /*Cen rates are not very accurate.*/
     for(i=4; i< 12; i++) {
         BOOST_TEST(recomb_alphaHp(temps[i]) == (f92g2[i]+f92n1[i]), tt::tolerance(0.5));
@@ -79,14 +80,14 @@ BOOST_AUTO_TEST_CASE(test_uvbg_loader)
 {
     struct cooling_params coolpar = get_test_coolpar();
     coolpar.SelfShieldingOn = 1;
-    const char * TreeCool = GADGET_TESTDATA_ROOT "/examples/TREECOOL_ep_2018p";
-    const char * MetalCool = "";
+    const std::string TreeCool = GADGET_TESTDATA_ROOT "/examples/TREECOOL_ep_2018p";
+    const std::string MetalCool = "";
     set_coolpar(coolpar);
     Cosmology CP = {0};
     CP.OmegaCDM = 0.3;
     CP.OmegaBaryon = coolpar.fBar * CP.OmegaCDM;
     CP.HubbleParam = 0.7;
-    init_cooling_rates(TreeCool,NULL,MetalCool,&CP);
+    init_cooling_rates(TreeCool,MetalCool,MetalCool,&CP);
     /*Test sensible rates at high redshift*/
     struct UVBG uvbg = get_global_UVBG(16);
     BOOST_TEST(uvbg.epsH0 == 0);
@@ -118,8 +119,8 @@ BOOST_AUTO_TEST_CASE(test_uvbg_loader)
 BOOST_AUTO_TEST_CASE(test_rate_network)
 {
     struct cooling_params coolpar = get_test_coolpar();
-    const char * TreeCool = GADGET_TESTDATA_ROOT "/examples/TREECOOL_ep_2018p";
-    const char * MetalCool = "";
+    const std::string TreeCool = GADGET_TESTDATA_ROOT "/examples/TREECOOL_ep_2018p";
+    const std::string MetalCool = "";
 
     set_coolpar(coolpar);
     Cosmology CP = {0};
@@ -127,7 +128,7 @@ BOOST_AUTO_TEST_CASE(test_rate_network)
     CP.OmegaBaryon = coolpar.fBar * CP.OmegaCDM;
     CP.HubbleParam = 0.7;
 
-    init_cooling_rates(TreeCool,NULL,MetalCool,&CP);
+    init_cooling_rates(TreeCool,MetalCool,MetalCool,&CP);
 
     struct UVBG uvbg = get_global_UVBG(2);
 
@@ -160,7 +161,7 @@ BOOST_AUTO_TEST_CASE(test_rate_network)
     //Check self-shielding is working.
     coolpar.SelfShieldingOn = 0;
     set_coolpar(coolpar);
-    init_cooling_rates(TreeCool,NULL,MetalCool,&CP);
+    init_cooling_rates(TreeCool,MetalCool,MetalCool,&CP);
 
     BOOST_TEST( get_neutral_fraction_phys_cgs(1, 100.*1e10,0.24, &uvbg, &ne) < 0.25);
     BOOST_TEST( get_neutral_fraction_phys_cgs(0.1, 100.*1e10,0.24, &uvbg, &ne) <0.05);
@@ -175,8 +176,8 @@ BOOST_AUTO_TEST_CASE(test_heatingcooling_rate)
     coolpar.cooling = KWH92;
     coolpar.SelfShieldingOn = 0;
 
-    const char * TreeCool = GADGET_TESTDATA_ROOT "/examples/TREECOOL_ep_2018p";
-    const char * MetalCool = "";
+    const std::string TreeCool = GADGET_TESTDATA_ROOT "/examples/TREECOOL_ep_2018p";
+    const std::string MetalCool = "";
 
     /*unit system*/
     double HubbleParam = 0.697;
@@ -191,7 +192,7 @@ BOOST_AUTO_TEST_CASE(test_heatingcooling_rate)
     CP.HubbleParam = HubbleParam;
 
     set_coolpar(coolpar);
-    init_cooling_rates(TreeCool,NULL,MetalCool,&CP);
+    init_cooling_rates(TreeCool,MetalCool,MetalCool,&CP);
 
     struct cooling_units coolunits;
     coolunits.CoolingOn = 1;
@@ -242,7 +243,7 @@ BOOST_AUTO_TEST_CASE(test_heatingcooling_rate)
     /*Check self-shielding affects the cooling rates*/
     coolpar.SelfShieldingOn = 1;
     set_coolpar(coolpar);
-    init_cooling_rates(TreeCool,NULL,MetalCool,&CP);
+    init_cooling_rates(TreeCool,MetalCool,MetalCool,&CP);
     LambdaNet = get_heatingcooling_rate(dens*1.5, egyhot/10., 1 - HYDROGEN_MASSFRAC, 0, 0, &uvbg, &ne);
     //message(1, "LambdaNet = %g, uvbg=%g\n", LambdaNet, uvbg.epsHep);
     BOOST_TEST(!(LambdaNet > 0));
@@ -263,8 +264,8 @@ static void test_heatingcooling_rate_sherwood(void ** state)
     coolpar.SelfShieldingOn = 0;
     coolpar.MinGasTemp = 0;
 
-    const char * TreeCool = GADGET_TESTDATA_ROOT "/examples/TREECOOL_ep_2018p";
-    const char * MetalCool = "";
+    const std::string TreeCool = GADGET_TESTDATA_ROOT "/examples/TREECOOL_ep_2018p";
+    const std::string MetalCool = "";
 
     /*unit system*/
     double HubbleParam = 0.679;
@@ -274,7 +275,7 @@ static void test_heatingcooling_rate_sherwood(void ** state)
     CP.HubbleParam = HubbleParam;
 
     set_coolpar(coolpar);
-    init_cooling_rates(TreeCool,NULL,MetalCool,&CP);
+    init_cooling_rates(TreeCool,MetalCool,MetalCool,&CP);
 
     /* temp at mean cosmological density */
     double rhocb = CP.OmegaBaryon * 3.0 * pow(CP.HubbleParam*HUBBLE,2.0) /(8.0*M_PI*GRAVITY)/PROTONMASS;

@@ -1,7 +1,9 @@
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <string>
+#include <sstream>
+#include <iomanip>
 #include <math.h>
 #include <omp.h>
 
@@ -11,9 +13,9 @@
 #include "stats.h"
 #include "walltime.h"
 #include "cooling_qso_lightup.h"
+#include "petaio.h"
 #include "utils/endrun.h"
-#include "utils/mymalloc.h"
-#include "utils/string.h"
+#include <filesystem>
 
 /* global state of system
 */
@@ -43,10 +45,7 @@ struct state_of_system
 
 static struct stats_params
 {
-    /* some filenames */
-    char EnergyFile[100];
-    char CpuFile[100];
-    /*Should we store the energy to EnergyFile on PM timesteps.*/
+    /*Should we store the energy to energy.txt on PM timesteps.*/
     int OutputEnergyDebug;
     int WriteBlackHoleDetails; /* write BH details every time step*/
     size_t MaxBlackHoleDetails; /* Max size of bh details file*/
@@ -58,8 +57,6 @@ set_stats_params(ParameterSet * ps)
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
     if(ThisTask == 0) {
-        param_get_string2(ps, "EnergyFile", StatsParams.EnergyFile, sizeof(StatsParams.EnergyFile));
-        param_get_string2(ps, "CpuFile", StatsParams.CpuFile, sizeof(StatsParams.CpuFile));
         StatsParams.OutputEnergyDebug = param_get_int(ps, "OutputEnergyDebug");
         StatsParams.WriteBlackHoleDetails = param_get_int(ps,"WriteBlackHoleDetails");
         StatsParams.MaxBlackHoleDetails = 1024L*1024L*1024L*param_get_int(ps, "MaxBlackHoleDetails");
@@ -72,11 +69,9 @@ set_stats_params(ParameterSet * ps)
  *   (start-option 1), the code will append to these files.
  */
 void
-open_outputfiles(int RestartSnapNum, struct OutputFD * fds, const char * OutputDir, int BlackHoleOn, int StarformationOn)
+open_outputfiles(int RestartSnapNum, struct OutputFD * fds, const std::string OutputDir, int BlackHoleOn, int StarformationOn)
 {
     const char mode[3]="a+";
-    char * buf;
-    char * postfix;
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
     memset(fds, 0, sizeof(struct OutputFD));
@@ -89,55 +84,50 @@ open_outputfiles(int RestartSnapNum, struct OutputFD * fds, const char * OutputD
     fds->BHDetailNumber = 0;
     fds->FdHelium = NULL;
 
-    if(RestartSnapNum != -1) {
-        postfix = fastpm_strdup_printf("-R%03d", RestartSnapNum);
-    } else {
-        postfix = fastpm_strdup_printf("%s", "");
-    }
+    std::string postfix;
+    if(RestartSnapNum != -1)
+        postfix = "-R" + zpad(RestartSnapNum, 3);
 
     /* all the processors write to separate files*/
     if(BlackHoleOn && StatsParams.WriteBlackHoleDetails){
-        buf = fastpm_strdup_printf("%s/%s%s/%06X", OutputDir,"BlackholeDetails",postfix,ThisTask);
-        fastpm_path_ensure_dirname(buf);
-        if(!(fds->FdBlackholeDetails = fopen(buf,"a")))
-            endrun(1, "Failed to open blackhole detail %s\n", buf);
-        myfree(buf);
+        std::ostringstream ss;
+        ss << std::setw(6) << std::setfill('0') << std::hex << std::uppercase << ThisTask;
+        std::string buf = OutputDir + "/BlackholeDetails" + postfix + "/" + ss.str();
+        std::filesystem::create_directories(std::filesystem::path(buf).parent_path());
+        if(!(fds->FdBlackholeDetails = fopen(buf.c_str(),"a")))
+            endrun(1, "Failed to open blackhole detail %s\n", buf.c_str());
     }
 
     /* only the root processors writes to the log files */
-    if(ThisTask != 0) {
-        myfree(postfix);
+    if(ThisTask != 0)
         return;
-    }
 
+    std::string buf;
     if(BlackHoleOn) {
-        buf = fastpm_strdup_printf("%s/%s%s", OutputDir, "blackholes.txt", postfix);
-        fastpm_path_ensure_dirname(buf);
-        if(!(fds->FdBlackHoles = fopen(buf, mode)))
-            endrun(1, "error in opening file '%s'\n", buf);
-        myfree(buf);
+        buf = OutputDir + "/blackholes.txt" + postfix;
+        std::filesystem::create_directories(std::filesystem::path(buf).parent_path());
+        if(!(fds->FdBlackHoles = fopen(buf.c_str(), mode)))
+            endrun(1, "error in opening file '%s'\n", buf.c_str());
     }
 
-    buf = fastpm_strdup_printf("%s/%s%s", OutputDir, StatsParams.CpuFile, postfix);
-    fastpm_path_ensure_dirname(buf);
-    if(!(fds->FdCPU = fopen(buf, mode)))
-        endrun(1, "error in opening file '%s'\n", buf);
-    myfree(buf);
+    buf = OutputDir + "/cpu.txt" + postfix;
+    std::filesystem::create_directories(std::filesystem::path(buf).parent_path());
+    if(!(fds->FdCPU = fopen(buf.c_str(), mode)))
+        endrun(1, "error in opening file '%s'\n", buf.c_str());
 
     if(StatsParams.OutputEnergyDebug) {
-        buf = fastpm_strdup_printf("%s/%s%s", OutputDir, StatsParams.EnergyFile, postfix);
-        fastpm_path_ensure_dirname(buf);
-        if(!(fds->FdEnergy = fopen(buf, mode)))
-            endrun(1, "error in opening file '%s'\n", buf);
-        myfree(buf);
+        buf = OutputDir + "/energy.txt" + postfix;
+        std::filesystem::create_directories(std::filesystem::path(buf).parent_path());
+        if(!(fds->FdEnergy = fopen(buf.c_str(), mode)))
+            endrun(1, "error in opening file '%s'\n", buf.c_str());
     }
 
     if(StarformationOn) {
-        buf = fastpm_strdup_printf("%s/%s%s", OutputDir, "sfr.txt", postfix);
-        fastpm_path_ensure_dirname(buf);
-        if(!(fds->FdSfr = fopen(buf, mode)))
-            endrun(1, "error in opening file '%s'\n", buf);
-        const char * helpstr = "# SFR.txt columns are:\n"
+        buf = OutputDir + "/sfr.txt" + postfix;
+        std::filesystem::create_directories(std::filesystem::path(buf).parent_path());
+        if(!(fds->FdSfr = fopen(buf.c_str(), mode)))
+            endrun(1, "error in opening file '%s'\n", buf.c_str());
+        fprintf(fds->FdSfr, "# SFR.txt columns are:\n"
                 "# 0. Time = current scale factor,\n"
          "# 1. total_sm = expected change in stellar mass this timestep.\n"
          "# This is: sigma_i dM_* = p_* M_* = M_i (1 - exp(-sm_i / M_i))\n"
@@ -150,44 +140,37 @@ open_outputfiles(int RestartSnapNum, struct OutputFD * fds, const char * OutputD
          "# This should be a noisier version of total_sm.\n"
          "# 5. total_sum_dtime / total_sum_part : this is the average timsetep (dt) for the currently active star particles\n"
          "# 6. total_sum_part: the number of actively star-forming particles\n"
-         "# 7. tot_new stars: number of new star particles spawned or converted this timestep\n";
-         fprintf(fds->FdSfr, helpstr);
-        myfree(buf);
+         "# 7. tot_new stars: number of new star particles spawned or converted this timestep\n");
     }
 
     if(qso_lightup_on()) {
-        buf = fastpm_strdup_printf("%s/%s%s", OutputDir, "helium.txt", postfix);
-        fastpm_path_ensure_dirname(buf);
-        if(!(fds->FdHelium = fopen(buf, mode)))
-            endrun(1, "error in opening file '%s'\n", buf);
-        myfree(buf);
+        buf = OutputDir + "/helium.txt" + postfix;
+        std::filesystem::create_directories(std::filesystem::path(buf).parent_path());
+        if(!(fds->FdHelium = fopen(buf.c_str(), mode)))
+            endrun(1, "error in opening file '%s'\n", buf.c_str());
     }
-    myfree(postfix);
 }
 
 
 void
-rotate_bhdetails_file(struct OutputFD * fds, const char * OutputDir, const int RestartSnapNum)
+rotate_bhdetails_file(struct OutputFD * fds, const std::string OutputDir, const int RestartSnapNum)
 {
     if(!fds->FdBlackholeDetails)
         return;
     if(fds->TotalBHDetailsBytesWritten < StatsParams.MaxBlackHoleDetails)
         return;
     fclose(fds->FdBlackholeDetails);
-    char * postfix;
-    if(RestartSnapNum != -1) {
-        postfix = fastpm_strdup_printf("-R%03d", RestartSnapNum);
-    } else {
-        postfix = fastpm_strdup_printf("%s", "");
-    }
+    std::string postfix;
+    if(RestartSnapNum != -1)
+        postfix = "-R" + zpad(RestartSnapNum, 3);
     int ThisTask;
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-    char * buf = fastpm_strdup_printf("%s/BlackholeDetails%s.%d/%06X", OutputDir, postfix, fds->BHDetailNumber, ThisTask);
-    fastpm_path_ensure_dirname(buf);
-    if(!(fds->FdBlackholeDetails = fopen(buf,"a")))
-        endrun(1, "Failed to open blackhole detail %s\n", buf);
-    myfree(buf);
-    myfree(postfix);
+    std::ostringstream ss;
+    ss << std::setw(6) << std::setfill('0') << std::hex << std::uppercase << ThisTask;
+    std::string buf = OutputDir + "/BlackholeDetails" + postfix + "." + std::to_string(fds->BHDetailNumber) + "/" + ss.str();
+    std::filesystem::create_directories(std::filesystem::path(buf).parent_path());
+    if(!(fds->FdBlackholeDetails = fopen(buf.c_str(),"a")))
+        endrun(1, "Failed to open blackhole detail %s\n", buf.c_str());
     fds->TotalBHDetailsBytesWritten = 0;
     fds->BHDetailNumber++;
     message(0, "Rotating BH Details file to %d with %lu bytes written\n", fds->BHDetailNumber, StatsParams.MaxBlackHoleDetails);

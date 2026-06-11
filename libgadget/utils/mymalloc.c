@@ -50,13 +50,8 @@ mymalloc_init(int UseGPU)
 
 static size_t highest_memory_usage = 0;
 
-void report_detailed_memory_usage(const char *label, const char * fmt, ...)
+void report_detailed_memory_usage(const char *label, const char * file, int line)
 {
-    size_t memory_usage = allocator_get_used_size_malloc(A_MAIN);
-    if(memory_usage < highest_memory_usage) {
-        return;
-    }
-
     MPI_Comm comm = MPI_COMM_WORLD;
 
     int ThisTask;
@@ -66,14 +61,13 @@ void report_detailed_memory_usage(const char *label, const char * fmt, ...)
         return;
     }
 
+    size_t memory_usage = allocator_get_used_size_malloc(A_MAIN);
+    if(memory_usage < highest_memory_usage) {
+        return;
+    }
+
     highest_memory_usage = memory_usage;
 
-    va_list va;
-    va_start(va, fmt);
-    char * buf = fastpm_strdup_vprintf(fmt, va);
-    va_end(va);
-
-    message(1, "Peak Memory usage induced by %s\n", buf);
-    myfree(buf);
+    message(1, "Peak Memory usage induced by %s (%s: %d)\n", label, file, line);
     allocator_print_malloc(A_MAIN);
 }
