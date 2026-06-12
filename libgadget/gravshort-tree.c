@@ -90,7 +90,7 @@ grav_short_tree_old(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, 
     priv.Accel = AccelStore;
     int accelstorealloc = 0;
     if(!AccelStore) {
-        priv.Accel = (MyFloat (*) [3]) mymalloc2("GravAccel", PartManager->NumPart * sizeof(priv.Accel[0]));
+        priv.Accel = mymalloc2("GravAccel", My3Vec, PartManager->NumPart);
         accelstorealloc = 1;
     }
 

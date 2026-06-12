@@ -89,7 +89,7 @@ ev_begin(TreeWalk * tw, int * active_set, const size_t size)
     tw->WorkSetStart = 0;
 
     if(!tw->NoNgblist)
-        tw->Ngblist = (int*) mymalloc("Ngblist", tw->tree->NumParticles * NumThreads * sizeof(int));
+        tw->Ngblist = mymalloc("Ngblist", int, tw->tree->NumParticles * NumThreads);
     else
         tw->Ngblist = NULL;
 
@@ -198,7 +198,7 @@ treewalk_build_queue(TreeWalk * tw, int * active_set, const size_t size, int may
     /* Explicitly deal with the case where the queue is zero and there is nothing to do.
      * Some OpenMP compilers (nvcc) seem to still execute the below loop in that case*/
     if(size == 0) {
-        tw->WorkSet = (int *) mymalloc("ActiveQueue", sizeof(int));
+        tw->WorkSet = mymalloc("ActiveQueue", int, 1);
         tw->WorkSetSize = size;
         return;
     }
@@ -238,7 +238,7 @@ treewalk_build_queue(TreeWalk * tw, int * active_set, const size_t size, int may
     /*Merge step for the queue.*/
     size_t nqueue = gadget_compact_thread_arrays(&tw->WorkSet, &gthread);
     /*Shrink memory*/
-    tw->WorkSet = (int *) myrealloc(tw->WorkSet, sizeof(int) * nqueue);
+    tw->WorkSet = myrealloc(tw->WorkSet, int, nqueue);
 
     tw->WorkSetSize = nqueue;
 }
@@ -358,7 +358,7 @@ alloc_export_memory(TreeWalk * tw)
     tw->ExportTable_thread = ta_malloc2("localexports", data_index *, tw->NThread);
     int i;
     for(i = 0; i < tw->NThread; i++)
-        tw->ExportTable_thread[i] = (data_index*) mymalloc("DataIndexTable", sizeof(data_index) * tw->BunchSize);
+        tw->ExportTable_thread[i] = mymalloc("DataIndexTable", data_index, tw->BunchSize);
     tw->QueueChunkEnd = ta_malloc2("queueend", int64_t, tw->NThread);
     for(i = 0; i < tw->NThread; i++)
         tw->QueueChunkEnd[i] = -1;
@@ -585,7 +585,7 @@ static struct CommBuffer ev_secondary(struct CommBuffer * imports, struct ImpExp
 {
     struct CommBuffer res_imports = {0};
     alloc_commbuffer(&res_imports, counts->NTask, 1);
-    res_imports.databuf = (char *) mymalloc2("ImportResult", counts->Nimport * tw->result_type_elsize);
+    res_imports.databuf = mymalloc2("ImportResult", char, counts->Nimport * tw->result_type_elsize);
 
     MPI_Datatype type;
     MPI_Type_contiguous(tw->result_type_elsize, MPI_BYTE, &type);
@@ -691,10 +691,10 @@ ev_export_import_counts(TreeWalk * tw, MPI_Comm comm)
 static void ev_send_recv_export_import(struct ImpExpCounts * counts, TreeWalk * tw, struct CommBuffer * exports, struct CommBuffer * imports)
 {
     alloc_commbuffer(exports, counts->NTask, 0);
-    exports->databuf = (char *) mymalloc("ExportQuery", counts->Nexport * tw->query_type_elsize);
+    exports->databuf = mymalloc("ExportQuery", char, counts->Nexport * tw->query_type_elsize);
 
     alloc_commbuffer(imports, counts->NTask, 0);
-    imports->databuf = (char *) mymalloc("ImportQuery", counts->Nimport * tw->query_type_elsize);
+    imports->databuf = mymalloc("ImportQuery", char, counts->Nimport * tw->query_type_elsize);
 
     MPI_Datatype type;
     MPI_Type_contiguous(tw->query_type_elsize, MPI_BYTE, &type);
@@ -737,7 +737,7 @@ static void ev_recv_export_result(struct CommBuffer * exportbuf, struct ImpExpCo
     MPI_Datatype type;
     MPI_Type_contiguous(tw->result_type_elsize, MPI_BYTE, &type);
     MPI_Type_commit(&type);
-    exportbuf->databuf = (char*) mymalloc2("ExportResult", counts->Nexport * tw->result_type_elsize);
+    exportbuf->databuf = mymalloc2("ExportResult", char, counts->Nexport * tw->result_type_elsize);
     /* Post the receives first so we can hit a zero-copy fastpath.*/
     MPI_fill_commbuffer(exportbuf, counts->Export_count, counts->Export_offset, type, COMM_RECV, 101923, counts->comm);
     // alloc_commbuffer(&res_imports, counts.NTask, 0);
@@ -1312,7 +1312,7 @@ treewalk_do_hsml_loop(TreeWalk * tw, int * queue, int64_t queuesize, int update_
 #endif
 
         /*Shrink memory*/
-        ReDoQueue = (int *) myrealloc(ReDoQueue, sizeof(int) * size);
+        ReDoQueue = myrealloc(ReDoQueue, int, size);
 
         /*
         if(ntot < 1 ) {

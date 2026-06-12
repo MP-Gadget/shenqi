@@ -36,7 +36,7 @@ class DensityPriv : public ParamTypeBase {
     {
         /* If enough particles are active, easiest to compute all the predicted velocities immediately*/
         if(!act->ActiveParticle || act->NumActiveHydro > (SlotsManager->info[0].size + SlotsManager->info[5].size) / DesNumNgb) {
-            EntVarPred = (MyFloat *) mymanagedmalloc("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
+            EntVarPred = mymanagedmalloc("EntVarPred", MyFloat, SlotsManager->info[0].size);
             const particle_data * const parts = PartManager->Base;
             #pragma omp parallel for
             for(int64_t i = 0; i < PartManager->NumPart; i++)
@@ -73,14 +73,14 @@ class DensityOutput {
     DensityOutput(const bool GradRho_mag, const int64_t NumPart, const double BoxSize, const double MaxNgbDeviation, slots_manager_type * slotsmanager):
     MaxNumNgbDeviation(MaxNgbDeviation), verbose(false), SphParts(slotsmanager->sph_slot()), BhParts(slotsmanager->bh_slot())
     {
-        Left = (MyFloat *) mymanagedmalloc("DENS_PRIV->Left", NumPart * sizeof(MyFloat));
-        Right = (MyFloat *) mymanagedmalloc("DENS_PRIV->Right", NumPart * sizeof(MyFloat));
-        NumNgb = (MyFloat *) mymanagedmalloc("DENS_PRIV->NumNgb", NumPart * sizeof(MyFloat));
-        Rot = (MyFloat (*) [3]) mymanagedmalloc("DENS_PRIV->Rot", slotsmanager->info[0].size * sizeof(Rot[0]));
+        Left = mymanagedmalloc("DENS_PRIV->Left", MyFloat, NumPart);
+        Right = mymanagedmalloc("DENS_PRIV->Right", MyFloat, NumPart);
+        NumNgb = mymanagedmalloc("DENS_PRIV->NumNgb", MyFloat, NumPart);
+        Rot = mymanagedmalloc("DENS_PRIV->Rot", My3Vec, slotsmanager->info[0].size);
         /* This one stores the gradient for h finding. The factor stored in SPHP->DhsmlEgyDensityFactor depends on whether PE SPH is enabled.*/
-        DhsmlDensityFactor = (MyFloat *) mymanagedmalloc("DhsmlDensity", NumPart * sizeof(MyFloat));
+        DhsmlDensityFactor = mymanagedmalloc("DhsmlDensity", MyFloat, NumPart);
         if(GradRho_mag)
-            GradRho = (MyFloat *) mymanagedmalloc("SPH_GradRho", sizeof(MyFloat) * 3 * slotsmanager->info[0].size);
+            GradRho = mymanagedmalloc("SPH_GradRho", MyFloat, 3 * slotsmanager->info[0].size);
         else
             GradRho = NULL;
 

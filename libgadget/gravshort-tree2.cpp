@@ -141,10 +141,10 @@ void
 grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool UseGPU)
 {
     GravShortTable gravtab(TreeParams.ShortRangeForceWindowType, pm->Asmth);
-    GravTreeParams * priv = (GravTreeParams *) mymanagedmalloc("GravTreeParams", sizeof(GravTreeParams));
+    GravTreeParams * priv = mymanagedmalloc("GravTreeParams", GravTreeParams, 1);
     new (priv) GravTreeParams(TreeParams, Ti_Current, rho0, pm, tree->BoxSize, gravtab);
 
-    GravTreeOutput * output = (GravTreeOutput *) mymanagedmalloc("GravTreeOutput", sizeof(GravTreeOutput));
+    GravTreeOutput * output = mymanagedmalloc("GravTreeOutput", GravTreeOutput, 1);
     new(output) GravTreeOutput(AccelStore, PartManager->NumPart, tree->full_particle_tree_flag);
 
     /* Do the treewalk! Run directly on the active list as we want to use all particles. */

@@ -3,6 +3,7 @@
 #include <string.h>
 #include "exchange.hpp"
 
+#include "types.h"
 #include "utils/endrun.h"
 #include "utils/mpsort.h"
 #include "utils/mymalloc.h"
@@ -25,7 +26,7 @@ domain_test_id_uniqueness(struct part_manager_type * pman)
 
     message(0, "Testing ID uniqueness...\n");
 
-    ids = (MyIDType *) mymalloc("ids", pman->NumPart * sizeof(MyIDType));
+    ids = mymalloc("ids", MyIDType, pman->NumPart);
 
     #pragma omp parallel for
     for(i = 0; i < pman->NumPart; i++) {

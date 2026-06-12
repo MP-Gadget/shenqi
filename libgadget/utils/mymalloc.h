@@ -13,12 +13,12 @@ void tamalloc_init(void);
 void report_detailed_memory_usage(const char *label, const char * file, int line);
 
 /* Memory allocated with this mechanism is tracked by our allocator framework and allocated with posix_memalign */
-#define  mymalloc(name, size)            allocator_alloc_host(A_MAIN, name, size)
-#define  mymalloc2(name, size)           allocator_alloc_host_top(A_MAIN, name, size)
+#define  mymalloc(name, type, nele)            (type*) allocator_alloc_host(A_MAIN, name, sizeof(type) * (nele))
+#define  mymalloc2(name, type, nele)           (type*) allocator_alloc_host_top(A_MAIN, name, sizeof(type) * (nele))
 /* Memory allocated with this mechanism is tracked by our allocator framework but also accessible on the GPU */
-#define mymanagedmalloc(name, size)        allocator_alloc_managed(A_MAIN, name, size)
+#define mymanagedmalloc(name, type, nele)        (type*) allocator_alloc_managed(A_MAIN, name, sizeof(type) * (nele))
 
-#define  myrealloc(ptr, size)     allocator_realloc(A_MAIN, ptr, size)
+#define  myrealloc(ptr, type, nele)     (type*) allocator_realloc(A_MAIN, ptr, sizeof(type) * (nele))
 #define  myfree(x)                 allocator_free(x)
 
 #define  ta_malloc(name, type, nele)            (type*) allocator_alloc_bot(A_TEMP, name, sizeof(type) * (nele))

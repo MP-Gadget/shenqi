@@ -29,7 +29,7 @@ grav_short_pair(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, doub
     priv.Rcut = Rcut * pm->Asmth * priv.cellsize;
     priv.G = pm->G;
     priv.cbrtrho0 = pow(rho0, 1.0 / 3);
-    priv.Accel = (MyFloat (*) [3]) mymalloc2("GravAccel", PartManager->NumPart * sizeof(priv.Accel[0]));
+    priv.Accel = mymalloc2("GravAccel", My3Vec, PartManager->NumPart);
 
     /* Initialize the short-range window table used by grav_apply_short_range_window.
      * The new tree code (gravshort-tree2.cpp) uses its own GravShortTable instance,

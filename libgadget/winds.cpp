@@ -256,7 +256,7 @@ winds_find_weights(TreeWalk * tw, struct WindPriv * priv, int * NewStars, const 
     int64_t winddata_sz = SlotsManager->info[4].size;
     if(HAS(wind_params.WindModel, WIND_SUBGRID))
         winddata_sz = SlotsManager->info[0].size;
-    priv->TotalWeight= (double * ) mymalloc("WindWeight", winddata_sz * sizeof(double));
+    priv->TotalWeight= mymalloc("WindWeight", double, winddata_sz);
 
     /* Note that this will be an over-count because each loop will add more.*/
     priv->nvisited = ta_malloc("nvisited", int, omp_get_max_threads());
@@ -315,7 +315,7 @@ winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time,
     * To ensure this happens only once and does not depend on the order in
     * which the loops are executed, particles are kicked by the nearest new star.
     * This struct stores all such possible kicks, and we sort it out after the treewalk.*/
-    priv->kicks = (struct StarKick * ) mymalloc("StarKicks", (priv->maxkicks+1) * sizeof(struct StarKick));
+    priv->kicks = mymalloc("StarKicks", StarKick, priv->maxkicks+1);
     priv->kicks[0].StarKickVelocity = 0;
     priv->nkicks = 0;
     priv->rnd = rnd;

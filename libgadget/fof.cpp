@@ -9,6 +9,7 @@
 #include <execution>
 #include <omp.h>
 
+#include "types.h"
 #include "utils/endrun.h"
 #include "utils/mpsort.h"
 
@@ -164,7 +165,7 @@ fof_fof(DomainDecomp * ddecomp, const int StoreGrNr, MPI_Comm Comm)
 
     message(0, "Comoving linking length: %g\n", fof_params.FOFHaloComovingLinkingLength);
 
-    struct fof_particle_list * HaloLabel = (struct fof_particle_list *) mymalloc("HaloLabel", PartManager->NumPart * sizeof(struct fof_particle_list));
+    struct fof_particle_list * HaloLabel = mymalloc("HaloLabel", fof_particle_list, PartManager->NumPart);
 
     /* HaloLabel stores the MinID and MinIDTask of particles, this pair serves as a halo label. */
     #pragma omp parallel for
@@ -201,7 +202,7 @@ fof_fof(DomainDecomp * ddecomp, const int StoreGrNr, MPI_Comm Comm)
 
     /* The first round is to eliminate groups that are too short. */
     /* We create the smaller 'BaseGroup' data set for this. */
-    struct BaseGroup * base = (struct BaseGroup *) mymalloc("BaseGroup", sizeof(struct BaseGroup) * NgroupsExt);
+    struct BaseGroup * base = mymalloc("BaseGroup", BaseGroup, NgroupsExt);
 
     NgroupsExt = fof_compile_base(base, NgroupsExt, HaloLabel, Comm);
 
@@ -389,9 +390,9 @@ void fof_label_primary(struct fof_particle_list * HaloLabel, ForceTree * tree, M
     struct FOFPrimaryPriv priv[1];
     tw->priv = priv;
 
-    FOF_PRIMARY_GET_PRIV(tw)->Head = (int*) mymalloc("FOF_Links", PartManager->NumPart * sizeof(int));
-    FOF_PRIMARY_GET_PRIV(tw)->PrimaryActive = (char*) mymalloc("FOFActive", PartManager->NumPart * sizeof(char));
-    FOF_PRIMARY_GET_PRIV(tw)->OldMinID = (MyIDType *) mymalloc("FOFActive", PartManager->NumPart * sizeof(MyIDType));
+    FOF_PRIMARY_GET_PRIV(tw)->Head = mymalloc("FOF_Links", int, PartManager->NumPart);
+    FOF_PRIMARY_GET_PRIV(tw)->PrimaryActive = mymalloc("FOFActive", char, PartManager->NumPart);
+    FOF_PRIMARY_GET_PRIV(tw)->OldMinID = mymalloc("FOFActive", MyIDType, PartManager->NumPart);
     FOF_PRIMARY_GET_PRIV(tw)->HaloLabel = HaloLabel;
     /* allocate buffers to arrange communication */
 
@@ -767,16 +768,16 @@ static struct Group *
 fof_alloc_group(const struct BaseGroup * base, const int NgroupsExt)
 {
     int i;
-    struct Group * Group = (struct Group *) mymalloc2("Group", sizeof(struct Group) * NgroupsExt);
-    memset(Group, 0, sizeof(Group[0]) * NgroupsExt);
+    struct Group * group = mymalloc2("Group", Group, NgroupsExt);
+    memset(group, 0, sizeof(group[0]) * NgroupsExt);
 
     /* copy in the base properties */
     /* at this point base group shall be sorted by MinID */
     #pragma omp parallel for
     for(i = 0; i < NgroupsExt; i ++) {
-        Group[i].base = base[i];
+        group[i].base = base[i];
     }
-    return Group;
+    return group;
 }
 
 /* TODO: It would be a good idea to generalise this to arbitrary fof/particle properties */
@@ -949,7 +950,7 @@ void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
         nimport += Recv_count[i];
     }
 
-    GroupType * images = (GroupType *) mymalloc("images", nimport * sizeof(GroupType));
+    GroupType * images = mymalloc("images", GroupType, nimport);
 
     /* Fill out local copies of the groups from other ranks*/
     MPI_Alltoallv_smart(groups + Nmine, Send_count, NULL, dtype,
@@ -1006,7 +1007,7 @@ void fof_reduce_groups(GroupType * groups, int nmemb, MPI_Comm Comm)
             endrun(5, "Error in basegroup import: minidtask %d != ThisTask %d\n", gi->MinIDTask, ThisTask);
         }
     }
-    GroupType * ghosts2 = (GroupType *) mymalloc("TMP", nmemb * sizeof(GroupType));
+    GroupType * ghosts2 = mymalloc("TMP", GroupType, nmemb);
 
     /* Debug code does an intermediate copy so we can check consistency. Non DEBUG mode likes to live dangerously*/
     MPI_Alltoallv_smart(images, Recv_count, NULL, dtype,
@@ -1215,8 +1216,8 @@ static void fof_label_secondary(struct fof_particle_list * HaloLabel, ForceTree 
     message(0, "Start finding nearest dm-particle (presently allocated=%g MB)\n",
             mymalloc_usedbytes() / (1024.0 * 1024.0));
 
-    FOF_SECONDARY_GET_PRIV(tw)->distance = (float *) mymalloc("FOF_SECONDARY->distance", sizeof(float) * PartManager->NumPart);
-    FOF_SECONDARY_GET_PRIV(tw)->hsml = (float *) mymalloc("FOF_SECONDARY->hsml", sizeof(float) * PartManager->NumPart);
+    FOF_SECONDARY_GET_PRIV(tw)->distance = mymalloc("FOF_SECONDARY->distance", float, PartManager->NumPart);
+    FOF_SECONDARY_GET_PRIV(tw)->hsml = mymalloc("FOF_SECONDARY->hsml", float, PartManager->NumPart);
     FOF_SECONDARY_GET_PRIV(tw)->HaloLabel = HaloLabel;
 
     #pragma omp parallel for
@@ -1283,7 +1284,7 @@ void fof_seed(FOFGroups * fof, ActiveParticles * act, double atime, const RandTa
     int NTask;
     MPI_Comm_size(Comm, &NTask);
 
-    char * Marked = (char *) mymalloc2("SeedMark", fof->Ngroups);
+    char * Marked = mymalloc2("SeedMark", char, fof->Ngroups);
 
     int Nexport = 0;
     #pragma omp parallel for reduction(+:Nexport)
@@ -1297,7 +1298,7 @@ void fof_seed(FOFGroups * fof, ActiveParticles * act, double atime, const RandTa
 
         if(Marked[i]) Nexport ++;
     }
-    struct Group * ExportGroups = (struct Group *) mymalloc("Export", sizeof(fof->Group[0]) * Nexport);
+    struct Group * ExportGroups = mymalloc("Export", Group, Nexport);
     j = 0;
     for(i = 0; i < fof->Ngroups; i ++) {
         if(Marked[i]) {
@@ -1328,8 +1329,7 @@ void fof_seed(FOFGroups * fof, ActiveParticles * act, double atime, const RandTa
         Nimport += Recv_count[j];
     }
 
-    struct Group * ImportGroups = (struct Group *)
-            mymalloc2("ImportGroups", Nimport * sizeof(struct Group));
+    struct Group * ImportGroups = mymalloc2("ImportGroups", Group, Nimport);
 
     MPI_Alltoallv_smart(ExportGroups, Send_count, NULL, MPI_TYPE_GROUP,
                         ImportGroups, Recv_count, NULL, MPI_TYPE_GROUP,
@@ -1350,7 +1350,7 @@ void fof_seed(FOFGroups * fof, ActiveParticles * act, double atime, const RandTa
         int *ActiveParticle_tmp=NULL;
         /* This is only called on a PM step, so the condition should never be true*/
         if(act->ActiveParticle) {
-            ActiveParticle_tmp = (int *) mymalloc2("ActiveParticle_tmp", act->NumActiveParticle * sizeof(int));
+            ActiveParticle_tmp = mymalloc2("ActiveParticle_tmp", int, act->NumActiveParticle);
             memmove(ActiveParticle_tmp, act->ActiveParticle, act->NumActiveParticle * sizeof(int));
             myfree(act->ActiveParticle);
         }
@@ -1365,7 +1365,7 @@ void fof_seed(FOFGroups * fof, ActiveParticles * act, double atime, const RandTa
 
         /*And now we need our memory back in the right place*/
         if(ActiveParticle_tmp) {
-            act->ActiveParticle = (int *) mymalloc("ActiveParticle", sizeof(int)*(act->NumActiveParticle + PartManager->MaxPart - PartManager->NumPart));
+            act->ActiveParticle = mymalloc("ActiveParticle", int, (act->NumActiveParticle + PartManager->MaxPart - PartManager->NumPart));
             memmove(act->ActiveParticle, ActiveParticle_tmp, act->NumActiveParticle * sizeof(int));
             myfree(ActiveParticle_tmp);
         }

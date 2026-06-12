@@ -986,7 +986,7 @@ init_cooling_rates(const std::string& TreeCoolFile, const std::string& J21CoeffF
     }
 
     /*Initialize the recombination tables*/
-    temp_tab = (double *) mymalloc("Recombination_tables", NRECOMBTAB * sizeof(double) * 14);
+    temp_tab = mymalloc("Recombination_tables", double, NRECOMBTAB * 14);
 
     rec_GammaH0 = temp_tab + NRECOMBTAB;
     rec_GammaHe0 = temp_tab + 2 * NRECOMBTAB;

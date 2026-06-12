@@ -142,7 +142,7 @@ petaio_save_snapshot(const std::string fname, struct IOTable * IOTable, int verb
     int64_t ptype_count[6]={0};
     int64_t NTotal[6]={0};
 
-    int * selection = (int *) mymalloc("Selection", sizeof(int) * PartManager->NumPart);
+    int * selection = mymalloc("Selection", int, PartManager->NumPart);
 
     petaio_build_selection(selection, ptype_offset, ptype_count, PartManager->Base, PartManager->NumPart, NULL);
 
@@ -505,7 +505,7 @@ void petaio_alloc_buffer(BigArray * array, IOTableEntry * ent, int64_t localsize
     dims[1] = ent->items;
     strides[1] = elsize;
     strides[0] = elsize * ent->items;
-    char * buffer = (char *) mymalloc("IOBUFFER", dims[0] * dims[1] * elsize);
+    char * buffer = mymalloc("IOBUFFER", char, dims[0] * dims[1] * elsize);
 
     big_array_init(array, buffer, ent->dtype, 2, dims, strides);
 }
@@ -637,7 +637,7 @@ void io_register_io_block(const char * name,
         struct IOTable * IOTable
         ) {
     if (IOTable->used == IOTable->allocated) {
-        IOTable->ent = (IOTableEntry *) myrealloc(IOTable->ent, 2*IOTable->allocated*sizeof(IOTableEntry));
+        IOTable->ent = myrealloc(IOTable->ent, IOTableEntry, 2*IOTable->allocated);
         IOTable->allocated *= 2;
     }
     IOTableEntry * ent = &IOTable->ent[IOTable->used];
@@ -894,7 +894,7 @@ void register_io_blocks(struct IOTable * IOTable, int WriteGroupID, int MetalRet
     int i;
     IOTable->used = 0;
     IOTable->allocated = 100;
-    IOTable->ent = (IOTableEntry *) mymalloc2("IOTable", IOTable->allocated * sizeof(IOTableEntry));
+    IOTable->ent = mymalloc2("IOTable", IOTableEntry, IOTable->allocated);
     /* Bare Bone Gravity*/
     for(i = 0; i < 6; i ++) {
         /* We put Mass first because sometimes there is

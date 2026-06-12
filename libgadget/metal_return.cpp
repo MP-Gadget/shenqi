@@ -392,11 +392,11 @@ metal_return_init(const ActiveParticles * act, Cosmology * CP, struct MetalRetur
 
     /* Initialize*/
     setup_metal_table_interp(&priv->interp);
-    priv->StellarAges = (MyFloat *) mymalloc("StellarAges", SlotsManager->info[4].size * sizeof(MyFloat));
-    priv->MassReturn = (MyFloat *) mymalloc("MassReturn", SlotsManager->info[4].size * sizeof(MyFloat));
-    priv->LowDyingMass = (MyFloat *) mymalloc("LowDyingMass", SlotsManager->info[4].size * sizeof(MyFloat));
-    priv->HighDyingMass = (MyFloat *) mymalloc("HighDyingMass", SlotsManager->info[4].size * sizeof(MyFloat));
-    priv->StarVolumeSPH = (MyFloat *) mymalloc("StarVolumeSPH", SlotsManager->info[4].size * sizeof(MyFloat));
+    priv->StellarAges = mymalloc("StellarAges", MyFloat, SlotsManager->info[4].size);
+    priv->MassReturn = mymalloc("MassReturn", MyFloat, SlotsManager->info[4].size);
+    priv->LowDyingMass = mymalloc("LowDyingMass", MyFloat, SlotsManager->info[4].size);
+    priv->HighDyingMass = mymalloc("HighDyingMass", MyFloat, SlotsManager->info[4].size);
+    priv->StarVolumeSPH = mymalloc("StarVolumeSPH", MyFloat, SlotsManager->info[4].size);
 
     priv->imf_norm = compute_imf_norm();
     /* Maximum possible mass return for below*/
@@ -886,11 +886,13 @@ stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * 
 
     priv->MassReturn = MassReturn;
 
-    priv->Left = (MyFloat *) mymalloc("DENS_PRIV->Left", SlotsManager->info[4].size * sizeof(MyFloat));
-    priv->Right = (MyFloat *) mymalloc("DENS_PRIV->Right", SlotsManager->info[4].size * sizeof(MyFloat));
-    priv->NumNgb = (MyFloat (*) [NHSML]) mymalloc("DENS_PRIV->NumNgb", SlotsManager->info[4].size * sizeof(priv->NumNgb[0]));
-    priv->VolumeSPH = (MyFloat (*) [NHSML]) mymalloc("DENS_PRIV->VolumeSPH", SlotsManager->info[4].size * sizeof(priv->VolumeSPH[0]));
-    priv->maxcmpte = (int *) mymalloc("maxcmpte", SlotsManager->info[4].size * sizeof(int));
+    priv->Left = mymalloc("DENS_PRIV->Left", MyFloat, SlotsManager->info[4].size);
+    priv->Right = mymalloc("DENS_PRIV->Right", MyFloat, SlotsManager->info[4].size);
+
+    typedef MyFloat NumNgbArray[NHSML];
+    priv->NumNgb = mymalloc("DENS_PRIV->NumNgb", NumNgbArray, SlotsManager->info[4].size);
+    priv->VolumeSPH = mymalloc("DENS_PRIV->VolumeSPH", NumNgbArray, SlotsManager->info[4].size);
+    priv->maxcmpte = mymalloc("maxcmpte", int, SlotsManager->info[4].size);
 
     priv->DesNumNgb = GetNumNgb(GetDensityKernelType());
 

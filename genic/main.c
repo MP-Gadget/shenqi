@@ -131,7 +131,7 @@ int main(int argc, char **argv)
   int64_t NumPartGas = idgen_gas->NumPart;
 
   /*Space for both CDM and baryons*/
-  struct ic_part_data * ICP = (struct ic_part_data *) mymalloc("PartTable", (NumPartCDM + All2.ProduceGas * NumPartGas)*sizeof(struct ic_part_data));
+  struct ic_part_data * ICP = mymalloc("PartTable", ic_part_data, NumPartCDM + All2.ProduceGas * NumPartGas);
 
   /* If we have incoherent glass files, we need to store both the particle tables
    * to ensure that there are no close particle pairs*/
@@ -204,7 +204,7 @@ int main(int argc, char **argv)
       idgen_init(idgen_nu, pm, All2.NGridNu, All2.BoxSize);
 
       int64_t NumPartNu = idgen_nu->NumPart;
-      ICP = (struct ic_part_data *) mymalloc("PartTable", NumPartNu*sizeof(struct ic_part_data));
+      ICP = mymalloc("PartTable", ic_part_data, NumPartNu);
 
       NumPartNu = setup_grid(idgen_nu, shift_nu, mass[2], ICP);
 

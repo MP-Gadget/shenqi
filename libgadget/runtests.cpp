@@ -243,7 +243,8 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
     register_io_blocks(&IOTable, 0, 0);
     register_extra_blocks(&IOTable);
 
-    double (* PairAccn)[3] = (double (*) [3]) mymalloc2("PairAccns", 3*sizeof(double) * PartManager->NumPart);
+    typedef double Double3Vec[3];
+    double (* PairAccn)[3] = mymalloc2("PairAccns", Double3Vec, PartManager->NumPart);
 
     PetaPM pm[1] = {0};
     gravpm_init_periodic(pm, PartManager->BoxSize, Asmth, Nmesh, CP->GravInternal);
@@ -372,7 +373,8 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     register_io_blocks(&IOTable, 0, 0);
     register_extra_blocks(&IOTable);
 
-    double (* PairAccn)[3] = (double (*) [3]) mymalloc2("PairAccns", 3*sizeof(double) * PartManager->NumPart);
+    typedef double Double3Vec[3] ;
+    double (* PairAccn)[3] = mymalloc2("PairAccns", Double3Vec, PartManager->NumPart);
 
     PetaPM pm[1] = {0};
     gravpm_init_periodic(pm, PartManager->BoxSize, Asmth, Nmesh, CP->GravInternal);
@@ -449,7 +451,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
 
     /* Check density code is the same */
     ForceTree gasTree = {0};
-    MyFloat * GradRho = (MyFloat *) mymalloc2("SPH_GradRho", sizeof(MyFloat) * 3 * SlotsManager->info[0].size);
+    MyFloat * GradRho = mymalloc2("SPH_GradRho", MyFloat, 3 * SlotsManager->info[0].size);
     /*Allocate the memory for predicted SPH data.*/
     struct sph_pred_data sph_predicted = {0};
     force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK, OutputDir.c_str());
@@ -463,9 +465,9 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     double newdens = second() - start;
     slots_free_sph_pred_data(&sph_predicted);
     sph_predicted.EntVarPred = NULL;
-    double * Density = (double *) mymalloc2("Density", sizeof(double) * PartManager->NumPart);
-    double * Hsml = (double *) mymalloc2("Hsml", sizeof(double) * PartManager->NumPart);
-    double * EgyWtDensity = (double *) mymalloc2("EgyWtDensity", sizeof(double) * PartManager->NumPart);
+    double * Density = mymalloc2("Density", double, PartManager->NumPart);
+    double * Hsml = mymalloc2("Hsml", double, PartManager->NumPart);
+    double * EgyWtDensity = mymalloc2("EgyWtDensity", double, PartManager->NumPart);
     copy_density(Density, Hsml, EgyWtDensity);
 
     struct density_params dp = get_densitypar();
@@ -504,8 +506,9 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     myfree(Density);
 
     /* Check hydro code is the same */
-    double (* HydroAccn)[3] = (double (*) [3]) mymalloc2("HydroAccns", 3*sizeof(double) * PartManager->NumPart);
-    double * MaxSignalVel = (double *) mymalloc2("MaxSignalVel", sizeof(double) * PartManager->NumPart);
+    typedef double Double3Vec[3];
+    double (* HydroAccn)[3] = mymalloc2("HydroAccns", Double3Vec, PartManager->NumPart);
+    double * MaxSignalVel = mymalloc2("MaxSignalVel", double, PartManager->NumPart);
     /* Compare the new and old hydro force. */
     force_tree_calc_moments(&gasTree, ddecomp);
     #pragma omp barrier

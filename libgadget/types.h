@@ -15,6 +15,7 @@ typedef uint64_t MyIDType;
 #endif
 
 typedef LOW_PRECISION MyFloat;
+typedef MyFloat My3Vec[3];
 
 #define HAS(val, flag) ((flag & (val)) == (flag))
 

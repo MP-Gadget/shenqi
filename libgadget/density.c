@@ -6,6 +6,7 @@
 #include <omp.h>
 
 #include "physconst.h"
+#include "types.h"
 #include "walltime.h"
 #include "density.h"
 #include "treewalk.h"
@@ -215,12 +216,12 @@ density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int 
     tw->tree = tree;
 
     globalTimeBinMgr = timebinmgr;
-    DENSITY_GET_PRIV(tw)->Left = (MyFloat *) mymalloc("DENS_PRIV->Left", PartManager->NumPart * sizeof(MyFloat));
-    DENSITY_GET_PRIV(tw)->Right = (MyFloat *) mymalloc("DENS_PRIV->Right", PartManager->NumPart * sizeof(MyFloat));
-    DENSITY_GET_PRIV(tw)->NumNgb = (MyFloat *) mymalloc("DENS_PRIV->NumNgb", PartManager->NumPart * sizeof(MyFloat));
-    DENSITY_GET_PRIV(tw)->Rot = (MyFloat (*) [3]) mymalloc("DENS_PRIV->Rot", SlotsManager->info[0].size * sizeof(priv->Rot[0]));
+    DENSITY_GET_PRIV(tw)->Left = mymalloc("DENS_PRIV->Left", MyFloat, PartManager->NumPart);
+    DENSITY_GET_PRIV(tw)->Right = mymalloc("DENS_PRIV->Right", MyFloat, PartManager->NumPart);
+    DENSITY_GET_PRIV(tw)->NumNgb = mymalloc("DENS_PRIV->NumNgb", MyFloat, PartManager->NumPart);
+    DENSITY_GET_PRIV(tw)->Rot = mymalloc("DENS_PRIV->Rot", My3Vec, SlotsManager->info[0].size);
     /* This one stores the gradient for h finding. The factor stored in SPHP->DhsmlEgyDensityFactor depends on whether PE SPH is enabled.*/
-    DENSITY_GET_PRIV(tw)->DhsmlDensityFactor = (MyFloat *) mymalloc("DENSITY_GET_PRIV(tw)->DhsmlDensity", PartManager->NumPart * sizeof(MyFloat));
+    DENSITY_GET_PRIV(tw)->DhsmlDensityFactor = mymalloc("DENSITY_GET_PRIV(tw)->DhsmlDensity", MyFloat, PartManager->NumPart);
 
     DENSITY_GET_PRIV(tw)->update_hsml = update_hsml;
     DENSITY_GET_PRIV(tw)->DoEgyDensity = DoEgyDensity;
@@ -231,7 +232,7 @@ density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int 
     DENSITY_GET_PRIV(tw)->BlackHoleOn = BlackHoleOn;
     DENSITY_GET_PRIV(tw)->SPH_predicted = SPH_predicted;
     if(GradRho_mag)
-        DENSITY_GET_PRIV(tw)->GradRho = (MyFloat *) mymalloc("SPH_GradRho", sizeof(MyFloat) * 3 * SlotsManager->info[0].size);
+        DENSITY_GET_PRIV(tw)->GradRho = mymalloc("SPH_GradRho", MyFloat, 3 * SlotsManager->info[0].size);
     else
         DENSITY_GET_PRIV(tw)->GradRho = NULL;
 
@@ -252,7 +253,7 @@ density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int 
 
     /* If all particles are active, easiest to compute all the predicted velocities immediately*/
     if(!act->ActiveParticle || act->NumActiveHydro > 0.1 * (SlotsManager->info[0].size + SlotsManager->info[5].size)) {
-        priv->SPH_predicted->EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
+        priv->SPH_predicted->EntVarPred = mymalloc2("EntVarPred", MyFloat, SlotsManager->info[0].size);
         #pragma omp parallel for
         for(i = 0; i < PartManager->NumPart; i++)
             if(Part[i].Type == 0 && !Part[i].IsGarbage)
@@ -262,7 +263,7 @@ density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int 
      * So instead we compute it for active particles and use an atomic to guard the changes inside the loop.
      * For sufficiently small particle numbers the memset dominates and it is fastest to just compute each predicted entropy as we need it.*/
     else if(act->NumActiveHydro > 0.0001 * (SlotsManager->info[0].size + SlotsManager->info[5].size)){
-        priv->SPH_predicted->EntVarPred = (MyFloat *) mymalloc2("EntVarPred", sizeof(MyFloat) * SlotsManager->info[0].size);
+        priv->SPH_predicted->EntVarPred = mymalloc2("EntVarPred", MyFloat, SlotsManager->info[0].size);
         memset(priv->SPH_predicted->EntVarPred, 0, sizeof(priv->SPH_predicted->EntVarPred[0]) * SlotsManager->info[0].size);
         #pragma omp parallel for
         for(i = 0; i < act->NumActiveParticle; i++)

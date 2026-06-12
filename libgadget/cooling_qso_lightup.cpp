@@ -261,7 +261,7 @@ build_qso_candidate_list(int ** qso_cand, FOFGroups * fof)
 {
     /*Loop over all halos, building the candidate list.*/
     int i, ncand=0;
-    *qso_cand = (int *) mymalloc("Quasar_candidates", sizeof(int) * (fof->Ngroups+1));
+    *qso_cand = mymalloc("Quasar_candidates", int, (fof->Ngroups+1));
     for(i = 0; i < fof->Ngroups; i++)
     {
         /* Check that it has the right mass*/
@@ -275,7 +275,7 @@ build_qso_candidate_list(int ** qso_cand, FOFGroups * fof)
     }
     /*Poison value at the end for safety.*/
     (*qso_cand)[ncand] = -1;
-    *qso_cand = (int *) myrealloc(*qso_cand, (ncand+1) * sizeof(int));
+    *qso_cand = myrealloc(*qso_cand, int, (ncand+1));
     return ncand;
 }
 

@@ -259,8 +259,8 @@ void PowerSpectrum::read_power_table(int ThisTask, const char * inputfile, const
     if(out_tab->Nentry < 2)
         endrun(1, "Input spectrum too short\n");
 
-    out_tab->logk = (double *) mymalloc("Powertable", (ncols+1)*out_tab->Nentry * sizeof(double));
-    for(j = 0; j < ncols; j++)
+    out_tab->logk = mymalloc("Powertable", double, (ncols+1)*out_tab->Nentry);
+    for(j = 0; j<ncols; j++)
         out_tab->logD[j] = out_tab->logk + (j+1)*out_tab->Nentry;
 
     if(ThisTask == 0) {

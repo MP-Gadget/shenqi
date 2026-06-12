@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <numeric>
 #include <vector>
 #include <execution>
@@ -142,7 +143,7 @@ void radix_sort(void * base, size_t nmemb, size_t size,
 
     /* Rearrange the data into a temporary buffer according to indices,
      * then memcpy back to base. */
-    char * tmp = (char *) mymalloc("tmp", nmemb * size);
+    char * tmp = mymalloc("tmp", char, nmemb * size);
     #pragma omp parallel for
     for (size_t i = 0; i < nmemb; i++) {
         memcpy(tmp + i * size, cbase + keys[i].second * size, size);
@@ -296,8 +297,8 @@ struct piter {
         memset(stable, 0, Plength * sizeof(int));
         narrow = ta_malloc("narrow", int, Plength);
         memset(narrow, 0, Plength * sizeof(int));
-        Pleft = (T* ) mymalloc("left", Plength * sizeof(T));
-        Pright = (T*) mymalloc("right", Plength * sizeof(T));
+        Pleft = mymalloc("left", T, Plength);
+        Pright = mymalloc("right", T, Plength);
         for(int i = 0; i < Plength; i ++) {
             Pleft[i] = Pmin;
             Pright[i] = Pmax;
@@ -691,8 +692,8 @@ void _find_Pmax_Pmin_C(void * mybase, size_t mynmemb,
 
     size_t * eachnmemb = ta_malloc("eachnmemb", size_t, o->NTask);
     size_t * eachoutnmemb = ta_malloc("eachoutnmemb", size_t, o->NTask);
-    T * eachPmax = (T *) mymalloc("eachPmax", o->NTask * sizeof(T));
-    T * eachPmin = (T *) mymalloc("eachPmin", o->NTask * sizeof(T));
+    T * eachPmax = mymalloc("eachPmax", T, o->NTask);
+    T * eachPmin = mymalloc("eachPmin", T, o->NTask);
 
     if(mynmemb > 0) {
         d->radix((char*) mybase + (mynmemb - 1) * d->size, &myPmax, d->arg);
@@ -796,16 +797,16 @@ template <typename T>
 int
 mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
 {
-    ptrdiff_t * myC = (ptrdiff_t *) mymalloc("myhistC", (o.NTask + 1) * sizeof(ptrdiff_t));
+    ptrdiff_t * myC = mymalloc("myhistC", ptrdiff_t, o.NTask + 1);
 
     /* Desired counts*/
-    ptrdiff_t * C = (ptrdiff_t *) mymalloc("histC", (o.NTask + 1) * sizeof(ptrdiff_t));
+    ptrdiff_t * C = mymalloc("histC", ptrdiff_t, o.NTask + 1);
     /* counts of less than P */
-    ptrdiff_t * myCLT = (ptrdiff_t *) mymalloc("myhistC", (o.NTask + 1) * sizeof(ptrdiff_t));
-    ptrdiff_t * CLT = (ptrdiff_t *) mymalloc("histCLT", (o.NTask + 1) * sizeof(ptrdiff_t));
+    ptrdiff_t * myCLT = mymalloc("myhistC", ptrdiff_t, o.NTask + 1);
+    ptrdiff_t * CLT = mymalloc("histCLT", ptrdiff_t, o.NTask + 1);
     /* counts of less than or equal to P */
-    ptrdiff_t * myCLE = (ptrdiff_t *) mymalloc("myhistCLE", (o.NTask + 1) * sizeof(ptrdiff_t));
-    ptrdiff_t * CLE = (ptrdiff_t *) mymalloc("CLE", (o.NTask + 1) * sizeof(ptrdiff_t));
+    ptrdiff_t * myCLE = mymalloc("myhistCLE", ptrdiff_t, o.NTask + 1);
+    ptrdiff_t * CLE = mymalloc("CLE", ptrdiff_t, o.NTask + 1);
 
     int done = 0;
     char * buffer;
@@ -816,7 +817,7 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
 
     MPI_Barrier(o.comm);
 
-    T * P = (T *) mymalloc("PP", (o.NTask - 1) * sizeof(T));
+    T * P = mymalloc("PP", T, o.NTask - 1);
     memset(P, 0, sizeof(T) * (o.NTask -1));
 
     T Pmax{0};
@@ -881,9 +882,9 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
 
     ta_free(P);
 
-    ptrdiff_t * myT_C = (ptrdiff_t *) mymalloc("myhistT_C", (o.NTask) * sizeof(ptrdiff_t));
-    ptrdiff_t * myT_CLT = (ptrdiff_t *) mymalloc("myhistCLT", (o.NTask) * sizeof(ptrdiff_t));
-    ptrdiff_t * myT_CLE = (ptrdiff_t *) mymalloc("myhistCLE", (o.NTask) * sizeof(ptrdiff_t));
+    ptrdiff_t * myT_C = mymalloc("myhistT_C", ptrdiff_t, o.NTask);
+    ptrdiff_t * myT_CLT = mymalloc("myhistCLT", ptrdiff_t, o.NTask);
+    ptrdiff_t * myT_CLE = mymalloc("myhistCLE", ptrdiff_t, o.NTask);
 
     /* transpose the matrix, could have been done with a new datatype */
     /*
@@ -1020,7 +1021,7 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
     }
 #endif
     if(o.myoutbase == o.mybase)
-        buffer = (char *) mymalloc("mpsortbuffer", d.size * o.myoutnmemb);
+        buffer = mymalloc("mpsortbuffer", char, d.size * o.myoutnmemb);
     else
         buffer = (char *) o.myoutbase;
 
@@ -1105,8 +1106,8 @@ mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
 
     if (groupsize > 1) {
         if(grouprank == seggrp->group_leader_rank) {
-            mysegmentbase = mymalloc("segmentbase", mysegmentnmemb * elsize);
-            myoutsegmentbase = mymalloc("outsegment", myoutsegmentnmemb * elsize);
+            mysegmentbase = mymalloc("segmentbase", char, mysegmentnmemb * elsize);
+            myoutsegmentbase = mymalloc("outsegment", char, myoutsegmentnmemb * elsize);
         }
         MPIU_Gather(seggrp->Group, seggrp->group_leader_rank, mybase, mysegmentbase, mynmemb, elsize);
     } else {

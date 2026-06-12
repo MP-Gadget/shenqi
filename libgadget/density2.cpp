@@ -106,9 +106,9 @@ void
 density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, TimeBinMgr * timebinmgr, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTree * const tree, bool UseGPU)
 {
     /* This ensures these classes are in managed memory and so accessible on the device. */
-    DensityPriv * priv = (DensityPriv *) mymanagedmalloc("DensityPriv", sizeof(DensityPriv));
+    DensityPriv * priv = mymanagedmalloc("DensityPriv", DensityPriv, 1);
     new (priv) DensityPriv(DensityParams, update_hsml, DoEgyDensity, BlackHoleOn, &times, timebinmgr, tree->BoxSize, CP, act, PartManager, SlotsManager);
-    DensityOutput * output = (DensityOutput *) mymanagedmalloc("DensityOutput", sizeof(DensityOutput));
+    DensityOutput * output = mymanagedmalloc("DensityOutput", DensityOutput, 1);
     new (output) DensityOutput(GradRho_mag, PartManager->NumPart, tree->BoxSize, DensityParams.MaxNumNgbDeviation, SlotsManager);
 
     walltime_measure("/SPH/Density/Init");

@@ -44,7 +44,6 @@ void set_uvf_params(ParameterSet * ps){
     return;
 }
 
-
 /* The UV fluctation file is a bigfile with these tables:
  * ReionizedFraction: values of the reionized fraction as function of
  * redshift.
@@ -106,7 +105,7 @@ init_uvf_table(const std::string& UVFluctuationFile, const double BoxSize, const
         if(dtype_itemsize(bh.dtype) != sizeof(double))
             endrun(1, "UVfluctuationFile %s should contain double-precision data, contains %s\n", UVFluctuationFile.c_str(), bh.dtype);
 
-        UVF.Table = (double *) mymalloc("UVFluctuationTable", bh.size * sizeof(double) * bh.nmemb);
+        UVF.Table = mymalloc("UVFluctuationTable", double, bh.size * bh.nmemb);
         size_t dims[2] = {bh.size, static_cast<size_t>(bh.nmemb)};
 
         BigArray array[1];
@@ -118,7 +117,7 @@ init_uvf_table(const std::string& UVFluctuationFile, const double BoxSize, const
             endrun(1, "Failed to read %s %s: %s", UVFluctuationFile.c_str(), "Zreion_Table", big_file_get_error_message());
     }
     if(ThisTask != 0)
-        UVF.Table = (double *) mymalloc("UVFluctuationTable", bh.size * bh.nmemb * sizeof(double));
+        UVF.Table = mymalloc("UVFluctuationTable", double, bh.size * bh.nmemb);
 
     MPI_Bcast(UVF.Table, bh.size * bh.nmemb, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
@@ -245,7 +244,7 @@ read_big_array(BigFile * bf, const char * dataset, int * Nread)
         if(dtype_itemsize(bb->dtype) != sizeof(double))
             endrun(1, "Block %s should contain double-precision data, contains %s\n", dataset, bb->dtype);
 
-        buffer = (double *) mymalloc(dataset, N  * bb->nmemb * sizeof(double));
+        buffer = mymalloc(dataset, double, N  * bb->nmemb);
 
         size_t dims[2] = {N, nmemb};
         big_array_init(array, buffer, bb->dtype, 2, dims, NULL);
@@ -261,7 +260,7 @@ read_big_array(BigFile * bf, const char * dataset, int * Nread)
     N *= nmemb;
     MPI_Bcast(&N, 1, MPI_UINT64_T, 0, MPI_COMM_WORLD);
     if(ThisTask != 0)
-        buffer = (double *) mymalloc(dataset, N* sizeof(double));
+        buffer = mymalloc(dataset, double, N);
 
     MPI_Bcast(buffer, N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 

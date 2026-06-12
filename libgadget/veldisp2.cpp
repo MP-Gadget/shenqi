@@ -34,9 +34,9 @@ class BHVelDispOutput {
 
     BHVelDispOutput(slots_manager_type * SlotsManager)
     {
-        NumDM = (MyFloat *) mymalloc("NumDM", SlotsManager->info[5].size * sizeof(MyFloat));
-        V1sumDM = (MyFloat (*) [3]) mymalloc("V1sumDM", 3* SlotsManager->info[5].size * sizeof(V1sumDM[0]));
-        V2sumDM = (MyFloat *) mymalloc("V2sumDM", SlotsManager->info[5].size * sizeof(MyFloat));
+        NumDM = mymalloc("NumDM", MyFloat, SlotsManager->info[5].size);
+        V1sumDM = mymalloc("V1sumDM", My3Vec, SlotsManager->info[5].size);
+        V2sumDM = mymalloc("V2sumDM", MyFloat,  SlotsManager->info[5].size);
     }
 
     ~BHVelDispOutput()
@@ -242,13 +242,15 @@ class WindVDispOutput {
     WindVDispOutput(const double BoxSize, const int * WorkSet, const int64_t WorkSetSize, particle_data * parts_i, slots_manager_type * slotsmanager):
     parts(parts_i), SphParts(slotsmanager->sph_slot())
     {
-        Left = (MyFloat *) mymalloc("VDISP->Left", SlotsManager->info[0].size * sizeof(MyFloat));
-        Right = (MyFloat *) mymalloc("VDISP->Right", SlotsManager->info[0].size * sizeof(MyFloat));
-        DMRadius = (MyFloat *) mymalloc("VDISP->DMRadius", SlotsManager->info[0].size * sizeof(MyFloat));
-        NumNgb = (MyFloat (*) [NWINDHSML]) mymalloc("VDISP->NumNgb", SlotsManager->info[0].size * sizeof(NumNgb[0]));
-        V1sum = (MyFloat (*) [NWINDHSML][3]) mymalloc("VDISP->V1Sum", SlotsManager->info[0].size * sizeof(V1sum[0]));
-        V2sum = (MyFloat (*) [NWINDHSML]) mymalloc("VDISP->V2Sum", SlotsManager->info[0].size * sizeof(V2sum[0]));
-        maxcmpte = (int *) mymalloc("maxcmpte", SlotsManager->info[0].size * sizeof(int));
+        typedef MyFloat NumNgbArray[NWINDHSML];
+        typedef MyFloat NumNgb3VecArray[NWINDHSML][3];
+        Left = mymalloc("VDISP->Left", MyFloat, SlotsManager->info[0].size);
+        Right = mymalloc("VDISP->Right", MyFloat, SlotsManager->info[0].size);
+        DMRadius = mymalloc("VDISP->DMRadius", MyFloat, SlotsManager->info[0].size);
+        NumNgb = mymalloc("VDISP->NumNgb", NumNgbArray, SlotsManager->info[0].size);
+        V1sum = mymalloc("VDISP->V1Sum", NumNgb3VecArray, SlotsManager->info[0].size);
+        V2sum = mymalloc("VDISP->V2Sum", NumNgbArray, SlotsManager->info[0].size);
+        maxcmpte = mymalloc("maxcmpte", int, SlotsManager->info[0].size);
 
         /*Initialise the arrays */
         #pragma omp parallel for
@@ -371,7 +373,7 @@ public:
 
 int64_t build_vdisp_queue(int ** WorkSet, int * active_set, int64_t size, const double Time, DriftKickTimes * times, TimeBinMgr * timebinmgr)
 {
-    *WorkSet = (int *) mymanagedmalloc("ActiveQueue", size * sizeof(int));
+    *WorkSet = mymanagedmalloc("ActiveQueue", int, size);
     double ddrift = timebinmgr->get_exact_drift_factor(times->Ti_Current, times->Ti_Current + times->PM_length);
     VDispWork haswork{PartManager->Base, SlotsManager->sph_slot(), ddrift, sfr_density_threshold(Time)};
     /* This is a standard stream compaction algorithm. It evaluates the haswork function

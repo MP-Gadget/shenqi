@@ -1,6 +1,6 @@
 #  Relevant files
 
-InitCondFile = IC
+InitCondFile = output_reion/IC
 OutputDir = output_reion
 MetalCoolFile = ../cooling_metal_UVB
 TreeCoolFile = ../TREECOOL_fg19_thin.dat

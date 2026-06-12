@@ -1154,7 +1154,7 @@ struct topleaf_momentsdata
  */
 static void force_exchange_pseudodata(const ForceTree * const tree, const DomainDecomp * const ddecomp)
 {
-    struct topleaf_momentsdata * TopLeafMoments = (struct topleaf_momentsdata *) mymalloc("TopLeafMoments", ddecomp->NTopLeaves * sizeof(TopLeafMoments[0]));
+    struct topleaf_momentsdata * TopLeafMoments = mymalloc("TopLeafMoments", struct topleaf_momentsdata, ddecomp->NTopLeaves);
 
     #pragma omp parallel for
     for(int i = ddecomp->Tasks[tree->ThisTask].StartLeaf; i < ddecomp->Tasks[tree->ThisTask].EndLeaf; i ++) {
@@ -1173,8 +1173,8 @@ static void force_exchange_pseudodata(const ForceTree * const tree, const Domain
     int NTask;
     MPI_Comm_size(MPI_COMM_WORLD, &NTask);
 
-    int * recvcounts = (int *) mymalloc("recvcounts", sizeof(int) * NTask);
-    int * recvoffset = (int *) mymalloc("recvoffset", sizeof(int) * NTask);
+    int * recvcounts = mymalloc("recvcounts", int, NTask);
+    int * recvoffset = mymalloc("recvoffset", int, NTask);
 
     for(int recvTask = 0; recvTask < NTask; recvTask++)
     {
@@ -1370,13 +1370,13 @@ ForceTree force_treeallocate(const int64_t maxnodes, const int64_t maxpart, cons
     ForceTree tb = {0};
 
     if(alloc_father) {
-        tb.Father = (int *) mymalloc("Father", maxpart * sizeof(int));
+        tb.Father = mymalloc("Father", int, maxpart);
         tb.nfather = maxpart;
 #ifdef DEBUG
         memset(tb.Father, -1, maxpart * sizeof(int));
 #endif
     }
-    tb.Nodes_base = (struct NODE *) mymanagedmalloc("Nodes_base", (maxnodes + 1) * sizeof(struct NODE));
+    tb.Nodes_base = mymanagedmalloc("Nodes_base", struct NODE, (maxnodes + 1));
 #ifdef DEBUG
     memset(tb.Nodes_base, -1, (maxnodes + 1) * sizeof(struct NODE));
 #endif

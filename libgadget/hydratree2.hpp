@@ -76,7 +76,7 @@ class HydroPriv : public ParamTypeBase {
         * For very small numbers of particles the memset is more expensive than just doing the exponential math,
         * so we don't pre-compute at all.*/
         if(EntVarPred) {
-            PressurePred = (double *) mymanagedmalloc("PressurePred", SlotsManager->info[0].size * sizeof(double));
+            PressurePred = mymanagedmalloc("PressurePred", double, SlotsManager->info[0].size);
             /* Do it in slot order for memory locality*/
             #pragma omp parallel for
             for(int i = 0; i < SlotsManager->info[0].size; i++) {
