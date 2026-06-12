@@ -149,7 +149,7 @@ static void force_direct(double * accn)
 
 static int check_against_force_direct(double ErrTolForceAcc)
 {
-    double * accn = (double *) mymalloc("accelerations", 3*sizeof(double) * PartManager->NumPart);
+    double * accn = mymalloc("accelerations", double, 3*PartManager->NumPart);
     force_direct(accn);
     double meanerr=0, maxerr=-1, meanacc=0, meanforce=0;
     find_means(&meanacc, &meanforce, accn);

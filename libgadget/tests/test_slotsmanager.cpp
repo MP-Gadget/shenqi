@@ -23,7 +23,7 @@ setup_particles(void)
 
     int64_t newSlots[6] = {128, 128, 128, 128, 128, 128};
 
-    PartManager->Base = (struct particle_data *) mymalloc("P", PartManager->MaxPart* sizeof(struct particle_data));
+    PartManager->Base = mymalloc("P", struct particle_data, PartManager->MaxPart);
     memset(PartManager->Base, 0, sizeof(struct particle_data) * PartManager->MaxPart);
 
     slots_init(0.01 * PartManager->MaxPart, SlotsManager);
@@ -96,7 +96,7 @@ BOOST_AUTO_TEST_CASE(test_slots_gc_sorted)
     BOOST_TEST(SlotsManager->info[0].size == 127);
     BOOST_TEST(SlotsManager->info[4].size == 127);
     BOOST_TEST(SlotsManager->info[5].size == 127);
-    peano_t * Keys = (peano_t *) mymalloc("Keys", PartManager->NumPart * sizeof(peano_t));
+    peano_t * Keys = mymalloc("Keys", peano_t, PartManager->NumPart);
     for(i = 0; i < PartManager->NumPart; i++) {
         Keys[i] = PEANO(PartManager->Base[i].Pos, PartManager->BoxSize);
         if(i >= 1) {

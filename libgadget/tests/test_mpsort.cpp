@@ -153,8 +153,8 @@ do_mpsort_test(int64_t srcsize, int bits, int staggered)
 
     message(0, "dest size = %ld\n", destsize);
 
-    int64_t * src = (int64_t *) mymalloc("src", srcsize * sizeof(int64_t));
-    int64_t * dest = (int64_t *) mymalloc("dest", destsize * sizeof(int64_t));
+    int64_t * src = mymalloc("src", int64_t, srcsize);
+    int64_t * dest = mymalloc("dest", int64_t, destsize);
 
     int seed = 9999 * ThisTask;
     generate(src, srcsize, bits, seed);
@@ -241,7 +241,7 @@ do_long_radix_test(int srcsize)
     MPI_Comm_size(MPI_COMM_WORLD, &NTask);
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
 
-    struct BaseGroup * base = (struct BaseGroup *) mymalloc("base", srcsize * sizeof(struct BaseGroup));
+    struct BaseGroup * base = mymalloc("base", struct BaseGroup, srcsize);
 
     int i;
     for(i = 0; i < srcsize; i++)

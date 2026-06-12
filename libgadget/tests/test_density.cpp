@@ -35,16 +35,16 @@ void trivial_domain(DomainDecomp * ddecomp)
     ddecomp->domain_allocated_flag = 1;
     ddecomp->NTopNodes = 1;
     ddecomp->NTopLeaves = 1;
-    ddecomp->TopNodes = (struct topnode_data *) mymalloc("topnode", sizeof(struct topnode_data));
+    ddecomp->TopNodes = mymalloc("topnode", struct topnode_data, 1);
     ddecomp->TopNodes[0].Daughter = -1;
     ddecomp->TopNodes[0].Leaf = 0;
-    ddecomp->TopLeaves = (struct topleaf_data *) mymalloc("topleaf",sizeof(struct topleaf_data));
+    ddecomp->TopLeaves = mymalloc("topleaf",struct topleaf_data, 1);
     ddecomp->TopLeaves[0].Task = 0;
     /*These are not used*/
     ddecomp->TopNodes[0].StartKey = 0;
     ddecomp->TopNodes[0].Shift = BITS_PER_DIMENSION * 3;
     /*To tell the code we are in serial*/
-    ddecomp->Tasks = (struct task_data *) mymalloc("task",sizeof(struct task_data));
+    ddecomp->Tasks = mymalloc("task",struct task_data, 1);
     ddecomp->Tasks[0].StartLeaf = 0;
     ddecomp->Tasks[0].EndLeaf = 1;
 }
@@ -182,7 +182,7 @@ static void do_density_test(struct density_testdata * data, const int numpart, d
     message(0, "Average Hsml: %g Expected %g +- %g\n",avghsml/numpart, expectedhsml, hsmlerr);
     BOOST_TEST(fabs(avghsml/numpart - expectedhsml) < hsmlerr);
     /* Make MaxNumNgbDeviation smaller and check we get a consistent result.*/
-    double * Hsml = (double *) mymalloc2("Hsml", numpart * sizeof(double));
+    double * Hsml = mymalloc2("Hsml", double, numpart);
     #pragma omp parallel for
     for(i=0; i<numpart; i++) {
         Hsml[i] = PartManager->Base[i].Hsml;
