@@ -58,16 +58,6 @@ plane_wrap_position(double x, const double L)
     return x;
 }
 
-static int
-plane_particle_is_active(const Cosmology * CP, const double atime, const int64_t i)
-{
-    if(Part[i].Swallowed)
-        return 0;
-    if(hybrid_nu_tracer(CP, atime) && Part[i].Type == 2)
-        return 0;
-    return 1;
-}
-
 static double
 plane_particle_omega_source(const Cosmology * CP, const double atime)
 {
@@ -84,8 +74,9 @@ plane_count_active_particles(const Cosmology * CP, const double atime)
 {
     int64_t local_count = 0;
     int64_t total_count = 0;
+#pragma omp parallel for reduction(+:local_count)
     for(int64_t p = 0; p < PartManager->NumPart; p++)
-        if(plane_particle_is_active(CP, atime, p))
+        if(lenstools_particle_is_active(CP, atime, p))
             local_count++;
     MPI_Allreduce(&local_count, &total_count, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     return total_count;
@@ -135,7 +126,7 @@ plane_pm_deposit_particles(PetaPM * pm, const Cosmology * CP, const double atime
     double local_mass = 0;
 
     for(int64_t p = 0; p < PartManager->NumPart; p++) {
-        if(!plane_particle_is_active(CP, atime, p))
+        if(!lenstools_particle_is_active(CP, atime, p))
             continue;
         local_mass += Part[p].Mass;
 
@@ -182,7 +173,7 @@ plane_pm_deposit_particles(PetaPM * pm, const Cosmology * CP, const double atime
     PlaneCellContribution *recvbuf = mymalloc("PlaneRecvCells", PlaneCellContribution, total_recv);
 
     for(int64_t p = 0; p < PartManager->NumPart; p++) {
-        if(!plane_particle_is_active(CP, atime, p))
+        if(!lenstools_particle_is_active(CP, atime, p))
             continue;
 
         int base[3];
