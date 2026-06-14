@@ -81,8 +81,30 @@ BOOST_AUTO_TEST_CASE(test_dloga)
 
     TimeBinMgr tbm(NULL, TIMEIC, TIMEMAX, 0.0, 0);
 
+    /* a=0.55 sits in the (non-uniformly spaced) segment [0.2, 0.8].*/
     inttime_t Ti_Current = tbm.ti_from_loga(log(0.55));
-    /* unsigned int dti_from_dloga(double loga); */
+    double loga0 = tbm.loga_from_ti(Ti_Current);
+
+    /* unsigned int dti_from_dloga(double dloga, inttime_t Ti_Current); */
+    /* dti_from_dloga must agree with the difference of the two endpoints
+     * computed by ti_from_loga. This is the spec, and exercises the bit-trick
+     * segment arithmetic for both the in-segment and segment-crossing cases.*/
+    /* Stay within the current segment.*/
+    double dloga_in = (logouts[2]-logouts[1])/4;
+    BOOST_TEST(tbm.dti_from_dloga(dloga_in, Ti_Current) ==
+               tbm.ti_from_loga(loga0 + dloga_in) - tbm.ti_from_loga(loga0));
+    /* The current segment spans a full TIMEBASE in ti, so a dloga of a
+     * quarter of the segment width is a quarter of TIMEBASE. This would be
+     * wrong by the ratio of neighbouring segment widths if the wrong segment
+     * were used for the conversion.*/
+    inttime_t dti_in = tbm.dti_from_dloga(dloga_in, Ti_Current);
+    BOOST_TEST(dti_in <= TIMEBASE/4 + 2);
+    BOOST_TEST(dti_in >= TIMEBASE/4 - 2);
+    /* Cross from segment [0.2,0.8] into the next, narrower segment [0.8,1.0].*/
+    double dloga_cross = (logouts[2]-logouts[1])/2 + (logouts[3]-logouts[2])/4;
+    BOOST_TEST(tbm.dti_from_dloga(dloga_cross, Ti_Current) ==
+               tbm.ti_from_loga(loga0 + dloga_cross) - tbm.ti_from_loga(loga0));
+
     /* double dloga_from_dti(unsigned int ti); */
 
     /*Get dloga from a timebin*/
