@@ -116,12 +116,11 @@ class TimeBinMgr {
     inttime_t
     ti_from_loga_snap(double loga, inttime_t lastsnap)
     {
-        /*If loop didn't trigger, i == All.NSyncPointTimes-1*/
-        double logDTime = (SyncPoints[lastsnap].loga - SyncPoints[lastsnap-1].loga)/TIMEBASE;
-        inttime_t ti = (lastsnap-1) << TIMEBINS;
+        double logDTime = (SyncPoints[lastsnap+1].loga - SyncPoints[lastsnap].loga)/TIMEBASE;
+        inttime_t ti = (lastsnap) << TIMEBINS;
         /* Note this means if we overrun the end of the timeline,
         * we still get something reasonable*/
-        ti += (loga - SyncPoints[lastsnap-1].loga)/logDTime;
+        ti += (loga - SyncPoints[lastsnap].loga)/logDTime;
         return ti;
     }
 
@@ -139,19 +138,17 @@ class TimeBinMgr {
         double logDTime = Dloga_interval_ti(Ti_Current);
         /* This is the same calculation as in loga_from_ti()*/
         double loga = last + dti * logDTime;
-        /* ti_from_loga_snap() takes the upper syncpoint index of the segment
-         * (it uses index-1 as the segment base), whereas lastsnap is the lower
-         * index of the current segment. So the current segment is [lastsnap, lastsnap+1].
+        /* ti_from_loga_snap() takes the lower syncpoint index of the segment
+         * which is lastsnap.
          * We do this instead of using Ti_Current directly so that the floating
          * point roundoff behaviour is the same.*/
-        inttime_t upper = lastsnap + 1;
-        if(upper >= SyncPoints.size())
-            upper = SyncPoints.size() - 1;
-        inttime_t ti = ti_from_loga_snap(loga, upper);
+        if(lastsnap >= SyncPoints.size()-1)
+            lastsnap = SyncPoints.size() - 2;
+        inttime_t ti = ti_from_loga_snap(loga, lastsnap);
         /* If we cross into the next segment, advance to its upper index.*/
-        if(upper < SyncPoints.size() - 1 && SyncPoints[upper].loga <= dloga + loga)
-            upper++;
-        inttime_t tip = ti_from_loga_snap(dloga+loga, upper);
+        if(lastsnap < SyncPoints.size() - 2 && SyncPoints[lastsnap+1].loga <= dloga + loga)
+            lastsnap++;
+        inttime_t tip = ti_from_loga_snap(dloga+loga, lastsnap);
         return tip - ti;
     }
 
