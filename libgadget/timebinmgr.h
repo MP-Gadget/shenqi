@@ -130,26 +130,22 @@ class TimeBinMgr {
     {
         /* Find current segment*/
         inttime_t lastsnap = Ti_Current >> TIMEBINS;
-        if(lastsnap >= SyncPoints.size()) {
+        if(lastsnap >= SyncPoints.size() -1 ) {
             lastsnap = SyncPoints.size() - 1;
         }
-        double last = SyncPoints[lastsnap].loga;
         inttime_t dti = Ti_Current & (TIMEBASE - 1);
         double logDTime = Dloga_interval_ti(Ti_Current);
         /* This is the same calculation as in loga_from_ti()*/
-        double loga = last + dti * logDTime;
+        double loga = SyncPoints[lastsnap].loga + dti * logDTime;
         /* ti_from_loga_snap() takes the lower syncpoint index of the segment
-         * which is lastsnap.
-         * We do this instead of using Ti_Current directly so that the floating
-         * point roundoff behaviour is the same.*/
+         * which is lastsnap.*/
         if(lastsnap >= SyncPoints.size()-1)
             lastsnap = SyncPoints.size() - 2;
-        inttime_t ti = ti_from_loga_snap(loga, lastsnap);
         /* If we cross into the next segment, advance to its upper index.*/
         if(lastsnap < SyncPoints.size() - 2 && SyncPoints[lastsnap+1].loga <= dloga + loga)
             lastsnap++;
         inttime_t tip = ti_from_loga_snap(dloga+loga, lastsnap);
-        return tip - ti;
+        return tip - Ti_Current;
     }
 
     double dloga_from_dti(inttime_t dti, const inttime_t Ti_Current)
