@@ -67,6 +67,12 @@ class TimeBinMgr {
         return NULL;
     }
 
+    inttime_t
+    find_next_ti_sync(inttime_t ti)
+    {
+        return ((ti >> TIMEBINS) + 1L) << (TIMEBINS);
+    }
+
     /* This function finds if ti is a sync point; if so returns the sync point;
     * otherwise, NULL. We check if we shall write a snapshot with this. */
     SyncPoint *
