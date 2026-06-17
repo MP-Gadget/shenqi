@@ -29,14 +29,12 @@ typedef struct SyncPoint SyncPoint;
 
 struct SyncPoint
 {
-    double a;
     double loga;
+    int plane_snapnum;  //! The snapshot number for the plane
     bool write_snapshot;
     bool write_fof;
     bool calc_uvbg;  //! Calculate the UV background
     bool write_plane;  //! Write a plane
-    int plane_snapnum;  //! The snapshot number for the plane
-    inttime_t ti;
 };
 
 /*Get the dti from the timebin*/
@@ -60,7 +58,8 @@ class TimeBinMgr {
     find_next_sync_point(inttime_t ti)
     {
         for(auto i = 0; i < SyncPoints.size(); i ++) {
-            if(SyncPoints[i].ti > ti) {
+            inttime_t syncti = (i * 1L) << (TIMEBINS);
+            if(syncti > ti) {
                 return &SyncPoints[i];
             }
         }
@@ -79,7 +78,8 @@ class TimeBinMgr {
     find_current_sync_point(inttime_t ti)
     {
         for(auto i = 0; i < SyncPoints.size(); i ++) {
-            if(SyncPoints[i].ti == ti) {
+            inttime_t syncti = (i * 1L) << (TIMEBINS);
+            if(syncti == ti) {
                 return &SyncPoints[i];
             }
         }

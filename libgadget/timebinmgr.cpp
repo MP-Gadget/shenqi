@@ -76,14 +76,12 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
 
     /* Set up first entry*/
     SyncPoint tmpsync;
-    tmpsync.a = TimeIC;
     tmpsync.loga = log(TimeIC);
     tmpsync.write_snapshot = false; /* by default no output here. */
     tmpsync.write_fof = false;
     tmpsync.calc_uvbg = false;
     tmpsync.write_plane = false;
     tmpsync.plane_snapnum = -1;
-    tmpsync.ti = 0;
     SyncPoints.push_back(tmpsync);
 
     // set up UVBG syncpoints at given intervals
@@ -94,14 +92,12 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
         double uv_a = 1/(1+Sync.ExcursionSetZStart) > TimeIC ? 1/(1+Sync.ExcursionSetZStart) : TimeIC;
         while (uv_a <= a_end) {
             SyncPoint tmpsync;
-            tmpsync.a = uv_a;
             tmpsync.loga = log(uv_a);
             tmpsync.write_snapshot = false; /* by default no output here. */
             tmpsync.write_fof = false;
             tmpsync.calc_uvbg = true;
             tmpsync.write_plane = false;
             tmpsync.plane_snapnum = -1;
-            tmpsync.ti = 0;
             SyncPoints.push_back(tmpsync);
             //message(0,"added UVBG syncpoint at a = %.3f z = %.3f, Nsync = %ld\n",uv_a,1/uv_a - 1,SyncPoints.size());
             // TODO(smutch): OK - this is ridiculous (sorry!), but I just wanted to quickly hack something...
@@ -117,14 +113,12 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
         message(0,"Added %lu Syncpoints for the excursion Set\n",SyncPoints.size()-1);
     }
 
-    tmpsync.a = TimeMax;
     tmpsync.loga = log(TimeMax);
     tmpsync.write_snapshot = true; /* by default no output here. */
     tmpsync.write_fof = true;
     tmpsync.calc_uvbg = false;
     tmpsync.write_plane = false;
     tmpsync.plane_snapnum = -1;
-    tmpsync.ti = 0;
     SyncPoints.push_back(tmpsync);
 
     /* we do an insertion sort here. A heap is faster but who cares the speed for this? */
@@ -133,6 +127,7 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
         // message(0, "outIdx: %d, outtime: %g, planeoutIdx: %d, planeouttime: %g.\n", outIdx, Sync.OutputListTimes[outIdx], planeoutIdx, Sync.PlaneOutputListTimes[planeoutIdx]);
         size_t j = 0;
         double a = Sync.OutputListTimes[i];
+        double loga = log(Sync.OutputListTimes[i]);
 
         if(a < TimeIC || a > TimeMax) {
             /*If the user inputs syncpoints outside the scope of the simulation, it can mess
@@ -142,25 +137,23 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
         }
 
         for(j = 0; j < SyncPoints.size(); j ++) {
-            if(a <= SyncPoints[j].a) {
+            if(loga <= SyncPoints[j].loga) {
                 break;
             }
         }
         /* found, so loga >= SyncPoints[j].loga */
-        if(a != SyncPoints[j].a) {
+        if(loga != SyncPoints[j].loga) {
             /* insert the item; */
-            tmpsync.a = a;
-            tmpsync.loga = log(a);
+            tmpsync.loga = loga;
             tmpsync.write_snapshot = false; /* by default no output here. */
             tmpsync.write_fof = false;
             tmpsync.calc_uvbg = false;
             tmpsync.write_plane = false;
             tmpsync.plane_snapnum = -1;
-            tmpsync.ti = 0;
             SyncPoints.insert(SyncPoints.begin() + j, tmpsync);
             //message(0,"added outlist syncpoint at a = %.3f, j = %ld, Ns = %ld\n",a,j,SyncPoints.size());
         }
-        if(SyncPoints[j].a > no_snapshot_until_time) {
+        if(SyncPoints[j].loga > log(no_snapshot_until_time)) {
             SyncPoints[j].write_snapshot = true;
             if(SnapshotWithFOF)
                 SyncPoints[j].write_fof = true;
@@ -181,7 +174,7 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
         }
 
         for(j = 0; j < SyncPoints.size(); j ++) {
-            if(a <= SyncPoints[j].a) {
+            if(loga <= SyncPoints[j].loga) {
                 break;
             }
         }
@@ -189,23 +182,17 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
         // to avoid setting sync points too close to each other (which can cause bad timestep errors)
         if(fabs(loga - SyncPoints[j].loga) > 1e-4) {
             /* insert a blank item with no snapshot output. */
-            tmpsync.a = a;
             tmpsync.loga = loga;
             tmpsync.write_snapshot = false; /* by default no output here. */
             tmpsync.write_fof = false;
             tmpsync.calc_uvbg = false;
             tmpsync.write_plane = false;
             tmpsync.plane_snapnum = -1;
-            tmpsync.ti = 0;
             SyncPoints.insert(SyncPoints.begin() + j, tmpsync);
             //message(0,"added outlist syncpoint at a = %.3f, j = %ld, Ns = %ld\n",a,j,SyncPoints.size());
         }
         SyncPoints[j].write_plane = 1;
         SyncPoints[j].plane_snapnum = i;
-    }
-
-    for(size_t i = 0; i < SyncPoints.size(); i++) {
-        SyncPoints[i].ti = (i * 1L) << (TIMEBINS);
     }
 
     //message(1,"NSyncPoints = %ld, OutputListLength = %ld , timemax = %.3f\n",NSyncPoints,Sync.OutputListLength,TimeMax);

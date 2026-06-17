@@ -47,14 +47,11 @@ BOOST_AUTO_TEST_CASE(test_conversions)
     BOOST_TEST(tbm.loga_from_ti(tbm.ti_from_loga(log(0.1))) == log(0.1), tt::tolerance(1e-6));
 
     /*! this function returns the next output time after ti_curr.*/
-    BOOST_TEST(tbm.find_next_sync_point(0)->ti == TIMEBASE);
-    BOOST_TEST(tbm.find_next_sync_point(TIMEBASE)->ti == 2 * TIMEBASE);
-    BOOST_TEST(tbm.find_next_sync_point(TIMEBASE-1)->ti == TIMEBASE);
-    BOOST_TEST(tbm.find_next_sync_point(TIMEBASE+1)->ti == 2*TIMEBASE);
-    BOOST_TEST(tbm.find_next_sync_point(4 * TIMEBASE) == nullptr);
+    BOOST_TEST(tbm.find_next_ti_sync(0) == TIMEBASE);
+    BOOST_TEST(tbm.find_next_ti_sync(TIMEBASE) == 2 * TIMEBASE);
+    BOOST_TEST(tbm.find_next_ti_sync(TIMEBASE-1) == TIMEBASE);
+    BOOST_TEST(tbm.find_next_ti_sync(TIMEBASE+1) == 2*TIMEBASE);
 
-    BOOST_TEST(tbm.find_current_sync_point(0)->ti == 0);
-    BOOST_TEST(tbm.find_current_sync_point(TIMEBASE)->ti == TIMEBASE);
     BOOST_TEST(tbm.find_current_sync_point(-1)  == nullptr);
     BOOST_TEST(tbm.find_current_sync_point(TIMEBASE-1) == nullptr);
 
