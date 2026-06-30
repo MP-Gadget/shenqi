@@ -72,6 +72,34 @@ BOOST_AUTO_TEST_CASE(test_skip_first)
     BOOST_TEST(tbm2.find_current_sync_point(0)->write_snapshot == 1);
 }
 
+/* find_current_sync_point returns the sync point exactly at ti, or nullptr.
+ * The four outputs {0.1, 0.2, 0.8, 1.0} land on ti = 0, TIMEBASE, 2*TIMEBASE,
+ * 3*TIMEBASE. We check both that the right point is returned (by its loga, not
+ * just non-null) and that every off-sync ti gives nullptr.*/
+BOOST_AUTO_TEST_CASE(test_find_current_sync_point)
+{
+    setup();
+    TimeBinMgr tbm(NULL, TIMEIC, TIMEMAX, 0.0, false);
+
+    /* Each exact sync point returns the correctly-indexed entry.*/
+    BOOST_TEST(tbm.find_current_sync_point(0)->loga == logouts[0]);
+    BOOST_TEST(tbm.find_current_sync_point(TIMEBASE)->loga == logouts[1]);
+    BOOST_TEST(tbm.find_current_sync_point(2 * TIMEBASE)->loga == logouts[2]);
+    BOOST_TEST(tbm.find_current_sync_point(3 * TIMEBASE)->loga == logouts[3]);
+
+    /* ti that is not exactly on a sync point returns nullptr: negative,
+     * between sync points, and adjacent to a sync point on either side.*/
+    BOOST_TEST(tbm.find_current_sync_point(-1) == nullptr);
+    BOOST_TEST(tbm.find_current_sync_point(1) == nullptr);
+    BOOST_TEST(tbm.find_current_sync_point(TIMEBASE - 1) == nullptr);
+    BOOST_TEST(tbm.find_current_sync_point(TIMEBASE + 1) == nullptr);
+    BOOST_TEST(tbm.find_current_sync_point(TIMEBASE + TIMEBASE / 2) == nullptr);
+
+    /* ti at or beyond the last sync point (index 3) has no entry.*/
+    BOOST_TEST(tbm.find_current_sync_point(4 * TIMEBASE) == nullptr);
+    BOOST_TEST(tbm.find_current_sync_point(100 * TIMEBASE) == nullptr);
+}
+
 BOOST_AUTO_TEST_CASE(test_dloga)
 {
     setup();
