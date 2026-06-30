@@ -49,7 +49,7 @@ class TimeBinMgr {
 
     TimeBinMgr (Cosmology * CP, double TimeIC, double TimeMax, double no_snapshot_until_time, bool SnapshotWithFOF);
 
-    TimeBinMgr (): CP(NULL) {};
+    TimeBinMgr (): NSyncPoints(0), CP(NULL) {};
 
     /*! this function returns the next output time that is in the future of
     *  ti_curr; if none is find it return NULL, indication the run shall terminate.
@@ -57,7 +57,7 @@ class TimeBinMgr {
     SyncPoint *
     find_next_sync_point(inttime_t ti)
     {
-        for(auto i = 0; i < SyncPoints.size(); i ++) {
+        for(auto i = 0; i < NSyncPoints; i ++) {
             inttime_t syncti = (i * 1L) << (TIMEBINS);
             if(syncti > ti) {
                 return &SyncPoints[i];
@@ -77,7 +77,7 @@ class TimeBinMgr {
     SyncPoint *
     find_current_sync_point(inttime_t ti)
     {
-        for(auto i = 0; i < SyncPoints.size(); i ++) {
+        for(auto i = 0; i < NSyncPoints; i ++) {
             inttime_t syncti = (i * 1L) << (TIMEBINS);
             if(syncti == ti) {
                 return &SyncPoints[i];
@@ -91,8 +91,8 @@ class TimeBinMgr {
     loga_from_ti(inttime_t ti)
     {
         inttime_t lastsnap = ti >> TIMEBINS;
-        if(lastsnap >= SyncPoints.size()) {
-            lastsnap = SyncPoints.size() - 1;
+        if(lastsnap >= NSyncPoints) {
+            lastsnap = NSyncPoints - 1;
         }
         double last = SyncPoints[lastsnap].loga;
         inttime_t dti = ti & (TIMEBASE - 1);
@@ -105,7 +105,7 @@ class TimeBinMgr {
     {
         inttime_t i, ti;
         /* First syncpoint is simulation start*/
-        for(i = 1; i < SyncPoints.size() - 1; i++)
+        for(i = 1; i < NSyncPoints - 1; i++)
         {
             if(SyncPoints[i].loga > loga)
                 break;
@@ -136,8 +136,8 @@ class TimeBinMgr {
     {
         /* Find current segment*/
         inttime_t lastsnap = Ti_Current >> TIMEBINS;
-        if(lastsnap >= SyncPoints.size() -1 ) {
-            lastsnap = SyncPoints.size() - 1;
+        if(lastsnap >= NSyncPoints -1 ) {
+            lastsnap = NSyncPoints - 1;
         }
         inttime_t dti = Ti_Current & (TIMEBASE - 1);
         double logDTime = Dloga_interval_ti(Ti_Current);
@@ -145,10 +145,10 @@ class TimeBinMgr {
         double loga = SyncPoints[lastsnap].loga + dti * logDTime;
         /* ti_from_loga_snap() takes the lower syncpoint index of the segment
          * which is lastsnap.*/
-        if(lastsnap >= SyncPoints.size()-1)
-            lastsnap = SyncPoints.size() - 2;
+        if(lastsnap >= NSyncPoints-1)
+            lastsnap = NSyncPoints - 2;
         /* If we cross into the next segment, advance to its upper index.*/
-        if(lastsnap < SyncPoints.size() - 2 && SyncPoints[lastsnap+1].loga <= dloga + loga)
+        if(lastsnap < NSyncPoints - 2 && SyncPoints[lastsnap+1].loga <= dloga + loga)
             lastsnap++;
         inttime_t tip = ti_from_loga_snap(dloga+loga, lastsnap);
         return tip - Ti_Current;
@@ -217,11 +217,11 @@ class TimeBinMgr {
     }
 
     private:
-    /* Each integer time stores in the first 10 bits the snapshot number.
+    /* Each integer time stores in the first XX bits of the snapshot number.
     * Then the rest of the bits are the standard integer timeline,
-    * which should be a power-of-two hierarchy. We use this bit trick to speed up
-    * the dloga look up. But the additional math makes this quite fragile. */
-    std::vector<SyncPoint> SyncPoints;
+    * which should be a power-of-two hierarchy. */
+    size_t NSyncPoints;
+    std::unique_ptr<SyncPoint []> SyncPoints;
     Cosmology * CP;
 
     /*Gets Dloga / ti for the current integer timeline.
@@ -233,7 +233,7 @@ class TimeBinMgr {
 
         inttime_t lastsnap = ti >> TIMEBINS;
 
-        if(lastsnap >= SyncPoints.size() - 1) {
+        if(lastsnap >= NSyncPoints - 1) {
             /* stop advancing loga after the last sync point. */
             return 0;
         }

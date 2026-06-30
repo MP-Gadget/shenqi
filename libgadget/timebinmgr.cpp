@@ -74,6 +74,7 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
 {
     this->CP = CP;
 
+    std::vector<SyncPoint> SyncPoints;
     /* Set up first entry*/
     SyncPoint tmpsync;
     tmpsync.loga = log(TimeIC);
@@ -195,10 +196,13 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
         SyncPoints[j].plane_snapnum = i;
     }
 
+    // This avoids the memory access overhead of std::vector and avoids copying.
+    this->SyncPoints = std::make_unique<SyncPoint[]>(SyncPoints.size());
+    this->NSyncPoints = SyncPoints.size();
     //message(1,"NSyncPoints = %ld, OutputListLength = %ld , timemax = %.3f\n",NSyncPoints,Sync.OutputListLength,TimeMax);
-    /*for(i = 0; i < NSyncPoints; i++) {
-        message(1,"Out: %g %ld\n", exp(SyncPoints[i].loga), SyncPoints[i].ti);
-    }*/
+    for(int i = 0; i < this->NSyncPoints; i++) {
+        this->SyncPoints[i] = SyncPoints[i];
+    }
 }
 
 /* Function to compute comoving distance using the adaptive integrator */
