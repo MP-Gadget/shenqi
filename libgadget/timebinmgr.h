@@ -2,6 +2,7 @@
 #define TIMEBINMGR_H
 
 #include <string>
+#include <vector>
 /* This file manages the integer timeline,
  * and converts from integers ti to double loga.*/
 
@@ -28,14 +29,12 @@ typedef struct SyncPoint SyncPoint;
 
 struct SyncPoint
 {
-    double a;
     double loga;
+    int plane_snapnum;  //! The snapshot number for the plane
     bool write_snapshot;
     bool write_fof;
     bool calc_uvbg;  //! Calculate the UV background
     bool write_plane;  //! Write a plane
-    int plane_snapnum;  //! The snapshot number for the plane
-    inttime_t ti;
 };
 
 /*Get the dti from the timebin*/
@@ -47,13 +46,10 @@ MYCUDAFN static inline inttime_t dti_from_timebin(int bin) {
 /*! table with desired sync points. All forces and phase space variables are synchonized to the same order. */
 class TimeBinMgr {
     public:
-    Cosmology * CP;
-    SyncPoint * SyncPoints;
-    int64_t NSyncPoints;    /* number of times stored in table of desired sync points */
 
     TimeBinMgr (Cosmology * CP, double TimeIC, double TimeMax, double no_snapshot_until_time, bool SnapshotWithFOF);
 
-    TimeBinMgr (): CP(NULL), SyncPoints(NULL), NSyncPoints(0) {};
+    TimeBinMgr (): NSyncPoints(0), CP(NULL) {};
 
     /*! this function returns the next output time that is in the future of
     *  ti_curr; if none is find it return NULL, indication the run shall terminate.
@@ -61,13 +57,19 @@ class TimeBinMgr {
     SyncPoint *
     find_next_sync_point(inttime_t ti)
     {
-        int64_t i;
-        for(i = 0; i < NSyncPoints; i ++) {
-            if(SyncPoints[i].ti > ti) {
+        for(auto i = 0; i < NSyncPoints; i ++) {
+            inttime_t syncti = (i * 1L) << (TIMEBINS);
+            if(syncti > ti) {
                 return &SyncPoints[i];
             }
         }
         return NULL;
+    }
+
+    inttime_t
+    find_next_ti_sync(inttime_t ti)
+    {
+        return ((ti >> TIMEBINS) + 1L) << (TIMEBINS);
     }
 
     /* This function finds if ti is a sync point; if so returns the sync point;
@@ -75,9 +77,9 @@ class TimeBinMgr {
     SyncPoint *
     find_current_sync_point(inttime_t ti)
     {
-        int64_t i;
-        for(i = 0; i < NSyncPoints; i ++) {
-            if(SyncPoints[i].ti == ti) {
+        for(auto i = 0; i < NSyncPoints; i ++) {
+            inttime_t syncti = (i * 1L) << (TIMEBINS);
+            if(syncti == ti) {
                 return &SyncPoints[i];
             }
         }
@@ -85,12 +87,12 @@ class TimeBinMgr {
     }
 
     /*Convert an integer to and from loga*/
-    MYCUDAFN double
+    double
     loga_from_ti(inttime_t ti)
     {
         inttime_t lastsnap = ti >> TIMEBINS;
-        if(lastsnap > NSyncPoints) {
-            lastsnap = NSyncPoints -1;
+        if(lastsnap >= NSyncPoints) {
+            lastsnap = NSyncPoints - 1;
         }
         double last = SyncPoints[lastsnap].loga;
         inttime_t dti = ti & (TIMEBASE - 1);
@@ -98,7 +100,7 @@ class TimeBinMgr {
         return last + dti * logDTime;
     }
 
-    MYCUDAFN inttime_t
+    inttime_t
     ti_from_loga(double loga)
     {
         inttime_t i, ti;
@@ -117,16 +119,42 @@ class TimeBinMgr {
         return ti;
     }
 
-    /*Convert changes in loga to and from ti*/
-    MYCUDAFN inttime_t
-    dti_from_dloga(double loga, const inttime_t Ti_Current)
+    inttime_t
+    ti_from_loga_snap(double loga, inttime_t lastsnap)
     {
-        inttime_t ti = ti_from_loga(loga_from_ti(Ti_Current));
-        inttime_t tip = ti_from_loga(loga+loga_from_ti(Ti_Current));
-        return tip - ti;
+        double logDTime = (SyncPoints[lastsnap+1].loga - SyncPoints[lastsnap].loga)/TIMEBASE;
+        inttime_t ti = (lastsnap) << TIMEBINS;
+        /* Note this means if we overrun the end of the timeline,
+        * we still get something reasonable*/
+        ti += (loga - SyncPoints[lastsnap].loga)/logDTime;
+        return ti;
     }
 
-    MYCUDAFN double dloga_from_dti(inttime_t dti, const inttime_t Ti_Current)
+    /*Convert changes in loga to and from ti*/
+    inttime_t
+    dti_from_dloga(double dloga, const inttime_t Ti_Current)
+    {
+        /* Find current segment*/
+        inttime_t lastsnap = Ti_Current >> TIMEBINS;
+        if(lastsnap >= NSyncPoints -1 ) {
+            lastsnap = NSyncPoints - 1;
+        }
+        inttime_t dti = Ti_Current & (TIMEBASE - 1);
+        double logDTime = Dloga_interval_ti(Ti_Current);
+        /* This is the same calculation as in loga_from_ti()*/
+        double loga = SyncPoints[lastsnap].loga + dti * logDTime;
+        /* ti_from_loga_snap() takes the lower syncpoint index of the segment
+         * which is lastsnap.*/
+        if(lastsnap >= NSyncPoints-1)
+            lastsnap = NSyncPoints - 2;
+        /* If we cross into the next segment, advance to its upper index.*/
+        if(lastsnap < NSyncPoints - 2 && SyncPoints[lastsnap+1].loga <= dloga + loga)
+            lastsnap++;
+        inttime_t tip = ti_from_loga_snap(dloga+loga, lastsnap);
+        return tip - Ti_Current;
+    }
+
+    double dloga_from_dti(inttime_t dti, const inttime_t Ti_Current)
     {
         double Dloga = Dloga_interval_ti(Ti_Current);
         int sign = 1;
@@ -140,14 +168,14 @@ class TimeBinMgr {
         return Dloga * dti * sign;
     }
     /*Get dloga from a timebin*/
-    MYCUDAFN double get_dloga_for_bin(int timebin, const inttime_t Ti_Current)
+    double get_dloga_for_bin(int timebin, const inttime_t Ti_Current)
     {
         double logDTime = Dloga_interval_ti(Ti_Current);
         return dti_from_timebin(timebin) * logDTime;
     }
 
     /* Get the current scale factor*/
-    MYCUDAFN double
+    double
     get_atime(const inttime_t Ti_Current) {
         return exp(loga_from_ti(Ti_Current));
     }
@@ -189,14 +217,16 @@ class TimeBinMgr {
     }
 
     private:
-    /* Each integer time stores in the first 10 bits the snapshot number.
+    /* Each integer time stores in the first XX bits of the snapshot number.
     * Then the rest of the bits are the standard integer timeline,
-    * which should be a power-of-two hierarchy. We use this bit trick to speed up
-    * the dloga look up. But the additional math makes this quite fragile. */
+    * which should be a power-of-two hierarchy. */
+    size_t NSyncPoints;
+    std::unique_ptr<SyncPoint []> SyncPoints;
+    Cosmology * CP;
 
     /*Gets Dloga / ti for the current integer timeline.
     * Valid up to the next snapshot, after which it will change*/
-    MYCUDAFN double Dloga_interval_ti(inttime_t ti)
+    double Dloga_interval_ti(inttime_t ti)
     {
         /* FIXME: This uses the bit tricks because it has to be fast
         * -- till we clean up the calls to loga_from_ti; then we can avoid bit tricks. */

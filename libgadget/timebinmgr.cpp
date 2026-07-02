@@ -1,18 +1,11 @@
 #include <mpi.h>
 #include <math.h>
-#include <string.h>
-#include <stdlib.h>
 #include <vector>
-#include <sstream>
 #include <boost/math/quadrature/gauss_kronrod.hpp>
 
 #include "timebinmgr.h"
 #include "utils/endrun.h"
-#include "utils/mymalloc.h"
-
 #include "cosmology.h"
-
-#define MAXTIMES 1024
 
 static struct sync_params
 {
@@ -80,52 +73,34 @@ void set_sync_params_test(int OutputListLength, double * OutputListTimes)
 TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_snapshot_until_time, bool SnapshotWithFOF)
 {
     this->CP = CP;
-    int64_t NSyncPointsAlloc = Sync.OutputListTimes.size() + Sync.PlaneOutputListTimes.size() + 2;
 
-    /* Excursion set sync points ensure that the reionization excursion set model is run frequently*/
-    const double ExcursionSet_delta_a = 0.0001;
-    const double a_end = 1/(1+Sync.ExcursionSetZStop) < TimeMax ? 1/(1+Sync.ExcursionSetZStop) : TimeMax;
-
-    if(Sync.ExcursionSetReionOn) {
-        double uv_a = 1/(1+Sync.ExcursionSetZStart) > TimeIC ? 1/(1+Sync.ExcursionSetZStart) : TimeIC;
-        while (uv_a <= a_end) {
-            NSyncPointsAlloc++;
-            double lbt = time_to_present(uv_a,CP);
-            double delta_lbt = 0.0;
-            while ((delta_lbt <= Sync.UVBGTimestep) && (uv_a <= TimeMax)) {
-                uv_a += ExcursionSet_delta_a;
-                delta_lbt = lbt - time_to_present(uv_a,CP);
-            }
-        }
-    }
-    //z=20 to z=4 is ~150 syncpoints at 10 Myr spaces
-    SyncPoints = mymalloc("SyncPoints", SyncPoint, NSyncPointsAlloc);
-
-    /* Set up first and last entry to SyncPoints; TODO we can insert many more! */
-    //NOTE(jdavies): these first syncpoints need to be in order
-
-    SyncPoints[0].a = TimeIC;
-    SyncPoints[0].loga = log(TimeIC);
-    SyncPoints[0].write_snapshot = false; /* by default no output here. */
-    SyncPoints[0].write_fof = false;
-    SyncPoints[0].calc_uvbg = false;
-    SyncPoints[0].write_plane = false;
-    SyncPoints[0].plane_snapnum = -1;
-    NSyncPoints = 1;
+    std::vector<SyncPoint> SyncPoints;
+    /* Set up first entry*/
+    SyncPoint tmpsync;
+    tmpsync.loga = log(TimeIC);
+    tmpsync.write_snapshot = false; /* by default no output here. */
+    tmpsync.write_fof = false;
+    tmpsync.calc_uvbg = false;
+    tmpsync.write_plane = false;
+    tmpsync.plane_snapnum = -1;
+    SyncPoints.push_back(tmpsync);
 
     // set up UVBG syncpoints at given intervals
     if(Sync.ExcursionSetReionOn) {
+        /* Excursion set sync points ensure that the reionization excursion set model is run frequently*/
+        const double ExcursionSet_delta_a = 0.0001;
+        const double a_end = 1/(1+Sync.ExcursionSetZStop) < TimeMax ? 1/(1+Sync.ExcursionSetZStop) : TimeMax;
         double uv_a = 1/(1+Sync.ExcursionSetZStart) > TimeIC ? 1/(1+Sync.ExcursionSetZStart) : TimeIC;
         while (uv_a <= a_end) {
-            SyncPoints[NSyncPoints].a = uv_a;
-            SyncPoints[NSyncPoints].loga = log(uv_a);
-            SyncPoints[NSyncPoints].write_snapshot = 0;
-            SyncPoints[NSyncPoints].write_fof = 0;
-            SyncPoints[NSyncPoints].calc_uvbg = 1;
-            NSyncPoints++;
-            if(NSyncPoints > NSyncPointsAlloc)
-                endrun(1, "Tried to generate %ld syncpoints, %ld allocated\n", NSyncPoints, NSyncPointsAlloc);
-            //message(0,"added UVBG syncpoint at a = %.3f z = %.3f, Nsync = %ld\n",uv_a,1/uv_a - 1,NSyncPoints);
+            SyncPoint tmpsync;
+            tmpsync.loga = log(uv_a);
+            tmpsync.write_snapshot = false; /* by default no output here. */
+            tmpsync.write_fof = false;
+            tmpsync.calc_uvbg = true;
+            tmpsync.write_plane = false;
+            tmpsync.plane_snapnum = -1;
+            SyncPoints.push_back(tmpsync);
+            //message(0,"added UVBG syncpoint at a = %.3f z = %.3f, Nsync = %ld\n",uv_a,1/uv_a - 1,SyncPoints.size());
             // TODO(smutch): OK - this is ridiculous (sorry!), but I just wanted to quickly hack something...
             // TODO(jdavies): fix low-z where delta_a > 10Myr
             double lbt = time_to_present(uv_a,CP);
@@ -136,25 +111,24 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
                 //message(0,"trying UVBG syncpoint at a = %.3e, z = %.3e, delta_lbt = %.3e\n",uv_a,1/uv_a - 1,delta_lbt);
             }
         }
-        message(0,"Added %ld Syncpoints for the excursion Set\n",NSyncPoints-1);
+        message(0,"Added %lu Syncpoints for the excursion Set\n",SyncPoints.size()-1);
     }
 
-    SyncPoints[NSyncPoints].a = TimeMax;
-    SyncPoints[NSyncPoints].loga = log(TimeMax);
-    SyncPoints[NSyncPoints].write_snapshot = true;
-    SyncPoints[NSyncPoints].calc_uvbg = false;
-    SyncPoints[NSyncPoints].write_fof = true;
-    SyncPoints[NSyncPoints].write_plane = false;
-    SyncPoints[NSyncPoints].plane_snapnum = -1;
-    NSyncPoints++;
+    tmpsync.loga = log(TimeMax);
+    tmpsync.write_snapshot = true; /* by default no output here. */
+    tmpsync.write_fof = true;
+    tmpsync.calc_uvbg = false;
+    tmpsync.write_plane = false;
+    tmpsync.plane_snapnum = -1;
+    SyncPoints.push_back(tmpsync);
 
     /* we do an insertion sort here. A heap is faster but who cares the speed for this? */
     for(size_t i = 0; i < Sync.OutputListTimes.size(); i ++) {
         // print outputlisttime and index
         // message(0, "outIdx: %d, outtime: %g, planeoutIdx: %d, planeouttime: %g.\n", outIdx, Sync.OutputListTimes[outIdx], planeoutIdx, Sync.PlaneOutputListTimes[planeoutIdx]);
-        int64_t j = 0;
+        size_t j = 0;
         double a = Sync.OutputListTimes[i];
-        double loga = log(a);
+        double loga = log(Sync.OutputListTimes[i]);
 
         if(a < TimeIC || a > TimeMax) {
             /*If the user inputs syncpoints outside the scope of the simulation, it can mess
@@ -163,34 +137,34 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
             continue;
         }
 
-        for(j = 0; j < NSyncPoints; j ++) {
-            if(a <= SyncPoints[j].a) {
+        for(j = 0; j < SyncPoints.size(); j ++) {
+            if(loga <= SyncPoints[j].loga) {
                 break;
             }
         }
         /* found, so loga >= SyncPoints[j].loga */
-        if(a == SyncPoints[j].a) {
-            /* requesting output on an existing entry, e.g. TimeInit or duplicated entry */
-        } else {
+        if(loga != SyncPoints[j].loga) {
             /* insert the item; */
-            memmove(&SyncPoints[j + 1], &SyncPoints[j], sizeof(SyncPoints[0]) * (NSyncPoints - j));
-            memset(&SyncPoints[j], 0, sizeof(SyncPoints[0]));
-            SyncPoints[j].a = a;
-            SyncPoints[j].loga = loga;
-            NSyncPoints ++;
-            //message(0,"added outlist syncpoint at a = %.3f, j = %d, Ns = %ld\n",a,j,NSyncPoints);
+            tmpsync.loga = loga;
+            tmpsync.write_snapshot = false; /* by default no output here. */
+            tmpsync.write_fof = false;
+            tmpsync.calc_uvbg = false;
+            tmpsync.write_plane = false;
+            tmpsync.plane_snapnum = -1;
+            SyncPoints.insert(SyncPoints.begin() + j, tmpsync);
+            //message(0,"added outlist syncpoint at a = %.3f, j = %ld, Ns = %ld\n",a,j,SyncPoints.size());
         }
-        if(SyncPoints[j].a > no_snapshot_until_time) {
-            SyncPoints[j].write_snapshot = 1;
+        if(SyncPoints[j].loga > log(no_snapshot_until_time)) {
+            SyncPoints[j].write_snapshot = true;
             if(SnapshotWithFOF)
-                SyncPoints[j].write_fof = 1;
+                SyncPoints[j].write_fof = true;
         }
         SyncPoints[j].plane_snapnum = -1;
     }
 
     /* Now insert the plane outputs*/
     for(size_t i = 0; i < Sync.PlaneOutputListTimes.size(); i ++) {
-        int64_t j = 0;
+        size_t j = 0;
         double a = Sync.PlaneOutputListTimes[i];
         double loga = log(a);
         if(a < TimeIC || a > TimeMax) {
@@ -200,8 +174,8 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
             continue;
         }
 
-        for(j = 0; j < NSyncPoints; j ++) {
-            if(a <= SyncPoints[j].a) {
+        for(j = 0; j < SyncPoints.size(); j ++) {
+            if(loga <= SyncPoints[j].loga) {
                 break;
             }
         }
@@ -209,27 +183,26 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
         // to avoid setting sync points too close to each other (which can cause bad timestep errors)
         if(fabs(loga - SyncPoints[j].loga) > 1e-4) {
             /* insert a blank item with no snapshot output. */
-            memmove(&SyncPoints[j + 1], &SyncPoints[j], sizeof(SyncPoints[0]) * (NSyncPoints - j));
-            memset(&SyncPoints[j], 0, sizeof(SyncPoints[0]));
-            SyncPoints[j].a = a;
-            SyncPoints[j].loga = loga;
-            NSyncPoints ++;
-            //message(0,"added outlist syncpoint at a = %.3f, j = %d, Ns = %ld\n",a,j,NSyncPoints);
+            tmpsync.loga = loga;
+            tmpsync.write_snapshot = false; /* by default no output here. */
+            tmpsync.write_fof = false;
+            tmpsync.calc_uvbg = false;
+            tmpsync.write_plane = false;
+            tmpsync.plane_snapnum = -1;
+            SyncPoints.insert(SyncPoints.begin() + j, tmpsync);
+            //message(0,"added outlist syncpoint at a = %.3f, j = %ld, Ns = %ld\n",a,j,SyncPoints.size());
         }
         SyncPoints[j].write_plane = 1;
         SyncPoints[j].plane_snapnum = i;
     }
 
-    for(int i = 0; i < NSyncPoints; i++) {
-        SyncPoints[i].ti = (i * 1L) << (TIMEBINS);
-    }
-    if(NSyncPoints > NSyncPointsAlloc)
-        endrun(1, "Tried to generate %ld syncpoints, %ld allocated\n", NSyncPoints, NSyncPointsAlloc);
-
+    // This avoids the memory access overhead of std::vector and avoids copying.
+    this->SyncPoints = std::make_unique<SyncPoint[]>(SyncPoints.size());
+    this->NSyncPoints = SyncPoints.size();
     //message(1,"NSyncPoints = %ld, OutputListLength = %ld , timemax = %.3f\n",NSyncPoints,Sync.OutputListLength,TimeMax);
-    /*for(i = 0; i < NSyncPoints; i++) {
-        message(1,"Out: %g %ld\n", exp(SyncPoints[i].loga), SyncPoints[i].ti);
-    }*/
+    for(int i = 0; i < this->NSyncPoints; i++) {
+        this->SyncPoints[i] = SyncPoints[i];
+    }
 }
 
 /* Function to compute comoving distance using the adaptive integrator */

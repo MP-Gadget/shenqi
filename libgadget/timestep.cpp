@@ -1225,13 +1225,8 @@ get_PM_timestep_ti(const DriftKickTimes * const times, TimeBinMgr * timebinmgr, 
     inttime_t dti = timebinmgr->dti_from_dloga(dloga, times->Ti_Current);
     dti = round_down_power_of_two(dti);
 
-    SyncPoint * next = timebinmgr->find_next_sync_point(times->Ti_Current);
-    if(next == NULL)
-        endrun(0, "Trying to go beyond the last sync point. This happens only at TimeMax \n");
-
     /* go no more than the next sync point */
-    inttime_t dti_max = next->ti - times->PM_kick;
-
+    inttime_t dti_max = timebinmgr->find_next_ti_sync(times->Ti_Current) - times->PM_kick;
     if(dti > dti_max)
         dti = dti_max;
     return dti;

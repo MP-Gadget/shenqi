@@ -47,14 +47,11 @@ BOOST_AUTO_TEST_CASE(test_conversions)
     BOOST_TEST(tbm.loga_from_ti(tbm.ti_from_loga(log(0.1))) == log(0.1), tt::tolerance(1e-6));
 
     /*! this function returns the next output time after ti_curr.*/
-    BOOST_TEST(tbm.find_next_sync_point(0)->ti == TIMEBASE);
-    BOOST_TEST(tbm.find_next_sync_point(TIMEBASE)->ti == 2 * TIMEBASE);
-    BOOST_TEST(tbm.find_next_sync_point(TIMEBASE-1)->ti == TIMEBASE);
-    BOOST_TEST(tbm.find_next_sync_point(TIMEBASE+1)->ti == 2*TIMEBASE);
-    BOOST_TEST(tbm.find_next_sync_point(4 * TIMEBASE) == nullptr);
+    BOOST_TEST(tbm.find_next_ti_sync(0) == TIMEBASE);
+    BOOST_TEST(tbm.find_next_ti_sync(TIMEBASE) == 2 * TIMEBASE);
+    BOOST_TEST(tbm.find_next_ti_sync(TIMEBASE-1) == TIMEBASE);
+    BOOST_TEST(tbm.find_next_ti_sync(TIMEBASE+1) == 2*TIMEBASE);
 
-    BOOST_TEST(tbm.find_current_sync_point(0)->ti == 0);
-    BOOST_TEST(tbm.find_current_sync_point(TIMEBASE)->ti == TIMEBASE);
     BOOST_TEST(tbm.find_current_sync_point(-1)  == nullptr);
     BOOST_TEST(tbm.find_current_sync_point(TIMEBASE-1) == nullptr);
 
@@ -75,14 +72,64 @@ BOOST_AUTO_TEST_CASE(test_skip_first)
     BOOST_TEST(tbm2.find_current_sync_point(0)->write_snapshot == 1);
 }
 
+/* find_current_sync_point returns the sync point exactly at ti, or nullptr.
+ * The four outputs {0.1, 0.2, 0.8, 1.0} land on ti = 0, TIMEBASE, 2*TIMEBASE,
+ * 3*TIMEBASE. We check both that the right point is returned (by its loga, not
+ * just non-null) and that every off-sync ti gives nullptr.*/
+BOOST_AUTO_TEST_CASE(test_find_current_sync_point)
+{
+    setup();
+    TimeBinMgr tbm(NULL, TIMEIC, TIMEMAX, 0.0, false);
+
+    /* Each exact sync point returns the correctly-indexed entry.*/
+    BOOST_TEST(tbm.find_current_sync_point(0)->loga == logouts[0]);
+    BOOST_TEST(tbm.find_current_sync_point(TIMEBASE)->loga == logouts[1]);
+    BOOST_TEST(tbm.find_current_sync_point(2 * TIMEBASE)->loga == logouts[2]);
+    BOOST_TEST(tbm.find_current_sync_point(3 * TIMEBASE)->loga == logouts[3]);
+
+    /* ti that is not exactly on a sync point returns nullptr: negative,
+     * between sync points, and adjacent to a sync point on either side.*/
+    BOOST_TEST(tbm.find_current_sync_point(-1) == nullptr);
+    BOOST_TEST(tbm.find_current_sync_point(1) == nullptr);
+    BOOST_TEST(tbm.find_current_sync_point(TIMEBASE - 1) == nullptr);
+    BOOST_TEST(tbm.find_current_sync_point(TIMEBASE + 1) == nullptr);
+    BOOST_TEST(tbm.find_current_sync_point(TIMEBASE + TIMEBASE / 2) == nullptr);
+
+    /* ti at or beyond the last sync point (index 3) has no entry.*/
+    BOOST_TEST(tbm.find_current_sync_point(4 * TIMEBASE) == nullptr);
+    BOOST_TEST(tbm.find_current_sync_point(100 * TIMEBASE) == nullptr);
+}
+
 BOOST_AUTO_TEST_CASE(test_dloga)
 {
     setup();
 
     TimeBinMgr tbm(NULL, TIMEIC, TIMEMAX, 0.0, 0);
 
+    /* a=0.55 sits in the (non-uniformly spaced) segment [0.2, 0.8].*/
     inttime_t Ti_Current = tbm.ti_from_loga(log(0.55));
-    /* unsigned int dti_from_dloga(double loga); */
+    double loga0 = tbm.loga_from_ti(Ti_Current);
+
+    /* unsigned int dti_from_dloga(double dloga, inttime_t Ti_Current); */
+    /* dti_from_dloga must agree with the difference of the two endpoints
+     * computed by ti_from_loga. This is the spec, and exercises the bit-trick
+     * segment arithmetic for both the in-segment and segment-crossing cases.*/
+    /* Stay within the current segment.*/
+    double dloga_in = (logouts[2]-logouts[1])/4;
+    BOOST_TEST(tbm.dti_from_dloga(dloga_in, Ti_Current) ==
+               tbm.ti_from_loga(loga0 + dloga_in) - tbm.ti_from_loga(loga0));
+    /* The current segment spans a full TIMEBASE in ti, so a dloga of a
+     * quarter of the segment width is a quarter of TIMEBASE. This would be
+     * wrong by the ratio of neighbouring segment widths if the wrong segment
+     * were used for the conversion.*/
+    inttime_t dti_in = tbm.dti_from_dloga(dloga_in, Ti_Current);
+    BOOST_TEST(dti_in <= TIMEBASE/4 + 2);
+    BOOST_TEST(dti_in >= TIMEBASE/4 - 2);
+    /* Cross from segment [0.2,0.8] into the next, narrower segment [0.8,1.0].*/
+    double dloga_cross = (logouts[2]-logouts[1])/2 + (logouts[3]-logouts[2])/4;
+    BOOST_TEST(tbm.dti_from_dloga(dloga_cross, Ti_Current) ==
+               tbm.ti_from_loga(loga0 + dloga_cross) - tbm.ti_from_loga(loga0));
+
     /* double dloga_from_dti(unsigned int ti); */
 
     /*Get dloga from a timebin*/
