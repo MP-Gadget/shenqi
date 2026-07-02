@@ -76,8 +76,13 @@ jobs:
         python check_results.py
     - name: Setup nbodykit
       run: |
-        sudo pip install nbodykit
+        # Use a venv layered on top of the system packages: nbodykit wants
+        # newer numpy/scipy/packaging, and pip cannot upgrade the apt-installed
+        # versions in-place (no RECORD file), so installing into the system
+        # environment fails. The venv shadows them instead of uninstalling.
+        python3 -m venv --system-site-packages "$HOME/nbodykit-venv"
+        "$HOME/nbodykit-venv/bin/pip" install nbodykit
     - name : Check travis results
       run: |
         cd examples/travis
-        python check-results.py      #This script alone needs nbodykit.
+        "$HOME/nbodykit-venv/bin/python" check-results.py      #This script alone needs nbodykit.
