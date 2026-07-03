@@ -533,19 +533,17 @@ domain_check_memory_bound(const DomainDecomp * ddecomp, int64_t *TopLeafWork, in
     MPI_Comm_size(ddecomp->DomainComm, &NTask);
 
     /*Only used if the memory bound is not met */
-    int64_t * list_load = ta_malloc("list_load",int64_t, NTask);
-    int64_t * list_work = ta_malloc("list_work",int64_t, NTask);
+    std::vector<int64_t> list_load(NTask, 0);
+    std::vector<int64_t> list_work(NTask, 0);
 
     int64_t max_work = 0, max_load = 0, sumload = 0, sumwork = 0;
-    int ta;
 
-    #pragma omp parallel for reduction(+: sumwork) reduction(+: sumload) reduction(max: max_load) reduction(max:max_work)
-    for(ta = 0; ta < NTask; ta++)
+    #pragma omp parallel for reduction(+: sumload) reduction(+: sumwork) reduction(max: max_load) reduction(max: max_work)
+    for(int ta = 0; ta < NTask; ta++)
     {
         int64_t load = 0;
         int64_t work = 0;
-        int i;
-        for(i = ddecomp->Tasks[ta].StartLeaf; i < ddecomp->Tasks[ta].EndLeaf; i ++)
+        for(int i = ddecomp->Tasks[ta].StartLeaf; i < ddecomp->Tasks[ta].EndLeaf; i ++)
         {
             load += TopLeafCount[i];
             if(TopLeafWork)
@@ -576,16 +574,13 @@ domain_check_memory_bound(const DomainDecomp * ddecomp, int64_t *TopLeafWork, in
         message(0, "desired memory imbalance=%g  (limit=%g, needed=%ld)\n",
                     (max_load * ((double) sumload ) / NTask ) / PartManager->MaxPart, domain_params.SetAsideFactor * PartManager->MaxPart, max_load);
         message(0, "Balance breakdown:\n");
-        int i;
-        for(i = 0; i < NTask; i++)
+        for(int i = 0; i < NTask; i++)
         {
             message(0, "Task: [%3d]  work=%8.4f  particle load=%8.4f\n", i,
                list_work[i] / ((double) sumwork / NTask), list_load[i] / (((double) sumload) / NTask));
         }
         return 1;
     }
-    ta_free(list_work);
-    ta_free(list_load);
     return 0;
 }
 
