@@ -98,7 +98,10 @@ void set_domain_params(ParameterSet * ps)
         if(domain_params.DomainOverDecompositionFactor < 4)
             domain_params.DomainOverDecompositionFactor = 4;
         domain_params.TopNodeAllocFactor = param_get_double(ps, "TopNodeAllocFactor");
-        domain_params.DomainUseGlobalSorting = param_get_int(ps, "DomainUseGlobalSorting");
+        /* Deprecated: the domain subsample is now always sorted globally,
+         * as the local sort produced worse domains for no meaningful speedup. */
+        if(param_get_int(ps, "DomainUseGlobalSorting") == 0)
+            message(0, "DomainUseGlobalSorting = 0 is deprecated and ignored: the domain subsample is always sorted globally.\n");
         domain_params.SetAsideFactor = 1.;
     }
     MPI_Bcast(&domain_params, sizeof(DomainParams), MPI_BYTE, 0, MPI_COMM_WORLD);
@@ -194,7 +197,7 @@ void domain_decompose_full(DomainDecomp * ddecomp, MPI_Comm DomainComm)
 #ifdef DEBUG
         domain_test_id_uniqueness(PartManager);
 #endif
-        message(0, "Attempting new domain decomposition policy: Topleaves=%d GlobalSort=%d, SubSampleDistance=%d PreSort=%d\n", policies[i].NTopLeaves, domain_params.DomainUseGlobalSorting, policies[i].SubSampleDistance, policies[i].PreSort);
+        message(0, "Attempting new domain decomposition policy: Topleaves=%d SubSampleDistance=%d PreSort=%d\n", policies[i].NTopLeaves, policies[i].SubSampleDistance, policies[i].PreSort);
 
         /* Keep going with the same policy until we have enough topnodes to make it work.*/
         do {
@@ -992,16 +995,14 @@ domain_check_for_local_refine_subsample(
     /* Watchout : Peano/Morton ordering is required by the tree
      * building algorithm in local_refine.
      *
-     * We can either use a global or a local sorting here; the code will run
-     * without crashing.
-     *
-     * A global sorting is chosen to ensure the local topTrees are really local
+     * A global sorting is used to ensure the local topTrees are really local
      * and the leaves almost disjoint. This makes the merged topTree a more accurate
      * representation of the true cost / load distribution, for merging
      * and secondary refinement are approximated.
      *
-     * A local sorting may be faster but makes the tree less accurate due to
-     * more likely running into overlapped local topTrees.
+     * A local sorting would avoid the communication, but makes the tree less
+     * accurate due to more likely running into overlapped local topTrees,
+     * and the merge approximation error grows with the number of ranks.
      * */
 
     int Nsample = PartManager->NumPart / policy->SubSampleDistance;
@@ -1068,11 +1069,7 @@ domain_check_for_local_refine_subsample(
                     [](const local_particle_data& lp) { return lp.Cost == 0; }) - LP;
     }
 
-    if(domain_params.DomainUseGlobalSorting) {
-        mpsort_mpi(LP, Nsample, sizeof(struct local_particle_data), mp_order_by_key, sizeof(peano_t), NULL, DomainComm);
-    } else {
-        std::sort(std::execution::par_unseq, LP, LP + Nsample);
-    }
+    mpsort_mpi(LP, Nsample, sizeof(struct local_particle_data), mp_order_by_key, sizeof(peano_t), NULL, DomainComm);
 
     walltime_measure("/Domain/DetermineTopTree/Sort");
 

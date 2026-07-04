@@ -30,7 +30,6 @@ static void setup(void) {
     PartManager->NumPart = 16*16*16;
     struct DomainParams dp = {0};
     dp.DomainOverDecompositionFactor = 2;
-    dp.DomainUseGlobalSorting = 0;
     dp.TopNodeAllocFactor = 1.;
     dp.SetAsideFactor = 1;
     set_domain_par(dp);
