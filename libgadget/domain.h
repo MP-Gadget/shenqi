@@ -49,8 +49,6 @@ typedef struct DomainParams
      * no more than 1/(DODF * NTask) fraction of the work.
      * The load balancer will assign these TopLeaves so that each MPI rank has a similar amount of work.*/
     int DomainOverDecompositionFactor;
-    /** Use a global sort for the first few domain policies to try.*/
-    int DomainUseGlobalSorting;
     /** Initial number of Top level tree nodes as a fraction of particles */
     double TopNodeAllocFactor;
     /** Fraction of local particle slots to leave free for, eg, star formation*/

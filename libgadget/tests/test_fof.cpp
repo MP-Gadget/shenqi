@@ -64,7 +64,6 @@ BOOST_AUTO_TEST_CASE(test_fof)
 
     struct DomainParams dp = {0};
     dp.DomainOverDecompositionFactor = 1;
-    dp.DomainUseGlobalSorting = 0;
     dp.TopNodeAllocFactor = 1.;
     dp.SetAsideFactor = 1;
     set_domain_par(dp);
