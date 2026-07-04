@@ -225,7 +225,7 @@ void domain_decompose_full(DomainDecomp * ddecomp, MPI_Comm DomainComm)
         /* add 1 extra to mark the end of TopLeaves; see assign */
         ddecomp->TopLeaves = mymanagedmalloc("TopLeaves", topleaf_data,  ddecomp->NTopLeaves + 1);
 
-        memcpy(ddecomp->TopLeaves, OldTopLeaves, ddecomp->NTopLeaves* sizeof(ddecomp->TopLeaves[0]));
+        memcpy(ddecomp->TopLeaves, OldTopLeaves, (ddecomp->NTopLeaves + 1) * sizeof(ddecomp->TopLeaves[0]));
         memcpy(ddecomp->TopNodes, OldTopNodes, ddecomp->NTopNodes * sizeof(ddecomp->TopNodes[0]));
 
         /* no longer useful */
