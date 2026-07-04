@@ -2,6 +2,7 @@
 #define _MYMALLOC_H_
 
 #include "memory.h"
+#include "system.h"
 
 extern Allocator A_MAIN[1];
 extern Allocator A_TEMP[1];
