@@ -70,15 +70,16 @@ else
 GADGET_OBJS := $(addsuffix .o,$(basename $(GADGET_C_SRCS))) $(addsuffix .o,$(basename $(GADGET_CPP_SRCS)))
 endif
 
-GADGET_UTILS_OBJS= \
-utils/endrun.o \
-utils/peano.o \
-utils/memory.o \
-utils/mymalloc.o \
-utils/system.o \
-utils/paramset.o \
-utils/unitsystem.o \
-utils/spinlocks.o
+GADGET_UTILS_C_SRCS= \
+utils/endrun.c \
+utils/memory.c \
+utils/mymalloc.c \
+utils/unitsystem.c \
+utils/spinlocks.c
+
+GADGET_UTILS_CPP_SRCS= utils/peano.cpp utils/system.cpp utils/paramset.cpp
+
+GADGET_UTILS_OBJS := $(addsuffix .o,$(basename $(GADGET_UTILS_C_SRCS))) $(addsuffix .o,$(basename $(GADGET_UTILS_CPP_SRCS)))
 
 GADGET_OBJS := $(GADGET_OBJS:%=.objs/%)
 GADGET_UTILS_OBJS := $(GADGET_UTILS_OBJS:%=.objs/%)
