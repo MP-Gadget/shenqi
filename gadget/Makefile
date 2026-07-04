@@ -5,14 +5,14 @@ include $(CONFIG)
 
 include ../Makefile.rules
 
-OBJS = main.o params.o
-
+CPP_SRCS = main.cpp params.cpp
+OBJS := $(addsuffix .o,$(basename $(CPP_SRCS)))
 OBJS := $(OBJS:%.o=.objs/%.o)
 
 all: MP-Gadget
 
 MP-Gadget: $(OBJS) ../libgadget/libgadget.a ../libgadget/libgadget-utils.a
-	$(MPICC) $(OPTIMIZE) $^ $(LIBS) -o $@
+	$(MPICXX) $(OPTIMIZE) $^ $(LIBS) -o $@
 
 DEPS := $(OBJS:.o=.d)
 -include $(DEPS)
