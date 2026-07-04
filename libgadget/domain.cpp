@@ -110,13 +110,13 @@ domain_assign_topleaves_balanced(DomainDecomp * ddecomp, int64_t * cost, const i
 static struct task_data *
 domain_set_task_leafs(const DomainDecomp * const ddecomp);
 
-static int
+static size_t
 domain_allocate(DomainDecomp * ddecomp, DomainDecompositionPolicy * policy, MPI_Comm DomainComm);
 
 static int
 domain_check_memory_bound(const DomainDecomp * ddecomp, int64_t *TopLeafWork, int64_t *TopLeafCount);
 
-static int domain_attempt_decompose(DomainDecomp * ddecomp, DomainDecompositionPolicy * policy, const int MaxTopNodes);
+static int domain_attempt_decompose(DomainDecomp * ddecomp, DomainDecompositionPolicy * policy, const size_t MaxTopNodes);
 
 static int
 domain_balance(DomainDecomp * ddecomp);
@@ -198,7 +198,7 @@ void domain_decompose_full(DomainDecomp * ddecomp, MPI_Comm DomainComm)
 
         /* Keep going with the same policy until we have enough topnodes to make it work.*/
         do {
-            int MaxTopNodes = domain_allocate(ddecomp, &policies[i], DomainComm);
+            size_t MaxTopNodes = domain_allocate(ddecomp, &policies[i], DomainComm);
 
             decompose_failed = domain_attempt_decompose(ddecomp, &policies[i], MaxTopNodes);
             decompose_failed = MPIU_Any(decompose_failed, ddecomp->DomainComm);
@@ -207,7 +207,7 @@ void domain_decompose_full(DomainDecomp * ddecomp, MPI_Comm DomainComm)
                 domain_free(ddecomp);
                 /* We have not enough topnodes, get more.*/
                 domain_params.TopNodeAllocFactor *= 1.2;
-                message(0, "Increasing topnodes from %d to %d.\n", MaxTopNodes, (int) (MaxTopNodes * 1.2));
+                message(0, "Increasing topnodes from %lu to %lu.\n", MaxTopNodes, (size_t) (MaxTopNodes * 1.2));
                 if(domain_params.TopNodeAllocFactor > 10)
                     endrun(5, "TopNodeAllocFactor = %g, unreasonably large!\n", domain_params.TopNodeAllocFactor);
             }
@@ -403,13 +403,13 @@ domain_policies_init(DomainDecompositionPolicy policies[],
 }
 
 /*! This function allocates all the stuff that will be required for the tree-construction/walk later on */
-static int
+static size_t
 domain_allocate(DomainDecomp * ddecomp, DomainDecompositionPolicy * policy, MPI_Comm DomainComm)
 {
     size_t all_bytes = 0;
 
     /* Number of local topnodes and local topleaves allowed.*/
-    const int MaxTopNodes = domain_params.TopNodeAllocFactor * (PartManager->NumPart + 1);
+    const size_t MaxTopNodes = domain_params.TopNodeAllocFactor * (PartManager->NumPart + 1L);
 
     /* Build the domain over the global all-processors communicator.
      * We use a symbol in case we want to do fancy things in the future.*/
@@ -450,7 +450,7 @@ void domain_free(DomainDecomp * ddecomp)
  *  PartAllocFactor.
  */
 static int
-domain_attempt_decompose(DomainDecomp * ddecomp, DomainDecompositionPolicy * policy, const int MaxTopNodes)
+domain_attempt_decompose(DomainDecomp * ddecomp, DomainDecompositionPolicy * policy, const size_t MaxTopNodes)
 {
 
     /* points to the root node of the top-level tree */
@@ -480,7 +480,7 @@ domain_attempt_decompose(DomainDecomp * ddecomp, DomainDecompositionPolicy * pol
     ddecomp->NTopLeaves = 0;
     domain_create_topleaves(ddecomp, 0, &ddecomp->NTopLeaves);
 
-    message(0, "NTopLeaves= %d  NTopNodes=%d (space for %d)\n", ddecomp->NTopLeaves, ddecomp->NTopNodes, MaxTopNodes);
+    message(0, "NTopLeaves= %d  NTopNodes=%d (space for %lu)\n", ddecomp->NTopLeaves, ddecomp->NTopNodes, MaxTopNodes);
 
     walltime_measure("/Domain/DetermineTopTree/CreateLeaves");
 
@@ -1368,8 +1368,7 @@ domain_global_refine(
 static void
 domain_compute_costs(DomainDecomp * ddecomp, int64_t *TopLeafWork, int64_t *TopLeafCount)
 {
-    int i;
-    int NumThreads = omp_get_max_threads();
+    int64_t NumThreads = omp_get_max_threads();
     int64_t * local_TopLeafWork = NULL;
     if(TopLeafWork) {
         local_TopLeafWork = mymalloc("local_TopLeafWork", int64_t, NumThreads * ddecomp->NTopLeaves);
@@ -1380,11 +1379,10 @@ domain_compute_costs(DomainDecomp * ddecomp, int64_t *TopLeafWork, int64_t *TopL
 
 #pragma omp parallel
     {
-        int tid = omp_get_thread_num();
-        int n;
+        const int64_t tid = omp_get_thread_num();
 
         #pragma omp for
-        for(n = 0; n < PartManager->NumPart; n++)
+        for(int64_t n = 0; n < PartManager->NumPart; n++)
         {
             /* Skip garbage particles: they have zero work
              * and can be removed by exchange if under memory pressure.*/
@@ -1392,7 +1390,7 @@ domain_compute_costs(DomainDecomp * ddecomp, int64_t *TopLeafWork, int64_t *TopL
                 continue;
 
             /* This leaf is not final until the topnodes have been sorted and assigned. */
-            const int leaf = domain_get_topleaf(PEANO(PartManager->Base[n].Pos, PartManager->BoxSize), ddecomp->TopNodes);
+            const int64_t leaf = domain_get_topleaf(PEANO(PartManager->Base[n].Pos, PartManager->BoxSize), ddecomp->TopNodes);
 
             if(local_TopLeafWork)
                 local_TopLeafWork[leaf + tid * ddecomp->NTopLeaves] += 1;
@@ -1403,15 +1401,14 @@ domain_compute_costs(DomainDecomp * ddecomp, int64_t *TopLeafWork, int64_t *TopL
 
 
 #pragma omp parallel for
-    for(i = 0; i < ddecomp->NTopLeaves; i++)
+    for(int64_t i = 0; i < ddecomp->NTopLeaves; i++)
     {
-        int tid;
         if(local_TopLeafWork)
-            for(tid = 1; tid < NumThreads; tid++) {
+            for(int64_t tid = 1; tid < NumThreads; tid++) {
                 local_TopLeafWork[i] += local_TopLeafWork[i + tid * ddecomp->NTopLeaves];
             }
 
-        for(tid = 1; tid < NumThreads; tid++) {
+        for(int64_t tid = 1; tid < NumThreads; tid++) {
             local_TopLeafCount[i] += local_TopLeafCount[i + tid * ddecomp->NTopLeaves];
         }
     }
