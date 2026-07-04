@@ -384,12 +384,12 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
         }
 
     /* Push down the particles if necessary.*/
-    /* This tests COLLECTIVELY for the timestep needing to shrink.
-    If we are the topmost timestep and it needs to shrink for more than 33% of the particles,
+    /* Only on a PM step, when all particles are active on every rank.
+    If the topmost timestep needs to shrink for more than 33% of the particles,
     shrink it for all of them. Then we don't need to recompute the accelerations (because
-    they are still the same, and are from all particles).*/
+    they are still the same, and are from all particles). Note we use global timebincounts.*/
     int push_down_bin = largest_active;
-    if(subact->NumActiveParticle == PartManager->NumPart) {
+    if(isPM) {
         for(ti = largest_active; ti >= 1; ti--) {
             if(timebincounts[ti] / 3 > timebincounts[ti-1])
                 break;
