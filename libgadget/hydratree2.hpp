@@ -88,20 +88,6 @@ class HydroPriv : public ParamTypeBase {
     WindSpeed(winds_get_speed()), WindFreeTravelDensThresh(winds_get_dens_thresh()),
     SphParts(SlotsManager->sph_slot())
     {
-        /* Cache the pressure for speed*/
-        PressurePred = NULL;
-        /* Compute pressure for particles used in density: if almost all particles are active, just pre-compute it and avoid thread contention.
-        * For very small numbers of particles the memset is more expensive than just doing the exponential math,
-        * so we don't pre-compute at all.*/
-        if(EntVarPred) {
-            PressurePred = mymanagedmalloc("PressurePred", double, SlotsManager->info[0].size);
-            /* Do it in slot order for memory locality*/
-            #pragma omp parallel for
-            for(int i = 0; i < SlotsManager->info[0].size; i++) {
-                PressurePred[i] = PressurePredict(SPH_EOMDensity(&SphParts[i], DensityIndependentSphOn), EntVarPred[i]);
-            }
-        }
-
         /* Initialize some time factors*/
         memset(drifts, 0, sizeof(drifts[0])*(TIMEBINS+1));
         #pragma omp parallel for
@@ -111,6 +97,24 @@ class HydroPriv : public ParamTypeBase {
             * For active particles no density drift is needed.*/
             if(!is_timebin_active(i, times->Ti_Current))
                 drifts[i] = timebinmgr->get_exact_drift_factor(times->Ti_lastactivedrift[i], times->Ti_Current);
+        }
+        /* Cache the pressure for speed*/
+        PressurePred = NULL;
+        /* Compute pressure for particles used in density: if almost all particles are active, just pre-compute it and avoid thread contention.
+        * For very small numbers of particles the memset is more expensive than just doing the exponential math,
+        * so we don't pre-compute at all.*/
+        if(EntVarPred) {
+            PressurePred = mymanagedmalloc("PressurePred", double, SlotsManager->info[0].size);
+            /* Do it in slot order for memory locality*/
+            #pragma omp parallel for
+            for(int64_t i = 0; i < PartManager->NumPart; i++) {
+                if(PartManager->Base[i].Type != 0 || PartManager->Base[i].IsGarbage)
+                    continue;
+                int bin = PartManager->Base[i].TimeBinHydro;
+                int pi = PartManager->Base[i].PI;
+                const double eomdensity = SPH_DensityPred(SPH_EOMDensity(&SphParts[pi], DensityIndependentSphOn), SphParts[pi].DivVel, drifts[bin]);
+                PressurePred[pi] = PressurePredict(eomdensity, EntVarPred[pi]);
+            }
         }
     }
     ~HydroPriv()
