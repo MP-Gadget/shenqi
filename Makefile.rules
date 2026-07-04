@@ -6,8 +6,6 @@ MPICXX ?= mpic++
 LOW_PRECISION ?= double
 
 OPTIMIZE ?= -O2 -g -fopenmp -Wall
-#Explicitly set C++ standard
-OPTIMIZE += -std=gnu++20
 BOOST_INCL ?=
 BOOST_LIBS ?=
 
@@ -34,8 +32,11 @@ CFLAGS = $(OPTIONS) $(BOOST_INCL) $(FITSIO_INCL) $(CUDA_INCL)
 CFLAGS += -I../depends/include
 CFLAGS += -I../
 CFLAGS += "-DLOW_PRECISION=$(LOW_PRECISION)"
+CXXFLAGS = $(CFLAGS)
+#Explicitly set C++ standard
+CXXFLAGS += -std=gnu++20
 #For tests
-TCFLAGS = $(CFLAGS) -DGADGET_TESTDATA_ROOT=\"$(GADGET_TESTDATA_ROOT)\"
+TCFLAGS = $(CXXFLAGS) -DGADGET_TESTDATA_ROOT=\"$(GADGET_TESTDATA_ROOT)\"
 
 TBB_LIBS := $(shell echo "int main(void){return 0;}" | $(MPICC) -x c++ - -ltbb -o /dev/null 2>/dev/null && echo "-ltbb")
 $(if $(TBB_LIBS),,$(warning TBB not found: building without TBB support))
@@ -45,7 +46,7 @@ LIBS += -L../depends/lib $(BUNDLEDLIBS)
 V ?= 0
 
 .objs/%.o: %.cpp Makefile $(CONFIG)
-	@cmd="$(MPICXX) -MMD -c -o $@ $(CFLAGS) $<"; \
+	@cmd="$(MPICXX) -MMD -c -o $@ $(CXXFLAGS) $<"; \
 	if test "x$(V)" = "x1" ; then echo $$cmd; fi; \
 	mkdir -p `dirname $@`; \
 	echo Compiling $<; $$cmd
