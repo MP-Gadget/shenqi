@@ -216,7 +216,7 @@ find_global_timestep(DriftKickTimes * times, TimeBinMgr * timebinmgr, const intt
             if(dti <= 1 || dti > (inttime_t) TIMEBASE)
                 print_bad_timebin(dloga, dti, i, Part[i].FullTreeGravAccel, dti_max, titype);
         }
-        MPI_Allreduce(MPI_IN_PLACE, &dti_min, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+        MPI_Allreduce(MPI_IN_PLACE, &dti_min, 1, MPI_INT64, MPI_MIN, MPI_COMM_WORLD);
         return dti_min;
 }
 
@@ -473,7 +473,7 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
     /* Ensure explicitly that we are collective, although this should not be necessary.*/
     MPI_Allreduce(MPI_IN_PLACE, &times->mingravtimebin, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
     times->mintimebin = times->mingravtimebin;
-    MPI_Allreduce(MPI_IN_PLACE, &badstepsizecount, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(MPI_IN_PLACE, &badstepsizecount, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     return badstepsizecount;
 }
 
