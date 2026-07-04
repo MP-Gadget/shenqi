@@ -12,8 +12,9 @@
 #include <libgadget/run.h>
 #include <libgadget/checkpoint.h>
 #include <libgadget/config.h>
-#include <libgadget/forcetree.c>
+#include <libgadget/forcetree.h>
 #include <libgadget/utils/endrun.h>
+#include <libgadget/utils/mymalloc.h>
 
 #include "params.h"
 
