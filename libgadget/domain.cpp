@@ -1041,14 +1041,31 @@ domain_check_for_local_refine_subsample(
         myfree(LPfull);
     }
     else {
-        /* Subsample, computing keys*/
-        #pragma omp parallel for
+        /* Subsample, computing keys. Garbage particles have stale positions
+         * and should not contribute to the toptree: flag them for removal.
+         * Dropping them keeps the sample unbiased: a region whose slots are a
+         * fraction f garbage keeps (1-f)/SubSampleDistance of its slots, so the
+         * expected samples per region stay proportional to its live particle
+         * count, which is what the balancer measures later. */
+        int64_t garbage = 0;
+        #pragma omp parallel for reduction(+: garbage)
         for(i = 0; i < Nsample; i ++)
         {
             int j = i * policy->SubSampleDistance;
+            if(Part[j].IsGarbage) {
+                LP[i].Key = PEANOCELLS;
+                LP[i].Cost = 0;
+                garbage++;
+                continue;
+            }
             LP[i].Key = PEANO(Part[j].Pos, PartManager->BoxSize);
             LP[i].Cost = 1;
         }
+        /* Remove the garbage entries. Must happen before the (possibly global) sort,
+         * as afterwards the local sample boundaries are lost. */
+        if(garbage)
+            Nsample = std::remove_if(LP, LP + Nsample,
+                    [](const local_particle_data& lp) { return lp.Cost == 0; }) - LP;
     }
 
     if(domain_params.DomainUseGlobalSorting) {
