@@ -1448,7 +1448,9 @@ domain_toptree_merge(struct local_topnode_data *treeA,
         /* Create a daughter to a, since we will merge B to A's daughter*/
         if(treeA[noA].Daughter < 0)
         {
-            if((*treeASize + 8) >= MaxTopNodes) {
+            /* The 8 daughters occupy indices *treeASize .. *treeASize + 7, so
+             * the tree may fill the array exactly: > matches domain_toptree_split. */
+            if((*treeASize + 8) > MaxTopNodes) {
                 endrun(88, "Too many Topnodes; this shall not happen because we ensure there is enough and bailed earlier than this\n");
             }
             /* noB must have a parent if we are here, since noB is lower than noA;
