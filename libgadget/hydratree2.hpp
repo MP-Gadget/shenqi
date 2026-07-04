@@ -14,6 +14,24 @@
 #include "hydra2.h"
 #include "densitykernel.hpp"
 
+/* Find the density predicted forward to the current drift time.
+ * The Density in the SPHP struct is evaluated at the last time
+ * the particle was active. Good for both EgyWtDensity and Density,
+ * cube of the change in Hsml in drift.c. */
+MYCUDAFN static inline double
+SPH_DensityPred(MyFloat Density, MyFloat DivVel, double dtdrift)
+{
+    /* Note minus sign!*/
+    double DensityPred = Density - DivVel * Density * dtdrift;
+    /* The guard should not be necessary, because the timestep is also limited. by change in hsml.
+     * But add it just in case the BH has kicked the particle. The factor is set because
+     * it is less than the cube of the Courant factor.*/
+    if(DensityPred >= 1e-6 * Density)
+        return DensityPred;
+    else
+        return 1e-6 * Density;
+}
+
 /* Function to get the center of mass density and HSML correction factor for an SPH particle with index i.
  * Encodes the main difference between pressure-entropy SPH and regular SPH.
  * This could be a template but that seems too much effort.*/
@@ -204,24 +222,6 @@ class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
                sphpart->MaxSignalVel = MaxSignalVel;
     }
 };
-
-/* Find the density predicted forward to the current drift time.
- * The Density in the SPHP struct is evaluated at the last time
- * the particle was active. Good for both EgyWtDensity and Density,
- * cube of the change in Hsml in drift.c. */
-MYCUDAFN static inline double
-SPH_DensityPred(MyFloat Density, MyFloat DivVel, double dtdrift)
-{
-    /* Note minus sign!*/
-    double DensityPred = Density - DivVel * Density * dtdrift;
-    /* The guard should not be necessary, because the timestep is also limited. by change in hsml.
-     * But add it just in case the BH has kicked the particle. The factor is set because
-     * it is less than the cube of the Courant factor.*/
-    if(DensityPred >= 1e-6 * Density)
-        return DensityPred;
-    else
-        return 1e-6 * Density;
-}
 
 /* This is a symmetric NGB treewalk for hydro forces. */
 template <typename DensityKernel>

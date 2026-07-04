@@ -43,7 +43,7 @@ include ../Makefile.version
 
 GADGET_C_SRCS =  partmanager.c \
 	 density.c treewalk.c \
-	 gravshort-tree.c gravshort-pair.c hydra.c \
+	 gravshort-tree.c gravshort-pair.c \
 	 gravpm.c gravity.c \
 	 densitykernel.c \
 	 config.c uvbg.c \

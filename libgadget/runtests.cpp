@@ -10,7 +10,6 @@
 #include "run.h"
 #include "density2.h"
 #include "hydra2.h"
-#include "hydra.h"
 #include "density.h"
 #include "utils/endrun.h"
 #include "utils/system.h"
@@ -505,38 +504,23 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     myfree(Hsml);
     myfree(Density);
 
-    /* Check hydro code is the same */
-    typedef double Double3Vec[3];
-    double (* HydroAccn)[3] = mymalloc2("HydroAccns", Double3Vec, PartManager->NumPart);
-    double * MaxSignalVel = mymalloc2("MaxSignalVel", double, PartManager->NumPart);
-    /* Compare the new and old hydro force. */
-    force_tree_calc_moments(&gasTree, ddecomp);
-    #pragma omp barrier
-    MPI_Barrier(MPI_COMM_WORLD);
-    start = second();
-    hydro_force(&Act, header->TimeSnapshot, sph_predicted.EntVarPred, times, timebinmgr,  CP, &gasTree);
-    #pragma omp barrier
-    MPI_Barrier(MPI_COMM_WORLD);
-    double newhydro = second() - start;
-    copy_and_mean_hydroaccn(HydroAccn, MaxSignalVel);
-    set_hydropar_old(get_hydropar());
-    #pragma omp barrier
-    MPI_Barrier(MPI_COMM_WORLD);
-    start = second();
-    hydro_force_old(&Act, header->TimeSnapshot, &sph_predicted, times, timebinmgr, CP, &gasTree);
-    #pragma omp barrier
-    MPI_Barrier(MPI_COMM_WORLD);
-    double oldhydro = second() - start;
-    /* This checks fully opened tree force against pair force*/
-    double maxsignalerr, meansignalerr;
-    check_hydroaccns(&meanerr,&maxerr, &meanangle, &maxangle, &meansignalerr, &maxsignalerr, HydroAccn, MaxSignalVel);
-    message(0, "Hydro err, new vs old. max : %g mean: %g angle %g max angle %g maxvsig: max: %g mean %g time %g -> %g\n", maxerr, meanerr, meanangle, maxangle, meansignalerr, maxsignalerr, oldhydro, newhydro);
-
-    if(maxerr > 1e-5)
-        endrun(2, "New and old hydro tree forces do not agree! maxerr %g > 0.1!\n", maxerr);
-
 #ifdef USE_CUDA
     if(DoGPUTests) {
+        /* Check hydro code is the same */
+        typedef double Double3Vec[3];
+        double (* HydroAccn)[3] = mymalloc2("HydroAccns", Double3Vec, PartManager->NumPart);
+        double * MaxSignalVel = mymalloc2("MaxSignalVel", double, PartManager->NumPart);
+        /* Compare the new and old hydro force. */
+        force_tree_calc_moments(&gasTree, ddecomp);
+        #pragma omp barrier
+        MPI_Barrier(MPI_COMM_WORLD);
+        start = second();
+        hydro_force(&Act, header->TimeSnapshot, sph_predicted.EntVarPred, times, timebinmgr,  CP, &gasTree);
+        #pragma omp barrier
+        MPI_Barrier(MPI_COMM_WORLD);
+        double newhydro = second() - start;
+        copy_and_mean_hydroaccn(HydroAccn, MaxSignalVel);
+
         /* Compare the CPU and GPU density. */
         start = second();
         /* Final argument signals to use the GPU*/
@@ -545,15 +529,15 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
         MPI_Barrier(MPI_COMM_WORLD);
         double gpuhydro = second() - start;
         check_hydroaccns(&meanerr,&maxerr, &meanangle, &maxangle, &meansignalerr, &maxsignalerr, HydroAccn, MaxSignalVel);
+        myfree(MaxSignalVel);
+        myfree(HydroAccn);
         message(0, "Hydro err, CPU vs GPU. max : %g mean: %g angle %g max angle %g maxvsig: max: %g mean %g time %g -> %g\n", maxerr, meanerr, meanangle, maxangle, meansignalerr, maxsignalerr, newhydro, gpuhydro);
         if(maxerr > 1e-5)
             endrun(2, "CPU and GPU hydro forces do not agree! maxerr %g\n", maxerr);
     }
 #endif
 
-    myfree(HydroAccn);
     slots_free_sph_pred_data(&sph_predicted);
-
     force_tree_free(&gasTree);
     myfree(GradRho);
 
