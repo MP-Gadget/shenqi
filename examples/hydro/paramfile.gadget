@@ -39,8 +39,6 @@ FOFHaloMinLength = 32
 
 MinGasTemp = 5.0
 
-MaxMemSizePerNode = 2000
-
 #----------------------BH Stuff-------------------------
 BlackHoleKineticOn = 1 # switch to kinetic feedback mode when the BH accretion rate is low
 
