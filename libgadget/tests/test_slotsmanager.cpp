@@ -4,6 +4,7 @@
 
 #include <math.h>
 #include <mpi.h>
+#include <omp.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -111,6 +112,81 @@ BOOST_AUTO_TEST_CASE(test_slots_gc_sorted)
 #endif
     teardown_particles();
     return;
+}
+
+/* Cheap deterministic per-index random number, safe to call from any thread. */
+static inline uint64_t splitmix64(uint64_t x)
+{
+    x += 0x9E3779B97f4A7C15L;
+    x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9L;
+    x = (x ^ (x >> 27)) * 0x94D049BB133111EBL;
+    return x ^ (x >> 31);
+}
+
+/* Fill the particle table with random positions and time slots_gc_sorted,
+ * checking that the result is correctly sorted and no particles were lost. */
+static double
+time_gc_sorted(const int64_t N, const uint64_t seed)
+{
+    int64_t i;
+    #pragma omp parallel for
+    for(i = 0; i < N; i++) {
+        int j;
+        for(j = 0; j < 3; j++)
+            PartManager->Base[i].Pos[j] = PartManager->BoxSize * (splitmix64(seed + 3 * i + j) / (double) UINT64_MAX);
+        PartManager->Base[i].Type = 1;
+        PartManager->Base[i].ID = i + 1;
+        PartManager->Base[i].IsGarbage = 0;
+    }
+    const double start = omp_get_wtime();
+    slots_gc_sorted(PartManager, SlotsManager);
+    const double elapsed = omp_get_wtime() - start;
+
+    BOOST_TEST(PartManager->NumPart == N);
+    uint64_t idsum = 0;
+    int64_t nunsorted = 0;
+    peano_t lastkey = 0;
+    for(i = 0; i < N; i++) {
+        idsum += PartManager->Base[i].ID;
+        peano_t key = PEANO(PartManager->Base[i].Pos, PartManager->BoxSize);
+        if(key < lastkey)
+            nunsorted++;
+        lastkey = key;
+    }
+    BOOST_TEST(nunsorted == 0);
+    /* All the original particles are still here exactly once*/
+    BOOST_TEST(idsum == (uint64_t) N * (N + 1) / 2);
+    return elapsed;
+}
+
+/* Regression test for the particle permute in slots_gc_sorted. The permute
+ * used to be a serial cycle-leader walk, which came to dominate the cost of
+ * the function in threaded runs. Check that the threaded version is faster
+ * than the single-threaded version, which requires a parallel permute. */
+BOOST_AUTO_TEST_CASE(test_slots_gc_sorted_perf)
+{
+    const int64_t N = 1L << 21;
+    PartManager->MaxPart = N;
+    PartManager->NumPart = N;
+    PartManager->BoxSize = 25000;
+    PartManager->Base = mymalloc("P", struct particle_data, PartManager->MaxPart);
+    memset(PartManager->Base, 0, sizeof(struct particle_data) * PartManager->MaxPart);
+    /* All slots disabled: this tests the base particle table permute. */
+    slots_init(0.01 * PartManager->MaxPart, SlotsManager);
+
+    const int nthreads = omp_get_max_threads();
+    /* One thread forces the serial cycle-leader permute path. */
+    omp_set_num_threads(1);
+    const double tserial = time_gc_sorted(N, 42);
+    omp_set_num_threads(nthreads);
+    const double tpar = time_gc_sorted(N, 42);
+    message(0, "gc_sorted of %ld particles: 1 thread %g s, %d threads %g s\n", N, tserial, nthreads, tpar);
+    /* Only check the timing when there are enough threads for a clear signal and
+     * enough memory that the parallel gather path is taken (see slots_gc_sorted). */
+    if(nthreads >= 4 && mymalloc_freebytes() > 4 * sizeof(struct particle_data) * (size_t) N)
+        BOOST_TEST(tpar < 0.75 * tserial);
+
+    myfree(PartManager->Base);
 }
 
 BOOST_AUTO_TEST_CASE(test_slots_reserve)

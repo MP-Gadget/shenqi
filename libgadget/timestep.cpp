@@ -216,7 +216,7 @@ find_global_timestep(DriftKickTimes * times, TimeBinMgr * timebinmgr, const intt
             if(dti <= 1 || dti > (inttime_t) TIMEBASE)
                 print_bad_timebin(dloga, dti, i, Part[i].FullTreeGravAccel, dti_max, titype);
         }
-        MPI_Allreduce(MPI_IN_PLACE, &dti_min, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+        MPI_Allreduce(MPI_IN_PLACE, &dti_min, 1, MPI_INT64, MPI_MIN, MPI_COMM_WORLD);
         return dti_min;
 }
 
@@ -384,12 +384,12 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
         }
 
     /* Push down the particles if necessary.*/
-    /* This tests COLLECTIVELY for the timestep needing to shrink.
-    If we are the topmost timestep and it needs to shrink for more than 33% of the particles,
+    /* Only on a PM step, when all particles are active on every rank.
+    If the topmost timestep needs to shrink for more than 33% of the particles,
     shrink it for all of them. Then we don't need to recompute the accelerations (because
-    they are still the same, and are from all particles).*/
+    they are still the same, and are from all particles). Note we use global timebincounts.*/
     int push_down_bin = largest_active;
-    if(subact->NumActiveParticle == PartManager->NumPart) {
+    if(isPM) {
         for(ti = largest_active; ti >= 1; ti--) {
             if(timebincounts[ti] / 3 > timebincounts[ti-1])
                 break;
@@ -473,7 +473,7 @@ hierarchical_gravity_and_timesteps(const ActiveParticles * act, PetaPM * pm, Dom
     /* Ensure explicitly that we are collective, although this should not be necessary.*/
     MPI_Allreduce(MPI_IN_PLACE, &times->mingravtimebin, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
     times->mintimebin = times->mingravtimebin;
-    MPI_Allreduce(MPI_IN_PLACE, &badstepsizecount, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(MPI_IN_PLACE, &badstepsizecount, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     return badstepsizecount;
 }
 

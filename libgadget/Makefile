@@ -41,26 +41,23 @@ include ../Makefile.version
 # make V=1 to see the command line
 #
 
-GADGET_C_SRCS =  hci.c\
-	 partmanager.c \
-	 blackhole.c bhinfo.c bhdynfric.c \
-	 drift.c stats.c \
-	 init.c checkpoint.c \
-	 cooling.c \
+GADGET_C_SRCS =  partmanager.c \
 	 density.c treewalk.c \
-	 gravshort-tree.c gravshort-pair.c hydra.c \
-	 gravpm.c powerspectrum.c \
-	 forcetree.c gravity.c \
+	 gravshort-tree.c gravshort-pair.c \
+	 gravpm.c gravity.c \
 	 densitykernel.c \
 	 config.c uvbg.c \
 	 lenstools.c
 
 GADGET_CPP_SRCS = hydra2.cpp gravshort-tree2.cpp walltime.cpp \
-	density2.cpp veldisp2.cpp \
-cooling_rates.cpp cooling_uvfluc.cpp cooling_qso_lightup.cpp cosmology.cpp neutrinos_lra.cpp omega_nu_single.cpp timebinmgr.cpp lightcone.cpp \
+	density2.cpp veldisp2.cpp hci.cpp init.cpp powerspectrum.cpp \
+cooling.cpp cooling_rates.cpp cooling_uvfluc.cpp cooling_qso_lightup.cpp \
+cosmology.cpp neutrinos_lra.cpp omega_nu_single.cpp timebinmgr.cpp lightcone.cpp \
 fof.cpp fofpetaio.cpp petaio.cpp petapm.cpp \
+stats.cpp drift.cpp checkpoint.cpp \
 slotsmanager.cpp domain.cpp timestep.cpp  plane.cpp winds.cpp \
-exchange.cpp sfr_eff.cpp runtests.cpp run.cpp metal_return.cpp
+exchange.cpp sfr_eff.cpp runtests.cpp run.cpp metal_return.cpp \
+bhinfo.cpp blackhole.cpp bhdynfric.cpp forcetree.cpp
 
 GADGET_CUDA_SRCS = gravshortcuda.cu densitycuda.cu hydracuda.cu
 
@@ -70,15 +67,16 @@ else
 GADGET_OBJS := $(addsuffix .o,$(basename $(GADGET_C_SRCS))) $(addsuffix .o,$(basename $(GADGET_CPP_SRCS)))
 endif
 
-GADGET_UTILS_OBJS= \
-utils/endrun.o \
-utils/peano.o \
-utils/memory.o \
-utils/mymalloc.o \
-utils/system.o \
-utils/paramset.o \
-utils/unitsystem.o \
-utils/spinlocks.o
+GADGET_UTILS_C_SRCS= \
+utils/endrun.c \
+utils/memory.c \
+utils/mymalloc.c \
+utils/unitsystem.c \
+utils/spinlocks.c
+
+GADGET_UTILS_CPP_SRCS= utils/peano.cpp utils/system.cpp utils/paramset.cpp
+
+GADGET_UTILS_OBJS := $(addsuffix .o,$(basename $(GADGET_UTILS_C_SRCS))) $(addsuffix .o,$(basename $(GADGET_UTILS_CPP_SRCS)))
 
 GADGET_OBJS := $(GADGET_OBJS:%=.objs/%)
 GADGET_UTILS_OBJS := $(GADGET_UTILS_OBJS:%=.objs/%)

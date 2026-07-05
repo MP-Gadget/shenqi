@@ -11,10 +11,9 @@ SUITE = $(TESTED:%=test_%) $(MPISUITE)
 
 include ../Makefile.rules
 
-GENIC_C_SRCS = zeldovich.c glass.c save.c
-GENIC_CPP_SRCS = power.cpp thermal.cpp
+GENIC_CPP_SRCS = power.cpp thermal.cpp zeldovich.cpp glass.cpp save.cpp
 
-OBJS := $(addsuffix .o,$(basename $(GENIC_C_SRCS))) $(addsuffix .o,$(basename $(GENIC_CPP_SRCS)))
+OBJS := $(addsuffix .o,$(basename $(GENIC_CPP_SRCS)))
 
 OBJS := $(OBJS:%.o=.objs/%.o)
 

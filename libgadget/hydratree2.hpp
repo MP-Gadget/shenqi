@@ -14,6 +14,24 @@
 #include "hydra2.h"
 #include "densitykernel.hpp"
 
+/* Find the density predicted forward to the current drift time.
+ * The Density in the SPHP struct is evaluated at the last time
+ * the particle was active. Good for both EgyWtDensity and Density,
+ * cube of the change in Hsml in drift.c. */
+MYCUDAFN static inline double
+SPH_DensityPred(MyFloat Density, MyFloat DivVel, double dtdrift)
+{
+    /* Note minus sign!*/
+    double DensityPred = Density - DivVel * Density * dtdrift;
+    /* The guard should not be necessary, because the timestep is also limited. by change in hsml.
+     * But add it just in case the BH has kicked the particle. The factor is set because
+     * it is less than the cube of the Courant factor.*/
+    if(DensityPred >= 1e-6 * Density)
+        return DensityPred;
+    else
+        return 1e-6 * Density;
+}
+
 /* Function to get the center of mass density and HSML correction factor for an SPH particle with index i.
  * Encodes the main difference between pressure-entropy SPH and regular SPH.
  * This could be a template but that seems too much effort.*/
@@ -70,20 +88,6 @@ class HydroPriv : public ParamTypeBase {
     WindSpeed(winds_get_speed()), WindFreeTravelDensThresh(winds_get_dens_thresh()),
     SphParts(SlotsManager->sph_slot())
     {
-        /* Cache the pressure for speed*/
-        PressurePred = NULL;
-        /* Compute pressure for particles used in density: if almost all particles are active, just pre-compute it and avoid thread contention.
-        * For very small numbers of particles the memset is more expensive than just doing the exponential math,
-        * so we don't pre-compute at all.*/
-        if(EntVarPred) {
-            PressurePred = mymanagedmalloc("PressurePred", double, SlotsManager->info[0].size);
-            /* Do it in slot order for memory locality*/
-            #pragma omp parallel for
-            for(int i = 0; i < SlotsManager->info[0].size; i++) {
-                PressurePred[i] = PressurePredict(SPH_EOMDensity(&SphParts[i], DensityIndependentSphOn), EntVarPred[i]);
-            }
-        }
-
         /* Initialize some time factors*/
         memset(drifts, 0, sizeof(drifts[0])*(TIMEBINS+1));
         #pragma omp parallel for
@@ -93,6 +97,24 @@ class HydroPriv : public ParamTypeBase {
             * For active particles no density drift is needed.*/
             if(!is_timebin_active(i, times->Ti_Current))
                 drifts[i] = timebinmgr->get_exact_drift_factor(times->Ti_lastactivedrift[i], times->Ti_Current);
+        }
+        /* Cache the pressure for speed*/
+        PressurePred = NULL;
+        /* Compute pressure for particles used in density: if almost all particles are active, just pre-compute it and avoid thread contention.
+        * For very small numbers of particles the memset is more expensive than just doing the exponential math,
+        * so we don't pre-compute at all.*/
+        if(EntVarPred) {
+            PressurePred = mymanagedmalloc("PressurePred", double, SlotsManager->info[0].size);
+            /* Do it in slot order for memory locality*/
+            #pragma omp parallel for
+            for(int64_t i = 0; i < PartManager->NumPart; i++) {
+                if(PartManager->Base[i].Type != 0 || PartManager->Base[i].IsGarbage)
+                    continue;
+                int bin = PartManager->Base[i].TimeBinHydro;
+                int pi = PartManager->Base[i].PI;
+                const double eomdensity = SPH_DensityPred(SPH_EOMDensity(&SphParts[pi], DensityIndependentSphOn), SphParts[pi].DivVel, drifts[bin]);
+                PressurePred[pi] = PressurePredict(eomdensity, EntVarPred[pi]);
+            }
         }
     }
     ~HydroPriv()
@@ -204,24 +226,6 @@ class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
                sphpart->MaxSignalVel = MaxSignalVel;
     }
 };
-
-/* Find the density predicted forward to the current drift time.
- * The Density in the SPHP struct is evaluated at the last time
- * the particle was active. Good for both EgyWtDensity and Density,
- * cube of the change in Hsml in drift.c. */
-MYCUDAFN static inline double
-SPH_DensityPred(MyFloat Density, MyFloat DivVel, double dtdrift)
-{
-    /* Note minus sign!*/
-    double DensityPred = Density - DivVel * Density * dtdrift;
-    /* The guard should not be necessary, because the timestep is also limited. by change in hsml.
-     * But add it just in case the BH has kicked the particle. The factor is set because
-     * it is less than the cube of the Courant factor.*/
-    if(DensityPred >= 1e-6 * Density)
-        return DensityPred;
-    else
-        return 1e-6 * Density;
-}
 
 /* This is a symmetric NGB treewalk for hydro forces. */
 template <typename DensityKernel>

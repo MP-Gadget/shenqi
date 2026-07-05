@@ -34,8 +34,13 @@ class DensityPriv : public ParamTypeBase {
     DesNumNgb(GetNumNgb(DensityParams.DensityKernelType)), DesNumNgbBH(DesNumNgb * DensityParams.BlackHoleNgbFactor),
     MinGasHsml(DensityParams.MinGasHsml), kf(times, timebinmgr), EntVarPred(NULL), SphParts(SlotsManager->sph_slot())
     {
-        /* If enough particles are active, easiest to compute all the predicted velocities immediately*/
-        if(!act->ActiveParticle || act->NumActiveHydro > (SlotsManager->info[0].size + SlotsManager->info[5].size) / DesNumNgb) {
+        /* If enough particles are active, easiest to compute all the predicted velocities immediately.
+         * Make the decision collectively so that every rank uses the same pressure prediction
+         * convention in hydro: otherwise the two halves of a symmetric interaction pair
+         * straddling a rank boundary may use different pressures. */
+        int64_t counts[2] = {act->NumActiveHydro, SlotsManager->info[0].size + SlotsManager->info[5].size};
+        MPI_Allreduce(MPI_IN_PLACE, counts, 2, MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
+        if(!act->ActiveParticle || counts[0] > counts[1] / DesNumNgb) {
             EntVarPred = mymanagedmalloc("EntVarPred", MyFloat, SlotsManager->info[0].size);
             const particle_data * const parts = PartManager->Base;
             #pragma omp parallel for

@@ -46,7 +46,7 @@ create_parameters(void)
     param_declare_int(ps, "DifferentTransferFunctions", OPTIONAL, 1, "Use species specific transfer functions for baryon and CDM.");
     param_declare_int(ps, "ScaleDepVelocity", OPTIONAL, -1, "Use scale dependent velocity transfer functions instead of the scale-independent Zel'dovich approximation. Enabled by default iff DifferentTransferFunctions = 1");
     param_declare_string(ps, "FileWithTransferFunction", OPTIONAL, "", "File containing CLASS formatted transfer functions with extra metric transfer functions=y.");
-    param_declare_double(ps, "MaxMemSizePerNode", OPTIONAL, 0.6, "Maximum memory per node, in fraction of total memory, or MB if > 1.");
+    param_declare_double(ps, "MaxMemSizePerNode", OPTIONAL, 0.0, "Ignored");
     param_declare_double(ps, "CMBTemperature", OPTIONAL, 2.7255, "CMB temperature in K");
     param_declare_double(ps, "RadiationOn", OPTIONAL, 1, "Include radiation in the background.");
     param_declare_int(ps, "UsePeculiarVelocity", OPTIONAL, 1, "Snapshots will save peculiar velocities to the Velocity field. If 0, then v/sqrt(a) will be used in the ICs to match Gadget-2, but snapshots will save v * a.");
@@ -70,7 +70,7 @@ create_parameters(void)
     return ps;
 }
 
-void read_parameterfile(char *fname, struct genic_config * GenicConfig, int * ShowBacktrace, double * MaxMemSizePerNode, Cosmology * CP)
+void read_parameterfile(char *fname, struct genic_config * GenicConfig, int * ShowBacktrace, Cosmology * CP)
 {
 
     /* read parameter file on all processes for simplicty */
@@ -110,10 +110,6 @@ void read_parameterfile(char *fname, struct genic_config * GenicConfig, int * Sh
     CP->MNu[1] = param_get_double(ps, "MNum");
     CP->MNu[2] = param_get_double(ps, "MNut");
     GenicConfig->WDM_therm_mass = param_get_double(ps, "MWDM_therm");
-    *MaxMemSizePerNode = param_get_double(ps, "MaxMemSizePerNode");
-    if(*MaxMemSizePerNode <= 1) {
-        (*MaxMemSizePerNode) *= get_physmem_bytes() / (1024 * 1024);
-    }
 
     GenicConfig->ProduceGas = param_get_int(ps, "ProduceGas");
     GenicConfig->InvertPhase = param_get_int(ps, "InvertPhase");

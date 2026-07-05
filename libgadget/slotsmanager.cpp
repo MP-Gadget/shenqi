@@ -1,4 +1,5 @@
 #include <string.h>
+#include <omp.h>
 #include <algorithm>
 #include <execution>
 #include "slotsmanager.h"
@@ -434,28 +435,45 @@ slots_gc_sorted(struct part_manager_type * pman, struct slots_manager_type * sma
     }
     /* Sort the keys*/
     std::sort(std::execution::par_unseq, peanokeys, peanokeys + pman->NumPart);
-    /* Now sort the base with a cycle leader permutation algorithm, like qsort.*/
-    for(int64_t i = 0; i < pman->NumPart; i++) {
-        int k = peanokeys[i].Pindex;
-        /* This element already in the right place*/
-        if(k == i)
-            continue;
-        /* Copy the wrongly placed element to a tmp*/
-        struct particle_data tmp_p = pman->Base[i];
-        int j = i;
-        do {
-            /* Update index so that we know this element is permuted.*/
-            peanokeys[j].Pindex = j;
-            /* Copy the right element in.*/
-            pman->Base[j] = pman->Base[k];
-            /* k is the new j*/
-            j = k;
-            k = peanokeys[j].Pindex;
-        } while(i != k);
+    /* Now apply the permutation to the base array. An out-of-place gather is
+     * embarrassingly parallel, whereas the in-place cycle-leader permutation is
+     * serial (each move depends on the last), so use the gather when we have
+     * threads and enough memory for a temporary copy of the particle table. */
+    if(omp_get_max_threads() > 1 && mymalloc_freebytes() > 1.2 * sizeof(struct particle_data) * (size_t) pman->NumPart) {
+        struct particle_data * ptmp = mymalloc("PermTmpP", struct particle_data, pman->NumPart);
+        #pragma omp parallel for
+        for(int64_t i = 0; i < pman->NumPart; i++)
+            ptmp[i] = pman->Base[peanokeys[i].Pindex];
+        #pragma omp parallel for
+        for(int64_t i = 0; i < pman->NumPart; i++)
+            pman->Base[i] = ptmp[i];
+        myfree(ptmp);
+    }
+    else {
+        /* Sort the base with a cycle leader permutation algorithm, like qsort.
+        * This needs no temporary particle storage but is serial. */
+        for(int64_t i = 0; i < pman->NumPart; i++) {
+            int k = peanokeys[i].Pindex;
+            /* This element already in the right place*/
+            if(k == i)
+                continue;
+            /* Copy the wrongly placed element to a tmp*/
+            struct particle_data tmp_p = pman->Base[i];
+            int j = i;
+            do {
+                /* Update index so that we know this element is permuted.*/
+                peanokeys[j].Pindex = j;
+                /* Copy the right element in.*/
+                pman->Base[j] = pman->Base[k];
+                /* k is the new j*/
+                j = k;
+                k = peanokeys[j].Pindex;
+            } while(i != k);
 
-        /* We finished when we found the right spot for the first object, the one we copied into tmp*/
-        peanokeys[j].Pindex = j;
-        pman->Base[j] = tmp_p;
+            /* We finished when we found the right spot for the first object, the one we copied into tmp*/
+            peanokeys[j].Pindex = j;
+            pman->Base[j] = tmp_p;
+        }
     }
     // message(1, "garbage %ld\n", garbage);
 
