@@ -528,6 +528,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
         #pragma omp barrier
         MPI_Barrier(MPI_COMM_WORLD);
         double gpuhydro = second() - start;
+        double maxsignalerr, meansignalerr;
         check_hydroaccns(&meanerr,&maxerr, &meanangle, &maxangle, &meansignalerr, &maxsignalerr, HydroAccn, MaxSignalVel);
         myfree(MaxSignalVel);
         myfree(HydroAccn);
