@@ -55,7 +55,7 @@ write_particle_data(IDGenerator * idgen,
                     struct ic_part_data * curICP);
 
 /*Read a parameter file*/
-void read_parameterfile(char *fname, struct genic_config * GenicConfig, int * ShowBacktrace, double * MaxMemSizePerNode, Cosmology * CP);
+void read_parameterfile(char *fname, struct genic_config * GenicConfig, int * ShowBacktrace, Cosmology * CP);
 
 /*Defined in save.c used in power.c*/
 void _bigfile_utils_create_block_from_c_array(BigFile * bf, void * baseptr, const char * name, const char * dtype, size_t dims[], ptrdiff_t elsize, int NumFiles, int NumWriters, MPI_Comm comm);

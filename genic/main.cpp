@@ -37,8 +37,7 @@ int main(int argc, char **argv)
 
   Cosmology CP ={0};
   int ShowBacktrace;
-  double MaxMemSizePerNode;
-  read_parameterfile(argv[1], &All2, &ShowBacktrace, &MaxMemSizePerNode, &CP);
+  read_parameterfile(argv[1], &All2, &ShowBacktrace, &CP);
   All2.units = get_unitsystem(All2.units.UnitLength_in_cm, All2.units.UnitMass_in_g, All2.units.UnitVelocity_in_cm_per_s);
 
   //Do not use the GPU, nothing here is accelerated

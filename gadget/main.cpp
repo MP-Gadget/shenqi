@@ -73,8 +73,7 @@ int main(int argc, char **argv)
     tamalloc_init();
 
     int ShowBacktrace;
-    double MaxMemSizePerNode;
-    read_parameter_file(argv[1], &ShowBacktrace, &MaxMemSizePerNode);	/* ... read in parameters for this run */
+    read_parameter_file(argv[1], &ShowBacktrace);	/* ... read in parameters for this run */
 
     int RestartFlag, RestartSnapNum;
 

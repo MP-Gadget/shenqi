@@ -72,7 +72,7 @@ create_gadget_parameter_set()
     param_declare_int(ps,    "OutputHeliumFractions", OPTIONAL, 0, "Save the helium ionic fractions in snapshots.");
     param_declare_int(ps,    "OutputDebugFields", OPTIONAL, 0, "Save a large number of debug fields in snapshots.");
     param_declare_int(ps,    "ShowBacktrace", OPTIONAL, 1, "Print a backtrace on crash. Hangs on stampede.");
-    param_declare_double(ps,    "MaxMemSizePerNode", OPTIONAL, 0.6, "Pre-allocate this much memory per computing node/ host, in MB. Passing < 1 allocates a fraction of total available memory per node, defaults to 0.6 available memory.");
+    param_declare_double(ps,    "MaxMemSizePerNode", OPTIONAL, 0, "Has no effect");
     param_declare_double(ps, "AutoSnapshotTime", OPTIONAL, 0, "Seconds after which to automatically generate a snapshot if nothing is output.");
 
     param_declare_double(ps, "TimeMax", OPTIONAL, 1.0, "Scale factor to end run.");
@@ -345,7 +345,7 @@ create_gadget_parameter_set()
  *  exactly once in the parameterfile, otherwise error messages are
  *  produced that complain about the missing parameters.
  */
-void read_parameter_file(char *fname, int * ShowBacktrace, double * MaxMemSizePerNode)
+void read_parameter_file(char *fname, int * ShowBacktrace)
 {
     ParameterSet * ps = create_gadget_parameter_set();
 
@@ -365,10 +365,6 @@ void read_parameter_file(char *fname, int * ShowBacktrace, double * MaxMemSizePe
     message(0, "----------------------------------------------\n");
 
     *ShowBacktrace = param_get_int(ps, "ShowBacktrace");
-    *MaxMemSizePerNode = param_get_double(ps, "MaxMemSizePerNode");
-    if(*MaxMemSizePerNode <= 1) {
-        *MaxMemSizePerNode *= get_physmem_bytes() / (1024. * 1024.);
-    }
 
     /*Initialize per-module parameters.*/
     set_all_global_params(ps);

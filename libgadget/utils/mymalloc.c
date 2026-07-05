@@ -35,7 +35,7 @@ tamalloc_init(void)
 
     if (MPIU_Any(ALLOC_ENOMEMORY == allocator_init(A_TEMP, "TEMP", n, 1), MPI_COMM_WORLD)) {
         endrun(0, "Insufficient memory for the TEMP allocator on at least one nodes."
-                  "Requestion %td bytes. Try reducing MaxMemSizePerNode. Also check the node health status.\n", n);
+                  "Requestion %td bytes. Check the node health status.\n", n);
 
     }
 }
