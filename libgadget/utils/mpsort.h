@@ -284,34 +284,17 @@ void _histogram(T* P, int Plength, void * mybase, size_t mynmemb,
 
 template <typename T>
 struct piter {
-    int * stable;
-    int * narrow;
+    std::vector<int> stable;
+    std::vector<int> narrow;
     int Plength;
-    T * Pleft;
-    T * Pright;
+    std::vector<T> Pleft;
+    std::vector<T> Pright;
     struct crstruct * d;
 
-    piter(T& Pmin, T& Pmax, int Plength_i, struct crstruct * d_i): Plength(Plength_i), d(d_i)
-    {
-        stable = ta_malloc("stable", int, Plength);
-        memset(stable, 0, Plength * sizeof(int));
-        narrow = ta_malloc("narrow", int, Plength);
-        memset(narrow, 0, Plength * sizeof(int));
-        Pleft = mymalloc("left", T, Plength);
-        Pright = mymalloc("right", T, Plength);
-        for(int i = 0; i < Plength; i ++) {
-            Pleft[i] = Pmin;
-            Pright[i] = Pmax;
-        }
-    }
-
-    ~piter()
-    {
-        myfree(Pright);
-        myfree(Pleft);
-        myfree(narrow);
-        myfree(stable);
-    }
+    piter(T& Pmin, T& Pmax, int Plength_i, struct crstruct * d_i):
+        stable(Plength_i, 0), narrow(Plength_i, 0), Plength(Plength_i),
+        Pleft(Plength_i, Pmin), Pright(Plength_i, Pmax), d(d_i)
+    {}
 
     /*
     * this will bisect the left / right in piter.
@@ -349,23 +332,9 @@ struct piter {
         }
     }
 
-    int all_done()
+    bool all_done()
     {
-        int done = 1;
-        #if 0
-        #pragma omp single
-        for(i = 0; i < pi->Plength; i ++) {
-            printf("P %d stable %d narrow %d\n",
-                i, pi->stable[i], pi->narrow[i]);
-        }
-        #endif
-        for(int i = 0; i < Plength; i ++) {
-            if(!stable[i]) {
-                done = 0;
-                break;
-            }
-        }
-        return done;
+        return std::all_of(stable.begin(), stable.end(), [](int s) { return s != 0; });
     }
 
 /*
