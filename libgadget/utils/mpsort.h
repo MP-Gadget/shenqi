@@ -638,8 +638,8 @@ MPIU_Gather (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffer
     MPI_Type_contiguous(elsize, MPI_BYTE, &dtype);
     MPI_Type_commit(&dtype);
 
-    int * recvcount = ta_malloc("recvcount", int, NTask);
-    int * rdispls = ta_malloc("rdispls", int, NTask+1);
+    int * recvcount = mymalloc("recvcount", int, NTask);
+    int * rdispls = mymalloc("rdispls", int, NTask+1);
 
     MPI_Gather(&nsend, 1, MPI_INT, recvcount, 1, MPI_INT, root, comm);
 
@@ -664,8 +664,8 @@ MPIU_Scatter (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffe
     MPI_Type_contiguous(elsize, MPI_BYTE, &dtype);
     MPI_Type_commit(&dtype);
 
-    int * sendcount = ta_malloc("sendcount", int, NTask);
-    int * sdispls = ta_malloc("sdispls", int, NTask+1);
+    int * sendcount = mymalloc("sendcount", int, NTask);
+    int * sdispls = mymalloc("sdispls", int, NTask+1);
 
     MPI_Gather(&nrecv, 1, MPI_INT, sendcount, 1, MPI_INT, root, comm);
 
@@ -690,8 +690,8 @@ void _find_Pmax_Pmin_C(void * mybase, size_t mynmemb,
     T myPmax{0};
     T myPmin{0};
 
-    size_t * eachnmemb = ta_malloc("eachnmemb", size_t, o->NTask);
-    size_t * eachoutnmemb = ta_malloc("eachoutnmemb", size_t, o->NTask);
+    size_t * eachnmemb = mymalloc("eachnmemb", size_t, o->NTask);
+    size_t * eachoutnmemb = mymalloc("eachoutnmemb", size_t, o->NTask);
     T * eachPmax = mymalloc("eachPmax", T, o->NTask);
     T * eachPmin = mymalloc("eachPmin", T, o->NTask);
 
@@ -934,10 +934,10 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
     myfree(myCLT);
     myfree(C);
 
-    int * SendCount = ta_malloc("SendCount", int, o.NTask);
-    int * SendDispl = ta_malloc("SendDispl", int, o.NTask);
-    int * RecvCount = ta_malloc("RecvCount", int, o.NTask);
-    int * RecvDispl = ta_malloc("RecvDispl", int, o.NTask);
+    int * SendCount = mymalloc("SendCount", int, o.NTask);
+    int * SendDispl = mymalloc("SendDispl", int, o.NTask);
+    int * RecvCount = mymalloc("RecvCount", int, o.NTask);
+    int * RecvDispl = mymalloc("RecvDispl", int, o.NTask);
 
     for(i = 0; i < o.NTask; i ++) {
         SendCount[i] = myC[i + 1] - myC[i];
@@ -1075,7 +1075,7 @@ mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
        This is known to frequently trigger MPI bugs.*/
     static_assert(sizeof(T) % 8 == 0 || sizeof(T) < 8);
 
-    size_t * sizes = ta_malloc("sizes", size_t, NTask);
+    size_t * sizes = mymalloc("sizes", size_t, NTask);
     sizes[ThisTask] = mynmemb;
     MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, sizes, 1, MPI_INT64_T, comm);
 
