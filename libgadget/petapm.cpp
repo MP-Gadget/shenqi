@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <execution>
 #include <complex>
+#include <fftw3.h>
 #include <heffte.h>
 /* do NOT use complex.h it breaks the code */
 
@@ -138,9 +139,14 @@ int *petapm_get_ntask2d(PetaPM * pm) {
 void
 petapm_module_init(int Nthreads)
 {
-    /* heffte parallelises over MPI ranks: the per-rank FFTW transforms
-     * are serial, so Nthreads is unused. */
-    (void) Nthreads;
+    /* heffte parallelises over MPI ranks; for a hybrid OpenMP/MPI FFT we
+     * enable fftw's own threading. heffte creates its fftw plans lazily on
+     * the first transform, so plans created after this pick up Nthreads
+     * threads for the 1-D FFT kernels. (heffte 2.4.1 has no thread setting
+     * in heffte::plan_options: this is the mechanism its own benchmarks use.) */
+    if(fftw_init_threads() == 0)
+        endrun(1, "Error initialising fftw threads\n");
+    fftw_plan_with_nthreads(Nthreads);
 
     /* initialize the MPI Datatype of pencil */
     MPI_Type_contiguous(sizeof(struct Pencil), MPI_BYTE, &MPI_PENCIL);
