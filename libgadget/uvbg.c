@@ -205,14 +205,14 @@ static PetaPMRegion * makeregion(PetaPM * pm, PetaPMParticleStruct * pstruct, vo
 }
 
 //this is applied as global_transfer, dividing by n_cells due to the forward-reverse FFT
-static void divide_by_ncell(PetaPM * pm, int64_t k2, int k[3], pfft_complex * value){
+static void divide_by_ncell(PetaPM * pm, int64_t k2, int k[3], petapm_complex * value){
         int total_n_cells = (double)(uvbg_params.UVBGdim * uvbg_params.UVBGdim * uvbg_params.UVBGdim);
         value[0][0] /= total_n_cells;
         value[0][1] /= total_n_cells;
 }
 
 //transfer functions that applies a certain filter (top-hat or gaussian)
-static void filter_pm(PetaPM * pm, int64_t k2, int k[3], pfft_complex * value)
+static void filter_pm(PetaPM * pm, int64_t k2, int k[3], petapm_complex * value)
 {
     const int filter_type = uvbg_params.ReionFilterType;
     double k_mag = sqrt(k2) * (2 * M_PI / pm->Nmesh) * (pm->Nmesh / pm->BoxSize);

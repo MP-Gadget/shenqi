@@ -89,9 +89,9 @@ void gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Ti
 void grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool UseGPU=false);
 
 /*Read the power spectrum, without changing the input value.*/
-void measure_power_spectrum(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex *value);
+void measure_power_spectrum(PetaPM * pm, int64_t k2, int kpos[3], petapm_complex *value);
 
 /* Compute the power spectrum of the Fourier transformed grid in value.*/
-void powerspectrum_add_mode(Power * PowerSpectrum, const int64_t k2, const int kpos[3], pfft_complex * const value, const double invwindow, double Nmesh);
+void powerspectrum_add_mode(Power * PowerSpectrum, const int64_t k2, const int kpos[3], petapm_complex * const value, const double invwindow, double Nmesh);
 
 #endif

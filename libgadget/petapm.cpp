@@ -5,9 +5,24 @@
 #include <math.h>
 #include <algorithm>
 #include <execution>
+#include <complex>
+#include <heffte.h>
 /* do NOT use complex.h it breaks the code */
 
 #include "petapm.h"
+
+/* The heffte FFT plans: a single fft3d_r2c object provides both the
+ * forward (r2c) and backward (c2r) transforms. Referenced as an opaque
+ * struct from petapm.h. */
+struct PetaPMPlans {
+    heffte::fft3d_r2c<heffte::backend::fftw> fft;
+};
+
+/* heffte works with std::complex, the rest of the code with double[2]:
+ * the two are layout compatible. */
+static inline std::complex<double> * heffte_complex(petapm_complex * c) {
+    return reinterpret_cast<std::complex<double> *>(c);
+}
 
 #include "utils/mymalloc.h"
 #include "utils/endrun.h"
@@ -69,15 +84,25 @@ static void verify_density_field(PetaPM * pm, double * real, double * meshbuf, c
 static MPI_Datatype MPI_PENCIL;
 
 /*Used only in MP-GenIC*/
-pfft_complex *
+petapm_complex *
 petapm_alloc_rhok(PetaPM * pm)
 {
-    pfft_complex * rho_k = (pfft_complex *) mymalloc("PMrho_k", double, pm->priv->fftsize);
+    petapm_complex * rho_k = (petapm_complex *) mymalloc("PMrho_k", double, pm->priv->fftsize);
     memset(rho_k, 0, pm->priv->fftsize * sizeof(double));
     return rho_k;
 }
 
 static void pm_init_regions(PetaPM * pm, PetaPMRegion * regions, const int Nregions);
+
+/* Split n mesh points into np contiguous blocks: the first n % np ranks get one extra point. */
+static void
+petapm_split_block(int n, int np, int rank, ptrdiff_t * offset, ptrdiff_t * size)
+{
+    int base = n / np;
+    int rem = n % np;
+    *offset = (ptrdiff_t) rank * base + (rank < rem ? rank : rem);
+    *size = base + (rank < rem);
+}
 
 static PetaPMParticleStruct * CPS; /* stored by petapm_force, how to access the P array */
 static PetaPMReionPartStruct * CPS_R; /* stored by calculate_uvbg, how to access other properties in P, SphP, and Fof */
@@ -113,9 +138,9 @@ int *petapm_get_ntask2d(PetaPM * pm) {
 void
 petapm_module_init(int Nthreads)
 {
-    pfft_init();
-
-    pfft_plan_with_nthreads(Nthreads);
+    /* heffte parallelises over MPI ranks: the per-rank FFTW transforms
+     * are serial, so Nthreads is unused. */
+    (void) Nthreads;
 
     /* initialize the MPI Datatype of pencil */
     MPI_Type_contiguous(sizeof(struct Pencil), MPI_BYTE, &MPI_PENCIL);
@@ -133,8 +158,7 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
     pm->CellSize = BoxSize / Nmesh;
     pm->comm = comm;
 
-    ptrdiff_t n[3] = {Nmesh, Nmesh, Nmesh};
-    ptrdiff_t np[2];
+    int np[2];
 
     int ThisTask;
     int NTask;
@@ -154,58 +178,61 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
     np[0] = i;
     np[1] = NTask / i;
 
-    message(0, "Using 2D Task mesh %td x %td \n", np[0], np[1]);
-    if( pfft_create_procmesh_2d(comm, np[0], np[1], &pm->priv->comm_cart_2d) ){
-        endrun(0, "Error: This test file only works with %td processes.\n", np[0]*np[1]);
+    message(0, "Using 2D Task mesh %d x %d \n", np[0], np[1]);
+    /* Create the 2d cartesian communicator. reorder=0 so that the
+     * cartesian rank is the same as the rank in comm: the layout
+     * exchange relies on this. */
+    int periods[2] = {1, 1};
+    if( MPI_Cart_create(comm, 2, np, periods, 0, &pm->priv->comm_cart_2d) != MPI_SUCCESS){
+        endrun(0, "Error creating the 2D task mesh %d x %d.\n", np[0], np[1]);
     }
 
     int periods_unused[2];
     MPI_Cart_get(pm->priv->comm_cart_2d, 2, pm->NTask2d, periods_unused, pm->ThisTask2d);
 
     if(pm->NTask2d[0] != np[0] || pm->NTask2d[1] != np[1])
-        endrun(6, "Bad PM mesh: Task2D = %d %d np %ld %ld\n", pm->NTask2d[0], pm->NTask2d[1], np[0], np[1]);
+        endrun(6, "Bad PM mesh: Task2D = %d %d np %d %d\n", pm->NTask2d[0], pm->NTask2d[1], np[0], np[1]);
 
-    pm->priv->fftsize = 2 * pfft_local_size_dft_r2c_3d(n, pm->priv->comm_cart_2d,
-           PFFT_TRANSPOSED_OUT,
-           pm->real_space_region.size, pm->real_space_region.offset,
-           pm->fourier_space_region.size, pm->fourier_space_region.offset);
+    /* Real space is decomposed into (x, y) pencils: x split over the first
+     * task dimension, y over the second, with z complete on each rank. */
+    petapm_split_block(Nmesh, pm->NTask2d[0], pm->ThisTask2d[0], &pm->real_space_region.offset[0], &pm->real_space_region.size[0]);
+    petapm_split_block(Nmesh, pm->NTask2d[1], pm->ThisTask2d[1], &pm->real_space_region.offset[1], &pm->real_space_region.size[1]);
+    pm->real_space_region.offset[2] = 0;
+    pm->real_space_region.size[2] = Nmesh;
 
-    /*
-     * In fourier space, the transposed array is ordered in
-     * are in (y, z, x). The strides and sizes returned
-     * from local size is in (Nx, Ny, Nz), hence we roll them once
-     * so that the strides will give correct linear indexing for
-     * integer coordinates given in order of (y, z, x).
-     * */
-    auto tmp1 = pm->fourier_space_region.offset[0];
-    auto tmp2 = pm->fourier_space_region.size[0];
-    for(k = 0; k < 2; k ++) {
-        pm->fourier_space_region.offset[k] = pm->fourier_space_region.offset[(k + 1)];
-        pm->fourier_space_region.size[k] = pm->fourier_space_region.size[(k + 1)];
-    }
-    pm->fourier_space_region.offset[2] = tmp1;
-    pm->fourier_space_region.size[2] = tmp2;
+    /* Fourier space is transposed: the region arrays are indexed in
+     * (y, z, x) order, with x fastest in memory. y is split over the first
+     * task dimension, the r2c-shortened z over the second and x is complete.
+     * This is the same layout as PFFT_TRANSPOSED_OUT produced. */
+    petapm_split_block(Nmesh, pm->NTask2d[0], pm->ThisTask2d[0], &pm->fourier_space_region.offset[0], &pm->fourier_space_region.size[0]);
+    petapm_split_block(Nmesh / 2 + 1, pm->NTask2d[1], pm->ThisTask2d[1], &pm->fourier_space_region.offset[1], &pm->fourier_space_region.size[1]);
+    pm->fourier_space_region.offset[2] = 0;
+    pm->fourier_space_region.size[2] = Nmesh;
 
     /* calculate the strides */
     petapm_region_init_strides(&pm->real_space_region);
     petapm_region_init_strides(&pm->fourier_space_region);
 
-    /* planning the fft; need temporary arrays */
+    /* Create the heffte plan. heffte boxes are inclusive [low, high] index
+     * ranges in (x, y, z); the order member maps dimensions to memory,
+     * order[0] being the fastest. The transform is shortened along z (r2c
+     * direction 2), matching the region sizes above. */
+    const PetaPMRegion * rr = &pm->real_space_region;
+    heffte::box3d<> inbox(
+        {(int) rr->offset[0], (int) rr->offset[1], 0},
+        {(int) (rr->offset[0] + rr->size[0] - 1), (int) (rr->offset[1] + rr->size[1] - 1), Nmesh - 1},
+        {2, 1, 0});
+    const PetaPMRegion * fr = &pm->fourier_space_region;
+    heffte::box3d<> outbox(
+        {0, (int) fr->offset[0], (int) fr->offset[1]},
+        {Nmesh - 1, (int) (fr->offset[0] + fr->size[0] - 1), (int) (fr->offset[1] + fr->size[1] - 1)},
+        {0, 2, 1});
 
-    double * real = mymalloc("PMreal", double, pm->priv->fftsize);
-    pfft_complex * rho_k = (pfft_complex * ) mymalloc("PMrho_k", double, pm->priv->fftsize);
-    pfft_complex * complx = (pfft_complex *) mymalloc("PMcomplex", double, pm->priv->fftsize);
+    pm->priv->plans = new PetaPMPlans { heffte::fft3d_r2c<heffte::backend::fftw>(inbox, outbox, 2, pm->priv->comm_cart_2d) };
 
-    pm->priv->plan_forw = pfft_plan_dft_r2c_3d(
-        n, real, rho_k, pm->priv->comm_cart_2d, PFFT_FORWARD,
-        PFFT_TRANSPOSED_OUT | PFFT_ESTIMATE | PFFT_TUNE | PFFT_DESTROY_INPUT);
-    pm->priv->plan_back = pfft_plan_dft_c2r_3d(
-        n, complx, real, pm->priv->comm_cart_2d, PFFT_BACKWARD,
-        PFFT_TRANSPOSED_IN | PFFT_ESTIMATE | PFFT_TUNE | PFFT_DESTROY_INPUT);
-
-    myfree(complx);
-    myfree(rho_k);
-    myfree(real);
+    /* fftsize is in units of double: the same sized buffers are used for both
+     * the real and the complex meshes, so take the larger of the two. */
+    pm->priv->fftsize = std::max<int64_t>(pm->priv->plans->fft.size_inbox(), 2 * pm->priv->plans->fft.size_outbox());
 
     /* now lets fill up the mesh2task arrays */
 
@@ -242,8 +269,7 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
 void
 petapm_destroy(PetaPM * pm)
 {
-    pfft_destroy_plan(pm->priv->plan_forw);
-    pfft_destroy_plan(pm->priv->plan_back);
+    delete pm->priv->plans;
     MPI_Comm_free(&pm->priv->comm_cart_2d);
     myfree(pm->Mesh2Task[0]);
 }
@@ -256,8 +282,8 @@ typedef void (* pm_iterator)(PetaPM * pm, int i, double * mesh, double weight);
 static void pm_iterate(PetaPM * pm, pm_iterator iterator, PetaPMRegion * regions, const int Nregions);
 /* apply transfer function to value, kpos array is in x, y, z order */
 static void pm_apply_transfer_function(PetaPM * pm,
-        pfft_complex * src,
-        pfft_complex * dst, petapm_transfer_func H);
+        petapm_complex * src,
+        petapm_complex * dst, petapm_transfer_func H);
 
 static void put_particle_to_mesh(PetaPM * pm, int i, double * mesh, double weight);
 static void put_star_to_mesh(PetaPM * pm, int i, double * mesh, double weight);
@@ -298,7 +324,7 @@ petapm_force_init(
     return regions;
 }
 
-pfft_complex * petapm_force_r2c(PetaPM * pm,
+petapm_complex * petapm_force_r2c(PetaPM * pm,
         PetaPMGlobalFunctions * global_functions
         ) {
     /* call pfft rho_k is CFT of rho */
@@ -318,11 +344,11 @@ pfft_complex * petapm_force_r2c(PetaPM * pm,
     walltime_measure("/PMgrav/Verify");
 #endif
 
-    pfft_complex * complx = (pfft_complex *) mymalloc("PMcomplex", double, pm->priv->fftsize);
-    pfft_execute_dft_r2c(pm->priv->plan_forw, real, complx);
+    petapm_complex * complx = (petapm_complex *) mymalloc("PMcomplex", double, pm->priv->fftsize);
+    pm->priv->plans->fft.forward(real, heffte_complex(complx), heffte::scale::none);
     myfree(real);
 
-    pfft_complex * rho_k = (pfft_complex * ) mymalloc2("PMrho_k", double, pm->priv->fftsize);
+    petapm_complex * rho_k = (petapm_complex * ) mymalloc2("PMrho_k", double, pm->priv->fftsize);
 
     /*Do any analysis that may be required before the transfer function is applied*/
     petapm_transfer_func global_readout = global_functions->global_readout;
@@ -341,7 +367,7 @@ pfft_complex * petapm_force_r2c(PetaPM * pm,
 
 void
 petapm_force_c2r(PetaPM * pm,
-        pfft_complex * rho_k,
+        petapm_complex * rho_k,
         PetaPMRegion * regions,
         const int Nregions,
         PetaPMFunctions * functions)
@@ -352,13 +378,13 @@ petapm_force_c2r(PetaPM * pm,
         petapm_transfer_func transfer = f->transfer;
         petapm_readout_func readout = f->readout;
 
-        pfft_complex * complx = (pfft_complex *) mymalloc("PMcomplex", double, pm->priv->fftsize);
+        petapm_complex * complx = (petapm_complex *) mymalloc("PMcomplex", double, pm->priv->fftsize);
         /* apply the greens function turn rho_k into potential in fourier space */
         pm_apply_transfer_function(pm, rho_k, complx, transfer);
         walltime_measure("/PMgrav/calc");
 
         double * real = mymalloc2("PMreal", double, pm->priv->fftsize);
-        pfft_execute_dft_c2r(pm->priv->plan_back, complx, real);
+        pm->priv->plans->fft.backward(heffte_complex(complx), real, heffte::scale::none);
 
         walltime_measure("/PMgrav/c2r");
         if(f == functions) // Once
@@ -385,7 +411,7 @@ void petapm_force(PetaPM * pm, petapm_prepare_func prepare,
         void * userdata) {
     int Nregions;
     PetaPMRegion * regions = petapm_force_init(pm, prepare, pstruct, &Nregions, userdata);
-    pfft_complex * rho_k = petapm_force_r2c(pm, global_functions);
+    petapm_complex * rho_k = petapm_force_r2c(pm, global_functions);
     if(functions)
         petapm_force_c2r(pm, rho_k, regions, Nregions, functions);
     myfree(rho_k);
@@ -432,7 +458,7 @@ petapm_reion_init(
  * ,after c2r but iteration over the grid, instead of particles */
 void
 petapm_reion_c2r(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr,
-        pfft_complex * mass_unfiltered, pfft_complex * star_unfiltered, pfft_complex * sfr_unfiltered,
+        petapm_complex * mass_unfiltered, petapm_complex * star_unfiltered, petapm_complex * sfr_unfiltered,
         PetaPMRegion * regions,
         const int Nregions,
         PetaPMFunctions * functions,
@@ -465,11 +491,11 @@ petapm_reion_c2r(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr,
         if(use_sfr)pm_sfr->G = R;
 
         //TODO: maybe allocate and free these outside the loop
-        pfft_complex * mass_filtered = (pfft_complex *) mymalloc("mass_filtered", double, pm_mass->priv->fftsize);
-        pfft_complex * star_filtered = (pfft_complex *) mymalloc("star_filtered", double, pm_star->priv->fftsize);
-        pfft_complex * sfr_filtered;
+        petapm_complex * mass_filtered = (petapm_complex *) mymalloc("mass_filtered", double, pm_mass->priv->fftsize);
+        petapm_complex * star_filtered = (petapm_complex *) mymalloc("star_filtered", double, pm_star->priv->fftsize);
+        petapm_complex * sfr_filtered;
         if(use_sfr){
-            sfr_filtered = (pfft_complex *) mymalloc("sfr_filtered", double, pm_sfr->priv->fftsize);
+            sfr_filtered = (petapm_complex *) mymalloc("sfr_filtered", double, pm_sfr->priv->fftsize);
         }
 
         /* apply the filtering at this radius */
@@ -487,12 +513,12 @@ petapm_reion_c2r(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr,
 
         double * star_real = mymalloc2("star_real", double, pm_star->priv->fftsize);
         /* back to real space */
-        pfft_execute_dft_c2r(pm_mass->priv->plan_back, mass_filtered, mass_real);
-        pfft_execute_dft_c2r(pm_star->priv->plan_back, star_filtered, star_real);
+        pm_mass->priv->plans->fft.backward(heffte_complex(mass_filtered), mass_real, heffte::scale::none);
+        pm_star->priv->plans->fft.backward(heffte_complex(star_filtered), star_real, heffte::scale::none);
         double * sfr_real = NULL;
         if(use_sfr){
             sfr_real = mymalloc2("sfr_real", double, pm_sfr->priv->fftsize);
-            pfft_execute_dft_c2r(pm_sfr->priv->plan_back, sfr_filtered, sfr_real);
+            pm_sfr->priv->plans->fft.backward(heffte_complex(sfr_filtered), sfr_real, heffte::scale::none);
             myfree(sfr_filtered);
         }
         walltime_measure("/PMreion/c2r");
@@ -555,9 +581,9 @@ void petapm_reion(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr,
     walltime_measure("/PMreion/comm2");
 
     //using force r2c since this part can be done independently
-    pfft_complex * mass_unfiltered = petapm_force_r2c(pm_mass, global_functions);
-    pfft_complex * star_unfiltered = petapm_force_r2c(pm_star, global_functions);
-    pfft_complex * sfr_unfiltered = NULL;
+    petapm_complex * mass_unfiltered = petapm_force_r2c(pm_mass, global_functions);
+    petapm_complex * star_unfiltered = petapm_force_r2c(pm_star, global_functions);
+    petapm_complex * sfr_unfiltered = NULL;
     if(use_sfr){
         sfr_unfiltered = petapm_force_r2c(pm_sfr, global_functions);
     }
@@ -1096,8 +1122,8 @@ static void verify_density_field(PetaPM * pm, double * real, double * meshbuf, c
 #endif
 
 static void pm_apply_transfer_function(PetaPM * pm,
-        pfft_complex * src,
-        pfft_complex * dst, petapm_transfer_func H
+        petapm_complex * src,
+        petapm_complex * dst, petapm_transfer_func H
         ){
     size_t ip = 0;
 

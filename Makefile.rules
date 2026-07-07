@@ -40,7 +40,7 @@ TCFLAGS = $(CXXFLAGS) -DGADGET_TESTDATA_ROOT=\"$(GADGET_TESTDATA_ROOT)\"
 
 TBB_LIBS := $(shell echo "int main(void){return 0;}" | $(MPICC) -x c++ - -ltbb -o /dev/null 2>/dev/null && echo "-ltbb")
 $(if $(TBB_LIBS),,$(warning TBB not found: building without TBB support))
-BUNDLEDLIBS = -lbigfile-mpi -lbigfile -lpfft_omp -lfftw3_mpi -lfftw3_omp -lfftw3 $(TBB_LIBS)
+BUNDLEDLIBS = -lbigfile-mpi -lbigfile -lheffte -lfftw3_omp -lfftw3 -lfftw3f_omp -lfftw3f $(TBB_LIBS)
 LIBS  = -lm  $(BOOST_LIBS) $(FITSIO_LIBS) $(CUDA_LIBS)
 LIBS += -L../depends/lib $(BUNDLEDLIBS)
 V ?= 0

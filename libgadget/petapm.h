@@ -1,8 +1,18 @@
 #ifndef __PETAPM_H__
 #define __PETAPM_H__
-#include <pfft.h>
+#include <mpi.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include "powerspectrum.h"
+
+/* Complex values on the Fourier mesh. Binary compatible with
+ * fftw_complex / std::complex<double>, avoids needing the FFT
+ * library headers here. */
+typedef double petapm_complex[2];
+
+/* Opaque holder for the heffte FFT plans, defined in petapm.cpp. */
+struct PetaPMPlans;
 
 typedef struct Region {
     /* represents a region in the FFT Mesh */
@@ -49,8 +59,7 @@ typedef struct PetaPMPriv {
     /* These varibles are initialized by petapm_init*/
 
     int fftsize;
-    pfft_plan plan_forw;
-    pfft_plan plan_back;
+    struct PetaPMPlans * plans;
     MPI_Comm comm_cart_2d;
 
     /* these variables are allocated every force calculation */
@@ -99,7 +108,7 @@ typedef struct {
     size_t offset_fesc; //offset in fof groups to fof mass
 } PetaPMReionPartStruct;
 
-typedef void (*petapm_transfer_func)(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex * value);
+typedef void (*petapm_transfer_func)(PetaPM * pm, int64_t k2, int kpos[3], petapm_complex * value);
 typedef void (*petapm_readout_func)(PetaPM * pm, int i, double * mesh, double weight);
 typedef PetaPMRegion * (*petapm_prepare_func)(PetaPM * pm, PetaPMParticleStruct * pstruct, void * data, int *Nregions);
 
@@ -142,11 +151,11 @@ PetaPMRegion * petapm_force_init(PetaPM * pm,
         PetaPMParticleStruct * pstruct,
         int * Nregions,
         void * userdata);
-pfft_complex * petapm_force_r2c(PetaPM * pm,
+petapm_complex * petapm_force_r2c(PetaPM * pm,
         PetaPMGlobalFunctions * global_functions
         );
 void petapm_force_c2r(PetaPM * pm,
-        pfft_complex * rho_k, PetaPMRegion * regions,
+        petapm_complex * rho_k, PetaPMRegion * regions,
         const int Nregions,
         PetaPMFunctions * functions);
 void petapm_force_finish(PetaPM * pm);
@@ -156,7 +165,7 @@ PetaPMRegion * petapm_get_real_region(PetaPM * pm);
 int petapm_mesh_to_k(PetaPM * pm, int i);
 int *petapm_get_thistask2d(PetaPM * pm);
 int *petapm_get_ntask2d(PetaPM * pm);
-pfft_complex * petapm_alloc_rhok(PetaPM * pm);
+petapm_complex * petapm_alloc_rhok(PetaPM * pm);
 
 void petapm_reion(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr,
         petapm_prepare_func prepare,
