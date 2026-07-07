@@ -587,12 +587,8 @@ _destroy_segment_group(struct SegmentGroupDescr * descr)
 static uint64_t
 checksum(void * base, size_t nbytes, MPI_Comm comm)
 {
-    uint64_t sum = 0;
     char * ptr = (char *) base;
-    size_t i;
-    for(i = 0; i < nbytes; i ++) {
-        sum += ptr[i];
-    }
+    uint64_t sum = std::accumulate(ptr, ptr + nbytes, uint64_t{0});
     MPI_Allreduce(MPI_IN_PLACE, &sum, 1, MPI_LONG, MPI_SUM, comm);
     return sum;
 }
@@ -612,10 +608,7 @@ MPIU_Gather (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffer
 
     MPI_Gather(&nsend, 1, MPI_INT, recvcount, 1, MPI_INT, root, comm);
 
-    rdispls[0] = 0;
-    for(int i = 1; i <= NTask; i ++) {
-        rdispls[i] = rdispls[i - 1] + recvcount[i - 1];
-    }
+    std::exclusive_scan(recvcount, recvcount + NTask, rdispls, 0);
 
     MPI_Gatherv(sendbuffer, nsend, dtype, recvbuffer, recvcount, rdispls, dtype, root, comm);
     myfree(rdispls);
@@ -638,10 +631,8 @@ MPIU_Scatter (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffe
 
     MPI_Gather(&nrecv, 1, MPI_INT, sendcount, 1, MPI_INT, root, comm);
 
-    sdispls[0] = 0;
-    for(int i = 1; i <= NTask; i ++) {
-        sdispls[i] = sdispls[i - 1] + sendcount[i - 1];
-    }
+    std::exclusive_scan(sendcount, sendcount + NTask, sdispls, 0);
+
     MPI_Scatterv(sendbuffer, sendcount, sdispls, dtype, recvbuffer, nrecv, dtype, root, comm);
     myfree(sdispls);
     myfree(sendcount);
@@ -706,14 +697,12 @@ _solve_for_layout_mpi (
         ptrdiff_t * myT_CLE,
         ptrdiff_t * myT_C,
         MPI_Comm comm) {
-    int i, j;
+    int j;
     int ThisTask;
     MPI_Comm_rank(comm, &ThisTask);
 
     /* first assume we just send according to myT_CLT */
-    for(i = 0; i < NTask; i ++) {
-        myT_C[i] = myT_CLT[i];
-    }
+    std::copy(myT_CLT, myT_CLT + NTask, myT_C);
 
     /* Solve for each receiving task i
      *
@@ -729,13 +718,9 @@ _solve_for_layout_mpi (
      *
      * */
 
-    ptrdiff_t sure = 0;
-
     /* how many will I surely receive? */
-    for(j = 0; j < NTask; j ++) {
-        ptrdiff_t recvcount = myT_C[j];
-        sure += recvcount;
-    }
+    ptrdiff_t sure = std::accumulate(myT_C, myT_C + NTask, ptrdiff_t{0});
+
     /* let's see if we have enough */
     ptrdiff_t deficit = C[ThisTask + 1] - sure;
 
