@@ -209,7 +209,7 @@ create_gadget_parameter_set()
     param_declare_int(ps,"WriteBlackHoleDetails",OPTIONAL, 1, "If set, output BH details at every time step.");
     param_declare_int(ps, "MaxBlackHoleDetails", OPTIONAL, 50, "Max number of GB to write to bh details file before opening a new one.");
 
-    param_declare_int(ps,"BH_DynFrictionMethod",OPTIONAL, 1, "If set to non-zero, dynamical friction is applied through this method. Setting BH_DynFrictionMethod = 1, = 2, = 3 uses stars only (=1), dark matter + stars (=2), all mass (=3) to compute the DF force.");
+    param_declare_int(ps,"BH_DynFrictionMethod",OPTIONAL, 1, "If set to non-zero, dynamical friction is applied through this method. Setting BH_DynFrictionMethod = 1, = 2, uses stars only (=1) or dark matter + stars (=2), to compute the DF force.");
     param_declare_int(ps,"BH_DFBoostFactor",OPTIONAL, 1, "If set, dynamical friction is boosted by this factor.");
     param_declare_double(ps,"BH_DFbmax",OPTIONAL, 20, "Maximum impact range for dynamical friction. We use 20 pkpc as default value.");
     param_declare_int(ps,"BH_DRAG",OPTIONAL, 1, "Add drag force to the BH dynamic");
