@@ -411,11 +411,11 @@ blackhole_dynfric(int * ActiveBlackHoles, int64_t NumActiveBlackHoles, DomainDec
             {
                 if(blackhole_dynfric_params.BH_DynFrictionMethod > 1) {
                     BHDynFricTreeWalkCubicDM tw("BH_DYNFRIC_DM", tree, priv, &output);
-                    tw.run(DynFricActive, ndynfricactive, PartManager->Base, comm);
+                    tw.run_on_queue(DynFricActive, ndynfricactive, PartManager->Base, comm);
                 }
                 else {
                     BHDynFricTreeWalkCubic tw("BH_DYNFRIC", tree, priv, &output);
-                    tw.run(DynFricActive, ndynfricactive, PartManager->Base, comm);
+                    tw.run_on_queue(DynFricActive, ndynfricactive, PartManager->Base, comm);
                 }
             }
             break;
@@ -423,22 +423,22 @@ blackhole_dynfric(int * ActiveBlackHoles, int64_t NumActiveBlackHoles, DomainDec
             {
                 if(blackhole_dynfric_params.BH_DynFrictionMethod > 1) {
                     BHDynFricTreeWalkQuarticDM tw("BH_DYNFRIC_DM", tree, priv, &output);
-                    tw.run(DynFricActive, ndynfricactive, PartManager->Base, comm);
+                    tw.run_on_queue(DynFricActive, ndynfricactive, PartManager->Base, comm);
                 }
                 else {
                     BHDynFricTreeWalkQuartic tw("BH_DYNFRIC", tree, priv, &output);
-                    tw.run(DynFricActive, ndynfricactive, PartManager->Base, comm);
+                    tw.run_on_queue(DynFricActive, ndynfricactive, PartManager->Base, comm);
                 }
             }
             break;
         default: //DENSITY_KERNEL_QUINTIC_SPLINE
             if(blackhole_dynfric_params.BH_DynFrictionMethod > 1) {
                 BHDynFricTreeWalkQuinticDM tw("BH_DYNFRIC_DM", tree, priv, &output);
-                tw.run(DynFricActive, ndynfricactive, PartManager->Base, comm);
+                tw.run_on_queue(DynFricActive, ndynfricactive, PartManager->Base, comm);
             }
             else {
                 BHDynFricTreeWalkQuintic tw("BH_DYNFRIC", tree, priv, &output);
-                tw.run(DynFricActive, ndynfricactive, PartManager->Base, comm);
+                tw.run_on_queue(DynFricActive, ndynfricactive, PartManager->Base, comm);
             }
     }
     force_tree_free(tree);
