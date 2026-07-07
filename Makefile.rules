@@ -15,6 +15,12 @@ ifneq ($(findstring -DUSE_CFITSIO, $(OPT)),)
     FITSIO_LIBS ?= $(shell pkg-config --libs cfitsio)
 endif
 
+# System fftw3, used by the heffte FFT backend. The single precision
+# library is not used at runtime but heffte references its symbols.
+FFTW_INCL ?= $(shell pkg-config --cflags fftw3 fftw3f)
+FFTW_LIBS ?= $(shell pkg-config --libs fftw3 fftw3f)
+$(if $(FFTW_LIBS),,$(error fftw3 not found via pkg-config: install fftw-devel or set FFTW_INCL/FFTW_LIBS))
+
 ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
     CUDA_INCL ?= $(shell pkg-config --cflags cudart)
     CUDA_LIBS ?= $(shell pkg-config --libs cudart)
@@ -28,7 +34,7 @@ MPI_INCL = $(shell pkg-config --cflags ompi-c)
 NVOPTIONS = -std=c++20 $(NVOPTIMIZE) $(OPT) $(MPI_INCL)
 GADGET_TESTDATA_ROOT = $(CURDIR)/../
 
-CFLAGS = $(OPTIONS) $(BOOST_INCL) $(FITSIO_INCL) $(CUDA_INCL)
+CFLAGS = $(OPTIONS) $(BOOST_INCL) $(FITSIO_INCL) $(FFTW_INCL) $(CUDA_INCL)
 CFLAGS += -I../depends/include
 CFLAGS += -I../
 CFLAGS += "-DLOW_PRECISION=$(LOW_PRECISION)"
@@ -40,9 +46,10 @@ TCFLAGS = $(CXXFLAGS) -DGADGET_TESTDATA_ROOT=\"$(GADGET_TESTDATA_ROOT)\"
 
 TBB_LIBS := $(shell echo "int main(void){return 0;}" | $(MPICC) -x c++ - -ltbb -o /dev/null 2>/dev/null && echo "-ltbb")
 $(if $(TBB_LIBS),,$(warning TBB not found: building without TBB support))
-BUNDLEDLIBS = -lbigfile-mpi -lbigfile -lheffte -lfftw3_omp -lfftw3 -lfftw3f_omp -lfftw3f $(TBB_LIBS)
+BUNDLEDLIBS = -lbigfile-mpi -lbigfile -lheffte $(TBB_LIBS)
 LIBS  = -lm  $(BOOST_LIBS) $(FITSIO_LIBS) $(CUDA_LIBS)
-LIBS += -L../depends/lib $(BUNDLEDLIBS)
+# FFTW_LIBS after libheffte, which references fftw symbols
+LIBS += -L../depends/lib $(BUNDLEDLIBS) $(FFTW_LIBS)
 V ?= 0
 
 .objs/%.o: %.cpp Makefile $(CONFIG)
