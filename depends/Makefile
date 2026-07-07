@@ -18,6 +18,11 @@ lib/libbigfile-mpi.a: bigfile/src/bigfile-mpi.c
 	cd bigfile/src; \
 	make install PREFIX=$(PWD) CC="$(MPICCDEP)" MPICC="$(MPICCDEP)" CFLAGS="$(COPTIMIZE)" AR="$(AR)"
 
+# Enable the cufft backend in heffte when the code is built with CUDA.
+ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
+    HEFFTE_CUDA = -DHeffte_ENABLE_CUDA=ON
+endif
+
 # heffte uses the system fftw3 (found via its cmake module: needs the
 # double and single precision libraries, i.e. the fftw-devel package).
 $(HEFFTELIBRARY): heffte/CMakeLists.txt
@@ -28,7 +33,7 @@ $(HEFFTELIBRARY): heffte/CMakeLists.txt
 	    -DBUILD_SHARED_LIBS=OFF \
 	    -DCMAKE_CXX_COMPILER=$(MPICXXDEP) \
 	    -DHeffte_ENABLE_FFTW=ON \
-	    -DHeffte_ENABLE_TESTING=OFF
+	    -DHeffte_ENABLE_TESTING=OFF $(HEFFTE_CUDA)
 	cmake --build heffte/build -j 8
 	cmake --install heffte/build
 

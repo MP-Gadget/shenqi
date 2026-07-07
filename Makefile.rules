@@ -25,7 +25,8 @@ $(if $(FFTW_LIBS),,$(error fftw3 not found via pkg-config: install fftw-devel or
 
 ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
     CUDA_INCL ?= $(shell pkg-config --cflags cudart)
-    CUDA_LIBS ?= $(shell pkg-config --libs cudart)
+    # cufft for the heffte GPU FFT backend
+    CUDA_LIBS ?= $(shell pkg-config --libs cufft cudart)
     NVCC ?= nvcc
     NVOPTIMIZE ?= -O3 -g
 endif
