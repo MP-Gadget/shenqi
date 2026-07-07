@@ -56,7 +56,7 @@ cosmology.cpp neutrinos_lra.cpp omega_nu_single.cpp timebinmgr.cpp lightcone.cpp
 fof.cpp fofpetaio.cpp petaio.cpp petapm.cpp \
 stats.cpp drift.cpp checkpoint.cpp \
 slotsmanager.cpp domain.cpp timestep.cpp  plane.cpp winds.cpp \
-exchange.cpp sfr_eff.cpp runtests.cpp run.cpp metal_return.cpp \
+exchange.cpp sfr_eff.cpp runtests.cpp run.cpp metal_return.cpp stellar_density2.cpp \
 bhinfo.cpp blackhole.cpp bhdynfric.cpp forcetree.cpp
 
 GADGET_CUDA_SRCS = gravshortcuda.cu densitycuda.cu hydracuda.cu
