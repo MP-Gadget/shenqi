@@ -133,7 +133,8 @@ typedef struct {
 typedef void * (*petapm_malloc_func)(char * name, size_t * size);
 typedef void * (*petapm_mfree_func)(void * ptr);
 
-void petapm_module_init(int Nthreads);
+/* UseGPU selects the cufft backend at run time (needs USE_CUDA at compile time). */
+void petapm_module_init(int Nthreads, int UseGPU);
 
 void petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_Comm comm);
 void petapm_destroy(PetaPM * pm);

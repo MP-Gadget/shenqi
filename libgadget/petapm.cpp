@@ -6,39 +6,72 @@
 #include <algorithm>
 #include <execution>
 #include <complex>
-#ifndef USE_CUDA
+#include <memory>
 #include <fftw3.h>
-#endif
 #include <heffte.h>
 /* do NOT use complex.h it breaks the code */
 
 #include "petapm.h"
 
+/* Whether to run the FFTs on the GPU: set at run time in
+ * petapm_module_init, following the UseGPU parameter. */
+static int petapm_use_gpu = 0;
+
 #ifdef USE_CUDA
 /* The cufft backend runs the FFTs on the GPU. The buffers passed to
  * forward/backward must be device accessible: we allocate them from
  * managed memory (pm_fft_malloc below), so the transfer functions and
- * the pencil exchange can keep using them from the host. The reshape
- * communication uses heffte's internal device buffers, so MPI should
- * be CUDA-aware (the heffte default when built with CUDA). */
-using petapm_backend = heffte::backend::cufft;
+ * the pencil exchange can keep using them from the host. When UseGPU
+ * is off at run time the allocator silently returns host memory, which
+ * is what the fftw backend needs. The reshape communication uses
+ * heffte's internal device buffers, so MPI should be CUDA-aware
+ * (the heffte default when built with CUDA). */
 #define pm_fft_malloc(name, nele) mymanagedmalloc(name, double, nele)
 #else
-using petapm_backend = heffte::backend::fftw;
 #define pm_fft_malloc(name, nele) mymalloc(name, double, nele)
 #endif
 
 /* The heffte FFT plans: a single fft3d_r2c object provides both the
  * forward (r2c) and backward (c2r) transforms. Referenced as an opaque
- * struct from petapm.h. */
+ * struct from petapm.h. Only the plan for the backend selected by the
+ * UseGPU run time flag is created. */
 struct PetaPMPlans {
-    heffte::fft3d_r2c<petapm_backend> fft;
+#ifdef USE_CUDA
+    std::unique_ptr<heffte::fft3d_r2c<heffte::backend::cufft>> gpu_fft;
+#endif
+    std::unique_ptr<heffte::fft3d_r2c<heffte::backend::fftw>> cpu_fft;
 };
 
 /* heffte works with std::complex, the rest of the code with double[2]:
  * the two are layout compatible. */
 static inline std::complex<double> * heffte_complex(petapm_complex * c) {
     return reinterpret_cast<std::complex<double> *>(c);
+}
+
+/* Forward (r2c) and backward (c2r) transforms, dispatching on the
+ * backend chosen at run time. Unscaled, like fftw. */
+static void
+petapm_fft_r2c(PetaPM * pm, double * real, petapm_complex * complx)
+{
+#ifdef USE_CUDA
+    if(pm->priv->plans->gpu_fft) {
+        pm->priv->plans->gpu_fft->forward(real, heffte_complex(complx), heffte::scale::none);
+        return;
+    }
+#endif
+    pm->priv->plans->cpu_fft->forward(real, heffte_complex(complx), heffte::scale::none);
+}
+
+static void
+petapm_fft_c2r(PetaPM * pm, petapm_complex * complx, double * real)
+{
+#ifdef USE_CUDA
+    if(pm->priv->plans->gpu_fft) {
+        pm->priv->plans->gpu_fft->backward(heffte_complex(complx), real, heffte::scale::none);
+        return;
+    }
+#endif
+    pm->priv->plans->cpu_fft->backward(heffte_complex(complx), real, heffte::scale::none);
 }
 
 #include "utils/mymalloc.h"
@@ -153,21 +186,26 @@ int *petapm_get_ntask2d(PetaPM * pm) {
 }
 
 void
-petapm_module_init(int Nthreads)
+petapm_module_init(int Nthreads, int UseGPU)
 {
 #ifdef USE_CUDA
-    /* The FFTs run on the GPU via cufft: no host threading to set up. */
-    (void) Nthreads;
+    petapm_use_gpu = UseGPU;
 #else
-    /* heffte parallelises over MPI ranks; for a hybrid OpenMP/MPI FFT we
-     * enable fftw's own threading. heffte creates its fftw plans lazily on
-     * the first transform, so plans created after this pick up Nthreads
-     * threads for the 1-D FFT kernels. (heffte 2.4.1 has no thread setting
-     * in heffte::plan_options: this is the mechanism its own benchmarks use.) */
-    if(fftw_init_threads() == 0)
-        endrun(1, "Error initialising fftw threads\n");
-    fftw_plan_with_nthreads(Nthreads);
+    if(UseGPU)
+        message(0, "UseGPU requested but the code was compiled without USE_CUDA: FFTs will use fftw.\n");
+    petapm_use_gpu = 0;
 #endif
+
+    if(!petapm_use_gpu) {
+        /* heffte parallelises over MPI ranks; for a hybrid OpenMP/MPI FFT we
+         * enable fftw's own threading. heffte creates its fftw plans lazily on
+         * the first transform, so plans created after this pick up Nthreads
+         * threads for the 1-D FFT kernels. (heffte 2.4.1 has no thread setting
+         * in heffte::plan_options: this is the mechanism its own benchmarks use.) */
+        if(fftw_init_threads() == 0)
+            endrun(1, "Error initialising fftw threads\n");
+        fftw_plan_with_nthreads(Nthreads);
+    }
 
     /* initialize the MPI Datatype of pencil */
     MPI_Type_contiguous(sizeof(struct Pencil), MPI_BYTE, &MPI_PENCIL);
@@ -255,11 +293,24 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
         {Nmesh - 1, (int) (fr->offset[0] + fr->size[0] - 1), (int) (fr->offset[1] + fr->size[1] - 1)},
         {0, 2, 1});
 
-    pm->priv->plans = new PetaPMPlans { heffte::fft3d_r2c<petapm_backend>(inbox, outbox, 2, pm->priv->comm_cart_2d) };
+    pm->priv->plans = new PetaPMPlans {};
+    int64_t size_inbox, size_outbox;
+#ifdef USE_CUDA
+    if(petapm_use_gpu) {
+        pm->priv->plans->gpu_fft = std::make_unique<heffte::fft3d_r2c<heffte::backend::cufft>>(inbox, outbox, 2, pm->priv->comm_cart_2d);
+        size_inbox = pm->priv->plans->gpu_fft->size_inbox();
+        size_outbox = pm->priv->plans->gpu_fft->size_outbox();
+    } else
+#endif
+    {
+        pm->priv->plans->cpu_fft = std::make_unique<heffte::fft3d_r2c<heffte::backend::fftw>>(inbox, outbox, 2, pm->priv->comm_cart_2d);
+        size_inbox = pm->priv->plans->cpu_fft->size_inbox();
+        size_outbox = pm->priv->plans->cpu_fft->size_outbox();
+    }
 
     /* fftsize is in units of double: the same sized buffers are used for both
      * the real and the complex meshes, so take the larger of the two. */
-    pm->priv->fftsize = std::max<int64_t>(pm->priv->plans->fft.size_inbox(), 2 * pm->priv->plans->fft.size_outbox());
+    pm->priv->fftsize = std::max<int64_t>(size_inbox, 2 * size_outbox);
 
     /* now lets fill up the mesh2task arrays */
 
@@ -372,7 +423,7 @@ petapm_complex * petapm_force_r2c(PetaPM * pm,
 #endif
 
     petapm_complex * complx = (petapm_complex *) pm_fft_malloc("PMcomplex", pm->priv->fftsize);
-    pm->priv->plans->fft.forward(real, heffte_complex(complx), heffte::scale::none);
+    petapm_fft_r2c(pm, real, complx);
     myfree(real);
 
     petapm_complex * rho_k = (petapm_complex * ) mymalloc("PMrho_k", double, pm->priv->fftsize);
@@ -411,7 +462,7 @@ petapm_force_c2r(PetaPM * pm,
         walltime_measure("/PMgrav/calc");
 
         double * real = pm_fft_malloc("PMreal", pm->priv->fftsize);
-        pm->priv->plans->fft.backward(heffte_complex(complx), real, heffte::scale::none);
+        petapm_fft_c2r(pm, complx, real);
 
         walltime_measure("/PMgrav/c2r");
         if(f == functions) // Once
@@ -540,12 +591,12 @@ petapm_reion_c2r(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr,
 
         double * star_real = pm_fft_malloc("star_real", pm_star->priv->fftsize);
         /* back to real space */
-        pm_mass->priv->plans->fft.backward(heffte_complex(mass_filtered), mass_real, heffte::scale::none);
-        pm_star->priv->plans->fft.backward(heffte_complex(star_filtered), star_real, heffte::scale::none);
+        petapm_fft_c2r(pm_mass, mass_filtered, mass_real);
+        petapm_fft_c2r(pm_star, star_filtered, star_real);
         double * sfr_real = NULL;
         if(use_sfr){
             sfr_real = pm_fft_malloc("sfr_real", pm_sfr->priv->fftsize);
-            pm_sfr->priv->plans->fft.backward(heffte_complex(sfr_filtered), sfr_real, heffte::scale::none);
+            petapm_fft_c2r(pm_sfr, sfr_filtered, sfr_real);
             myfree(sfr_filtered);
         }
         walltime_measure("/PMreion/c2r");

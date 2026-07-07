@@ -33,7 +33,7 @@ static void setup(void) {
     dp.TopNodeAllocFactor = 1.;
     dp.SetAsideFactor = 1;
     set_domain_par(dp);
-    petapm_module_init(omp_get_max_threads());
+    petapm_module_init(omp_get_max_threads(), 0);
     init_forcetree_params(0.7);
 }
 
