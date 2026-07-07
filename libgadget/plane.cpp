@@ -291,6 +291,14 @@ plane_neutrino_correction_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_co
 
     Power * ps = pm->ps;
     double logk = log(sqrt(k2) * 2 * M_PI / ps->BoxSize_in_MPC);
+    /* The spline knots are the bin-averaged log(kk), so the extreme mesh modes
+     * can fall slightly outside them; makima throws on out-of-range abscissae. */
+    const double logk_min = log(ps->kk[0]);
+    const double logk_max = log(ps->kk[ps->nonzero - 1]);
+    if(logk < logk_min)
+        logk = logk_min;
+    else if(logk > logk_max)
+        logk = logk_max;
     const double nufac_minus_one = ps->nu_prefac * (*ps->nu_spline)(logk);
     value[0][0] *= nufac_minus_one;
     value[0][1] *= nufac_minus_one;
