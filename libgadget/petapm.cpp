@@ -139,16 +139,6 @@ petapm_alloc_rhok(PetaPM * pm)
 
 static void pm_init_regions(PetaPM * pm, PetaPMRegion * regions, const int Nregions);
 
-/* Split n mesh points into np contiguous blocks: the first n % np ranks get one extra point. */
-static void
-petapm_split_block(int n, int np, int rank, ptrdiff_t * offset, ptrdiff_t * size)
-{
-    int base = n / np;
-    int rem = n % np;
-    *offset = (ptrdiff_t) rank * base + (rank < rem ? rank : rem);
-    *size = base + (rank < rem);
-}
-
 static PetaPMParticleStruct * CPS; /* stored by petapm_force, how to access the P array */
 static PetaPMReionPartStruct * CPS_R; /* stored by calculate_uvbg, how to access other properties in P, SphP, and Fof */
 #define POS(i) ((double*)  (&((char*)CPS->Parts)[CPS->elsize * (i) + CPS->offset_pos]))
@@ -218,8 +208,6 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
     pm->CellSize = BoxSize / Nmesh;
     pm->comm = comm;
 
-    int np[2];
-
     int ThisTask;
     int NTask;
 
@@ -229,9 +217,11 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
     MPI_Comm_rank(comm, &ThisTask);
     MPI_Comm_size(comm, &NTask);
 
-    /* try to find a square 2d decomposition */
+    /* Try to find a square 2d decomposition. heffte::make_procgrid finds
+     * the same factor pair but with the transposed orientation for many
+     * task counts, so keep this to preserve the original decomposition. */
+    std::array<int, 2> np;
     int i;
-    int k;
     for(i = sqrt(NTask) + 1; i >= 0; i --) {
         if(NTask % i == 0) break;
     }
@@ -243,7 +233,7 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
      * cartesian rank is the same as the rank in comm: the layout
      * exchange relies on this. */
     int periods[2] = {1, 1};
-    if( MPI_Cart_create(comm, 2, np, periods, 0, &pm->priv->comm_cart_2d) != MPI_SUCCESS){
+    if( MPI_Cart_create(comm, 2, np.data(), periods, 0, &pm->priv->comm_cart_2d) != MPI_SUCCESS){
         endrun(0, "Error creating the 2D task mesh %d x %d.\n", np[0], np[1]);
     }
 
@@ -253,40 +243,46 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
     if(pm->NTask2d[0] != np[0] || pm->NTask2d[1] != np[1])
         endrun(6, "Bad PM mesh: Task2D = %d %d np %d %d\n", pm->NTask2d[0], pm->NTask2d[1], np[0], np[1]);
 
-    /* Real space is decomposed into (x, y) pencils: x split over the first
-     * task dimension, y over the second, with z complete on each rank. */
-    petapm_split_block(Nmesh, pm->NTask2d[0], pm->ThisTask2d[0], &pm->real_space_region.offset[0], &pm->real_space_region.size[0]);
-    petapm_split_block(Nmesh, pm->NTask2d[1], pm->ThisTask2d[1], &pm->real_space_region.offset[1], &pm->real_space_region.size[1]);
-    pm->real_space_region.offset[2] = 0;
-    pm->real_space_region.size[2] = Nmesh;
+    /* Split the whole mesh (a heffte box of inclusive [low, high] index
+     * ranges in (x, y, z)) over the task grid with heffte's block
+     * decomposition. Real space is (x, y) pencils: x split over the first
+     * task dimension, y over the second, with z complete on each rank.
+     * Fourier space is transposed, as PFFT_TRANSPOSED_OUT produced: y over
+     * the first task dimension, the r2c-shortened z (box3d::r2c) over the
+     * second, x complete.
+     * split_world lists boxes with the first grid dimension varying fastest,
+     * whereas the cartesian ranks are row-major, so both lists are indexed
+     * by ThisTask2d[1] * np[0] + ThisTask2d[0]. */
+    heffte::box3d<> world({0, 0, 0}, {Nmesh - 1, Nmesh - 1, Nmesh - 1});
+    std::vector<heffte::box3d<>> realboxes = heffte::split_world(world, {np[0], np[1], 1});
+    std::vector<heffte::box3d<>> fourierboxes = heffte::split_world(world.r2c(2), {1, np[0], np[1]});
+    const heffte::box3d<> rbox = realboxes[pm->ThisTask2d[1] * np[0] + pm->ThisTask2d[0]];
+    const heffte::box3d<> fbox = fourierboxes[pm->ThisTask2d[1] * np[0] + pm->ThisTask2d[0]];
 
-    /* Fourier space is transposed: the region arrays are indexed in
-     * (y, z, x) order, with x fastest in memory. y is split over the first
-     * task dimension, the r2c-shortened z over the second and x is complete.
-     * This is the same layout as PFFT_TRANSPOSED_OUT produced. */
-    petapm_split_block(Nmesh, pm->NTask2d[0], pm->ThisTask2d[0], &pm->fourier_space_region.offset[0], &pm->fourier_space_region.size[0]);
-    petapm_split_block(Nmesh / 2 + 1, pm->NTask2d[1], pm->ThisTask2d[1], &pm->fourier_space_region.offset[1], &pm->fourier_space_region.size[1]);
-    pm->fourier_space_region.offset[2] = 0;
-    pm->fourier_space_region.size[2] = Nmesh;
+    int k;
+    for(k = 0; k < 3; k ++) {
+        pm->real_space_region.offset[k] = rbox.low[k];
+        pm->real_space_region.size[k] = rbox.size[k];
+    }
+
+    /* The fourier space region arrays are indexed in (y, z, x) order, with
+     * x fastest in memory. */
+    pm->fourier_space_region.offset[0] = fbox.low[1];
+    pm->fourier_space_region.size[0] = fbox.size[1];
+    pm->fourier_space_region.offset[1] = fbox.low[2];
+    pm->fourier_space_region.size[1] = fbox.size[2];
+    pm->fourier_space_region.offset[2] = fbox.low[0];
+    pm->fourier_space_region.size[2] = fbox.size[0];
 
     /* calculate the strides */
     petapm_region_init_strides(&pm->real_space_region);
     petapm_region_init_strides(&pm->fourier_space_region);
 
-    /* Create the heffte plan. heffte boxes are inclusive [low, high] index
-     * ranges in (x, y, z); the order member maps dimensions to memory,
+    /* Create the heffte plan. The order member maps dimensions to memory,
      * order[0] being the fastest. The transform is shortened along z (r2c
      * direction 2), matching the region sizes above. */
-    const PetaPMRegion * rr = &pm->real_space_region;
-    heffte::box3d<> inbox(
-        {(int) rr->offset[0], (int) rr->offset[1], 0},
-        {(int) (rr->offset[0] + rr->size[0] - 1), (int) (rr->offset[1] + rr->size[1] - 1), Nmesh - 1},
-        {2, 1, 0});
-    const PetaPMRegion * fr = &pm->fourier_space_region;
-    heffte::box3d<> outbox(
-        {0, (int) fr->offset[0], (int) fr->offset[1]},
-        {Nmesh - 1, (int) (fr->offset[0] + fr->size[0] - 1), (int) (fr->offset[1] + fr->size[1] - 1)},
-        {0, 2, 1});
+    heffte::box3d<> inbox(rbox.low, rbox.high, {2, 1, 0});
+    heffte::box3d<> outbox(fbox.low, fbox.high, {0, 2, 1});
 
     pm->priv->plans = new PetaPMPlans {};
     int64_t size_inbox, size_outbox;
@@ -319,24 +315,17 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
             pm->real_space_region.size[2]);
 #endif
 
-    int * tmp = mymalloc("tmp", int, Nmesh);
+    /* Every rank has the full box list, so which task-grid row / column
+     * hosts each mesh point can be filled in without communication. */
     for(k = 0; k < 2; k ++) {
-        for(i = 0; i < Nmesh; i ++) {
-            tmp[i] = 0;
+        int c;
+        for(c = 0; c < np[k]; c ++) {
+            /* the box at task-grid coordinate c along dimension k */
+            const heffte::box3d<> b = realboxes[k == 0 ? c : c * np[0]];
+            for(i = b.low[k]; i <= b.high[k]; i ++)
+                pm->Mesh2Task[k][i] = c;
         }
-        for(i = 0; i < pm->real_space_region.size[k]; i ++) {
-            tmp[i + pm->real_space_region.offset[k]] = pm->ThisTask2d[k];
-        }
-        /* which column / row hosts this tile? */
-        /* FIXME: this is very inefficient */
-        MPI_Allreduce(tmp, pm->Mesh2Task[k], Nmesh, MPI_INT, MPI_MAX, comm);
-        /*
-        for(i = 0; i < Nmesh; i ++) {
-            message(0, "Mesh2Task[%d][%d] == %d\n", k, i, Mesh2Task[k][i]);
-        }
-        */
     }
-    myfree(tmp);
 }
 
 void
