@@ -17,19 +17,14 @@
  * petapm_module_init, following the UseGPU parameter. */
 static int petapm_use_gpu = 0;
 
-#ifdef USE_CUDA
 /* The cufft backend runs the FFTs on the GPU. The buffers passed to
- * forward/backward must be device accessible: we allocate them from
- * managed memory (pm_fft_malloc below), so the transfer functions and
- * the pencil exchange can keep using them from the host. When UseGPU
- * is off at run time the allocator silently returns host memory, which
- * is what the fftw backend needs. The reshape communication uses
- * heffte's internal device buffers, so MPI should be CUDA-aware
- * (the heffte default when built with CUDA). */
-#define pm_fft_malloc(name, nele) mymanagedmalloc(name, double, nele)
-#else
-#define pm_fft_malloc(name, nele) mymalloc(name, double, nele)
-#endif
+ * forward/backward must be device accessible: we allocate them with
+ * mymanagedmalloc, so the transfer functions and the pencil exchange
+ * can keep using them from the host. When UseGPU is off at run time
+ * (or the code is built without USE_CUDA) the allocator silently
+ * returns host memory, which is what the fftw backend needs. The
+ * reshape communication uses heffte's internal device buffers, so MPI
+ * should be CUDA-aware (the heffte default when built with CUDA). */
 
 /* The heffte FFT plans: a single fft3d_r2c object provides both the
  * forward (r2c) and backward (c2r) transforms. Referenced as an opaque
@@ -412,7 +407,7 @@ petapm_complex * petapm_force_r2c(PetaPM * pm,
      * CFT = DFT * dx **3
      * CFT[rho] = DFT [rho * dx **3] = DFT[CIC]
      * */
-    double * real = pm_fft_malloc("PMreal", pm->priv->fftsize);
+    double * real = mymanagedmalloc("PMreal", double, pm->priv->fftsize);
     memset(real, 0, sizeof(double) * pm->priv->fftsize);
     layout_build_and_exchange_cells_to_pfft(pm, &pm->priv->layout, pm->priv->meshbuf, real);
     walltime_measure("/PMgrav/comm2");
@@ -422,7 +417,7 @@ petapm_complex * petapm_force_r2c(PetaPM * pm,
     walltime_measure("/PMgrav/Verify");
 #endif
 
-    petapm_complex * complx = (petapm_complex *) pm_fft_malloc("PMcomplex", pm->priv->fftsize);
+    petapm_complex * complx = (petapm_complex *) mymanagedmalloc("PMcomplex", double, pm->priv->fftsize);
     petapm_fft_r2c(pm, real, complx);
     myfree(real);
 
@@ -456,12 +451,12 @@ petapm_force_c2r(PetaPM * pm,
         petapm_transfer_func transfer = f->transfer;
         petapm_readout_func readout = f->readout;
 
-        petapm_complex * complx = (petapm_complex *) pm_fft_malloc("PMcomplex", pm->priv->fftsize);
+        petapm_complex * complx = (petapm_complex *) mymanagedmalloc("PMcomplex", double, pm->priv->fftsize);
         /* apply the greens function turn rho_k into potential in fourier space */
         pm_apply_transfer_function(pm, rho_k, complx, transfer);
         walltime_measure("/PMgrav/calc");
 
-        double * real = pm_fft_malloc("PMreal", pm->priv->fftsize);
+        double * real = mymanagedmalloc("PMreal", double, pm->priv->fftsize);
         petapm_fft_c2r(pm, complx, real);
 
         walltime_measure("/PMgrav/c2r");
@@ -550,7 +545,7 @@ petapm_reion_c2r(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr,
     petapm_readout_func readout = f->readout;
 
     /* TODO: seriously re-think the allocation ordering in this function */
-    double * mass_real = pm_fft_malloc("mass_real", pm_mass->priv->fftsize);
+    double * mass_real = mymanagedmalloc("mass_real", double, pm_mass->priv->fftsize);
 
     //TODO: add CellLengthFactor for lowres (>1Mpc, see old find_HII_bubbles function)
     while(!last_step) {
@@ -569,11 +564,11 @@ petapm_reion_c2r(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr,
         if(use_sfr)pm_sfr->G = R;
 
         //TODO: maybe allocate and free these outside the loop
-        petapm_complex * mass_filtered = (petapm_complex *) pm_fft_malloc("mass_filtered", pm_mass->priv->fftsize);
-        petapm_complex * star_filtered = (petapm_complex *) pm_fft_malloc("star_filtered", pm_star->priv->fftsize);
+        petapm_complex * mass_filtered = (petapm_complex *) mymanagedmalloc("mass_filtered", double, pm_mass->priv->fftsize);
+        petapm_complex * star_filtered = (petapm_complex *) mymanagedmalloc("star_filtered", double, pm_star->priv->fftsize);
         petapm_complex * sfr_filtered;
         if(use_sfr){
-            sfr_filtered = (petapm_complex *) pm_fft_malloc("sfr_filtered", pm_sfr->priv->fftsize);
+            sfr_filtered = (petapm_complex *) mymanagedmalloc("sfr_filtered", double, pm_sfr->priv->fftsize);
         }
 
         /* apply the filtering at this radius */
@@ -589,13 +584,13 @@ petapm_reion_c2r(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr,
         }
         walltime_measure("/PMreion/calc");
 
-        double * star_real = pm_fft_malloc("star_real", pm_star->priv->fftsize);
+        double * star_real = mymanagedmalloc("star_real", double, pm_star->priv->fftsize);
         /* back to real space */
         petapm_fft_c2r(pm_mass, mass_filtered, mass_real);
         petapm_fft_c2r(pm_star, star_filtered, star_real);
         double * sfr_real = NULL;
         if(use_sfr){
-            sfr_real = pm_fft_malloc("sfr_real", pm_sfr->priv->fftsize);
+            sfr_real = mymanagedmalloc("sfr_real", double, pm_sfr->priv->fftsize);
             petapm_fft_c2r(pm_sfr, sfr_filtered, sfr_real);
             myfree(sfr_filtered);
         }
