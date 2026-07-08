@@ -91,7 +91,7 @@ void write_plane(int snapnum, const double atime, Cosmology * CP, const std::str
 
     /* loop over cut points and normal directions to generate lensing potential planes */
     for (size_t i = 0; i < PlaneParams.CutPoints.size(); i++) {
-        for (int j = 0; j < PlaneParams.Normals.size(); j++) {
+        for (size_t j = 0; j < PlaneParams.Normals.size(); j++) {
             message(0, "Computing for cut point %g and normal %d\n", PlaneParams.CutPoints[i], PlaneParams.Normals[j]);
 
             double left_corner[3] = {0, 0, 0};
