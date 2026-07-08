@@ -400,7 +400,7 @@ petapm_force_init(
 petapm_complex * petapm_force_r2c(PetaPM * pm,
         PetaPMGlobalFunctions * global_functions
         ) {
-    /* call pfft rho_k is CFT of rho */
+    /* call fft rho_k is CFT of rho */
 
     /* this is because
      *
@@ -898,8 +898,8 @@ static void layout_finish(struct Layout * L) {
     myfree(L->ibuffer);
 }
 
-/* exchange cells to their pfft host, then reduce the cells to the pfft
- * array */
+/* exchange cells to their fft host,
+ * then reduce the cells to the fft array */
 static void to_pfft(double * cell, double * buf) {
 #pragma omp atomic update
             cell[0] += buf[0];
@@ -955,7 +955,7 @@ layout_build_and_exchange_cells_to_pfft(
     myfree(L->BufSend);
 }
 
-/* readout cells on their pfft host, then exchange the cells to the domain
+/* readout cells on their fft host, then exchange the cells to the domain
  * host */
 static void to_region(double * cell, double * region) {
     *region = *cell;
@@ -1022,8 +1022,8 @@ layout_iterate_cells(PetaPM * pm,
             while(ix >= pm->Nmesh) ix -= pm->Nmesh;
             ix -= pm->real_space_region.offset[k];
             if(ix >= pm->real_space_region.size[k]) {
-                /* serious problem assumption about pfft layout was wrong*/
-                endrun(1, "bad pfft: original k: %d ix: %d, cur ix: %d, region: off %ld size %ld\n", k, p->offset[k], ix, pm->real_space_region.offset[k], pm->real_space_region.size[k]);
+                /* serious problem assumption about fft layout was wrong*/
+                endrun(1, "bad fft region size: original k: %d ix: %d, cur ix: %d, region: off %ld size %ld\n", k, p->offset[k], ix, pm->real_space_region.offset[k], pm->real_space_region.size[k]);
             }
             linear0 += ix * pm->real_space_region.strides[k];
         }
@@ -1033,8 +1033,8 @@ layout_iterate_cells(PetaPM * pm,
             while(iz < 0) iz += pm->Nmesh;
             while(iz >= pm->Nmesh) iz -= pm->Nmesh;
             if(iz >= pm->real_space_region.size[2]) {
-                /* serious problem assmpution about pfft layout was wrong*/
-                endrun(1, "bad pfft: original iz: %d, cur iz: %d, region: off %ld size %ld\n", p->offset[2], iz, pm->real_space_region.offset[2], pm->real_space_region.size[2]);
+                /* serious problem assmpution about fft layout was wrong*/
+                endrun(1, "bad fft region size: original iz: %d, cur iz: %d, region: off %ld size %ld\n", p->offset[2], iz, pm->real_space_region.offset[2], pm->real_space_region.size[2]);
             }
             ptrdiff_t linear = iz * pm->real_space_region.strides[2] + linear0;
             /*
