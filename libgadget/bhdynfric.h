@@ -3,20 +3,11 @@
 
 #include "utils/paramset.h"
 #include "forcetree.h"
-#include "density.h"
-
-/* Parameters used in the dynamic friction treewalk. */
-struct BHDynFricPriv {
-    /* Time factors*/
-    struct kick_factor_data * kf;
-    inttime_t Ti_Current; /* current time*/
-    size_t ZeroDF; // Counter for zero density BHs
-    double ZeroDFMass; /* Total mass of BHs with zero DF density*/
-};
+#include "density2.h"
 
 /* Do the dynamic friction treewalk if BH_DynFrictionMethod > 0.
  * Builds a private tree with the types needed for dynamic friction (mostly stars and DM).*/
-void blackhole_dynfric(int * ActiveBlackHoles, int64_t NumActiveBlackHoles, DomainDecomp * ddecomp, struct BHDynFricPriv * priv);
+void blackhole_dynfric(int * ActiveBlackHoles, int64_t NumActiveBlackHoles, DomainDecomp * ddecomp, KickFactorData& kf, inttime_t Ti_Current, MPI_Comm comm);
 /* Compute the DF acceleration for all active black holes*/
 void blackhole_dfaccel(int * ActiveBlackHoles, size_t NumActiveBlackHoles, const double atime, const double GravInternal);
 void set_blackhole_dynfric_params(ParameterSet * ps);
