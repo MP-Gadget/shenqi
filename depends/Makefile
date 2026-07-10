@@ -32,6 +32,7 @@ $(HEFFTELIBRARY): heffte/CMakeLists.txt
 	    -DCMAKE_BUILD_TYPE=Release \
 	    -DBUILD_SHARED_LIBS=OFF \
 	    -DCMAKE_CXX_COMPILER=$(MPICXXDEP) \
+	    -DCMAKE_CXX_FLAGS=-fopenmp \
 	    -DHeffte_ENABLE_FFTW=ON \
 	    -DHeffte_ENABLE_TESTING=OFF $(HEFFTE_CUDA)
 	cmake --build heffte/build -j 8

@@ -90,16 +90,18 @@ template<> struct direct_packer<tag::cpu>{
     //! \brief Execute the planned pack operation.
     template<typename scalar_type, typename index>
     void pack(void*, pack_plan_3d<index> const &plan, scalar_type const data[], scalar_type buffer[]) const{
-        scalar_type* buffer_iterator = buffer;
+        #pragma omp parallel for collapse(2)
         for(index slow = 0; slow < plan.size[2]; slow++){
             for(index mid = 0; mid < plan.size[1]; mid++){
-                buffer_iterator = std::copy_n(&data[slow * plan.plane_stride + mid * plan.line_stride], plan.size[0], buffer_iterator);
+                std::copy_n(&data[slow * plan.plane_stride + mid * plan.line_stride], plan.size[0],
+                            &buffer[(slow * plan.size[1] + mid) * plan.size[0]]);
             }
         }
     }
     //! \brief Execute the planned unpack operation.
     template<typename scalar_type, typename index>
     void unpack(void*, pack_plan_3d<index> const &plan, scalar_type const buffer[], scalar_type data[]) const{
+        #pragma omp parallel for collapse(2)
         for(index slow = 0; slow < plan.size[2]; slow++){
             for(index mid = 0; mid < plan.size[1]; mid++){
                 std::copy_n(&buffer[(slow * plan.size[1] + mid) * plan.size[0]],
@@ -135,6 +137,7 @@ template<> struct transpose_packer<tag::cpu>{
     void unpack(void*, pack_plan_3d<index> const &plan, scalar_type const buffer[], scalar_type data[]) const{
         constexpr index stride = 256 / sizeof(scalar_type);
         if (plan.map[0] == 0 and plan.map[1] == 1){
+            #pragma omp parallel for collapse(2)
             for(index i=0; i<plan.size[2]; i++)
                 for(index j=0; j<plan.size[1]; j++)
                     for(index k=0; k<plan.size[0]; k++)
@@ -142,6 +145,7 @@ template<> struct transpose_packer<tag::cpu>{
                             = buffer[ i * plan.buff_plane_stride + j * plan.buff_line_stride + k ];
 
         }else if (plan.map[0] == 0 and plan.map[1] == 2){
+            #pragma omp parallel for collapse(2)
             for(index bi=0; bi<plan.size[2]; bi+=stride)
                 for(index bj=0; bj<plan.size[1]; bj+=stride)
                     for(index bk=0; bk<plan.size[0]; bk+=stride)
@@ -152,6 +156,7 @@ template<> struct transpose_packer<tag::cpu>{
                                         = buffer[ j * plan.buff_plane_stride + i * plan.buff_line_stride + k ];
 
         }else if (plan.map[0] == 1 and plan.map[1] == 0){
+            #pragma omp parallel for collapse(2)
             for(index bi=0; bi<plan.size[2]; bi+=stride)
                 for(index bj=0; bj<plan.size[1]; bj+=stride)
                     for(index bk=0; bk<plan.size[0]; bk+=stride)
@@ -162,6 +167,7 @@ template<> struct transpose_packer<tag::cpu>{
                                         = buffer[ i * plan.buff_plane_stride + k * plan.buff_line_stride + j ];
 
         }else if (plan.map[0] == 1 and plan.map[1] == 2){
+            #pragma omp parallel for collapse(2)
             for(index bi=0; bi<plan.size[2]; bi+=stride)
                 for(index bj=0; bj<plan.size[1]; bj+=stride)
                     for(index bk=0; bk<plan.size[0]; bk+=stride)
@@ -172,6 +178,7 @@ template<> struct transpose_packer<tag::cpu>{
                                         = buffer[ k * plan.buff_plane_stride + i * plan.buff_line_stride + j ];
 
         }else if (plan.map[0] == 2 and plan.map[1] == 0){
+            #pragma omp parallel for collapse(2)
             for(index bi=0; bi<plan.size[2]; bi+=stride)
                 for(index bj=0; bj<plan.size[1]; bj+=stride)
                     for(index bk=0; bk<plan.size[0]; bk+=stride)
@@ -182,6 +189,7 @@ template<> struct transpose_packer<tag::cpu>{
                                         = buffer[ j * plan.buff_plane_stride + k * plan.buff_line_stride + i ];
 
         }else{ // if (plan.map[0] == 2 and plan.map[1] == 1){
+            #pragma omp parallel for collapse(2)
             for(index bi=0; bi<plan.size[2]; bi+=stride)
                 for(index bj=0; bj<plan.size[1]; bj+=stride)
                     for(index bk=0; bk<plan.size[0]; bk+=stride)
