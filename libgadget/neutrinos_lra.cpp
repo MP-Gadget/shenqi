@@ -195,12 +195,15 @@ void delta_nu_from_power(struct _powerspectrum * PowerSpectrum, Cosmology * CP, 
             delta_tot_table.ia--;
 
         message(0,"Done getting neutrino power: nk = %d, k = %g, delta_nu = %g, delta_cdm = %g,\n", delta_tot_table.nk, delta_tot_table.wavenum[1], delta_tot_table.delta_nu_last[1], Power_in[1]);
-        /*kspace_prefac = M_nu (analytic) / M_particles */
-        const double OmegaNu_nop = get_omega_nu_nopart(&CP->ONu, Time);
-        const double omega_hybrid = get_omega_nu(&CP->ONu, 1) * partnu / pow(Time, 3);
-        /* Omega0 - Omega in neutrinos + Omega in particle neutrinos = Omega in particles*/
-        PowerSpectrum->nu_prefac = OmegaNu_nop/(delta_tot_table.Omeganonu/pow(Time,3) + omega_hybrid);
     }
+    /* kspace_prefac = M_nu (analytic) / M_particles.
+     * This must be refreshed even if this routine is called twice at the
+     * same scale factor, for example by the PM force and then by the lensing
+     * plane mesh backend. */
+    const double OmegaNu_nop = get_omega_nu_nopart(&CP->ONu, Time);
+    const double omega_hybrid = get_omega_nu(&CP->ONu, 1) * partnu / pow(Time, 3);
+    /* Omega0 - Omega in neutrinos + Omega in particle neutrinos = Omega in particles*/
+    PowerSpectrum->nu_prefac = OmegaNu_nop/(delta_tot_table.Omeganonu/pow(Time,3) + omega_hybrid);
     std::vector<double> delta_nu_ratio_raw(delta_tot_table.nk);
     std::vector<double> logwavenum(delta_tot_table.nk);
 
