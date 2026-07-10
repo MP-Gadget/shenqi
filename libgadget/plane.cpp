@@ -277,7 +277,6 @@ plane_compute_neutrino_power(PetaPM * pm)
         ps->Power[i] = sqrt(ps->Power[i]);
 
     delta_nu_from_power(ps, PlanePMCP, PlanePMTime, PlanePMTimeIC);
-    powerspectrum_zero(ps);
 }
 
 static void
