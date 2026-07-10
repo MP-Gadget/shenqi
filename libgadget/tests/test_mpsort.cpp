@@ -21,7 +21,7 @@ struct BaseGroup {
 };
 
 static void radix_int(const void * ptr, void * radix, void * arg) {
-    *(uint64_t*)radix = *(const int64_t*) ptr + INT64_MIN;
+    *(uint64_t*)radix = *(const uint64_t*) ptr + (uint64_t) INT64_MIN;
 }
 
 static int64_t
