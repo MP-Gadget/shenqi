@@ -294,7 +294,13 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
     } else
 #endif
     {
-        pm->priv->plans->cpu_fft = std::make_unique<heffte::fft3d_r2c<heffte::backend::fftw>>(inbox, outbox, 2, pm->priv->comm_cart_2d);
+        /* Without use_reorder heffte skips the local transposes between the
+         * 1-D FFT stages and runs strided fftw plans instead: benchmarked
+         * faster on CPU. The GPU backend keeps the default (transposes are
+         * cheap kernels there). */
+        heffte::plan_options opts = heffte::default_options<heffte::backend::fftw>();
+        opts.use_reorder = false;
+        pm->priv->plans->cpu_fft = std::make_unique<heffte::fft3d_r2c<heffte::backend::fftw>>(inbox, outbox, 2, pm->priv->comm_cart_2d, opts);
         size_inbox = pm->priv->plans->cpu_fft->size_inbox();
         size_outbox = pm->priv->plans->cpu_fft->size_outbox();
     }
