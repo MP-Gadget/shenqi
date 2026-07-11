@@ -84,6 +84,9 @@ int main(int argc, char ** argv)
     heffte::plan_options slabs = def;
     slabs.use_pencils = false;
     printf("heffte use_pencils=false: %.4f s\n", bench_heffte(N, iters, slabs));
+    heffte::plan_options both = slabs;
+    both.use_reorder = false;
+    printf("heffte slabs, no reorder: %.4f s\n", bench_heffte(N, iters, both));
     MPI_Finalize();
     return 0;
 }
