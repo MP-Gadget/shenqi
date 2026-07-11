@@ -19,11 +19,10 @@ TESTED = cooling \
 	timebinmgr \
 	neutrinos_lra \
 	omega_nu_single \
-	density \
-	gravity \
+	gravity density \
 	metal_return
 
-MPI_TESTED = fof exchange
+MPI_TESTED = fof exchange gravity
 
 TESTBIN :=$(UTILS_TESTED:%=.objs/utils/test_%) $(UTILS_MPI_TESTED:%=.objs/utils/test_%) $(TESTED:%=.objs/test_%) $(MPI_TESTED:%=.objs/test_%)
 MPISUITE = $(MPI_TESTED:%=test_%) $(UTILS_MPI_TESTED:%=utils/test_%)
