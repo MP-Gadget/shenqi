@@ -81,6 +81,9 @@ int main(int argc, char ** argv)
     heffte::plan_options noreord = def;
     noreord.use_reorder = false;
     printf("heffte use_reorder=false: %.4f s (petapm setting)\n", bench_heffte(N, iters, noreord));
+    heffte::plan_options slabs = def;
+    slabs.use_pencils = false;
+    printf("heffte use_pencils=false: %.4f s\n", bench_heffte(N, iters, slabs));
     MPI_Finalize();
     return 0;
 }
