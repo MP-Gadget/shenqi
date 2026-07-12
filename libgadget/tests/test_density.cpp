@@ -21,41 +21,9 @@ static struct ClockTable CT;
 struct density_testdata
 {
     struct sph_pred_data sph_pred;
-    DomainDecomp ddecomp;
     struct density_params dp;
     TimeBinMgr timebinmgr;
 };
-
-/*Make a simple trivial domain for all data on a single processor*/
-void trivial_domain(DomainDecomp * ddecomp)
-{
-    /* The whole tree goes into one topnode.
-     * Set up just enough of the TopNode structure that
-     * domain_get_topleaf works*/
-    ddecomp->domain_allocated_flag = 1;
-    ddecomp->NTopNodes = 1;
-    ddecomp->NTopLeaves = 1;
-    ddecomp->TopNodes = mymalloc("topnode", struct topnode_data, 1);
-    ddecomp->TopNodes[0].Daughter = -1;
-    ddecomp->TopNodes[0].Leaf = 0;
-    ddecomp->TopLeaves = mymalloc("topleaf",struct topleaf_data, 1);
-    ddecomp->TopLeaves[0].Task = 0;
-    /*These are not used*/
-    ddecomp->TopNodes[0].StartKey = 0;
-    ddecomp->TopNodes[0].Shift = BITS_PER_DIMENSION * 3;
-    /*To tell the code we are in serial*/
-    ddecomp->Tasks = mymalloc("task",struct task_data, 1);
-    ddecomp->Tasks[0].StartLeaf = 0;
-    ddecomp->Tasks[0].EndLeaf = 1;
-}
-
-static void free_domain(DomainDecomp * ddecomp) {
-    myfree(ddecomp->Tasks);
-    myfree(ddecomp->TopLeaves);
-    myfree(ddecomp->TopNodes);
-    slots_free(SlotsManager);
-    myfree(PartManager->Base);
-}
 
 static struct density_testdata setup_density(void)
 {
@@ -80,8 +48,12 @@ static struct density_testdata setup_density(void)
     walltime_init(&CT);
     init_forcetree_params(0.7);
     data.sph_pred.EntVarPred = NULL;
-    /*Set up the top-level domain grid*/
-    trivial_domain(&data.ddecomp);
+    /*Set up the domain decomposition parameters*/
+    struct DomainParams dmp = {0};
+    dmp.DomainOverDecompositionFactor = 2;
+    dmp.TopNodeAllocFactor = 1.;
+    dmp.SetAsideFactor = 1;
+    set_domain_par(dmp);
     data.dp.DensityResolutionEta = 1.;
     data.dp.BlackHoleNgbFactor = 2;
     data.dp.MaxNumNgbDeviation = 0.5;
@@ -117,32 +89,55 @@ static void check_densities(double MinGasHsml)
 
 }
 
-static void do_density_test(struct density_testdata * data, const int numpart, double expectedhsml, double hsmlerr)
+/* Distribute the global particle set (gpos and ghsml, identical on every
+ * rank) among the ranks: each rank keeps a contiguous slice, with globally
+ * unique IDs recording the index into gpos. If lastisbh is set, the last
+ * particle in the global set is a black hole: since it is globally last it is
+ * also locally last, keeping the particles ordered by type as
+ * slots_setup_topology requires.*/
+static void setup_density_particles(const double * gpos, const double * ghsml, const int64_t nglobal, const int lastisbh)
 {
-    int i, npbh=0;
-    #pragma omp parallel for reduction(+: npbh)
-    for(i=0; i<numpart; i++) {
-        int j;
+    int ThisTask, NTask;
+    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
+    MPI_Comm_size(MPI_COMM_WORLD, &NTask);
+    const int64_t start = ThisTask * nglobal / NTask;
+    const int64_t end = (ThisTask + 1) * nglobal / NTask;
+    PartManager->NumPart = end - start;
+    const int64_t npbh = (lastisbh && end == nglobal);
+    int64_t i;
+    #pragma omp parallel for
+    for(i=0; i<PartManager->NumPart; i++) {
+        const int64_t gid = start + i;
+        memset(&PartManager->Base[i], 0, sizeof(struct particle_data));
+        PartManager->Base[i].ID = gid + 1;
         PartManager->Base[i].Mass = 1;
-        PartManager->Base[i].TimeBinHydro = 0;
-        PartManager->Base[i].TimeBinGravity = 0;
-        PartManager->Base[i].Ti_drift = 0;
-        for(j=0; j<3; j++)
+        PartManager->Base[i].Hsml = ghsml[gid];
+        int j;
+        for(j=0; j<3; j++) {
+            PartManager->Base[i].Pos[j] = gpos[3*gid+j];
             PartManager->Base[i].Vel[j] = 1.5;
-        if(PartManager->Base[i].Type == 0) {
-            SPHP(i).Entropy = 1;
-            SPHP(i).DtEntropy = 0;
-            SPHP(i).Density = 1;
         }
-        if(PartManager->Base[i].Type == 5)
-            npbh++;
     }
+    int64_t NLocal[6] = {0};
+    NLocal[0] = PartManager->NumPart - npbh;
+    NLocal[5] = npbh;
+    slots_setup_topology(PartManager, NLocal, SlotsManager);
+    slots_setup_id(PartManager, SlotsManager);
+    #pragma omp parallel for
+    for(i=0; i<NLocal[0]; i++) {
+        SPHP(i).Entropy = 1;
+        SPHP(i).DtEntropy = 0;
+        SPHP(i).Density = 1;
+    }
+}
 
-    SlotsManager->info[0].size = numpart-npbh;
-    SlotsManager->info[5].size = npbh;
-    PartManager->NumPart = numpart;
+static void do_density_test(struct density_testdata * data, const int64_t nglobal, double expectedhsml, double hsmlerr)
+{
+    int i;
+    DomainDecomp ddecomp = {0};
+    domain_decompose_full(&ddecomp, MPI_COMM_WORLD);
+
     ActiveParticles act = init_empty_active_particles(PartManager);
-    DomainDecomp ddecomp = data->ddecomp;
 
     ForceTree tree = {0};
     /* Finds fathers for each gas and BH particle, so need BH*/
@@ -176,15 +171,16 @@ static void do_density_test(struct density_testdata * data, const int numpart, d
 
     double avghsml = 0;
     #pragma omp parallel for reduction(+:avghsml)
-    for(i=0; i<numpart; i++) {
+    for(i=0; i<PartManager->NumPart; i++) {
         avghsml += PartManager->Base[i].Hsml;
     }
-    message(0, "Average Hsml: %g Expected %g +- %g\n",avghsml/numpart, expectedhsml, hsmlerr);
-    BOOST_TEST(fabs(avghsml/numpart - expectedhsml) < hsmlerr);
+    MPI_Allreduce(MPI_IN_PLACE, &avghsml, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    message(0, "Average Hsml: %g Expected %g +- %g\n",avghsml/nglobal, expectedhsml, hsmlerr);
+    BOOST_TEST(fabs(avghsml/nglobal - expectedhsml) < hsmlerr);
     /* Make MaxNumNgbDeviation smaller and check we get a consistent result.*/
-    double * Hsml = mymalloc2("Hsml", double, numpart);
+    double * Hsml = mymalloc2("Hsml", double, PartManager->NumPart);
     #pragma omp parallel for
-    for(i=0; i<numpart; i++) {
+    for(i=0; i<PartManager->NumPart; i++) {
         Hsml[i] = PartManager->Base[i].Hsml;
     }
     data->dp.MaxNumNgbDeviation = 0.5;
@@ -203,7 +199,7 @@ static void do_density_test(struct density_testdata * data, const int numpart, d
     /* Free tree before checks so that we still recover if checks fail*/
     force_tree_free(&tree);
 
-    for(i=0; i<numpart; i++) {
+    for(i=0; i<PartManager->NumPart; i++) {
         BOOST_TEST(fabs(Hsml[i]/PartManager->Base[i].Hsml-1) < data->dp.MaxNumNgbDeviation / DesNumNgb);
         if(fabs(Hsml[i] - PartManager->Base[i].Hsml) > diff)
             diff = fabs(Hsml[i] - PartManager->Base[i].Hsml);
@@ -212,6 +208,7 @@ static void do_density_test(struct density_testdata * data, const int numpart, d
     myfree(Hsml);
 
     check_densities(data->dp.MinGasHsmlFractional);
+    domain_free(&ddecomp);
 }
 
 BOOST_AUTO_TEST_CASE(test_density_flat)
@@ -220,20 +217,24 @@ BOOST_AUTO_TEST_CASE(test_density_flat)
     /*Set up the particle data*/
     int ncbrt = 32;
     int numpart = ncbrt*ncbrt*ncbrt;
-    /* Create a regular grid of particles, 8x8x8, all of type 1,
+    /* Create a regular grid of particles, 32x32x32, all of type 0,
      * in a box 8 kpc across.*/
+    double * gpos = mymalloc("globalpos", double, 3*numpart);
+    double * ghsml = mymalloc("globalhsml", double, numpart);
     int i;
     #pragma omp parallel for
     for(i=0; i<numpart; i++) {
-        PartManager->Base[i].Type = 0;
-        PartManager->Base[i].PI = i;
-        PartManager->Base[i].Hsml = 1.5*PartManager->BoxSize/cbrt(numpart);
-        PartManager->Base[i].Pos[0] = (PartManager->BoxSize/ncbrt) * (i/ncbrt/ncbrt);
-        PartManager->Base[i].Pos[1] = (PartManager->BoxSize/ncbrt) * ((i/ncbrt) % ncbrt);
-        PartManager->Base[i].Pos[2] = (PartManager->BoxSize/ncbrt) * (i % ncbrt);
+        ghsml[i] = 1.5*PartManager->BoxSize/cbrt(numpart);
+        gpos[3*i] = (PartManager->BoxSize/ncbrt) * (i/ncbrt/ncbrt);
+        gpos[3*i+1] = (PartManager->BoxSize/ncbrt) * ((i/ncbrt) % ncbrt);
+        gpos[3*i+2] = (PartManager->BoxSize/ncbrt) * (i % ncbrt);
     }
+    setup_density_particles(gpos, ghsml, numpart, 0);
     do_density_test(&data, numpart, 0.5, 5e-4);
-    free_domain(&data.ddecomp);
+    myfree(ghsml);
+    myfree(gpos);
+    slots_free(SlotsManager);
+    myfree(PartManager->Base);
 }
 
 BOOST_AUTO_TEST_CASE(test_density_close)
@@ -244,65 +245,64 @@ BOOST_AUTO_TEST_CASE(test_density_close)
     int numpart = ncbrt*ncbrt*ncbrt;
     double close = 500.;
     int i;
+    double * gpos = mymalloc("globalpos", double, 3*numpart);
+    double * ghsml = mymalloc("globalhsml", double, numpart);
     /* A few particles scattered about the place so the tree is not sparse*/
     #pragma omp parallel for
     for(i=0; i<numpart/4; i++) {
-        PartManager->Base[i].Type = 0;
-        PartManager->Base[i].PI = i;
-        PartManager->Base[i].Hsml = 4*PartManager->BoxSize/cbrt(numpart/8);
-        PartManager->Base[i].Pos[0] = (PartManager->BoxSize/ncbrt) * (i/(ncbrt/2.)/(ncbrt/2.));
-        PartManager->Base[i].Pos[1] = (PartManager->BoxSize/ncbrt) * ((i*2/ncbrt) % (ncbrt/2));
-        PartManager->Base[i].Pos[2] = (PartManager->BoxSize/ncbrt) * (i % (ncbrt/2));
+        ghsml[i] = 4*PartManager->BoxSize/cbrt(numpart/8);
+        gpos[3*i] = (PartManager->BoxSize/ncbrt) * (i/(ncbrt/2.)/(ncbrt/2.));
+        gpos[3*i+1] = (PartManager->BoxSize/ncbrt) * ((i*2/ncbrt) % (ncbrt/2));
+        gpos[3*i+2] = (PartManager->BoxSize/ncbrt) * (i % (ncbrt/2));
     }
 
-    /* Create particles clustered in one place, all of type 0.*/
+    /* Create particles clustered in one place, all of type 0.
+     * The last particle is a black hole.*/
     #pragma omp parallel for
     for(i=numpart/4; i<numpart; i++) {
-        PartManager->Base[i].Type = 0;
-        PartManager->Base[i].PI = i;
-        PartManager->Base[i].Hsml = 2*ncbrt/close;
-        PartManager->Base[i].Pos[0] = 4.1 + (i/ncbrt/ncbrt)/close;
-        PartManager->Base[i].Pos[1] = 4.1 + ((i/ncbrt) % ncbrt) /close;
-        PartManager->Base[i].Pos[2] = 4.1 + (i % ncbrt)/close;
+        ghsml[i] = 2*ncbrt/close;
+        gpos[3*i] = 4.1 + (i/ncbrt/ncbrt)/close;
+        gpos[3*i+1] = 4.1 + ((i/ncbrt) % ncbrt) /close;
+        gpos[3*i+2] = 4.1 + (i % ncbrt)/close;
     }
-    PartManager->Base[numpart-1].Type = 5;
-    PartManager->Base[numpart-1].PI = 0;
-
+    setup_density_particles(gpos, ghsml, numpart, 1);
     do_density_test(&data, numpart, 0.131726, 1e-4);
-    free_domain(&data.ddecomp);
+    myfree(ghsml);
+    myfree(gpos);
+    slots_free(SlotsManager);
+    myfree(PartManager->Base);
 }
 
 void do_random_test(struct density_testdata * data, boost::random::mt19937 &r, const int numpart)
 {
     boost::random::uniform_real_distribution<double> dist(0.0, 1.0);
-    /* Create a randomly space set of particles, 8x8x8, all of type 0. */
+    /* Create a randomly spaced set of particles, all of type 0.
+     * Every rank draws the same sequence, so gpos is identical everywhere.*/
+    double * gpos = mymalloc("globalpos", double, 3*numpart);
+    double * ghsml = mymalloc("globalhsml", double, numpart);
     int i;
     for(i=0; i<numpart/4; i++) {
-        PartManager->Base[i].Type = 0;
-        PartManager->Base[i].PI = i;
-        PartManager->Base[i].Hsml = PartManager->BoxSize/cbrt(numpart);
-
+        ghsml[i] = PartManager->BoxSize/cbrt(numpart);
         int j;
         for(j=0; j<3; j++)
-            PartManager->Base[i].Pos[j] = PartManager->BoxSize * dist(r);
+            gpos[3*i+j] = PartManager->BoxSize * dist(r);
     }
     for(i=numpart/4; i<3*numpart/4; i++) {
-        PartManager->Base[i].Type = 0;
-        PartManager->Base[i].PI = i;
-        PartManager->Base[i].Hsml = PartManager->BoxSize/cbrt(numpart);
+        ghsml[i] = PartManager->BoxSize/cbrt(numpart);
         int j;
         for(j=0; j<3; j++)
-            PartManager->Base[i].Pos[j] = PartManager->BoxSize/2 + PartManager->BoxSize/8 * exp(pow(dist(r)-0.5,2));
+            gpos[3*i+j] = PartManager->BoxSize/2 + PartManager->BoxSize/8 * exp(pow(dist(r)-0.5,2));
     }
     for(i=3*numpart/4; i<numpart; i++) {
-        PartManager->Base[i].Type = 0;
-        PartManager->Base[i].PI = i;
-        PartManager->Base[i].Hsml = PartManager->BoxSize/cbrt(numpart);
+        ghsml[i] = PartManager->BoxSize/cbrt(numpart);
         int j;
         for(j=0; j<3; j++)
-            PartManager->Base[i].Pos[j] = PartManager->BoxSize*0.1 + PartManager->BoxSize/32 * exp(pow(dist(r)-0.5,2));
+            gpos[3*i+j] = PartManager->BoxSize*0.1 + PartManager->BoxSize/32 * exp(pow(dist(r)-0.5,2));
     }
+    setup_density_particles(gpos, ghsml, numpart, 0);
     do_density_test(data, numpart, 0.187515, 1e-3);
+    myfree(ghsml);
+    myfree(gpos);
 }
 
 BOOST_AUTO_TEST_CASE(test_density_random)
@@ -316,5 +316,6 @@ BOOST_AUTO_TEST_CASE(test_density_random)
     for(i=0; i<2; i++) {
         do_random_test(&data, r, numpart);
     }
-    free_domain(&data.ddecomp);
+    slots_free(SlotsManager);
+    myfree(PartManager->Base);
 }

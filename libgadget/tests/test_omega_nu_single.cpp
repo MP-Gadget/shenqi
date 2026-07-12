@@ -99,6 +99,15 @@ BOOST_AUTO_TEST_CASE(test_omega_nu_single_exact)
             printf("a=%g %g %g %g\n",a, omnuz0, omexact, omnuz0/omexact-1);
         BOOST_TEST(omexact == omnuz0, tt::tolerance(1e-6));
     }
+    /* Check right at the lower edge of the interpolation table (a = 1e-3/1.2).
+     * Boost estimates the spline boundary derivatives using a NaN sentinel detected with isnan(),
+     * so if isnan is folded away (clang -ffinite-math-only, implied by -ffast-math without
+     * -fno-finite-math-only) the corruption is largest here and this fails dramatically. */
+    for(double a = 8.4e-4; a < 1.2e-3; a *= 1.09) {
+        omnuz0 = omega_nu_single(&omnu, a, 0);
+        double omexact = do_exact_rho_nu_integration(a, mnu, rhocrit);
+        BOOST_TEST(omexact == omnuz0, tt::tolerance(1e-6));
+    }
 }
 
 BOOST_AUTO_TEST_CASE(test_omega_nu_init_degenerate)

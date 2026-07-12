@@ -21,7 +21,7 @@ struct BaseGroup {
 };
 
 static void radix_int(const void * ptr, void * radix, void * arg) {
-    *(uint64_t*)radix = *(const int64_t*) ptr + INT64_MIN;
+    *(uint64_t*)radix = *(const uint64_t*) ptr + (uint64_t) INT64_MIN;
 }
 
 static int64_t
@@ -46,7 +46,7 @@ generate(int64_t * data, size_t localsize, int bits, int seed)
     unsigned shift = 64u - bits;
     for(i = 0; i < localsize; i ++) {
         uint64_t value = (int64_t) random() * (int64_t) random() * random() * random();
-        data[i] = (signed) ((value << shift));
+        data[i] = (int64_t) (value << shift);
     }
 }
 

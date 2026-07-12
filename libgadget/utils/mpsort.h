@@ -442,7 +442,7 @@ static int _solve_for_layout_mpi (
         MPI_Comm comm);
 
 static int
-_assign_colors(size_t glocalsize, size_t * sizes, int * ncolor, MPI_Comm comm)
+_assign_colors(size_t glocalsize, size_t * sizes, size_t myoutnmemb, int * ncolor, MPI_Comm comm)
 {
     int NTask;
     int ThisTask;
@@ -470,8 +470,13 @@ _assign_colors(size_t glocalsize, size_t * sizes, int * ncolor, MPI_Comm comm)
             current_color ++;
         }
     }
-    /* no data for color of -1; exclude them later with special cases */
-    if(sizes[ThisTask] == 0) {
+    /* Ranks with no input and no output take no part in the sort:
+     * give them color -1 so they are excluded (with special cases) later.
+     * This saves communication with these ranks.
+     * A rank with no input but some output must keep its positional color:
+     * it receives its slice of the sorted output, and pulling it out of
+     * rank order would break the global ordering of the output. */
+    if(sizes[ThisTask] == 0 && myoutnmemb == 0) {
         mycolor = -1;
     }
 
@@ -532,14 +537,14 @@ MPIU_GetLoc(const void * base, MPI_Datatype type, MPI_Op op, MPI_Comm comm)
 }
 
 static void
-_create_segment_group(struct SegmentGroupDescr * descr, size_t * sizes, size_t avgsegsize, int Ngroup, MPI_Comm comm)
+_create_segment_group(struct SegmentGroupDescr * descr, size_t * sizes, size_t myoutnmemb, size_t avgsegsize, int Ngroup, MPI_Comm comm)
 {
     int ThisTask, NTask;
 
     MPI_Comm_size(comm, &NTask);
     MPI_Comm_rank(comm, &ThisTask);
 
-    descr->ThisSegment = _assign_colors(avgsegsize, sizes, &descr->Nsegments, comm);
+    descr->ThisSegment = _assign_colors(avgsegsize, sizes, myoutnmemb, &descr->Nsegments, comm);
 
     if(descr->ThisSegment >= 0) {
         /* assign segments to groups.
@@ -1040,7 +1045,7 @@ mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
     }
 
     /* use as many groups as possible (some will be empty) but at most 1 segment per group */
-    _create_segment_group(seggrp, sizes, avgsegsize, NTask, comm);
+    _create_segment_group(seggrp, sizes, myoutnmemb, avgsegsize, NTask, comm);
 
     myfree(sizes);
     /* group comm == seg comm */
