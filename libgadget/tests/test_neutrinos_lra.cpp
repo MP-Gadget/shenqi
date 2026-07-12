@@ -57,6 +57,43 @@ BOOST_AUTO_TEST_CASE(test_allocate_delta_tot_table)
     }
 }
 
+void get_delta_nu(Cosmology * CP, const _delta_tot_table * const d_tot, const double a, double delta_nu_curr[], const double mnu);
+
+/* Regression test: get_delta_nu with only 2 or 3 stored timesteps used to throw
+ * std::domain_error, because makima interpolation requires at least 4 points. */
+BOOST_AUTO_TEST_CASE(test_get_delta_nu_few_timesteps)
+{
+    Cosmology CP = {0};
+    double MNu[3] = {0.15, 0.15, 0.15};
+    setup_cosmology(&CP, MNu);
+    _omega_nu omnu;
+    init_omega_nu(&omnu, MNu, 0.01, 0.7, T_CMB0);
+    omnu.hybnu.nufrac_low[0] = 0;
+    #define NKTEST 10
+    init_neutrinos_lra(NKTEST, 0.01, 1, 0.2793, &omnu, 3.085678e16, 3.085678e21);
+    int ik, ia;
+    for(ik = 0; ik < NKTEST; ik++) {
+        delta_tot_table.wavenum[ik] = 0.01 * pow(10., 3. * ik / (NKTEST - 1));
+        delta_tot_table.delta_nu_init[ik] = 1e-3;
+    }
+    double delta_nu_curr[NKTEST];
+    /* Add timesteps one at a time: every intermediate table size must work.*/
+    for(ia = 0; ia < 5; ia++) {
+        const double a = 0.01 * (1 + 0.5 * ia);
+        delta_tot_table.scalefact[ia] = log(a);
+        for(ik = 0; ik < NKTEST; ik++)
+            delta_tot_table.delta_tot[ik][ia] = 1e-3 * (a / 0.01);
+        delta_tot_table.ia = ia + 1;
+        if(ia == 0)
+            continue;
+        get_delta_nu(&CP, &delta_tot_table, a, delta_nu_curr, 0.15);
+        for(ik = 0; ik < NKTEST; ik++) {
+            BOOST_TEST(std::isfinite(delta_nu_curr[ik]));
+            BOOST_TEST(fabs(delta_nu_curr[ik]) < 1);
+        }
+    }
+}
+
 /*Check that the fits to the special J function are accurate, by doing explicit integration.*/
 BOOST_AUTO_TEST_CASE(test_specialJ)
 {
