@@ -5,6 +5,14 @@
 
 #include <boost/math/interpolators/cardinal_cubic_b_spline.hpp>
 
+/* The boost.math interpolators detect unset default arguments (endpoint derivatives,
+ * flat-data guards) with NaN sentinels checked via isnan(). If isnan is folded away by
+ * -ffinite-math-only (implied by -ffast-math) the NaN sentinels are used as real values
+ * and the splines are silently corrupted near the table edges: add -fno-finite-math-only. */
+#if defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__
+#error "boost.math splines need NaN semantics: add -fno-finite-math-only after -ffast-math"
+#endif
+
 /** Ratio between the massless neutrino temperature and the CMB temperature.
  * Note there is a slight correction from 4/11
  * due to the neutrinos being slightly coupled at e+- annihilation.
