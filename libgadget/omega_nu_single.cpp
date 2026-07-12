@@ -138,6 +138,10 @@ void rho_nu_init(_rho_nu_single * const rho_nu_tab, double a0, const double mnu,
         double result = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(rho_nu_int, 0, 500 * kBtnu);
         rhonu[i] = result / pow(exp(loga), 4) * get_rho_nu_conversion();
      }
+     /* NB: boost detects the unset default endpoint derivatives with a NaN sentinel via isnan().
+      * If isnan is folded away (clang -ffinite-math-only, implied by -ffast-math), the NaN is used
+      * as the actual boundary condition and the spline is corrupted near both ends of the table.
+      * We must build with -fno-finite-math-only; test_omega_nu_single_exact checks the table edge. */
      rho_nu_tab->interp = new boost::math::interpolators::cardinal_cubic_b_spline<double>(rhonu.begin(), rhonu.end(), rho_nu_tab->loga0, step);
      return;
 }
