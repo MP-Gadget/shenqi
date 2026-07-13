@@ -32,6 +32,15 @@ create_gadget_parameter_set()
     param_declare_int(ps,    "UseGPU", OPTIONAL, 0, "Should we enable GPU acceleration of the Treewalk.");
     #endif
 
+    ParameterEnum FFTBackendEnum = {
+        {"heffte", PETAPM_BACKEND_HEFFTE},
+        {"fftw", PETAPM_BACKEND_FFTW},
+    };
+    param_declare_enum(ps, "FFTBackend", FFTBackendEnum, OPTIONAL, "heffte",
+        "Distributed FFT library for the PM force. heffte (pencil decomposition) scales to large task counts; "
+        "fftw (slab decomposition via fftw3-mpi) is faster at small task counts but needs NTask <= Nmesh. "
+        "Ignored when UseGPU is on (the GPU always uses heffte/cufft).");
+
     param_declare_string(ps, "InitCondFile", REQUIRED, "", "Path to the Initial Condition File");
     param_declare_string(ps, "OutputDir",    REQUIRED, "", "Prefix to the output files");
 

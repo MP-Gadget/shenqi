@@ -8,6 +8,7 @@
 #include <complex>
 #include <memory>
 #include <fftw3.h>
+#include <fftw3-mpi.h>
 #include <heffte.h>
 /* do NOT use complex.h it breaks the code */
 
@@ -16,6 +17,9 @@
 /* Whether to run the FFTs on the GPU: set at run time in
  * petapm_module_init, following the UseGPU parameter. */
 static int petapm_use_gpu = 0;
+
+/* Which CPU FFT library to use, from the FFTBackend parameter. */
+static enum PetaPMBackend petapm_backend = PETAPM_BACKEND_HEFFTE;
 
 /* The cufft backend runs the FFTs on the GPU. The buffers passed to
  * forward/backward must be device accessible: we allocate them with
@@ -35,12 +39,53 @@ struct PetaPMPlans {
     std::unique_ptr<heffte::fft3d_r2c<heffte::backend::cufft>> gpu_fft;
 #endif
     std::unique_ptr<heffte::fft3d_r2c<heffte::backend::fftw>> cpu_fft;
+    /* Slab-decomposed fftw3-mpi plans (PETAPM_BACKEND_FFTW). fftw's MPI
+     * real transforms need the last dimension of the real array padded
+     * to 2*(Nmesh/2+1): the transforms copy through the padded
+     * slab_scratch buffer so the caller's buffers stay unpadded. */
+    fftw_plan slab_forw = nullptr;
+    fftw_plan slab_back = nullptr;
+    double * slab_scratch = nullptr;
+    ~PetaPMPlans() {
+        if(slab_forw)
+            fftw_destroy_plan(slab_forw);
+        if(slab_back)
+            fftw_destroy_plan(slab_back);
+        if(slab_scratch)
+            fftw_free(slab_scratch);
+    }
 };
 
 /* heffte works with std::complex, the rest of the code with double[2]:
  * the two are layout compatible. */
 static inline std::complex<double> * heffte_complex(petapm_complex * c) {
     return reinterpret_cast<std::complex<double> *>(c);
+}
+
+/* Copy the unpadded real mesh (rows of Nmesh doubles) into / out of the
+ * fftw3-mpi padded layout (rows of 2*(Nmesh/2+1) doubles). */
+static void
+slab_pad_real(PetaPM * pm, const double * real, double * padded)
+{
+    const ptrdiff_t nrow = pm->real_space_region.size[0] * pm->real_space_region.size[1];
+    const ptrdiff_t rowlen = pm->Nmesh;
+    const ptrdiff_t padlen = 2 * (pm->Nmesh / 2 + 1);
+    ptrdiff_t row;
+    #pragma omp parallel for
+    for(row = 0; row < nrow; row++)
+        memcpy(&padded[row * padlen], &real[row * rowlen], rowlen * sizeof(double));
+}
+
+static void
+slab_unpad_real(PetaPM * pm, const double * padded, double * real)
+{
+    const ptrdiff_t nrow = pm->real_space_region.size[0] * pm->real_space_region.size[1];
+    const ptrdiff_t rowlen = pm->Nmesh;
+    const ptrdiff_t padlen = 2 * (pm->Nmesh / 2 + 1);
+    ptrdiff_t row;
+    #pragma omp parallel for
+    for(row = 0; row < nrow; row++)
+        memcpy(&real[row * rowlen], &padded[row * padlen], rowlen * sizeof(double));
 }
 
 /* Forward (r2c) and backward (c2r) transforms, dispatching on the
@@ -54,6 +99,12 @@ petapm_fft_r2c(PetaPM * pm, double * real, petapm_complex * complx)
         return;
     }
 #endif
+    if(pm->priv->plans->slab_forw) {
+        slab_pad_real(pm, real, pm->priv->plans->slab_scratch);
+        fftw_mpi_execute_dft_r2c(pm->priv->plans->slab_forw,
+                pm->priv->plans->slab_scratch, (fftw_complex *) complx);
+        return;
+    }
     pm->priv->plans->cpu_fft->forward(real, heffte_complex(complx), heffte::scale::none);
 }
 
@@ -66,6 +117,12 @@ petapm_fft_c2r(PetaPM * pm, petapm_complex * complx, double * real)
         return;
     }
 #endif
+    if(pm->priv->plans->slab_back) {
+        fftw_mpi_execute_dft_c2r(pm->priv->plans->slab_back,
+                (fftw_complex *) complx, pm->priv->plans->slab_scratch);
+        slab_unpad_real(pm, pm->priv->plans->slab_scratch, real);
+        return;
+    }
     pm->priv->plans->cpu_fft->backward(heffte_complex(complx), real, heffte::scale::none);
 }
 
@@ -171,7 +228,7 @@ int *petapm_get_ntask2d(PetaPM * pm) {
 }
 
 void
-petapm_module_init(int Nthreads, int UseGPU)
+petapm_module_init(int Nthreads, int UseGPU, enum PetaPMBackend backend)
 {
 #ifdef USE_CUDA
     petapm_use_gpu = UseGPU;
@@ -180,6 +237,12 @@ petapm_module_init(int Nthreads, int UseGPU)
         message(0, "UseGPU requested but the code was compiled without USE_CUDA: FFTs will use fftw.\n");
     petapm_use_gpu = 0;
 #endif
+
+    petapm_backend = backend;
+    if(petapm_use_gpu && backend != PETAPM_BACKEND_HEFFTE) {
+        message(0, "UseGPU overrides FFTBackend: FFTs will use heffte with cufft.\n");
+        petapm_backend = PETAPM_BACKEND_HEFFTE;
+    }
 
     if(!petapm_use_gpu) {
         /* heffte parallelises over MPI ranks; for a hybrid OpenMP/MPI FFT we
@@ -190,11 +253,90 @@ petapm_module_init(int Nthreads, int UseGPU)
         if(fftw_init_threads() == 0)
             endrun(1, "Error initialising fftw threads\n");
         fftw_plan_with_nthreads(Nthreads);
+        /* fftw_mpi_init must come after fftw_init_threads: with both set
+         * up, every rank threads its local work inside the MPI plans. */
+        if(petapm_backend == PETAPM_BACKEND_FFTW)
+            fftw_mpi_init();
     }
 
     /* initialize the MPI Datatype of pencil */
     MPI_Type_contiguous(sizeof(struct Pencil), MPI_BYTE, &MPI_PENCIL);
     MPI_Type_commit(&MPI_PENCIL);
+}
+
+/* Initialise the fftw3-mpi slab backend: regions, plans, fftsize and
+ * Mesh2Task. The mesh is decomposed into x slabs (task grid NTask x 1),
+ * with the Fourier mesh in y slabs (FFTW_MPI_TRANSPOSED_OUT skips the
+ * final transpose; the c2r plan takes the same layout back with
+ * FFTW_MPI_TRANSPOSED_IN). */
+static void
+petapm_init_slab(PetaPM * pm, const int Nmesh, const int NTask)
+{
+    ptrdiff_t local_n0, local_0_start, local_n1, local_1_start;
+    const ptrdiff_t alloc_local = fftw_mpi_local_size_3d_transposed(Nmesh, Nmesh, Nmesh / 2 + 1,
+            pm->priv->comm_cart_2d, &local_n0, &local_0_start, &local_n1, &local_1_start);
+
+    /* Real space: x slabs, unpadded rows (the transforms copy through
+     * the padded scratch buffer). */
+    pm->real_space_region.offset[0] = local_0_start;
+    pm->real_space_region.offset[1] = 0;
+    pm->real_space_region.offset[2] = 0;
+    pm->real_space_region.size[0] = local_n0;
+    pm->real_space_region.size[1] = Nmesh;
+    pm->real_space_region.size[2] = Nmesh;
+
+    /* Fourier space: y slabs, stored (y, x, zc) with the r2c-shortened
+     * z fastest. */
+    pm->fourier_space_region.offset[0] = local_1_start;
+    pm->fourier_space_region.offset[1] = 0;
+    pm->fourier_space_region.offset[2] = 0;
+    pm->fourier_space_region.size[0] = local_n1;
+    pm->fourier_space_region.size[1] = Nmesh;
+    pm->fourier_space_region.size[2] = Nmesh / 2 + 1;
+
+    pm->fourier_axes[0] = 1;
+    pm->fourier_axes[1] = 0;
+    pm->fourier_axes[2] = 2;
+
+    petapm_region_init_strides(&pm->real_space_region);
+    petapm_region_init_strides(&pm->fourier_space_region);
+
+    /* Plan on the padded scratch buffer; the transforms run on the
+     * caller's buffers through the new-array execute interface, which
+     * needs compatible alignment: both fftw_malloc and our allocator
+     * align well past fftw's 16 byte SIMD requirement. */
+    PetaPMPlans * plans = pm->priv->plans;
+    plans->slab_scratch = fftw_alloc_real(2 * alloc_local);
+    fftw_complex * ctmp = fftw_alloc_complex(alloc_local);
+    plans->slab_forw = fftw_mpi_plan_dft_r2c_3d(Nmesh, Nmesh, Nmesh, plans->slab_scratch, ctmp,
+            pm->priv->comm_cart_2d, FFTW_ESTIMATE | FFTW_MPI_TRANSPOSED_OUT);
+    plans->slab_back = fftw_mpi_plan_dft_c2r_3d(Nmesh, Nmesh, Nmesh, ctmp, plans->slab_scratch,
+            pm->priv->comm_cart_2d, FFTW_ESTIMATE | FFTW_MPI_TRANSPOSED_IN);
+    fftw_free(ctmp);
+    if(!plans->slab_forw || !plans->slab_back)
+        endrun(1, "Failed to create fftw3-mpi plans for Nmesh = %d\n", Nmesh);
+
+    /* Both the unpadded real slab and the complex slab fit in
+     * 2 * alloc_local doubles. */
+    pm->priv->fftsize = 2 * alloc_local;
+
+    /* fftw assigns contiguous slab blocks in rank order, but the block
+     * sizes are its own choice (trailing ranks may hold zero slabs), so
+     * build Mesh2Task from the actual sizes. */
+    std::vector<int> alln0(NTask);
+    const int myn0 = local_n0;
+    MPI_Allgather(&myn0, 1, MPI_INT, alln0.data(), 1, MPI_INT, pm->priv->comm_cart_2d);
+    int task, start = 0;
+    for(task = 0; task < NTask; task++) {
+        int i;
+        for(i = start; i < start + alln0[task]; i++)
+            pm->Mesh2Task[0][i] = task;
+        start += alln0[task];
+    }
+    if(start != Nmesh)
+        endrun(1, "fftw slabs cover %d mesh planes, expected %d\n", start, Nmesh);
+    for(int i = 0; i < Nmesh; i++)
+        pm->Mesh2Task[1][i] = 0;
 }
 
 void
@@ -217,16 +359,26 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
     MPI_Comm_rank(comm, &ThisTask);
     MPI_Comm_size(comm, &NTask);
 
-    /* Try to find a square 2d decomposition. heffte::make_procgrid finds
-     * the same factor pair but with the transposed orientation for many
-     * task counts, so keep this to preserve the original decomposition. */
     std::array<int, 2> np;
     int i;
-    for(i = sqrt(NTask) + 1; i >= 0; i --) {
-        if(NTask % i == 0) break;
+    if(petapm_backend == PETAPM_BACKEND_FFTW) {
+        /* fftw3-mpi decomposes into slabs along x: the degenerate
+         * NTask x 1 task grid, so Mesh2Task and the pencil exchange
+         * work unchanged. */
+        if(NTask > Nmesh)
+            endrun(1, "FFTBackend fftw uses a slab decomposition needing NTask (%d) <= Nmesh (%d): use heffte.\n", NTask, Nmesh);
+        np[0] = NTask;
+        np[1] = 1;
+    } else {
+        /* Try to find a square 2d decomposition. heffte::make_procgrid finds
+         * the same factor pair but with the transposed orientation for many
+         * task counts, so keep this to preserve the original decomposition. */
+        for(i = sqrt(NTask) + 1; i >= 0; i --) {
+            if(NTask % i == 0) break;
+        }
+        np[0] = i;
+        np[1] = NTask / i;
     }
-    np[0] = i;
-    np[1] = NTask / i;
 
     message(0, "Using 2D Task mesh %d x %d \n", np[0], np[1]);
     /* Create the 2d cartesian communicator. reorder=0 so that the
@@ -242,6 +394,13 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
 
     if(pm->NTask2d[0] != np[0] || pm->NTask2d[1] != np[1])
         endrun(6, "Bad PM mesh: Task2D = %d %d np %d %d\n", pm->NTask2d[0], pm->NTask2d[1], np[0], np[1]);
+
+    pm->priv->plans = new PetaPMPlans {};
+
+    if(petapm_backend == PETAPM_BACKEND_FFTW) {
+        petapm_init_slab(pm, Nmesh, NTask);
+        return;
+    }
 
     /* Split the whole mesh (a heffte box of inclusive [low, high] index
      * ranges in (x, y, z)) over the task grid with heffte's block
@@ -274,6 +433,10 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
     pm->fourier_space_region.offset[2] = fbox.low[0];
     pm->fourier_space_region.size[2] = fbox.size[0];
 
+    pm->fourier_axes[0] = 2;
+    pm->fourier_axes[1] = 0;
+    pm->fourier_axes[2] = 1;
+
     /* calculate the strides */
     petapm_region_init_strides(&pm->real_space_region);
     petapm_region_init_strides(&pm->fourier_space_region);
@@ -284,7 +447,6 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
     heffte::box3d<> inbox(rbox.low, rbox.high, {2, 1, 0});
     heffte::box3d<> outbox(fbox.low, fbox.high, {0, 2, 1});
 
-    pm->priv->plans = new PetaPMPlans {};
     int64_t size_inbox, size_outbox;
 #ifdef USE_CUDA
     if(petapm_use_gpu) {
@@ -1255,11 +1417,11 @@ static void pm_apply_transfer_function(PetaPM * pm,
             /* Watch out the cast */
             k2 += ((int64_t)kpos[k]) * kpos[k];
         }
-        /* swap 0 and 1 because fourier space was transposed */
-        /* kpos is y, z, x */
-        pos[0] = kpos[2];
-        pos[1] = kpos[0];
-        pos[2] = kpos[1];
+        /* kpos is in the fourier storage order: permute to physical
+         * (x, y, z), which depends on the FFT backend. */
+        pos[0] = kpos[pm->fourier_axes[0]];
+        pos[1] = kpos[pm->fourier_axes[1]];
+        pos[2] = kpos[pm->fourier_axes[2]];
         dst[ip][0] = src[ip][0];
         dst[ip][1] = src[ip][1];
         if(H) {

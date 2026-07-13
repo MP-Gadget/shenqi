@@ -18,9 +18,10 @@ endif
 # System fftw3, used by the heffte FFT backend. The single precision
 # library is not used at runtime but heffte references its symbols.
 # fftw3_omp provides the threaded FFT kernels enabled in petapm_module_init;
-# it has no pkg-config module of its own.
+# fftw3_mpi provides the slab-decomposed FFTBackend = fftw; neither has a
+# pkg-config module of its own.
 FFTW_INCL ?= $(shell pkg-config --cflags fftw3 fftw3f)
-FFTW_LIBS ?= -lfftw3_omp $(shell pkg-config --libs fftw3 fftw3f)
+FFTW_LIBS ?= -lfftw3_mpi -lfftw3_omp $(shell pkg-config --libs fftw3 fftw3f)
 $(if $(FFTW_LIBS),,$(error fftw3 not found via pkg-config: install fftw-devel or set FFTW_INCL/FFTW_LIBS))
 
 ifneq ($(findstring -DUSE_CUDA, $(OPT)),)

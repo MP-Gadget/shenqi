@@ -56,7 +56,7 @@ int main(int argc, char **argv)
   MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
   PowerSpectrum powerspec(ThisTask, All2.TimeIC, All2.units.UnitLength_in_cm, &CP, &All2.PowerP);
 
-  petapm_module_init(omp_get_max_threads(), 0);
+  petapm_module_init(omp_get_max_threads(), 0, (enum PetaPMBackend) All2.FFTBackend);
 
   /*Initialise particle spacings*/
   const double meanspacing = All2.BoxSize / DMAX(All2.Ngrid, All2.NgridGas);

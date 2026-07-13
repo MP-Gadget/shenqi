@@ -33,7 +33,10 @@ static void setup(void) {
     dp.TopNodeAllocFactor = 1.;
     dp.SetAsideFactor = 1;
     set_domain_par(dp);
-    petapm_module_init(omp_get_max_threads(), 0);
+    /* The FFT backend is chosen by the PETAPM_TEST_FFTW environment
+     * variable so both code paths can be exercised. */
+    enum PetaPMBackend backend = getenv("PETAPM_TEST_FFTW") ? PETAPM_BACKEND_FFTW : PETAPM_BACKEND_HEFFTE;
+    petapm_module_init(omp_get_max_threads(), 0, backend);
     init_forcetree_params(0.7);
 }
 
