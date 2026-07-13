@@ -136,6 +136,12 @@ typedef void * (*petapm_mfree_func)(void * ptr);
 void petapm_module_init(int Nthreads, int UseGPU);
 
 void petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_Comm comm);
+
+/* Execute the FFT plans held by pm on caller-provided buffers of at
+ * least pm->priv->fftsize doubles. Unscaled, like fftw. With the GPU
+ * backend the buffers must be device accessible (mymanagedmalloc). */
+void petapm_fft_r2c(PetaPM * pm, double * real, petapm_complex * complx);
+void petapm_fft_c2r(PetaPM * pm, petapm_complex * complx, double * real);
 void petapm_destroy(PetaPM * pm);
 void petapm_region_init_strides(PetaPMRegion * region);
 

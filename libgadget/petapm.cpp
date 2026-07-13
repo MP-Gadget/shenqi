@@ -45,7 +45,7 @@ static inline std::complex<double> * heffte_complex(petapm_complex * c) {
 
 /* Forward (r2c) and backward (c2r) transforms, dispatching on the
  * backend chosen at run time. Unscaled, like fftw. */
-static void
+void
 petapm_fft_r2c(PetaPM * pm, double * real, petapm_complex * complx)
 {
 #ifdef USE_CUDA
@@ -57,7 +57,7 @@ petapm_fft_r2c(PetaPM * pm, double * real, petapm_complex * complx)
     pm->priv->plans->cpu_fft->forward(real, heffte_complex(complx), heffte::scale::none);
 }
 
-static void
+void
 petapm_fft_c2r(PetaPM * pm, petapm_complex * complx, double * real)
 {
 #ifdef USE_CUDA
