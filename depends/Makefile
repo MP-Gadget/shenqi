@@ -25,7 +25,6 @@ endif
 
 # heffte uses the system fftw3 (found via its cmake module: needs the
 # double and single precision libraries, i.e. the fftw-devel package).
-# Could also add: -DHeffte_ENABLE_AVX512=ON
 $(HEFFTELIBRARY): heffte/CMakeLists.txt
 	cmake -S heffte -B heffte/build \
 	    -DCMAKE_INSTALL_PREFIX=$(PWD) \
@@ -35,7 +34,6 @@ $(HEFFTELIBRARY): heffte/CMakeLists.txt
 	    -DCMAKE_CXX_COMPILER=$(MPICXXDEP) \
 	    -DCMAKE_CXX_FLAGS="-fopenmp -march=native" \
 	    -DHeffte_ENABLE_FFTW=ON \
-	    -DHeffte_ENABLE_AVX=ON \
 	    -DHeffte_ENABLE_TESTING=OFF $(HEFFTE_CUDA)
 	cmake --build heffte/build -j 8
 	cmake --install heffte/build
