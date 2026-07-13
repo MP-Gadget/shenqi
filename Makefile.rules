@@ -31,7 +31,9 @@ ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
     NVOPTIMIZE ?= -O3 -g
 endif
 
-OPTIONS = $(OPTIMIZE) $(OPT)
+# We must have isnan: it is required by the boost interpolation and integration routines
+# If we have -ffast-math enabled we must disable finite-math-only manually
+OPTIONS = $(OPTIMIZE) $(OPT) -Wall -fno-finite-math-only
 #nvcc needs the location of mpi.h, although no MPI calls are made
 MPI_INCL = $(shell pkg-config --cflags ompi-c)
 NVOPTIONS = -std=c++20 $(NVOPTIMIZE) $(OPT) $(MPI_INCL)

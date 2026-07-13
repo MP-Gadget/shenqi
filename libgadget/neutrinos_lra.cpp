@@ -11,8 +11,11 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <functional>
+#include <memory>
 #include <bigfile-mpi.h>
 #include <boost/math/interpolators/makima.hpp>
+#include <boost/math/interpolators/barycentric_rational.hpp>
 #include <boost/math/special_functions/bessel.hpp>
 #include <boost/math/quadrature/gauss_kronrod.hpp>
 
@@ -195,12 +198,15 @@ void delta_nu_from_power(struct _powerspectrum * PowerSpectrum, Cosmology * CP, 
             delta_tot_table.ia--;
 
         message(0,"Done getting neutrino power: nk = %d, k = %g, delta_nu = %g, delta_cdm = %g,\n", delta_tot_table.nk, delta_tot_table.wavenum[1], delta_tot_table.delta_nu_last[1], Power_in[1]);
-        /*kspace_prefac = M_nu (analytic) / M_particles */
-        const double OmegaNu_nop = get_omega_nu_nopart(&CP->ONu, Time);
-        const double omega_hybrid = get_omega_nu(&CP->ONu, 1) * partnu / pow(Time, 3);
-        /* Omega0 - Omega in neutrinos + Omega in particle neutrinos = Omega in particles*/
-        PowerSpectrum->nu_prefac = OmegaNu_nop/(delta_tot_table.Omeganonu/pow(Time,3) + omega_hybrid);
     }
+    /* kspace_prefac = M_nu (analytic) / M_particles.
+     * This must be refreshed even if this routine is called twice at the
+     * same scale factor, for example by the PM force and then by the lensing
+     * plane mesh backend. */
+    const double OmegaNu_nop = get_omega_nu_nopart(&CP->ONu, Time);
+    const double omega_hybrid = get_omega_nu(&CP->ONu, 1) * partnu / pow(Time, 3);
+    /* Omega0 - Omega in neutrinos + Omega in particle neutrinos = Omega in particles*/
+    PowerSpectrum->nu_prefac = OmegaNu_nop/(delta_tot_table.Omeganonu/pow(Time,3) + omega_hybrid);
     std::vector<double> delta_nu_ratio_raw(delta_tot_table.nk);
     std::vector<double> logwavenum(delta_tot_table.nk);
 
@@ -696,7 +702,17 @@ void get_delta_nu(Cosmology * CP, const _delta_tot_table * const d_tot, const do
                 delta_tot_k[ia] = d_tot->delta_tot[ik][ia];
                 loga[ia] = d_tot->scalefact[ia];
             }
-            boost::math::interpolators::makima<std::vector<double>> dtot_spline(std::move(loga),std::move(delta_tot_k));
+            /* makima requires at least 4 points: on the first few steps
+             * use barycentric rational interpolation of order Na-1 instead. */
+            std::function<double(double)> dtot_spline;
+            if(Na >= 4) {
+                auto sp = std::make_shared<boost::math::interpolators::makima<std::vector<double>>>(std::move(loga),std::move(delta_tot_k));
+                dtot_spline = [sp](const double x) { return (*sp)(x); };
+            }
+            else {
+                auto sp = std::make_shared<boost::math::interpolators::barycentric_rational<double>>(std::move(loga),std::move(delta_tot_k), Na-1);
+                dtot_spline = [sp](const double x) { return (*sp)(x); };
+            }
             /**integration kernel for get_delta_nu*/
             auto get_delta_nu_int = [fs_spline, dtot_spline, params](const double logai) {
                 double fsl_aia = fs_spline(logai);

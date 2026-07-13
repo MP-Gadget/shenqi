@@ -52,6 +52,8 @@ create_gadget_parameter_set()
     param_declare_double(ps, "PlaneThickness", OPTIONAL, -1, "Thickness of the potential plane in the normal direction in internal gadget units (kpc/h by default).");
     param_declare_string(ps, "PlaneCutPoints", OPTIONAL, "", "List of potential plane cut points in the normal direction in internal gadget units (kpc/h by default).");
     param_declare_string(ps, "PlaneNormals", OPTIONAL, "\"0, 1, 2\"", "List of potential plane normal directions (0=x, 1=y, 2=z).");
+    param_declare_int(ps, "PlaneMassiveNuCorrection", OPTIONAL, 1, "Add massive-neutrino linear-response corrections to potential planes when enabled by the cosmology.");
+    param_declare_int(ps, "PlaneDoubleOut", OPTIONAL, 0, "If 1, write potential planes as float64 FITS images. If 0, write them as float32.");
 
     /*Cosmology parameters*/
     param_declare_double(ps, "Omega0", REQUIRED, 0.2814, "Total matter density at z=0");
@@ -209,7 +211,7 @@ create_gadget_parameter_set()
     param_declare_int(ps,"WriteBlackHoleDetails",OPTIONAL, 1, "If set, output BH details at every time step.");
     param_declare_int(ps, "MaxBlackHoleDetails", OPTIONAL, 50, "Max number of GB to write to bh details file before opening a new one.");
 
-    param_declare_int(ps,"BH_DynFrictionMethod",OPTIONAL, 1, "If set to non-zero, dynamical friction is applied through this method. Setting BH_DynFrictionMethod = 1, = 2, = 3 uses stars only (=1), dark matter + stars (=2), all mass (=3) to compute the DF force.");
+    param_declare_int(ps,"BH_DynFrictionMethod",OPTIONAL, 1, "If set to non-zero, dynamical friction is applied through this method. Setting BH_DynFrictionMethod = 1, = 2, uses stars only (=1) or dark matter + stars (=2), to compute the DF force.");
     param_declare_int(ps,"BH_DFBoostFactor",OPTIONAL, 1, "If set, dynamical friction is boosted by this factor.");
     param_declare_double(ps,"BH_DFbmax",OPTIONAL, 20, "Maximum impact range for dynamical friction. We use 20 pkpc as default value.");
     param_declare_int(ps,"BH_DRAG",OPTIONAL, 1, "Add drag force to the BH dynamic");

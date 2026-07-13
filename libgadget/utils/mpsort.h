@@ -284,34 +284,17 @@ void _histogram(T* P, int Plength, void * mybase, size_t mynmemb,
 
 template <typename T>
 struct piter {
-    int * stable;
-    int * narrow;
+    std::vector<int> stable;
+    std::vector<int> narrow;
     int Plength;
-    T * Pleft;
-    T * Pright;
+    std::vector<T> Pleft;
+    std::vector<T> Pright;
     struct crstruct * d;
 
-    piter(T& Pmin, T& Pmax, int Plength_i, struct crstruct * d_i): Plength(Plength_i), d(d_i)
-    {
-        stable = ta_malloc("stable", int, Plength);
-        memset(stable, 0, Plength * sizeof(int));
-        narrow = ta_malloc("narrow", int, Plength);
-        memset(narrow, 0, Plength * sizeof(int));
-        Pleft = mymalloc("left", T, Plength);
-        Pright = mymalloc("right", T, Plength);
-        for(int i = 0; i < Plength; i ++) {
-            Pleft[i] = Pmin;
-            Pright[i] = Pmax;
-        }
-    }
-
-    ~piter()
-    {
-        myfree(Pright);
-        myfree(Pleft);
-        myfree(narrow);
-        myfree(stable);
-    }
+    piter(T& Pmin, T& Pmax, int Plength_i, struct crstruct * d_i):
+        stable(Plength_i, 0), narrow(Plength_i, 0), Plength(Plength_i),
+        Pleft(Plength_i, Pmin), Pright(Plength_i, Pmax), d(d_i)
+    {}
 
     /*
     * this will bisect the left / right in piter.
@@ -349,23 +332,9 @@ struct piter {
         }
     }
 
-    int all_done()
+    bool all_done()
     {
-        int done = 1;
-        #if 0
-        #pragma omp single
-        for(i = 0; i < pi->Plength; i ++) {
-            printf("P %d stable %d narrow %d\n",
-                i, pi->stable[i], pi->narrow[i]);
-        }
-        #endif
-        for(int i = 0; i < Plength; i ++) {
-            if(!stable[i]) {
-                done = 0;
-                break;
-            }
-        }
-        return done;
+        return std::all_of(stable.begin(), stable.end(), [](int s) { return s != 0; });
     }
 
 /*
@@ -473,7 +442,7 @@ static int _solve_for_layout_mpi (
         MPI_Comm comm);
 
 static int
-_assign_colors(size_t glocalsize, size_t * sizes, int * ncolor, MPI_Comm comm)
+_assign_colors(size_t glocalsize, size_t * sizes, size_t myoutnmemb, int * ncolor, MPI_Comm comm)
 {
     int NTask;
     int ThisTask;
@@ -501,8 +470,13 @@ _assign_colors(size_t glocalsize, size_t * sizes, int * ncolor, MPI_Comm comm)
             current_color ++;
         }
     }
-    /* no data for color of -1; exclude them later with special cases */
-    if(sizes[ThisTask] == 0) {
+    /* Ranks with no input and no output take no part in the sort:
+     * give them color -1 so they are excluded (with special cases) later.
+     * This saves communication with these ranks.
+     * A rank with no input but some output must keep its positional color:
+     * it receives its slice of the sorted output, and pulling it out of
+     * rank order would break the global ordering of the output. */
+    if(sizes[ThisTask] == 0 && myoutnmemb == 0) {
         mycolor = -1;
     }
 
@@ -563,14 +537,14 @@ MPIU_GetLoc(const void * base, MPI_Datatype type, MPI_Op op, MPI_Comm comm)
 }
 
 static void
-_create_segment_group(struct SegmentGroupDescr * descr, size_t * sizes, size_t avgsegsize, int Ngroup, MPI_Comm comm)
+_create_segment_group(struct SegmentGroupDescr * descr, size_t * sizes, size_t myoutnmemb, size_t avgsegsize, int Ngroup, MPI_Comm comm)
 {
     int ThisTask, NTask;
 
     MPI_Comm_size(comm, &NTask);
     MPI_Comm_rank(comm, &ThisTask);
 
-    descr->ThisSegment = _assign_colors(avgsegsize, sizes, &descr->Nsegments, comm);
+    descr->ThisSegment = _assign_colors(avgsegsize, sizes, myoutnmemb, &descr->Nsegments, comm);
 
     if(descr->ThisSegment >= 0) {
         /* assign segments to groups.
@@ -618,12 +592,8 @@ _destroy_segment_group(struct SegmentGroupDescr * descr)
 static uint64_t
 checksum(void * base, size_t nbytes, MPI_Comm comm)
 {
-    uint64_t sum = 0;
     char * ptr = (char *) base;
-    size_t i;
-    for(i = 0; i < nbytes; i ++) {
-        sum += ptr[i];
-    }
+    uint64_t sum = std::accumulate(ptr, ptr + nbytes, uint64_t{0});
     MPI_Allreduce(MPI_IN_PLACE, &sum, 1, MPI_LONG, MPI_SUM, comm);
     return sum;
 }
@@ -638,15 +608,12 @@ MPIU_Gather (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffer
     MPI_Type_contiguous(elsize, MPI_BYTE, &dtype);
     MPI_Type_commit(&dtype);
 
-    int * recvcount = ta_malloc("recvcount", int, NTask);
-    int * rdispls = ta_malloc("rdispls", int, NTask+1);
+    int * recvcount = mymalloc("recvcount", int, NTask);
+    int * rdispls = mymalloc("rdispls", int, NTask+1);
 
     MPI_Gather(&nsend, 1, MPI_INT, recvcount, 1, MPI_INT, root, comm);
 
-    rdispls[0] = 0;
-    for(int i = 1; i <= NTask; i ++) {
-        rdispls[i] = rdispls[i - 1] + recvcount[i - 1];
-    }
+    std::exclusive_scan(recvcount, recvcount + NTask, rdispls, 0);
 
     MPI_Gatherv(sendbuffer, nsend, dtype, recvbuffer, recvcount, rdispls, dtype, root, comm);
     myfree(rdispls);
@@ -664,15 +631,13 @@ MPIU_Scatter (MPI_Comm comm, int root, const void * sendbuffer, void * recvbuffe
     MPI_Type_contiguous(elsize, MPI_BYTE, &dtype);
     MPI_Type_commit(&dtype);
 
-    int * sendcount = ta_malloc("sendcount", int, NTask);
-    int * sdispls = ta_malloc("sdispls", int, NTask+1);
+    int * sendcount = mymalloc("sendcount", int, NTask);
+    int * sdispls = mymalloc("sdispls", int, NTask+1);
 
     MPI_Gather(&nrecv, 1, MPI_INT, sendcount, 1, MPI_INT, root, comm);
 
-    sdispls[0] = 0;
-    for(int i = 1; i <= NTask; i ++) {
-        sdispls[i] = sdispls[i - 1] + sendcount[i - 1];
-    }
+    std::exclusive_scan(sendcount, sendcount + NTask, sdispls, 0);
+
     MPI_Scatterv(sendbuffer, sendcount, sdispls, dtype, recvbuffer, nrecv, dtype, root, comm);
     myfree(sdispls);
     myfree(sendcount);
@@ -690,8 +655,8 @@ void _find_Pmax_Pmin_C(void * mybase, size_t mynmemb,
     T myPmax{0};
     T myPmin{0};
 
-    size_t * eachnmemb = ta_malloc("eachnmemb", size_t, o->NTask);
-    size_t * eachoutnmemb = ta_malloc("eachoutnmemb", size_t, o->NTask);
+    size_t * eachnmemb = mymalloc("eachnmemb", size_t, o->NTask);
+    size_t * eachoutnmemb = mymalloc("eachoutnmemb", size_t, o->NTask);
     T * eachPmax = mymalloc("eachPmax", T, o->NTask);
     T * eachPmin = mymalloc("eachPmin", T, o->NTask);
 
@@ -737,14 +702,12 @@ _solve_for_layout_mpi (
         ptrdiff_t * myT_CLE,
         ptrdiff_t * myT_C,
         MPI_Comm comm) {
-    int i, j;
+    int j;
     int ThisTask;
     MPI_Comm_rank(comm, &ThisTask);
 
     /* first assume we just send according to myT_CLT */
-    for(i = 0; i < NTask; i ++) {
-        myT_C[i] = myT_CLT[i];
-    }
+    std::copy(myT_CLT, myT_CLT + NTask, myT_C);
 
     /* Solve for each receiving task i
      *
@@ -760,13 +723,9 @@ _solve_for_layout_mpi (
      *
      * */
 
-    ptrdiff_t sure = 0;
-
     /* how many will I surely receive? */
-    for(j = 0; j < NTask; j ++) {
-        ptrdiff_t recvcount = myT_C[j];
-        sure += recvcount;
-    }
+    ptrdiff_t sure = std::accumulate(myT_C, myT_C + NTask, ptrdiff_t{0});
+
     /* let's see if we have enough */
     ptrdiff_t deficit = C[ThisTask + 1] - sure;
 
@@ -934,10 +893,10 @@ mpsort_mpi_histogram_sort(struct crstruct d, struct crmpistruct o)
     myfree(myCLT);
     myfree(C);
 
-    int * SendCount = ta_malloc("SendCount", int, o.NTask);
-    int * SendDispl = ta_malloc("SendDispl", int, o.NTask);
-    int * RecvCount = ta_malloc("RecvCount", int, o.NTask);
-    int * RecvDispl = ta_malloc("RecvDispl", int, o.NTask);
+    int * SendCount = mymalloc("SendCount", int, o.NTask);
+    int * SendDispl = mymalloc("SendDispl", int, o.NTask);
+    int * RecvCount = mymalloc("RecvCount", int, o.NTask);
+    int * RecvDispl = mymalloc("RecvDispl", int, o.NTask);
 
     for(i = 0; i < o.NTask; i ++) {
         SendCount[i] = myC[i + 1] - myC[i];
@@ -1075,7 +1034,7 @@ mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
        This is known to frequently trigger MPI bugs.*/
     static_assert(sizeof(T) % 8 == 0 || sizeof(T) < 8);
 
-    size_t * sizes = ta_malloc("sizes", size_t, NTask);
+    size_t * sizes = mymalloc("sizes", size_t, NTask);
     sizes[ThisTask] = mynmemb;
     MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, sizes, 1, MPI_INT64_T, comm);
 
@@ -1086,7 +1045,7 @@ mpsort_mpi_newarray_impl_type (void * mybase, size_t mynmemb,
     }
 
     /* use as many groups as possible (some will be empty) but at most 1 segment per group */
-    _create_segment_group(seggrp, sizes, avgsegsize, NTask, comm);
+    _create_segment_group(seggrp, sizes, myoutnmemb, avgsegsize, NTask, comm);
 
     myfree(sizes);
     /* group comm == seg comm */

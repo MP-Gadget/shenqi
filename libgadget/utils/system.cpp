@@ -322,40 +322,6 @@ int MPI_Alltoallv_sparse(void *sendbuf, int *sendcnts, int *sdispls,
     return 0;
 }
 
-/* return the number of hosts */
-int
-cluster_get_num_hosts(void)
-{
-    /* Find a unique hostid for the computing rank. */
-    int NTask;
-    int ThisTask;
-    MPI_Comm_size(MPI_COMM_WORLD, &NTask);
-    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-
-    /* Size is set by the size of the temp heap:
-     * this fills it and should be changed if needed.*/
-    const int bufsz = 256;
-    char * buffer = ta_malloc("buffer", char, bufsz * NTask);
-    memset(buffer, 0, bufsz * NTask);
-    int i, j;
-    gethostname(&buffer[bufsz*ThisTask], bufsz);
-    buffer[bufsz * ThisTask + bufsz - 1] = '\0';
-    MPI_Allgather(MPI_IN_PLACE, bufsz, MPI_CHAR, buffer, bufsz, MPI_CHAR, MPI_COMM_WORLD);
-
-    int nunique = 0;
-    /* Count unique entries*/
-    for(j = 0; j < NTask; j++) {
-        for(i = j+1; i < NTask; i++) {
-            if(strncmp(buffer + i * bufsz, buffer + j * bufsz, bufsz) == 0)
-                break;
-        }
-        if(i == NTask)
-            nunique++;
-    }
-    ta_free(buffer);
-    return nunique;
-}
-
 size_t
 get_freemem_bytes(void)
 {
@@ -371,52 +337,11 @@ get_freemem_bytes(void)
     return 2040L * 1024L * 1024L;
 }
 
-size_t
-get_physmem_bytes(void)
-{
-#if defined _SC_PHYS_PAGES && defined _SC_PAGESIZE
-    { /* This works on linux-gnu, solaris2 and cygwin.  */
-        double pages = sysconf (_SC_PHYS_PAGES);
-        double pagesize = sysconf (_SC_PAGESIZE);
-        if (0 <= pages && 0 <= pagesize)
-            return pages * pagesize;
-    }
-#endif
-    return 64 * 1024 * 1024;
-}
-
 int
 MPIU_Any(int condition, MPI_Comm comm)
 {
     MPI_Allreduce(MPI_IN_PLACE, &condition, 1, MPI_INT, MPI_LOR, comm);
     return condition;
-}
-
-size_t
-gadget_compact_thread_arrays_managed(int ** dest, const char * name, gadget_thread_arrays * arrays)
-{
-    int i;
-    size_t asize = 0;
-    size_t * offsets = ta_malloc("tmp", size_t, arrays->narrays);
-    for(i = 0; i < arrays->narrays; i++)
-    {
-        offsets[i] = asize;
-        asize += arrays->sizes[i];
-    }
-    /* Allocate the destination array as managed memory. */
-    int * destarr = mymanagedmalloc(name, int, asize);
-
-    #pragma omp parallel for
-    for(i = 0; i < arrays->narrays; i++)
-        memmove(destarr + offsets[i], arrays->srcs[i], sizeof(int) * arrays->sizes[i]);
-    ta_free(offsets);
-    /* Also frees arrays->dest */
-    for(i = arrays->narrays-1; i >= 0; i--)
-        myfree(arrays->srcs[i]);
-    ta_free(arrays->srcs);
-    ta_free(arrays->sizes);
-    *dest = destarr;
-    return asize;
 }
 
 size_t gadget_compact_thread_arrays(int ** dest, gadget_thread_arrays * arrays)
@@ -441,7 +366,6 @@ size_t gadget_compact_thread_arrays(int ** dest, gadget_thread_arrays * arrays)
     *dest = arrays->dest;
     return asize;
 }
-
 
 gadget_thread_arrays gadget_setup_thread_arrays(const char * destname, const int alloc_high, const size_t total_size)
 {

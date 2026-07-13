@@ -220,7 +220,7 @@ class TimeBinMgr {
     /* Each integer time stores in the first XX bits of the snapshot number.
     * Then the rest of the bits are the standard integer timeline,
     * which should be a power-of-two hierarchy. */
-    size_t NSyncPoints;
+    int64_t NSyncPoints;
     std::unique_ptr<SyncPoint []> SyncPoints;
     Cosmology * CP;
 

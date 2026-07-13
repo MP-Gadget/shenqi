@@ -239,25 +239,23 @@ blackhole(const ActiveParticles * act, double atime, Cosmology * CP, ForceTree *
     if(!tree->tree_allocated_flag || !(tree->mask & GASMASK) ||  !(tree->mask & BHMASK) )
         endrun(5, "Blackhole called with bad tree allocated %d mask %d want %d\n", tree->tree_allocated_flag, tree->mask, GASMASK | BHMASK);
 
-    struct kick_factor_data kf;
-    init_kick_factor_data(&kf, times, timebinmgr, CP);
-
+    KickFactorData kf2(times, timebinmgr);
     /*************************************************************************/
     /*  Dynamical Friction Treewalk */
     /*************************************************************************/
-    struct BHDynFricPriv dynpriv[1] = {0};
-    dynpriv->kf = &kf;
-    dynpriv->Ti_Current = times->Ti_Current;
     /* Update the kernel quantities for dynamic friction, if required.
      * This takes place on a longer timestep than the hydro acceleration
      * to avoid extra treebuilds. Note this includes the potential minimum.
      * If black hole repositioning is on, the treewalk to reposition
      * to the local potential minimum is run.*/
-    blackhole_dynfric(ActiveBlackHoles, NumActiveBlackHoles, ddecomp, dynpriv);
+    blackhole_dynfric(ActiveBlackHoles, NumActiveBlackHoles, ddecomp, kf2, times->Ti_Current, MPI_COMM_WORLD);
     /* Compute the DF acceleration for all active black holes*/
     blackhole_dfaccel(ActiveBlackHoles, NumActiveBlackHoles, atime, CP->GravInternal);
 
     walltime_measure("/BH/DynFric");
+
+    struct kick_factor_data kf;
+    init_kick_factor_data(&kf, times, timebinmgr, CP);
 
     struct BHPriv priv[1] = {0};
     priv->units = units;

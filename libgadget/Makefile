@@ -19,11 +19,10 @@ TESTED = cooling \
 	timebinmgr \
 	neutrinos_lra \
 	omega_nu_single \
-	density \
-	gravity \
+	gravity density \
 	metal_return
 
-MPI_TESTED = fof exchange
+MPI_TESTED = fof exchange gravity density
 
 TESTBIN :=$(UTILS_TESTED:%=.objs/utils/test_%) $(UTILS_MPI_TESTED:%=.objs/utils/test_%) $(TESTED:%=.objs/test_%) $(MPI_TESTED:%=.objs/test_%)
 MPISUITE = $(MPI_TESTED:%=test_%) $(UTILS_MPI_TESTED:%=utils/test_%)
@@ -56,7 +55,7 @@ cosmology.cpp neutrinos_lra.cpp omega_nu_single.cpp timebinmgr.cpp lightcone.cpp
 fof.cpp fofpetaio.cpp petaio.cpp petapm.cpp \
 stats.cpp drift.cpp checkpoint.cpp \
 slotsmanager.cpp domain.cpp timestep.cpp  plane.cpp winds.cpp \
-exchange.cpp sfr_eff.cpp runtests.cpp run.cpp metal_return.cpp \
+exchange.cpp sfr_eff.cpp runtests.cpp run.cpp metal_return.cpp stellar_density2.cpp \
 bhinfo.cpp blackhole.cpp bhdynfric.cpp forcetree.cpp
 
 GADGET_CUDA_SRCS = gravshortcuda.cu densitycuda.cu hydracuda.cu

@@ -37,18 +37,24 @@ static void setup(void) {
     init_forcetree_params(0.7);
 }
 
+/* Accumulate the acceleration on the particle at ipos from a unit mass at jpos,
+ * shifted by offset. Returns without accumulating for coincident points, so
+ * self-interactions are skipped.*/
 static void
-grav_force(const int p_i, const int other, const double * offset, double * accns)
+grav_force(const double * ipos, const double * jpos, const double * offset, double * accn)
 {
-
     double r2 = 0;
     int d;
     double dist[3];
     for(d = 0; d < 3; d ++) {
-        /* the distance vector points to 'other' */
-        dist[d] = offset[d] + PartManager->Base[p_i].Pos[d] - PartManager->Base[other].Pos[d];
+        /* the distance vector points to the source at jpos */
+        dist[d] = offset[d] + ipos[d] - jpos[d];
         r2 += dist[d] * dist[d];
     }
+
+    /* Skip self-interactions*/
+    if(r2 == 0)
+        return;
 
     const double r = sqrt(r2);
 
@@ -67,10 +73,8 @@ grav_force(const int p_i, const int other, const double * offset, double * accns
                         38.4 * u * u - 10.666666666667 * u * u * u - 0.066666666667 / (u * u * u));
     }
 
-    for(d = 0; d < 3; d ++) {
-        accns[3*p_i + d] += - dist[d] * fac * G * PartManager->Base[other].Mass;
-        accns[3*other + d] += dist[d] * fac * G * PartManager->Base[p_i].Mass;
-    }
+    for(d = 0; d < 3; d ++)
+        accn[d] += - dist[d] * fac * G;
 }
 
 void check_accns(double * meanerr_tot, double * maxerr_tot, double *PairAccn, double meanacc)
@@ -122,34 +126,36 @@ static void find_means(double * meangrav, double * suppmean, double * suppaccns)
 }
 
 
-/* This checks the force on each particle using a direct summation:
+/* This checks the force on each local particle using a direct summation
+ * over the global particle set (of which every rank has a copy in gpos):
  * very slow, but accurate.
  * Periodic boundary conditions are included by mirroring the box.*/
-static void force_direct(double * accn)
+static void force_direct(double * accn, const double * gpos, const int64_t nglobal)
 {
     memset(accn, 0, 3 * sizeof(double) * PartManager->NumPart);
-    int xx, yy, zz;
-    /* Checked that increasing p_i has no visible effect on the computed force accuracy*/
+    /* Checked that increasing the number of mirror boxes has no visible effect on the computed force accuracy*/
     int repeat = 1;
+    int64_t i;
     /* (slowly) compute gravitational force, accounting for periodicity by just inventing extra boxes on either side.*/
-    for(xx=-repeat; xx <= repeat; xx++)
-        for(yy=-repeat; yy <= repeat; yy++)
-            for(zz=-repeat; zz <= repeat; zz++)
-            {
-                int i;
-                double offset[3] = {PartManager->BoxSize * xx, PartManager->BoxSize * yy, PartManager->BoxSize * zz};
-                for(i = 0; i < PartManager->NumPart; i++) {
-                    int j;
-                    for(j = i+1; j < PartManager->NumPart; j++)
-                        grav_force(i, j, offset, accn);
+    #pragma omp parallel for
+    for(i = 0; i < PartManager->NumPart; i++) {
+        int xx, yy, zz;
+        for(xx=-repeat; xx <= repeat; xx++)
+            for(yy=-repeat; yy <= repeat; yy++)
+                for(zz=-repeat; zz <= repeat; zz++)
+                {
+                    double offset[3] = {PartManager->BoxSize * xx, PartManager->BoxSize * yy, PartManager->BoxSize * zz};
+                    int64_t j;
+                    for(j = 0; j < nglobal; j++)
+                        grav_force(PartManager->Base[i].Pos, gpos + 3*j, offset, accn + 3*i);
                 }
-            }
+    }
 }
 
-static int check_against_force_direct(double ErrTolForceAcc)
+static int check_against_force_direct(double ErrTolForceAcc, const double * gpos, const int64_t nglobal)
 {
     double * accn = mymalloc("accelerations", double, 3*PartManager->NumPart);
-    force_direct(accn);
+    force_direct(accn, gpos, nglobal);
     double meanerr=0, maxerr=-1, meanacc=0, meanforce=0;
     find_means(&meanacc, &meanforce, accn);
     check_accns(&meanerr, &maxerr, accn, meanacc);
@@ -162,19 +168,35 @@ static int check_against_force_direct(double ErrTolForceAcc)
     return 0;
 }
 
-static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int direct)
+/* Distribute the global particle set (gpos, identical on every rank) among the
+ * ranks: each rank keeps a contiguous slice, with globally unique IDs recording
+ * the index into gpos.*/
+static void setup_particles(const double * gpos, const int64_t nglobal)
 {
-    /*Sort by peano key so p_i is more realistic*/
-    int i;
+    int ThisTask, NTask;
+    MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
+    MPI_Comm_size(MPI_COMM_WORLD, &NTask);
+    const int64_t start = ThisTask * nglobal / NTask;
+    const int64_t end = (ThisTask + 1) * nglobal / NTask;
+    PartManager->NumPart = end - start;
+    int64_t i;
     #pragma omp parallel for
     for(i=0; i<PartManager->NumPart; i++) {
+        int j;
+        for(j=0; j<3; j++)
+            PartManager->Base[i].Pos[j] = gpos[3*(start+i)+j];
         PartManager->Base[i].Type = 1;
         PartManager->Base[i].Mass = 1;
-        PartManager->Base[i].ID = i+1;
+        PartManager->Base[i].ID = start+i+1;
         PartManager->Base[i].TimeBinHydro = 0;
         PartManager->Base[i].TimeBinGravity = 0;
         PartManager->Base[i].IsGarbage = 0;
     }
+}
+
+static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int direct, const double * gpos, const int64_t nglobal)
+{
+    setup_particles(gpos, nglobal);
 
     DomainDecomp ddecomp = {0};
     domain_decompose_full(&ddecomp, MPI_COMM_WORLD);
@@ -209,7 +231,8 @@ static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int di
     treeacc.ShortRangeForceWindowType = SHORTRANGE_FORCE_WINDOW_TYPE_EXACT;
 
     set_gravshort_treepar(treeacc);
-    gravshort_set_softenings(PartManager->BoxSize / cbrt(PartManager->NumPart));
+    /* Softening must use the global particle number so it is independent of the number of ranks*/
+    gravshort_set_softenings(PartManager->BoxSize / cbrt(nglobal));
 
     /* Twice so the opening angle is consistent*/
     ActiveParticles act = init_empty_active_particles(PartManager);
@@ -220,7 +243,7 @@ static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int di
     petapm_destroy(&pm);
     domain_free(&ddecomp);
     if(direct)
-        check_against_force_direct(ErrTolForceAcc);
+        check_against_force_direct(ErrTolForceAcc, gpos, nglobal);
 }
 
 BOOST_AUTO_TEST_CASE(test_force_flat)
@@ -230,17 +253,17 @@ BOOST_AUTO_TEST_CASE(test_force_flat)
     int numpart = PartManager->NumPart;
     int ncbrt = cbrt(numpart);
     particle_alloc_memory(PartManager, 8, numpart);
-    /* Create a regular grid of particles, 8x8x8, all of type 1,
+    /* Create a regular grid of particles, 16x16x16, all of type 1,
      * in a box 8 kpc across.*/
+    double * gpos = mymalloc("globalpos", double, 3*numpart);
     int i;
     #pragma omp parallel for
     for(i=0; i<numpart; i++) {
-        PartManager->Base[i].Pos[0] = (PartManager->BoxSize/ncbrt) * (i/ncbrt/ncbrt);
-        PartManager->Base[i].Pos[1] = (PartManager->BoxSize/ncbrt) * ((i/ncbrt) % ncbrt);
-        PartManager->Base[i].Pos[2] = (PartManager->BoxSize/ncbrt) * (i % ncbrt);
+        gpos[3*i] = (PartManager->BoxSize/ncbrt) * (i/ncbrt/ncbrt);
+        gpos[3*i+1] = (PartManager->BoxSize/ncbrt) * ((i/ncbrt) % ncbrt);
+        gpos[3*i+2] = (PartManager->BoxSize/ncbrt) * (i % ncbrt);
     }
-    PartManager->NumPart = numpart;
-    do_force_test(48, 1.5, 0.002, 0);
+    do_force_test(48, 1.5, 0.002, 0, gpos, numpart);
     /* For a homogeneous mass distribution, the force should be zero*/
     double meanerr=0, maxerr=-1;
     #pragma omp parallel for reduction(+: meanerr) reduction(max: maxerr)
@@ -264,6 +287,7 @@ BOOST_AUTO_TEST_CASE(test_force_flat)
     /*Make some statements about the force error*/
     BOOST_TEST(maxerr < 0.015);
     BOOST_TEST(meanerr < 0.005);
+    myfree(gpos);
     myfree(PartManager->Base);
 }
 
@@ -276,41 +300,44 @@ BOOST_AUTO_TEST_CASE(test_force_close)
     double close = 5000;
     particle_alloc_memory(PartManager, 8, numpart);
     /* Create particles clustered in one place, all of type 1.*/
+    double * gpos = mymalloc("globalpos", double, 3*numpart);
     int i;
     #pragma omp parallel for
     for(i=0; i<numpart; i++) {
-        PartManager->Base[i].Pos[0] = 4. + (i/ncbrt/ncbrt)/close;
-        PartManager->Base[i].Pos[1] = 4. + ((i/ncbrt) % ncbrt) /close;
-        PartManager->Base[i].Pos[2] = 4. + (i % ncbrt)/close;
+        gpos[3*i] = 4. + (i/ncbrt/ncbrt)/close;
+        gpos[3*i+1] = 4. + ((i/ncbrt) % ncbrt) /close;
+        gpos[3*i+2] = 4. + (i % ncbrt)/close;
     }
-    PartManager->NumPart = numpart;
-    do_force_test(48, 1.5, 0.002, 1);
+    do_force_test(48, 1.5, 0.002, 1, gpos, numpart);
+    myfree(gpos);
     myfree(PartManager->Base);
 }
 
 void do_random_test(boost::random::mt19937 & r, const int numpart)
 {
     boost::random::uniform_real_distribution<double> dist(0, 1);
-    /* Create a regular grid of particles, 8x8x8, all of type 1,
-     * in a box 8 kpc across.*/
+    /* Create a random particle distribution, all of type 1,
+     * in a box 8 kpc across. Every rank draws the same sequence,
+     * so gpos is identical everywhere.*/
+    double * gpos = mymalloc("globalpos", double, 3*numpart);
     int i;
     for(i=0; i<numpart/4; i++) {
         int j;
         for(j=0; j<3; j++)
-            PartManager->Base[i].Pos[j] = PartManager->BoxSize * dist(r);
+            gpos[3*i+j] = PartManager->BoxSize * dist(r);
     }
     for(i=numpart/4; i<3*numpart/4; i++) {
         int j;
         for(j=0; j<3; j++)
-            PartManager->Base[i].Pos[j] = PartManager->BoxSize/2 + PartManager->BoxSize/8 * exp(pow(dist(r)-0.5,2));
+            gpos[3*i+j] = PartManager->BoxSize/2 + PartManager->BoxSize/8 * exp(pow(dist(r)-0.5,2));
     }
     for(i=3*numpart/4; i<numpart; i++) {
         int j;
         for(j=0; j<3; j++)
-            PartManager->Base[i].Pos[j] = PartManager->BoxSize*0.1 + PartManager->BoxSize/32 * exp(pow(dist(r)-0.5,2));
+            gpos[3*i+j] = PartManager->BoxSize*0.1 + PartManager->BoxSize/32 * exp(pow(dist(r)-0.5,2));
     }
-    PartManager->NumPart = numpart;
-    do_force_test(48, 1.5, 0.002, 1);
+    do_force_test(48, 1.5, 0.002, 1, gpos, numpart);
+    myfree(gpos);
 }
 
 BOOST_AUTO_TEST_CASE(test_force_random)

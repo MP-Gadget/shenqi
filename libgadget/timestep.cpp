@@ -1280,14 +1280,14 @@ public:
      }
 };
 
-static void print_timebin_statistics(const DriftKickTimes * const times, TimeBinMgr * timebinmgr, const int NumCurrentTiStep, int * TimeBinCountType, const double Time, const int64_t ActiveGravityCount);
+static void print_timebin_statistics(const DriftKickTimes * const times, TimeBinMgr * timebinmgr, const int NumCurrentTiStep, int64_t * TimeBinCountType, const double Time, const int64_t ActiveGravityCount);
 
 /* mark the bins that will be active before the next kick*/
 void
 build_active_particles(ActiveParticles * act, const DriftKickTimes * const times, TimeBinMgr * timebinmgr, const int NumCurrentTiStep, const double Time, const struct part_manager_type * const PartManager)
 {
-    int * TimeBinCountType = mymalloc("TimeBinCountType", int, 6*(TIMEBINS+1));
-    memset(TimeBinCountType, 0, 6 * (TIMEBINS+1) * sizeof(int));
+    int64_t TimeBinCountType[6*(TIMEBINS+1)];
+    memset(TimeBinCountType, 0, 6 * (TIMEBINS+1) * sizeof(int64_t));
     act->MaxActiveParticle = PartManager->MaxPart;
 
     /*We know all particles are active on a PM timestep*/
@@ -1348,7 +1348,6 @@ build_active_particles(ActiveParticles * act, const DriftKickTimes * const times
 
     /*Print statistics for this time bin*/
     print_timebin_statistics(times, timebinmgr, NumCurrentTiStep, TimeBinCountType, Time, act->NumActiveGravity);
-    myfree(TimeBinCountType);
     return;
 }
 
@@ -1407,17 +1406,11 @@ void free_active_particles(ActiveParticles * act)
  * FdCPU the cumulative cpu-time consumption in various parts of the
  * code is stored.
  */
-static void print_timebin_statistics(const DriftKickTimes * const times, TimeBinMgr * timebinmgr, const int NumCurrentTiStep, int * TimeBinCountType, const double Time, const int64_t ActiveGravityCount)
+static void print_timebin_statistics(const DriftKickTimes * const times, TimeBinMgr * timebinmgr, const int NumCurrentTiStep, int64_t * TimeBinCountType, const double Time, const int64_t ActiveGravityCount)
 {
-    int i;
-    int64_t * tot_count_type = ta_malloc("totcounttype", int64_t, 6 * (TIMEBINS+1));
-    int64_t * tot_count_type_loc = ta_malloc("totcounttype_loc", int64_t, 6 * (TIMEBINS+1));
-    #pragma omp parallel for
-    for(i = 0; i < 6 * (TIMEBINS+1); i++) {
-        tot_count_type_loc[i] = TimeBinCountType[i];
-    }
-    MPI_Reduce(tot_count_type_loc, tot_count_type, 6 * (TIMEBINS+1), MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
-    myfree(tot_count_type_loc);
+    /* Allreduce is not strictly necessary, but since the caller owns TimeBinCountType,
+     * let's make sure it is the same on all ranks*/
+    MPI_Allreduce(MPI_IN_PLACE, TimeBinCountType, 6 * (TIMEBINS+1), MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     int64_t TotActiveGravityCount;
     MPI_Reduce(&ActiveGravityCount, &TotActiveGravityCount, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
 
@@ -1425,22 +1418,19 @@ static void print_timebin_statistics(const DriftKickTimes * const times, TimeBin
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
     /* Only do the work on the root rank*/
     if(ThisTask != 0) {
-        myfree(tot_count_type);
         return;
     }
 
-    int64_t * tot_count = ta_malloc("totcount", int64_t, TIMEBINS+1);
+    int64_t tot_count[TIMEBINS+1];
     memset(tot_count, 0, sizeof(int64_t) * (TIMEBINS+1));
     int64_t tot_num_force = 0;
     int64_t TotNumPart = 0, TotNumType[6] = {0};
 
-    int type;
-    for(type=0; type<6; type++) {
-        int bin;
-        for(bin = 0; bin<TIMEBINS+1; bin++) {
-            tot_count[bin] += tot_count_type[(TIMEBINS+1) * type + bin];
-            TotNumType[type] += tot_count_type[(TIMEBINS+1) * type + bin];
-            TotNumPart += tot_count_type[(TIMEBINS+1) * type + bin];
+    for(int type=0; type<6; type++) {
+        for(int bin = 0; bin<TIMEBINS+1; bin++) {
+            tot_count[bin] += TimeBinCountType[(TIMEBINS+1) * type + bin];
+            TotNumType[type] += TimeBinCountType[(TIMEBINS+1) * type + bin];
+            TotNumPart += TimeBinCountType[(TIMEBINS+1) * type + bin];
             if(is_timebin_active(bin, times->Ti_Current))
                 tot_num_force += tot_count[bin];
         }
@@ -1462,17 +1452,17 @@ static void print_timebin_statistics(const DriftKickTimes * const times, TimeBin
     /* Active counts*/
     int64_t tot = 0, tot_type[6] = {0};
 
-    for(i = TIMEBINS;  i >= 0; i--) {
+    for(int i = TIMEBINS;  i >= 0; i--) {
         if(tot_count[i] == 0) continue;
         message(0, " %c bin=%2d % 12ld % 12ld % 12ld % 12ld % 12ld % 12ld %6g\n",
                 is_timebin_active(i, times->Ti_Current) ? 'X' : ' ',
                 i,
-                tot_count_type[i],
-                tot_count_type[(TIMEBINS+1) * 1 + i],
-                tot_count_type[(TIMEBINS+1) * 2 + i],
-                tot_count_type[(TIMEBINS+1) * 3 + i],
-                tot_count_type[(TIMEBINS+1) * 4 + i],
-                tot_count_type[(TIMEBINS+1) * 5 + i],
+                TimeBinCountType[i],
+                TimeBinCountType[(TIMEBINS+1) * 1 + i],
+                TimeBinCountType[(TIMEBINS+1) * 2 + i],
+                TimeBinCountType[(TIMEBINS+1) * 3 + i],
+                TimeBinCountType[(TIMEBINS+1) * 4 + i],
+                TimeBinCountType[(TIMEBINS+1) * 5 + i],
                 timebinmgr->get_dloga_for_bin(i, times->Ti_Current));
 
         if(is_timebin_active(i, times->Ti_Current))
@@ -1480,12 +1470,10 @@ static void print_timebin_statistics(const DriftKickTimes * const times, TimeBin
             tot += tot_count[i];
             int ptype;
             for(ptype = 0; ptype < 6; ptype ++) {
-                tot_type[ptype] += tot_count_type[(TIMEBINS+1) * ptype + i];
+                tot_type[ptype] += TimeBinCountType[(TIMEBINS+1) * ptype + i];
             }
         }
     }
-    myfree(tot_count);
-    myfree(tot_count_type);
     message(0,     "               -----------------------------------\n");
     message(0,     "Total:    % 12ld % 12ld % 12ld % 12ld % 12ld % 12ld  Sum:% 14ld Gravity: %14ld\n",
         tot_type[0], tot_type[1], tot_type[2], tot_type[3], tot_type[4], tot_type[5], tot, TotActiveGravityCount);
