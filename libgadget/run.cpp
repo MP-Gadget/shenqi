@@ -54,7 +54,6 @@ static TimeBinMgr timebinmgr;
 static struct run_params
 {
     int UseGPU;                 /* Should we use GPU acceleration */
-    int FFTBackend;             /* Which distributed FFT library the PM force uses (enum PetaPMBackend) */
     double SlotsIncreaseFactor; /* !< What percentage to increase the slot allocation by when requested*/
     int OutputDebugFields;      /* Flag whether to include a lot of debug output in snapshots*/
 
@@ -124,7 +123,6 @@ set_all_global_params(ParameterSet * ps)
    All.FOFFileBase = param_get_string(ps, "FOFFileBase");
 
    All.UseGPU = param_get_int(ps, "UseGPU");
-   All.FFTBackend = param_get_enum(ps, "FFTBackend");
    All.CP.CMBTemperature = param_get_double(ps, "CMBTemperature");
    All.CP.RadiationOn = param_get_int(ps, "RadiationOn");
    All.CP.Omega0 = param_get_double(ps, "Omega0");
@@ -219,7 +217,7 @@ begrun(const int RestartSnapNum, struct header_data * head)
     /*Initialize the memory manager*/
     mymalloc_init(All.UseGPU);
 
-    petapm_module_init(omp_get_max_threads(), All.UseGPU, (enum PetaPMBackend) All.FFTBackend);
+    petapm_module_init(omp_get_max_threads(), All.UseGPU);
     walltime_init(&Clocks);
 
     *head = petaio_read_header(RestartSnapNum, All.OutputDir, &All.CP);

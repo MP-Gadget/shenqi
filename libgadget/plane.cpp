@@ -258,9 +258,9 @@ plane_pm_apply_transfer(PetaPM * pm, petapm_complex * src, petapm_complex * dst,
             k2 += ((int64_t) kpos[k]) * kpos[k];
         }
 
-        pos[0] = kpos[pm->fourier_axes[0]];
-        pos[1] = kpos[pm->fourier_axes[1]];
-        pos[2] = kpos[pm->fourier_axes[2]];
+        pos[0] = kpos[2];
+        pos[1] = kpos[0];
+        pos[2] = kpos[1];
         dst[ip][0] = src[ip][0];
         dst[ip][1] = src[ip][1];
         if(H)

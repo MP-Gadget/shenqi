@@ -29,7 +29,7 @@ static void readout_vel_z(PetaPM * pm, int i, double * mesh, double weight);
 static void readout_disp_x(PetaPM * pm, int i, double * mesh, double weight);
 static void readout_disp_y(PetaPM * pm, int i, double * mesh, double weight);
 static void readout_disp_z(PetaPM * pm, int i, double * mesh, double weight);
-static void gaussian_fill(PetaPM * pm, petapm_complex * rho_k, int UnitaryAmplitude, int InvertPhase, const int Seed);
+static void gaussian_fill(int Nmesh, PetaPMRegion * region, petapm_complex * rho_k, int UnitaryAmplitude, int InvertPhase, const int Seed);
 
 static inline double periodic_wrap(double x, const double BoxSize)
 {
@@ -221,7 +221,8 @@ void displacement_fields(PetaPM * pm, enum TransferType Type, struct ic_part_dat
     /*This allocates the memory*/
     petapm_complex * rho_k = petapm_alloc_rhok(pm);
 
-    gaussian_fill(pm, rho_k, GenicConfig.UnitaryAmplitude, GenicConfig.InvertPhase, GenicConfig.Seed);
+    gaussian_fill(pm->Nmesh, petapm_get_fourier_region(pm),
+		  rho_k, GenicConfig.UnitaryAmplitude, GenicConfig.InvertPhase, GenicConfig.Seed);
 
     petapm_force_c2r(pm, rho_k, regions, Nregions, functions);
 
@@ -359,24 +360,24 @@ static void readout_disp_z(PetaPM * pm, int i, double * mesh, double weight) {
 }
 
 static void
-gaussian_fill(PetaPM * petapm, petapm_complex * rho_k, int setUnitaryAmplitude, int setInvertPhase, const int Seed)
+gaussian_fill(int Nmesh, PetaPMRegion * region, petapm_complex * rho_k, int setUnitaryAmplitude, int setInvertPhase, const int Seed)
 {
-    PetaPMRegion * region = petapm_get_fourier_region(petapm);
-    /* fastpm deals with strides properly; petapm not. So we translate it here,
-     * permuting the fourier storage order to physical (x, y, z) with the
-     * backend-dependent axis map. */
+    /* fastpm deals with strides properly; petapm not. So we translate it here. */
     PMDesc pm[1];
     int d;
     for (d = 0; d < 3; d ++) {
-        pm->Nmesh[d] = petapm->Nmesh;
+        pm->Nmesh[d] = Nmesh;
     }
 
-    for (d = 0; d < 3; d ++) {
-        const int sd = petapm->fourier_axes[d];
-        pm->ORegion.start[d] = region->offset[sd];
-        pm->ORegion.size[d] = region->size[sd];
-        pm->ORegion.strides[d] = region->strides[sd];
-    }
+    pm->ORegion.start[0] = region->offset[2];
+    pm->ORegion.size[0] = region->size[2];
+    pm->ORegion.strides[0] = region->strides[2];
+    pm->ORegion.start[1] = region->offset[0];
+    pm->ORegion.size[1] = region->size[0];
+    pm->ORegion.strides[1] = region->strides[0];
+    pm->ORegion.start[2] = region->offset[1];
+    pm->ORegion.size[2] = region->size[1];
+    pm->ORegion.strides[2] = region->strides[1];
 
     pm->ORegion.total = region->totalsize;
     pmic_fill_gaussian_gadget(pm, (double*) rho_k, Seed, setUnitaryAmplitude, setInvertPhase);

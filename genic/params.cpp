@@ -54,13 +54,6 @@ create_parameters(void)
     param_declare_int(ps, "InvertPhase", OPTIONAL, 0, "Flip phase for paired simulation");
     param_declare_int(ps, "PrePosGridCenter", OPTIONAL, 0, "Set pre-displacement positions at the center of the grid");
     param_declare_int(ps, "ShowBacktrace", OPTIONAL, 1, "Print a backtrace on crash. Hangs on stampede.");
-    ParameterEnum FFTBackendEnum = {
-        {"heffte", PETAPM_BACKEND_HEFFTE},
-        {"fftw", PETAPM_BACKEND_FFTW},
-    };
-    param_declare_enum(ps, "FFTBackend", FFTBackendEnum, OPTIONAL, "heffte",
-        "Distributed FFT library. heffte (pencil decomposition) scales to large task counts; "
-        "fftw (slab decomposition via fftw3-mpi) is faster at small task counts but needs NTask <= Nmesh.");
 
     param_declare_double(ps, "PrimordialAmp", OPTIONAL, 2.215e-9, "Ignored, but used by external CLASS script to set powr spectrum amplitude.");
     param_declare_double(ps, "Sigma8", OPTIONAL, -1, "Renormalise Sigma8 to this number if positive");
@@ -152,7 +145,6 @@ void read_parameterfile(char *fname, struct genic_config * GenicConfig, int * Sh
 
     /*Simulation parameters*/
     GenicConfig->UsePeculiarVelocity = param_get_int(ps, "UsePeculiarVelocity");
-    GenicConfig->FFTBackend = param_get_enum(ps, "FFTBackend");
     GenicConfig->SavePrePos = param_get_int(ps, "SavePrePos");
     GenicConfig->PrePosGridCenter = param_get_int(ps, "PrePosGridCenter");
     GenicConfig->BoxSize = param_get_double(ps, "BoxSize");

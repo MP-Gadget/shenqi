@@ -11,18 +11,8 @@
  * library headers here. */
 typedef double petapm_complex[2];
 
-/* Opaque holder for the FFT plans, defined in petapm.cpp. */
+/* Opaque holder for the heffte FFT plans, defined in petapm.cpp. */
 struct PetaPMPlans;
-
-/* Which library computes the distributed FFT. HEFFTE uses a pencil
- * decomposition and scales to large task counts. FFTW uses fftw3-mpi's
- * slab decomposition: fewer communication phases and fully threaded
- * local transforms make it faster at small task counts, but it needs
- * NTask <= Nmesh and parallelism is limited to Nmesh slabs. */
-enum PetaPMBackend {
-    PETAPM_BACKEND_HEFFTE = 0,
-    PETAPM_BACKEND_FFTW = 1,
-};
 
 typedef struct Region {
     /* represents a region in the FFT Mesh */
@@ -91,11 +81,6 @@ typedef struct PetaPM {
     int ThisTask2d[2];
     int NTask2d[2];
     int * Mesh2Task[2]; /* conversion from real space mesh to task2d,  */
-    /* Storage layout of fourier_space_region: physical axis d (x, y, z)
-     * is stored region dimension fourier_axes[d]. Depends on the FFT
-     * backend: heffte/pfft transposed order is (y, z, x) = {2, 0, 1},
-     * fftw3-mpi transposed order is (y, x, zc) = {1, 0, 2}. */
-    int fourier_axes[3];
     Power ps[1];
 } PetaPM;
 
@@ -147,9 +132,8 @@ typedef struct {
 typedef void * (*petapm_malloc_func)(char * name, size_t * size);
 typedef void * (*petapm_mfree_func)(void * ptr);
 
-/* UseGPU selects the cufft backend at run time (needs USE_CUDA at compile
- * time) and overrides the CPU backend choice. */
-void petapm_module_init(int Nthreads, int UseGPU, enum PetaPMBackend backend);
+/* UseGPU selects the cufft backend at run time (needs USE_CUDA at compile time). */
+void petapm_module_init(int Nthreads, int UseGPU);
 
 void petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_Comm comm);
 

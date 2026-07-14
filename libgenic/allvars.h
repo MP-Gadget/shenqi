@@ -38,7 +38,6 @@ struct genic_config {
     std::string InitCondFile;
     double TimeIC;
     int UsePeculiarVelocity;
-    int FFTBackend;  /* enum PetaPMBackend: which distributed FFT library to use */
 };
 
 #endif
