@@ -397,10 +397,14 @@ int64_t build_vdisp_queue(int ** WorkSet, int * active_set, int64_t size, const 
 
 class WindVDispResult : public TreeWalkResultBase<WindVDispQuery, WindVDispOutput>{
     public:
-    double V1sum[NWINDHSML][3];
-    double V2sum[NWINDHSML];
-    double NumNgb[NWINDHSML];
+    double V1sum[NWINDHSML][3] = {0};
+    double V2sum[NWINDHSML] = {0};
+    double NumNgb[NWINDHSML] = {0};
     int maxcmpte = NWINDHSML;
+
+    MYCUDAFN WindVDispResult(const WindVDispQuery& query):
+        TreeWalkResultBase<WindVDispQuery, WindVDispOutput>(query) {}
+
     template<TreeWalkReduceMode mode>
     MYCUDAFN void reduce(int place, const WindVDispOutput * output, struct particle_data * const parts)
     {
