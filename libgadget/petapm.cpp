@@ -85,10 +85,6 @@ static void layout_finish(struct Layout * L);
 static void layout_build_and_exchange_cells_to_pfft(PetaPM * pm, struct Layout * L, double * meshbuf, double * real);
 static void layout_build_and_exchange_cells_to_local(PetaPM * pm, struct Layout * L, double * meshbuf, double * real);
 
-/* cell_iterator needs to be thread safe !*/
-typedef void (* cell_iterator)(double * cell_value, double * comm_buffer);
-static void layout_iterate_cells(PetaPM * pm, struct Layout * L, cell_iterator iter, double * real);
-
 struct Pencil { /* a pencil starting at offset, with lenght len */
     int offset[3];
     int len;
@@ -893,13 +889,105 @@ static void layout_finish(struct Layout * L) {
     myfree(L->ibuffer);
 }
 
+/* iterate over the pairs of real field cells and RecvBuf cells
+ *
+ * Each pencil is a z-run at a fixed (x, y), so pencils can only overlap
+ * in the real array if they target the same local (x, y) row. Pencils
+ * are therefore grouped by row and each row is processed by a single
+ * thread: iter may modify the real cell without atomics.
+ * */
+template<typename cell_iterator>
+static void layout_iterate_cells(PetaPM * pm,
+                     struct Layout * L,
+                     double * real)
+{
+    if(L->NpImport == 0)
+        return;
+
+    const int64_t Nrows = pm->real_space_region.size[0] * pm->real_space_region.size[1];
+    int64_t * pencilrow = mymalloc("PencilRow", int64_t, L->NpImport);
+
+#pragma omp parallel for
+    for(int64_t i = 0; i < L->NpImport; i ++) {
+        struct Pencil * p = &L->PencilRecv[i];
+        int64_t row = 0;
+        for(int k = 0; k < 2; k ++) {
+            int ix = p->offset[k];
+            while(ix < 0) ix += pm->Nmesh;
+            while(ix >= pm->Nmesh) ix -= pm->Nmesh;
+            ix -= pm->real_space_region.offset[k];
+            if(ix >= pm->real_space_region.size[k]) {
+                /* serious problem assumption about fft layout was wrong*/
+                endrun(1, "bad fft region size: original k: %d ix: %d, cur ix: %d, region: off %ld size %ld\n", k, p->offset[k], ix, pm->real_space_region.offset[k], pm->real_space_region.size[k]);
+            }
+            row = row * pm->real_space_region.size[k] + ix;
+        }
+        pencilrow[i] = row;
+    }
+
+    /* counting sort of the pencil indices by row */
+    int64_t * rowend = mymalloc("PencilRowEnd", int64_t, Nrows + 1);
+    int64_t * perm = mymalloc("PencilPerm", int64_t, L->NpImport);
+    memset(rowend, 0, (Nrows + 1) * sizeof(int64_t));
+    for(int64_t i = 0; i < L->NpImport; i ++)
+        rowend[pencilrow[i] + 1] ++;
+    for(int64_t i = 0; i < Nrows; i ++)
+        rowend[i + 1] += rowend[i];
+    /* fill perm using rowend[row] as a cursor: afterwards rowend[row] is
+     * the end of the row's pencils and rowend[row - 1] the start. */
+    for(int64_t i = 0; i < L->NpImport; i ++)
+        perm[rowend[pencilrow[i]] ++] = i;
+
+    cell_iterator iter {real, L->BufRecv};
+
+#pragma omp parallel for
+    for(int64_t row = 0; row < Nrows; row ++) {
+        for(int64_t pi = (row == 0) ? 0 : rowend[row - 1]; pi < rowend[row]; pi ++) {
+            struct Pencil * p = &L->PencilRecv[perm[pi]];
+            /* the row is contiguous along z: strides[1] == size[2] */
+            const ptrdiff_t linear0 = pencilrow[perm[pi]] * pm->real_space_region.strides[1];
+
+            for(int j = 0; j < p->len; j ++) {
+                int iz = p->offset[2] + j;
+                while(iz < 0) iz += pm->Nmesh;
+                while(iz >= pm->Nmesh) iz -= pm->Nmesh;
+                if(iz >= pm->real_space_region.size[2]) {
+                    /* serious problem assmpution about fft layout was wrong*/
+                    endrun(1, "bad fft region size: original iz: %d, cur iz: %d, region: off %ld size %ld\n", p->offset[2], iz, pm->real_space_region.offset[2], pm->real_space_region.size[2]);
+                }
+                ptrdiff_t linear = iz * pm->real_space_region.strides[2] + linear0;
+                /* operate on the pencil, either modifying real or BufRecv */
+                iter(linear, p->first + j);
+            }
+        }
+    }
+
+    myfree(perm);
+    myfree(rowend);
+    myfree(pencilrow);
+}
+
 /* exchange cells to their fft host,
  * then reduce the cells to the fft array.
  * No atomic is needed: layout_iterate_cells groups pencils by target
  * row, so no two threads touch the same cell. */
-static void to_pfft(double * cell, double * buf) {
-            cell[0] += buf[0];
-}
+struct layout_iterator_to_pfft {
+    double * cells;
+    double * bufrecv;
+    void operator()(ptrdiff_t cellind, int bufind) {
+                cells[cellind] += bufrecv[bufind];
+    }
+};
+
+/* readout cells on their fft host, then exchange the cells to the domain
+ * host */
+struct layout_iterator_to_region {
+    double * cell;
+    double * region;
+    void operator()(ptrdiff_t cellind, int regionind) {
+        region[regionind] = cell[cellind];
+    }
+};
 
 static void
 layout_build_and_exchange_cells_to_pfft(
@@ -946,15 +1034,9 @@ layout_build_and_exchange_cells_to_pfft(
     message(0, "totmassExport = %g totmassImport = %g\n", totmassExport, totmassImport);
 #endif
 
-    layout_iterate_cells(pm, L, to_pfft, real);
+    layout_iterate_cells<layout_iterator_to_pfft>(pm, L, real);
     myfree(L->BufRecv);
     myfree(L->BufSend);
-}
-
-/* readout cells on their fft host, then exchange the cells to the domain
- * host */
-static void to_region(double * cell, double * region) {
-    *region = *cell;
 }
 
 static void
@@ -969,7 +1051,7 @@ layout_build_and_exchange_cells_to_local(
     int64_t offset;
 
     /*layout_iterate_cells transfers real to L->BufRecv*/
-    layout_iterate_cells(pm, L, to_region, real);
+    layout_iterate_cells<layout_iterator_to_region>(pm, L, real);
 
     /*Real is done now: reuse the memory for BufSend*/
     myfree(real);
@@ -994,88 +1076,6 @@ layout_build_and_exchange_cells_to_local(
     }
     myfree(L->BufSend);
     myfree(L->BufRecv);
-}
-
-/* iterate over the pairs of real field cells and RecvBuf cells
- *
- * Each pencil is a z-run at a fixed (x, y), so pencils can only overlap
- * in the real array if they target the same local (x, y) row. Pencils
- * are therefore grouped by row and each row is processed by a single
- * thread: iter may modify the real cell without atomics.
- * */
-static void
-layout_iterate_cells(PetaPM * pm,
-                     struct Layout * L,
-                     cell_iterator iter,
-                     double * real)
-{
-    if(L->NpImport == 0)
-        return;
-
-    const int64_t Nrows = pm->real_space_region.size[0] * pm->real_space_region.size[1];
-    int64_t * pencilrow = mymalloc("PencilRow", int64_t, L->NpImport);
-    int64_t i;
-#pragma omp parallel for
-    for(i = 0; i < L->NpImport; i ++) {
-        struct Pencil * p = &L->PencilRecv[i];
-        int k;
-        int64_t row = 0;
-        for(k = 0; k < 2; k ++) {
-            int ix = p->offset[k];
-            while(ix < 0) ix += pm->Nmesh;
-            while(ix >= pm->Nmesh) ix -= pm->Nmesh;
-            ix -= pm->real_space_region.offset[k];
-            if(ix >= pm->real_space_region.size[k]) {
-                /* serious problem assumption about fft layout was wrong*/
-                endrun(1, "bad fft region size: original k: %d ix: %d, cur ix: %d, region: off %ld size %ld\n", k, p->offset[k], ix, pm->real_space_region.offset[k], pm->real_space_region.size[k]);
-            }
-            row = row * pm->real_space_region.size[k] + ix;
-        }
-        pencilrow[i] = row;
-    }
-
-    /* counting sort of the pencil indices by row */
-    int64_t * rowend = mymalloc("PencilRowEnd", int64_t, Nrows + 1);
-    int64_t * perm = mymalloc("PencilPerm", int64_t, L->NpImport);
-    memset(rowend, 0, (Nrows + 1) * sizeof(int64_t));
-    for(i = 0; i < L->NpImport; i ++)
-        rowend[pencilrow[i] + 1] ++;
-    for(i = 0; i < Nrows; i ++)
-        rowend[i + 1] += rowend[i];
-    /* fill perm using rowend[row] as a cursor: afterwards rowend[row] is
-     * the end of the row's pencils and rowend[row - 1] the start. */
-    for(i = 0; i < L->NpImport; i ++)
-        perm[rowend[pencilrow[i]] ++] = i;
-
-    int64_t row;
-#pragma omp parallel for
-    for(row = 0; row < Nrows; row ++) {
-        int64_t pi;
-        for(pi = (row == 0) ? 0 : rowend[row - 1]; pi < rowend[row]; pi ++) {
-            struct Pencil * p = &L->PencilRecv[perm[pi]];
-            /* the row is contiguous along z: strides[1] == size[2] */
-            const ptrdiff_t linear0 = pencilrow[perm[pi]] * pm->real_space_region.strides[1];
-            int j;
-            for(j = 0; j < p->len; j ++) {
-                int iz = p->offset[2] + j;
-                while(iz < 0) iz += pm->Nmesh;
-                while(iz >= pm->Nmesh) iz -= pm->Nmesh;
-                if(iz >= pm->real_space_region.size[2]) {
-                    /* serious problem assmpution about fft layout was wrong*/
-                    endrun(1, "bad fft region size: original iz: %d, cur iz: %d, region: off %ld size %ld\n", p->offset[2], iz, pm->real_space_region.offset[2], pm->real_space_region.size[2]);
-                }
-                ptrdiff_t linear = iz * pm->real_space_region.strides[2] + linear0;
-                /*
-                 * operate on the pencil, either modifying real or BufRecv
-                 * */
-                iter(&real[linear], &L->BufRecv[p->first + j]);
-            }
-        }
-    }
-
-    myfree(perm);
-    myfree(rowend);
-    myfree(pencilrow);
 }
 
 static void
