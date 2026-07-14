@@ -121,9 +121,12 @@ class BHReposResult : public TreeWalkResultBase<BHDynFricQuery, BHDynFricOutput>
 
 class BHDynFricResult : public BHReposResult {
     public:
-    MyFloat SurroundingVel[3];
-    MyFloat SurroundingDensity;
-    MyFloat SurroundingRmsVel;
+    MyFloat SurroundingVel[3] = {0,0,0};
+    MyFloat SurroundingDensity = 0;
+    MyFloat SurroundingRmsVel = 0;
+
+    MYCUDAFN BHDynFricResult(const BHDynFricQuery& query):
+        BHReposResult(query) {}
 
     template<TreeWalkReduceMode mode>
     MYCUDAFN void reduce(int place, const BHDynFricOutput * output, struct particle_data * const parts) {

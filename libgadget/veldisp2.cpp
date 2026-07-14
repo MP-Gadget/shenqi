@@ -88,9 +88,12 @@ class BHVelDispQuery : public TreeWalkQueryBase<BHVelDispPriv>
 class BHVelDispResult : public TreeWalkResultBase<BHVelDispQuery, BHVelDispOutput> {
     public:
     /* used for AGN kinetic feedback */
-    MyFloat V2sumDM;
-    MyFloat V1sumDM[3];
-    MyFloat NumDM;
+    MyFloat V2sumDM = 0;
+    MyFloat V1sumDM[3] = {0,0,0};
+    MyFloat NumDM = 0;
+
+    MYCUDAFN BHVelDispResult(const BHVelDispQuery& query):
+        TreeWalkResultBase<BHVelDispQuery, BHVelDispOutput>(query) {}
 
     template<TreeWalkReduceMode mode>
     MYCUDAFN void reduce(int place, const BHVelDispOutput * output, struct particle_data * const parts)

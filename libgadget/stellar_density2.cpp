@@ -181,9 +181,12 @@ class StellarDensityQuery : public TreeWalkQueryBase<StellarDensityPriv>
 
 class StellarDensityResult : public TreeWalkResultBase<StellarDensityQuery, StellarDensityOutput> {
     public:
-    MyFloat VolumeSPH[NHSML];
-    MyFloat Ngb[NHSML];
+    MyFloat VolumeSPH[NHSML] = {0};
+    MyFloat Ngb[NHSML] = {0};
     int maxcmpte = NHSML;
+
+    MYCUDAFN StellarDensityResult(const StellarDensityQuery& query):
+        TreeWalkResultBase<StellarDensityQuery, StellarDensityOutput>(query) {}
 
     template<TreeWalkReduceMode mode>
     MYCUDAFN void reduce(int place, const StellarDensityOutput * output, struct particle_data * const parts)
