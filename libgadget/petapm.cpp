@@ -1047,8 +1047,6 @@ layout_build_and_exchange_cells_to_local(
         double * real)
 {
     L->BufRecv = mymalloc("PMBufRecv", double, L->NcImport);
-    int64_t i;
-    int64_t offset;
 
     /*layout_iterate_cells transfers real to L->BufRecv*/
     layout_iterate_cells<layout_iterator_to_region>(pm, L, real);
@@ -1066,13 +1064,22 @@ layout_build_and_exchange_cells_to_local(
             L->comm);
 
     /* distribute BufSend to meshbuf */
-    offset = 0;
-    for(i = 0; i < L->NpExport; i ++) {
-        struct Pencil * p = &L->PencilSend[i];
-        memcpy(&meshbuf[p->meshbuf_first],
-                L->BufSend + offset,
-                sizeof(double) * p->len);
-        offset += p->len;
+    if(L->NpExport > 0) {
+        int64_t * offsets = mymalloc("Recvoffsets", int64_t, L->NpExport);
+        offsets[0] = 0;
+        for(int64_t i = 1; i < L->NpExport; i ++) {
+            struct Pencil * p = &L->PencilSend[i-1];
+            offsets[i] = offsets[i-1] + p->len;
+        }
+
+        #pragma omp parallel for
+        for(int64_t i = 0; i < L->NpExport; i ++) {
+            struct Pencil * p = &L->PencilSend[i];
+            memcpy(&meshbuf[p->meshbuf_first],
+                    L->BufSend + offsets[i],
+                    sizeof(double) * p->len);
+        }
+        myfree(offsets);
     }
     myfree(L->BufSend);
     myfree(L->BufRecv);
