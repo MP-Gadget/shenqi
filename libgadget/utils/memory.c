@@ -168,7 +168,7 @@ allocator_alloc_va(Allocator * alloc, const char * name, const size_t request_si
     strncpy(header->name, name, NAMELEN-1);
     header->name[NAMELEN-1] = '\0';
 
-    vsprintf(header->annotation, fmt, va);
+    vsnprintf(header->annotation, ANNOTLEN, fmt, va);
 
     char * cptr = ptr + ALIGNMENT;
     header->ptr = cptr;
@@ -203,6 +203,8 @@ allocator_destroy(Allocator * alloc)
 static int
 is_header(struct BlockHeader * header)
 {
+    if(header == NULL)
+        return 0;
     return 0 == memcmp(header->magic, MAGIC, 8);
 }
 
@@ -482,7 +484,7 @@ allocator_alloc_va_malloc(Allocator * alloc, const char * name, const size_t req
         endrun(1, "Failed malloc: %d device not supported for %s\n", header->device, header->name);
     }
     header->ptr = cptr + ALIGNMENT;
-    memcpy(cptr, header, ALIGNMENT);
+    memcpy(cptr, header, sizeof(struct BlockHeader));
     cptr = header->ptr;
     return cptr;
 }
@@ -508,7 +510,6 @@ allocator_realloc_int_malloc(Allocator * alloc, void * ptr, const size_t new_siz
     /* update record */
     char * cptr = (char *) ptr;
     struct BlockHeader * header = (struct BlockHeader*) (cptr - ALIGNMENT);
-    header->request_size = new_size;
 
     if (!is_header(header)) {
         endrun(1, "Not an allocated address: Header = %8p ptr = %8p\n", header, cptr);
@@ -531,10 +532,14 @@ allocator_realloc_int_malloc(Allocator * alloc, void * ptr, const size_t new_siz
     else
 #endif
         header2 = (struct BlockHeader *) realloc(header, new_size + ALIGNMENT);
+    if(!is_header(header2)) {
+        endrun(1, "Could not allocate second header: %8p for realloc of %s\n", header2, header->annotation);
+    }
+
     // Update header pointer in the new block
     header2->ptr = (char*) header2 + ALIGNMENT;
     /* Update header annotation*/
-    vsprintf(header2->annotation, fmt, va);
+    vsnprintf(header2->annotation, ANNOTLEN, fmt, va);
     header2->request_size = new_size;
     memcpy(header2->self, header2, sizeof(header2[0]));
     return header2->ptr;
