@@ -34,6 +34,10 @@ write_checkpoint(int snapnum, int WriteGroupID, int MetalReturnOn, double Time, 
     if(ThisTask == 0) {
         std::string snapfile = OutputDir + "/Snapshots.txt";
         FILE * fd = fopen(snapfile.c_str(), "a");
+        if(!fd) {
+            message(5, "Could not write \"%03d %g\" to Snapshots.txt\n", snapnum, Time);
+            return;
+        }
         fprintf(fd, "%03d %g\n", snapnum, Time);
         fclose(fd);
     }

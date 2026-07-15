@@ -143,7 +143,7 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
             }
         }
         /* found, so loga >= SyncPoints[j].loga */
-        if(loga != SyncPoints[j].loga) {
+        if(j == SyncPoints.size() || loga != SyncPoints[j].loga) {
             /* insert the item; */
             tmpsync.loga = loga;
             tmpsync.write_snapshot = false; /* by default no output here. */
@@ -181,7 +181,7 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
         }
         /* found, so loga >= SyncPoints[j].loga */
         // to avoid setting sync points too close to each other (which can cause bad timestep errors)
-        if(fabs(loga - SyncPoints[j].loga) > 1e-4) {
+        if(j == SyncPoints.size() || fabs(loga - SyncPoints[j].loga) > 1e-4) {
             /* insert a blank item with no snapshot output. */
             tmpsync.loga = loga;
             tmpsync.write_snapshot = false; /* by default no output here. */

@@ -167,7 +167,8 @@ petaio_save_snapshot(const std::string fname, struct IOTable * IOTable, int verb
          * But do still write them for stars and BHs as someone might expect them.*/
         if(NTotal[ptype] == 0 && ptype < 4)
             continue;
-        sprintf(blockname, "%d/%s", ptype, IOTable->ent[i].name);
+        snprintf(blockname, 128, "%d/%s", ptype, IOTable->ent[i].name);
+        blockname[127] = '\0';
         petaio_build_buffer(&array, &IOTable->ent[i], selection + ptype_offset[ptype], ptype_count[ptype], PartManager->Base, SlotsManager, &conv);
         petaio_save_block(&bf, blockname, &array, verbose);
         petaio_destroy_buffer(&array);
@@ -304,7 +305,8 @@ petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struc
              * internally intialized; */
             continue;
         }
-        sprintf(blockname, "%d/%s", ptype, IOTable->ent[i].name);
+        snprintf(blockname, 128, "%d/%s", ptype, IOTable->ent[i].name);
+        blockname[127] = '\0';
         petaio_alloc_buffer(&array, &IOTable->ent[i], header->NLocal[ptype]);
         int required = IOTable->ent[i].required;
         if(0 == strcmp(IOTable->ent[i].name, "Mass") && header->MassTable[ptype] > 0)
