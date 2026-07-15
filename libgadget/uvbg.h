@@ -15,7 +15,7 @@ struct UVBGgrids_type {
 
 //extern struct UVBGgrids_type UVBGgrids;
 
-void calculate_uvbg(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr, int WriteSnapshot, int SnapshotFileCount, char * Outputdir, double Time, Cosmology * CP, const struct UnitSystem units);
+void calculate_uvbg(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr, int WriteSnapshot, int SnapshotFileCount, std::string Outputdir, double Time, Cosmology * CP, const struct UnitSystem units);
 void set_uvbg_params(ParameterSet * ps);
 
 #endif
