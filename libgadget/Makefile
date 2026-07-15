@@ -44,8 +44,7 @@ GADGET_C_SRCS =  partmanager.c \
 	 density.c treewalk.c \
 	 gravshort-tree.c gravshort-pair.c \
 	 gravity.c \
-	 densitykernel.c \
-	 config.c
+	 densitykernel.c
 
 GADGET_CPP_SRCS = hydra2.cpp gravshort-tree2.cpp walltime.cpp \
 	density2.cpp veldisp2.cpp hci.cpp init.cpp powerspectrum.cpp \
@@ -84,6 +83,8 @@ GADGET_UTILS_OBJS := $(GADGET_UTILS_OBJS:%=.objs/%)
 all: libgadget.a libgadget-utils.a
 
 .PHONY: all test run-tests
+
+.objs/petaio.o: petaio.cpp config.h
 
 .objs/utils/test_%: tests/test_%.cpp .objs/utils/%.o libgadget-utils.a
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
@@ -154,10 +155,9 @@ libgadget.a: $(GADGET_OBJS)
 	$(AR) r $@ $(GADGET_OBJS)
 
 clean:
-	rm -rf .objs libgadget.a libgadget-utils.a config.c
+	rm -rf .objs libgadget.a libgadget-utils.a config.h
 
-config.c: $(CONFIG)
-	mkdir -p `dirname $@`
+config.h: $(CONFIG) makeconfig.sh
 	MPICC="$(MPICC)" CFLAGS="$(CFLAGS)" OPT="$(OPT)" OPTIMIZE="$(OPTIMIZE)" VERSION="$(VERSION)" bash makeconfig.sh $@
 
 GADGET_DEPS := $(GADGET_OBJS:.o=.d)
@@ -170,9 +170,9 @@ GADGET_UTILS_DEPS := $(GADGET_UTILS_OBJS:.o=.d)
 #It checks whether they are the same.
 #If they are not the same it makes config.h as a PHONY target to be rebuilt.
 GIT=$(subst -,_,$(shell git describe --always --dirty --abbrev=10))
-EXISTGIT=$(shell grep "GADGET_VERSION" config.c)
+EXISTGIT=$(shell grep "GADGET_VERSION" config.h)
 ifeq (,$(findstring $(GIT),$(EXISTGIT)))
-.PHONY: config.c
+.PHONY: config.h
 endif
 
 MPI_SHOWME := $(shell $(MPICC) -showme)
