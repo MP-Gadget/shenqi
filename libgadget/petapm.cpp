@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <math.h>
 #include <algorithm>
 #include <execution>
@@ -750,8 +751,24 @@ layout_prepare (PetaPM * pm,
     }
     L->NcExport = NcExport;
 
+    /* The counts and displacements for MPI_Alltoallv are ints: check the
+     * totals fit, as the NcSend counting above wraps silently otherwise. */
+    if(L->NpExport > INT_MAX || L->NcExport > INT_MAX)
+        endrun(1, "Pencil (%ld) or cell (%ld) export count overflows the int MPI_Alltoallv counts: use more MPI ranks.\n", L->NpExport, L->NcExport);
+
     MPI_Alltoall(L->NpSend, 1, MPI_INT, L->NpRecv, 1, MPI_INT, L->comm);
     MPI_Alltoall(L->NcSend, 1, MPI_INT, L->NcRecv, 1, MPI_INT, L->comm);
+
+    /* Compute the import totals in 64 bits and check they fit in the int
+     * displacement arrays before building them. */
+    L->NpImport = 0;
+    L->NcImport = 0;
+    for(i = 0; i < NTask; i ++) {
+        L->NpImport += L->NpRecv[i];
+        L->NcImport += L->NcRecv[i];
+    }
+    if(L->NpImport > INT_MAX || L->NcImport > INT_MAX)
+        endrun(1, "Pencil (%ld) or cell (%ld) import count overflows the int MPI_Alltoallv displacements: use more MPI ranks.\n", L->NpImport, L->NcImport);
 
     /* build the displacement array; why doesn't MPI build these automatically? */
     L->DpSend[0] = 0; L->DpRecv[0] = 0;
@@ -762,8 +779,6 @@ layout_prepare (PetaPM * pm,
         L->DcSend[i] = L->NcSend[i - 1] + L->DcSend[i - 1];
         L->DcRecv[i] = L->NcRecv[i - 1] + L->DcRecv[i - 1];
     }
-    L->NpImport = L->DpRecv[NTask -1] + L->NpRecv[NTask -1];
-    L->NcImport = L->DcRecv[NTask -1] + L->NcRecv[NTask -1];
 
     /* some checks */
     if(L->DpSend[NTask - 1] + L->NpSend[NTask -1] != L->NpExport) {
