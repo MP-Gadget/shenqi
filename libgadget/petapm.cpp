@@ -999,16 +999,22 @@ layout_build_and_exchange_cells_to_pfft(
     L->BufSend = mymalloc("PMBufSend", double, L->NcExport);
     L->BufRecv = mymalloc("PMBufRecv", double, L->NcImport);
 
-    int64_t i;
-    int64_t offset;
-
     /* collect all cells into the send buffer */
-    offset = 0;
-    for(i = 0; i < L->NpExport; i ++) {
-        struct Pencil * p = &L->PencilSend[i];
-        memcpy(L->BufSend + offset, &meshbuf[p->meshbuf_first],
+    if(L->NpExport > 0) {
+        int64_t * offsets = mymalloc("Recvoffsets", int64_t, L->NpExport);
+        offsets[0] = 0;
+        for(int64_t i = 1; i < L->NpExport; i ++) {
+            struct Pencil * p = &L->PencilSend[i-1];
+            offsets[i] = offsets[i-1] + p->len;
+        }
+
+        #pragma omp parallel for
+        for(int64_t i = 0; i < L->NpExport; i ++) {
+            struct Pencil * p = &L->PencilSend[i];
+            memcpy(L->BufSend + offsets[i], &meshbuf[p->meshbuf_first],
                 sizeof(double) * p->len);
-        offset += p->len;
+        }
+        myfree(offsets);
     }
 
     /* receive cells */
