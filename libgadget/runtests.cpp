@@ -237,7 +237,7 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
     DomainDecomp ddecomp[1] = {0};
     domain_decompose_full(ddecomp, MPI_COMM_WORLD);
 
-    struct IOTable IOTable = {0};
+    struct IOTable IOTable = {};
     /* NO metals written*/
     register_io_blocks(&IOTable, 0, 0);
     register_extra_blocks(&IOTable);
@@ -367,7 +367,7 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     DomainDecomp ddecomp[1] = {0};
     domain_decompose_full(ddecomp, MPI_COMM_WORLD);
 
-    struct IOTable IOTable = {0};
+    struct IOTable IOTable = {};
     /* NO metals written*/
     register_io_blocks(&IOTable, 0, 0);
     register_extra_blocks(&IOTable);

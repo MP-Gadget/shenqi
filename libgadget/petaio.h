@@ -8,6 +8,7 @@
 #include "slotsmanager.h"
 #include "cosmology.h"
 #include <string>
+#include <vector>
 
 /* Struct to store information written to each snapshot header. */
 struct header_data
@@ -58,9 +59,7 @@ typedef struct IOTableEntry {
 } IOTableEntry;
 
 struct IOTable {
-    IOTableEntry * ent;
-    int used;
-    int allocated;
+    std::vector<IOTableEntry> ent;
 };
 
 #define PTYPE_FOF_GROUP  1024

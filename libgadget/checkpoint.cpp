@@ -20,7 +20,7 @@ void
 write_checkpoint(int snapnum, int WriteGroupID, int MetalReturnOn, double Time, const Cosmology * CP, const std::string OutputDir, const int OutputDebugFields)
 {
     /* write snapshot of particles */
-    struct IOTable IOTable = {0};
+    struct IOTable IOTable = {};
     register_io_blocks(&IOTable, WriteGroupID, MetalReturnOn);
     if(OutputDebugFields)
         register_debug_io_blocks(&IOTable);
@@ -46,7 +46,7 @@ write_checkpoint(int snapnum, int WriteGroupID, int MetalReturnOn, double Time, 
 void
 dump_snapshot(const std::string dump, const double Time, const Cosmology * CP, const std::string OutputDir)
 {
-    struct IOTable IOTable = {0};
+    struct IOTable IOTable = {};
     register_io_blocks(&IOTable, 0, 1);
     register_debug_io_blocks(&IOTable);
     auto fname = OutputDir + "/" + dump;
