@@ -142,10 +142,9 @@ void treewalk_secondary_kernel(
     if (tid >= WorkSetSize)
         return;
 
-    QueryType * input = &(imports[tid]);
-    ResultType * resoutput = new (&results[tid]) ResultType(*input);
-    LocalTreeWalkType lv(Nodes, *input);
-    lv.template visit<TREEWALK_GHOSTS>(*input, resoutput, *priv, parts);
+    ResultType * resoutput = new (&results[tid]) ResultType(imports[tid]);
+    LocalTreeWalkType lv(Nodes, imports[tid]);
+    lv.template visit<TREEWALK_GHOSTS>(imports[tid], resoutput, *priv, parts);
 };
 
 template <typename ParamType, typename OutputType>
