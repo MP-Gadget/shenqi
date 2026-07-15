@@ -84,7 +84,7 @@ gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, d
     if(hybrid_nu_tracer(CP, Time))
         pstruct.active = &hybrid_nu_gravpm_is_active;
 
-    int i;
+    int64_t i;
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i++)
     {

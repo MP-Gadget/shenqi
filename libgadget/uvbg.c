@@ -179,10 +179,10 @@ static double RtoM(double R)
 //TODO: look into _prepare (gravpm.c) and see if its worth implementing anything there
 static PetaPMRegion * makeregion(PetaPM * pm, PetaPMParticleStruct * pstruct, void * userdata, int * Nregions) {
     PetaPMRegion * regions = mymalloc2("Regions", PetaPMRegion, 1);
-    int NumPart = PartManager->NumPart;
+    int64_t NumPart = PartManager->NumPart;
     int k;
     int r = 0;
-    int i;
+    int64_t i;
     double min[3] = {pm->BoxSize, pm->BoxSize, pm->BoxSize};
     double max[3] = {0, 0, 0.};
 
@@ -478,7 +478,7 @@ static void init_particle_uvbg(){
 
     /* Reset local J21 */
 #pragma omp parallel for private(fesc_temp)
-    for(int ii = 0; ii < PartManager->NumPart; ii++) {
+    for(int64_t ii = 0; ii < PartManager->NumPart; ii++) {
         /* Init J21 and set escape fracitons for sph particles */
         if(P[ii].Type == 0) {
             SPHP(ii).local_J21 = 0.;

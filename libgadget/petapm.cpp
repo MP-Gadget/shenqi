@@ -1174,7 +1174,7 @@ pm_iterate_one(PetaPM * pm,
  * access one mesh points same time.
  * */
 static void pm_iterate(PetaPM * pm, pm_iterator iterator, PetaPMRegion * regions, const int Nregions) {
-    int i;
+    int64_t i;
 #pragma omp parallel for
     for(i = 0; i < CPS->NumPart; i ++) {
         pm_iterate_one(pm, i, iterator, regions, Nregions);
@@ -1210,7 +1210,7 @@ static int pos_get_target(PetaPM * pm, const int pos[2]) {
 static void verify_density_field(PetaPM * pm, double * real, double * meshbuf, const size_t meshsize) {
     /* verify the density field */
     double mass_Part = 0;
-    int j;
+    int64_t j;
 #pragma omp parallel for reduction(+: mass_Part)
     for(j = 0; j < CPS->NumPart; j ++) {
         double Mass = *MASS(j);

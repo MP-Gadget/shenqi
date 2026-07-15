@@ -158,7 +158,7 @@ static MPI_Datatype MPI_TYPE_GROUP;
 FOFGroups
 fof_fof(DomainDecomp * ddecomp, const int StoreGrNr, MPI_Comm Comm)
 {
-    int i;
+    int64_t i;
 
     message(0, "Begin to compute FoF group catalogues. (allocated: %g MB)\n",
             mymalloc_usedbytes() / (1024.0 * 1024.0));
@@ -367,7 +367,7 @@ fof_primary_ngbiter(TreeWalkQueryFOF * I,
 
 void fof_label_primary(struct fof_particle_list * HaloLabel, ForceTree * tree, MPI_Comm Comm)
 {
-    int i;
+    int64_t i;
     int64_t link_across_tot;
     int ThisTask;
     MPI_Comm_rank(Comm, &ThisTask);
@@ -711,8 +711,8 @@ fof_compile_base(struct BaseGroup * base, int NgroupsExt, struct fof_particle_li
 {
     memset(base, 0, sizeof(base[0]) * NgroupsExt);
 
-    int i;
-    int start;
+    int64_t i;
+    int64_t start;
 
     start = 0;
     for(i = 0; i < PartManager->NumPart; i++)
@@ -784,7 +784,7 @@ fof_alloc_group(const struct BaseGroup * base, const int NgroupsExt)
 #ifdef EXCUR_REION
 static void fof_set_escapefraction(struct FOFGroups * fof, const int NgroupsExt, struct fof_particle_list * HaloLabel)
 {
-    int i = 0;
+    int64_t i = 0;
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i++){
         if(Part[i].Type == 0){
@@ -795,7 +795,7 @@ static void fof_set_escapefraction(struct FOFGroups * fof, const int NgroupsExt,
         }
     }
 
-    int start = 0;
+    int64_t start = 0;
     for(i = 0; i < NgroupsExt; i++)
     {
         /* find the first particle */
@@ -825,7 +825,8 @@ static void fof_set_escapefraction(struct FOFGroups * fof, const int NgroupsExt,
 static void
 fof_compile_catalogue(struct FOFGroups * fof, const int NgroupsExt, struct fof_particle_list * HaloLabel, MPI_Comm Comm)
 {
-    int i, start, ThisTask;
+    int ThisTask;
+    int64_t i, start;
 
     MPI_Comm_rank(Comm, &ThisTask);
 
@@ -859,7 +860,7 @@ fof_compile_catalogue(struct FOFGroups * fof, const int NgroupsExt, struct fof_p
 
         if(fof->Group[i].base.Length != fof->Group[i].Length) {
             /* These two shall be consistent */
-            endrun(3333, "i=%d Group base Length %d != Group Length %d\n", i, fof->Group[i].base.Length, fof->Group[i].Length);
+            endrun(3333, "i=%ld Group base Length %d != Group Length %d\n", i, fof->Group[i].base.Length, fof->Group[i].Length);
         }
     }
 
@@ -1194,7 +1195,7 @@ fof_secondary_postprocess(int p, TreeWalk * tw)
 
 static void fof_label_secondary(struct fof_particle_list * HaloLabel, ForceTree * tree)
 {
-    int n;
+    int64_t n;
 
     TreeWalk tw[1] = {{0}};
     tw->ev_label = "FOF_FIND_NEAREST";

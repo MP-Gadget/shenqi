@@ -305,7 +305,7 @@ begrun(const int RestartSnapNum, struct header_data * head)
 static void
 check_kick_drift_times(struct part_manager_type * PartManager, inttime_t ti_current)
 {
-    int i;
+    int64_t i;
     int bad = 0;
     #pragma omp parallel for reduction(+: bad)
     for(i = 0; i < PartManager->NumPart; i++) {

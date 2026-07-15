@@ -196,7 +196,7 @@ static inttime_t
 find_global_timestep(DriftKickTimes * times, TimeBinMgr * timebinmgr, const inttime_t dti_max, const double atime, const double hubble)
 {
         inttime_t dti_min = TIMEBASE;
-        int i;
+        int64_t i;
         #pragma omp parallel for reduction(min:dti_min)
         for(i = 0; i < PartManager->NumPart; i++)
         {
@@ -570,7 +570,7 @@ void set_bh_first_timestep(int mTimeBin)
      * On the first timestep this is not effective because all the particles have zero timestep.
      * So on the first timestep only set all BH particles to the smallest allowable timestep.
      * Note we can leave the gravitational timestep as set by the acceleration: repositioning may take care of it.*/
-    int pa;
+    int64_t pa;
     #pragma omp parallel for
     for(pa = 0; pa < PartManager->NumPart; pa++)
         if(Part[pa].Type == 5)
@@ -941,7 +941,7 @@ apply_PM_half_kick(Cosmology * CP, DriftKickTimes * times, TimeBinMgr * timebinm
     const inttime_t tistart = times->PM_kick;
     const inttime_t tiend =  tistart + times->PM_length / 2;
     /* Do long-range kick */
-    int i;
+    int64_t i;
     const double Fgravkick = timebinmgr->get_exact_gravkick_factor(tistart, tiend);
 
     #pragma omp parallel for
@@ -1140,7 +1140,8 @@ print_bad_timebin(const double dloga, const inttime_t dti, const int p, const do
 double
 get_long_range_timestep_dloga(const double atime, const Cosmology * CP, const int FastParticleType, const double asmth)
 {
-    int i, type;
+    int type;
+    int64_t i;
     int64_t count[6] = {0};
     int64_t count_sum[6] ={0};
     double v[6] = {0}, v_sum[6], mim[6], min_mass[6];
@@ -1298,7 +1299,7 @@ build_active_particles(ActiveParticles * act, const DriftKickTimes * const times
         act->Particles = PartManager->Base;
         act->NumActiveHydro = SlotsManager->info[0].size + SlotsManager->info[5].size;
         #pragma omp parallel for reduction(+: TimeBinCountType[: 6 * (TIMEBINS+1)])
-        for(int i = 0; i < PartManager->NumPart; i++)
+        for(int64_t i = 0; i < PartManager->NumPart; i++)
         {
             if(PartManager->Base[i].IsGarbage || PartManager->Base[i].Swallowed)
                 continue;

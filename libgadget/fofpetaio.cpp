@@ -36,7 +36,7 @@ int fof_select_func(int i, const struct particle_data * Parts)
 }
 
 int fof_save_particles(FOFGroups * fof, const std::string fname, int SaveParticles, Cosmology * CP, double atime, const double * MassTable, int MetalReturnOn, MPI_Comm Comm) {
-    int i;
+    int64_t i;
     struct IOTable FOFIOTable = {0};
 
     fof_register_io_blocks(MetalReturnOn, &FOFIOTable);
@@ -411,7 +411,7 @@ static void fof_write_header(BigFile * bf, int64_t TotNgroups, const double atim
     if(0 != big_file_mpi_create_block(bf, &bh, "Header", NULL, 0, 0, 0, Comm)) {
         endrun(0, "Failed to create header\n");
     }
-    int i;
+    int64_t i;
     int k;
     int64_t npartLocal[6];
     int64_t npartTotal[6];

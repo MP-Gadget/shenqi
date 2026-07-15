@@ -31,7 +31,7 @@ double copy_and_mean_hydroaccn(double (* PairAccn)[3], double * MaxSignalVel)
 {
     double meanacc = 0;
     #pragma omp parallel for reduction(+: meanacc)
-    for(int i = 0; i < PartManager->NumPart; i++)
+    for(int64_t i = 0; i < PartManager->NumPart; i++)
     {
         if(Part[i].IsGarbage || Part[i].Swallowed || Part[i].Type != 0)
             continue;
@@ -53,7 +53,7 @@ void check_hydroaccns(double * meanerr_tot, double * maxerr_tot, double * meanan
     double meanerr = 0, maxerr = -1, meanangle = 0, maxangle = 0, maxsignalerr = -1, meansignalerr = 0;
     /* This checks that the short-range force accuracy is being correctly estimated.*/
     #pragma omp parallel for reduction(+: meanerr, meanangle, meansignalerr) reduction(max:maxerr, maxangle, maxsignalerr)
-    for(int i = 0; i < PartManager->NumPart; i++)
+    for(int64_t i = 0; i < PartManager->NumPart; i++)
     {
         if(Part[i].IsGarbage || Part[i].Swallowed || Part[i].Type != 0)
             continue;
@@ -105,7 +105,7 @@ void check_hydroaccns(double * meanerr_tot, double * maxerr_tot, double * meanan
 
 double copy_and_mean_accn(double (* PairAccn)[3])
 {
-    int i;
+    int64_t i;
     double meanacc = 0;
     #pragma omp parallel for reduction(+: meanacc)
     for(i = 0; i < PartManager->NumPart; i++)
@@ -126,7 +126,7 @@ double copy_and_mean_accn(double (* PairAccn)[3])
 void check_accns(double * meanerr_tot, double * maxerr_tot, double * meanangle_tot, double * maxangle_tot, double (*PairAccn)[3])
 {
     double meanerr=0, maxerr=-1, meanangle = 0, maxangle = 0;
-    int i;
+    int64_t i;
     /* This checks that the short-range force accuracy is being correctly estimated.*/
     #pragma omp parallel for reduction(+: meanerr, meanangle) reduction(max:maxerr, maxangle)
     for(i = 0; i < PartManager->NumPart; i++)
@@ -173,7 +173,7 @@ double copy_density(double * Density, double * Hsml, double * EgyWtDensity)
 {
     double meanacc = 0;
     #pragma omp parallel for reduction(+: meanacc)
-    for(int i = 0; i < PartManager->NumPart; i++)
+    for(int64_t i = 0; i < PartManager->NumPart; i++)
     {
         if(Part[i].IsGarbage || Part[i].Swallowed || (Part[i].Type != 0 && Part[i].Type != 5))
             continue;
@@ -192,7 +192,7 @@ double copy_density(double * Density, double * Hsml, double * EgyWtDensity)
 void check_density(double * meanhserr_tot, double * maxhserr_tot, double * meandserr_tot, double * maxdserr_tot, double * meanegdserr_tot, double * maxegdserr_tot, double * Density, double * Hsml, double * EgyWtDensity)
 {
     double meanhserr=0, maxhserr=-1, meandserr = 0, maxdserr = -1, maxegdserr = -1, meanegdserr = 0;
-    int i;
+    int64_t i;
     /* This checks that the short-range force accuracy is being correctly estimated.*/
     #pragma omp parallel for reduction(+: meanhserr) reduction(max:maxhserr)  reduction(+: meandserr) reduction(max:maxdserr)
     for(i = 0; i < PartManager->NumPart; i++)
