@@ -56,14 +56,10 @@ int fof_save_particles(FOFGroups * fof, const std::string fname, int SaveParticl
 
     for(IOTableEntry& ent : FOFIOTable.ent) {
         /* only process the particle blocks */
-        char blockname[128];
-        int ptype = ent.ptype;
-        BigArray array = {0};
-        if(ptype == PTYPE_FOF_GROUP) {
-            snprintf(blockname, 128, "FOFGroups/%s", ent.name);
-            blockname[127] = '\0';
+        if(ent.ptype == PTYPE_FOF_GROUP) {
+            BigArray array = {0};
             build_buffer_fof(fof, &array, &ent, &conv);
-            petaio_save_block(&bf, blockname, &array, 1);
+            petaio_save_block(&bf, "FOFGroups/"+ent.name, &array, 1);
             petaio_destroy_buffer(&array);
         }
     }
@@ -125,16 +121,12 @@ int fof_save_particles(FOFGroups * fof, const std::string fname, int SaveParticl
 
         for(IOTableEntry& ent : IOTable.ent) {
             /* only process the particle blocks */
-            char blockname[128];
             int ptype = ent.ptype;
-            BigArray array = {0};
             if(ptype < 6 && ptype >= 0) {
-                snprintf(blockname, 128, "%d/%s", ptype, ent.name);
-                blockname[127] = '\0';
+                BigArray array = {0};
+                std::string blockname = std::to_string(ptype) + "/" + ent.name;
                 petaio_build_buffer(&array, &ent, selection + ptype_offset[ptype], ptype_count[ptype], halo_pman->Base, halo_sman, &conv);
-
-                message(0, "Writing Block %s\n", blockname);
-
+                message(0, "Writing Block %s\n", blockname.c_str());
                 petaio_save_block(&bf, blockname, &array, 1);
                 petaio_destroy_buffer(&array);
             }

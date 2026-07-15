@@ -49,9 +49,9 @@ typedef int (*petaio_selection) (int i);
 
 typedef struct IOTableEntry {
     int zorder;
-    char name[64];
+    std::string name;
     int ptype;
-    char dtype[8];
+    std::string dtype;
     int items;
     int required;
     property_getter getter;
@@ -66,7 +66,7 @@ struct IOTable {
 
 std::string zpad(int v, int w);
 
-/* Get the full path for a snapshot number. String returned must be freed.*/
+/* Get the full path for a snapshot number.*/
 std::string petaio_get_snapshot_fname(int num, const std::string OutputDir);
 /* Populate an IOTable with the default set of blocks to read or write.*/
 void register_io_blocks(struct IOTable * IOTable, int WriteGroupID, int MetalReturnOn);
@@ -82,8 +82,8 @@ void petaio_build_buffer(BigArray * array, IOTableEntry * ent, const int * selec
 void petaio_readout_buffer(BigArray * array, IOTableEntry * ent, struct conversions * conv, struct part_manager_type * PartManager, struct slots_manager_type * SlotsManager);
 void petaio_destroy_buffer(BigArray * array);
 
-void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, int verbose);
-int petaio_read_block(BigFile * bf, const char * blockname, BigArray * array, int required);
+void petaio_save_block(BigFile * bf, const std::string& blockname, BigArray * array, int verbose);
+int petaio_read_block(BigFile * bf, const std::string& blockname, BigArray * array, int required);
 
 void petaio_save_snapshot(const std::string fname, struct IOTable * IOTable, int verbose, const double atime, const Cosmology * CP);
 void petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struct header_data * header, struct part_manager_type * PartManager, struct slots_manager_type * SlotsManager, MPI_Comm Comm);
