@@ -57,7 +57,7 @@ struct Layout {
 /* Data which is private to the PetaPM structure. Don't access from outside.*/
 typedef struct PetaPMPriv {
     /* These varibles are initialized by petapm_init*/
-    int fftsize;
+    int64_t fftsize;
     struct PetaPMPlans * plans;
     MPI_Comm comm_cart_2d;
 

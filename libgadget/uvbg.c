@@ -426,7 +426,7 @@ static void reion_loop_pm(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr,
         double volume_weighted_global_xHI = 0.0;
         double mass_weighted_global_xHI = 0.0;
         double mass_weight = 0.0;
-        int uvbg_dim = uvbg_params.UVBGdim;
+        int64_t uvbg_dim = uvbg_params.UVBGdim;
         int64_t grid_n_real = uvbg_dim * uvbg_dim * uvbg_dim;
 #pragma omp parallel for collapse(3) reduction(+:volume_weighted_global_xHI,mass_weighted_global_xHI,mass_weight) private(pm_idx,density_over_mean)
         for (int ix = 0; ix < pm_mass->real_space_region.size[0]; ix++)

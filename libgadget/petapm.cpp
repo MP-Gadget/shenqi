@@ -85,11 +85,11 @@ static void layout_finish(struct Layout * L);
 static void layout_build_and_exchange_cells_to_pfft(PetaPM * pm, struct Layout * L, double * meshbuf, double * real);
 static void layout_build_and_exchange_cells_to_local(PetaPM * pm, struct Layout * L, double * meshbuf, double * real);
 
-struct Pencil { /* a pencil starting at offset, with lenght len */
+struct Pencil { /* a pencil starting at offset, with length len */
     int offset[3];
     int len;
-    int first;
-    int meshbuf_first; /* first pixel in meshbuf */
+    int64_t first;
+    int64_t meshbuf_first; /* first pixel in meshbuf */
     int task;
 
     bool operator<(const struct Pencil& p2) const {
@@ -916,7 +916,7 @@ static void layout_iterate_cells(PetaPM * pm,
             while(ix < 0) ix += pm->Nmesh;
             while(ix >= pm->Nmesh) ix -= pm->Nmesh;
             ix -= pm->real_space_region.offset[k];
-            if(ix >= pm->real_space_region.size[k]) {
+            if(ix >= pm->real_space_region.size[k] || ix < 0) {
                 /* serious problem assumption about fft layout was wrong*/
                 endrun(1, "bad fft region size: original k: %d ix: %d, cur ix: %d, region: off %ld size %ld\n", k, p->offset[k], ix, pm->real_space_region.offset[k], pm->real_space_region.size[k]);
             }
