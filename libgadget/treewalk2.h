@@ -232,9 +232,6 @@ public:
     int64_t Nexport_sum;
     /* Convenience variable for density. */
     size_t NExportTargets;
-    /* Counters for imbalance diagnostics*/
-    unsigned int maxNinteractions;
-    unsigned int minNinteractions;
     /**
      * Constructor - initializes all members to safe defaults.
      */
@@ -242,8 +239,7 @@ public:
         tree(i_tree), ev_label(i_ev_label),
         priv(i_priv), output(i_out),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
-        Nexport_sum(0), NExportTargets(0),
-        maxNinteractions(0), minNinteractions(INT_MAX)
+        Nexport_sum(0), NExportTargets(0)
     {    }
 
     /* Do the distributed tree walking. Warning: as this is a threaded treewalk,
@@ -438,13 +434,10 @@ public:
         int NTask;
         MPI_Comm_size(comm, &NTask);
         int64_t o_NExportTargets, Nexport;
-        unsigned int o_minNinteractions, o_maxNinteractions;
-        MPI_Reduce(&minNinteractions, &o_minNinteractions, 1, MPI_UNSIGNED, MPI_MIN, 0, comm);
-        MPI_Reduce(&maxNinteractions, &o_maxNinteractions, 1, MPI_UNSIGNED, MPI_MAX, 0, comm);
         MPI_Reduce(&Nexport_sum, &Nexport, 1, MPI_INT64, MPI_SUM, 0, comm);
         MPI_Reduce(&NExportTargets, &o_NExportTargets, 1, MPI_INT64, MPI_SUM, 0, comm);
-        message(0, "%s: min %u max %u average exports: %g avg target ranks: %g\n",
-            ev_label, o_minNinteractions, o_maxNinteractions, ((double) Nexport)/ NTask, ((double) o_NExportTargets)/ NTask);
+        message(0, "%s: average exports: %g avg target ranks: %g\n",
+            ev_label, ((double) Nexport)/ NTask, ((double) o_NExportTargets)/ NTask);
         message(0, "%s: top: %g prim: %g sec: %g wait: %g postproc: %g reduce: %g\n", ev_label, timecomp0, timecomp1, timecomp2, timewait1, timecomp3, timecommsumm);
     }
 
@@ -565,7 +558,7 @@ private:
     /* returns struct containing export counts */
     void ev_primary(int * WorkSet, const int64_t WorkSetSize, particle_data * const parts)
     {
-    #pragma omp parallel reduction(min:minNinteractions) reduction(max:maxNinteractions)
+    #pragma omp parallel
         {
             /* We must schedule dynamically so that we have reduced imbalance.
             * We do not need to worry about the export buffer filling up.*/
@@ -584,12 +577,8 @@ private:
                 QueryType input(parts[i], NULL, tree->firstnode, priv);
                 ResultType result(input);
                 LocalTreeWalkType lv(tree->Nodes, input);
-                int64_t ninteractions = lv.template visit<TREEWALK_PRIMARY>(input, &result, priv, parts);
+                lv.template visit<TREEWALK_PRIMARY>(input, &result, priv, parts);
                 result.template reduce<TREEWALK_PRIMARY>(i, output, parts);
-                if(maxNinteractions < ninteractions)
-                    maxNinteractions = ninteractions;
-                if(minNinteractions > ninteractions)
-                    minNinteractions = ninteractions;
             }
         }
     }

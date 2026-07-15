@@ -113,10 +113,7 @@ void treewalk_primary_kernel(
     // by reference so the destructor does not run,
     // which means in managed memory, and with all sub-arrays in managed memory
     const ParamType * priv,
-    const OutputType * output,
-    // device memory pointers
-    unsigned int * maxNinteractions,
-    unsigned int * minNinteractions)
+    const OutputType * output)
 {
     int64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= WorkSetSize)
@@ -126,11 +123,8 @@ void treewalk_primary_kernel(
     QueryType input(parts[i], NULL, firstnode, *priv);
     ResultType result(input);
     LocalTreeWalkType lv(Nodes, input);
-    unsigned int ninteractions = lv.template visit<TREEWALK_PRIMARY>(input, &result, *priv, parts);
+    lv.template visit<TREEWALK_PRIMARY>(input, &result, *priv, parts);
     result.template reduce<TREEWALK_PRIMARY>(i, output, parts);
-
-    atomicMax(maxNinteractions, (unsigned int) ninteractions);
-    atomicMin(minNinteractions, (unsigned int) ninteractions);
 };
 
 template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType, typename OutputType>
@@ -175,35 +169,13 @@ void treewalk_postprocess_kernel(
 template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType>
 class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType>
 {
-    private:
-    unsigned int * d_maxNinteractions = nullptr;
-    unsigned int * d_minNinteractions = nullptr;
-
-    void allocate_interaction_counters()
-    {
-        if(!d_maxNinteractions)
-            cudaMalloc(&d_maxNinteractions, sizeof(*d_maxNinteractions));
-        if(!d_minNinteractions)
-            cudaMalloc(&d_minNinteractions, sizeof(*d_minNinteractions));
-    }
-
     public:
     using Base = TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType>;
     using Base::TreeWalk;
-    using Base::maxNinteractions;
-    using Base::minNinteractions;
     using Base::tree;
     using Base::priv;
     using Base::output;
     using Base::compute_bunchsize;
-
-    ~TreeWalkGPU()
-    {
-        if(d_maxNinteractions)
-            cudaFree(d_maxNinteractions);
-        if(d_minNinteractions)
-            cudaFree(d_minNinteractions);
-    }
 
     /* Build the queue by calling the haswork function on each particle in the active_set.
      * Arguments:
@@ -336,10 +308,6 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
     void ev_primary(int * WorkSet, int64_t WorkSetSize, particle_data * const particles) {
         if(WorkSetSize == 0)
             return;
-        allocate_interaction_counters();
-        cudaMemcpy(d_maxNinteractions, &maxNinteractions, sizeof(maxNinteractions), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_minNinteractions, &minNinteractions, sizeof(minNinteractions), cudaMemcpyHostToDevice);
-
         const int threadsPerBlock = 256;
         const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
         /* All arrays need to be managed malloc or device:
@@ -347,14 +315,10 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
          * WorkSet, counters (device)
          * priv and output should be heap-allocated as placement-new pointers in managed memory */
         treewalk_primary_kernel<QueryType, ResultType, LocalTreeWalkType, ParamType, OutputType>
-        <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, tree->firstnode, WorkSet, WorkSetSize, &priv, output, d_maxNinteractions, d_minNinteractions);
+        <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, tree->firstnode, WorkSet, WorkSetSize, &priv, output);
         cudaError_t status = cudaDeviceSynchronize();
         if (status != cudaSuccess)
             endrun(5, "ev_primary kernel failed: %s\n", cudaGetErrorString(status));
-
-        /* Copy results back and accumulate into host-side counters. */
-        cudaMemcpy(&maxNinteractions, d_maxNinteractions, sizeof(maxNinteractions), cudaMemcpyDeviceToHost);
-        cudaMemcpy(&minNinteractions, d_minNinteractions, sizeof(minNinteractions), cudaMemcpyDeviceToHost);
     };
 
     /* Perform evaluation of a chunk of secondary particles from a single processor.
