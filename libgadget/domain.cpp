@@ -94,9 +94,6 @@ void set_domain_params(ParameterSet * ps)
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
     if(ThisTask == 0) {
         domain_params.DomainOverDecompositionFactor = param_get_int(ps, "DomainOverDecompositionFactor");
-        /* Create one domain per thread. This helps the balance and makes the treebuild merge faster*/
-        if(domain_params.DomainOverDecompositionFactor < 4)
-            domain_params.DomainOverDecompositionFactor = 4;
         domain_params.TopNodeAllocFactor = param_get_double(ps, "TopNodeAllocFactor");
         /* Deprecated: the domain subsample is now always sorted globally,
          * as the local sort produced worse domains for no meaningful speedup. */
