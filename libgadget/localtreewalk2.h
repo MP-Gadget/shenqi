@@ -189,7 +189,6 @@ struct data_index
 {
     int Task;
     int Index;
-    int NodeList[NODELISTLENGTH];
 };
 
 /* Class that stores thread-local information and walks the toptree, finding exports, for a particle. */
@@ -208,7 +207,7 @@ public:
      * @return the number of nodes used in the dataindex table on success, -1 if export buffer is full
      */
     template <enum TopTreeMode mode>
-    MYCUDAFN int toptree_visit(const int target, const QueryType& input, const ParamType& priv, data_index * const DataIndexTable, const size_t BunchSize)
+    MYCUDAFN int toptree_visit(const int target, const QueryType& input, const ParamType& priv, data_index * const DataIndexTable, QueryType * const exportquery, const size_t BunchSize)
     {
         //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
         /* The number of exports from this particle treewalk. If negative, signals the buffer filled up.*/
@@ -232,7 +231,7 @@ public:
                 if constexpr(mode == TOPTREE_COUNT)
                     NThisParticleExport = export_count(current->s.suns[0], NThisParticleExport);
                 else {
-                    NThisParticleExport = export_particle(current->s.suns[0], target, NThisParticleExport, DataIndexTable, BunchSize);
+                    NThisParticleExport = export_particle(current->s.suns[0], target, NThisParticleExport, DataIndexTable, input, exportquery, BunchSize);
                     /* Exit the loop as we cannot export more particles.*/
                     if(NThisParticleExport < 0)
                         break;
@@ -266,7 +265,7 @@ protected:
      * This can also be called from a nonthreaded code
      *
      * */
-    MYCUDAFN int64_t export_particle(const int no, const int target, int64_t nexp, data_index * const DataIndexTable, const int64_t BunchSize)
+    MYCUDAFN int64_t export_particle(const int no, const int target, int64_t nexp, data_index * const DataIndexTable, const QueryType& input, QueryType * const exportquery, const int64_t BunchSize)
     {
         //message(1, "Export_particle: no %d target %d exports %ld %lu nodelist %ld\n", no, target, NThisParticleExport, Nexport, nodelistindex);
     #if defined DEBUG && not defined __CUDACC__
@@ -282,11 +281,11 @@ protected:
             /* This is just to be safe: only happens if our indices are off.*/
             if(DataIndexTable[nexp - 1].Index != target)
                 endrun(1, "Previous of %ld exports is target %d not current %d\n", nexp, DataIndexTable[nexp-1].Index, target);
-            if(nodelistindex < NODELISTLENGTH && DataIndexTable[nexp-1].NodeList[nodelistindex] != -1)
-                endrun(1, "Current nodelist %ld entry (%d) not empty!\n", nodelistindex, DataIndexTable[nexp-1].NodeList[nodelistindex]);
+            if(nodelistindex < NODELISTLENGTH && exportquery[nexp-1].NodeList[nodelistindex] != -1)
+                endrun(1, "Current nodelist %ld entry (%d) not empty!\n", nodelistindex, exportquery[nexp-1].NodeList[nodelistindex]);
     #endif
             if(nodelistindex < NODELISTLENGTH) {
-                DataIndexTable[nexp-1].NodeList[nodelistindex] = topleaf->treenode;
+                exportquery[nexp-1].NodeList[nodelistindex] = topleaf->treenode;
                 nodelistindex++;
                 return nexp;
             }
@@ -297,9 +296,10 @@ protected:
         }
         DataIndexTable[nexp].Task = task;
         DataIndexTable[nexp].Index = target;
-        DataIndexTable[nexp].NodeList[0] = topleaf->treenode;
+        exportquery[nexp] = input;
+        exportquery[nexp].NodeList[0] = topleaf->treenode;
         for(int i = 1; i < NODELISTLENGTH; i++)
-            DataIndexTable[nexp].NodeList[i] = -1;
+            exportquery[nexp].NodeList[i] = -1;
         nodelistindex = 1;
         lasttask = task;
         nexp++;

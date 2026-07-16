@@ -365,7 +365,7 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
     /*! Find exports. The tricky part of this routine is that tree nodes that would normally be discarded without opening must not be exported.
      */
     template <enum TopTreeMode mode>
-    MYCUDAFN int toptree_visit(const int target, const GravTreeQuery& input, const GravTreeParams& priv, data_index * const DataIndexTable, const size_t BunchSize)
+    MYCUDAFN int toptree_visit(const int target, const GravTreeQuery& input, const GravTreeParams& priv, data_index * const DataIndexTable, GravTreeQuery * const exportquery, const size_t BunchSize)
     {
         //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
         /* Reset the exported particles for this target. */
@@ -407,7 +407,7 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
                     NThisParticleExport = export_count(nop->s.suns[0], NThisParticleExport);
                 }
                 else {
-                    NThisParticleExport = export_particle(nop->s.suns[0], target, NThisParticleExport, DataIndexTable, BunchSize);
+                    NThisParticleExport = export_particle(nop->s.suns[0], target, NThisParticleExport, DataIndexTable, input, exportquery, BunchSize);
                     /* Exit the loop as we cannot export more particles.*/
                     if(NThisParticleExport < 0)
                         break;

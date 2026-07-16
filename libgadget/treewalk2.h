@@ -21,13 +21,16 @@
 #define MAXITER 400
 
 /* This struct is returned by the ev_toptree. */
-struct ExportMemory2 {
+template<typename QueryType> struct ExportMemory2 {
     /* Export counter, size of the export table*/
     size_t Nexport = 0;
     /* Pointer to a particle export table.*/
     data_index * ExportTable = NULL;
+    QueryType * ExportQueries = NULL;
     ~ExportMemory2()
     {
+        if(ExportQueries)
+            myfree(ExportQueries);
         if(ExportTable)
             myfree(ExportTable);
     }
@@ -36,7 +39,7 @@ struct ExportMemory2 {
 /* This stores counts of the particles to be transferred.
  * It is book-keeping for the distributed part of the treewalk.
  * The constructor does an MPI_Alltoall, and thus is a synchronisation point.*/
-class ImpExpCounts
+template<typename QueryType> class ImpExpCounts
 {
     public:
     int64_t * Export_count;
@@ -52,7 +55,7 @@ class ImpExpCounts
     /* Number of MPI ranks we export to from this rank.*/
     int64_t NExportTargets;
 
-    ImpExpCounts(const MPI_Comm i_comm, const ExportMemory2& exports): comm(i_comm)
+    ImpExpCounts(const MPI_Comm i_comm, const ExportMemory2<QueryType>& exports): comm(i_comm)
     {
         MPI_Comm_size(comm, &NTask);
         Export_count = ta_malloc("Tree_counts", int64_t, 4*NTask);
@@ -279,6 +282,16 @@ public:
     {
         LocalTreeWalkType::validate_tree(tree);
         Nexport_sum = 0;
+
+        /* Build the queries from the particle table first, so we only need to read it once*/
+        QueryType * queries = mymanagedmalloc("Queries", QueryType, WorkSetSize);
+        #pragma omp parallel for
+        for(int64_t k = 0 ; k < WorkSetSize; k++) {
+                const int i = WorkSet ? WorkSet[k] : k;
+                /* Toptree never uses node list */
+                new(&queries[k]) QueryType(parts[i], NULL, tree->firstnode, priv);
+        }
+
         const int BunchSize = compute_bunchsize();
         int64_t nmin, nmax, total;
         int NTask;
@@ -296,8 +309,9 @@ public:
         int Ndone = 0;
         /* Start first iteration at the beginning*/
         int64_t WorkSetStart = 0;
+
         /* We count all exports before the main export loop. */
-        int * exportcounts = static_cast<DerivedType *>(this)->ev_count_exports(WorkSet, WorkSetSize, parts);
+        int * exportcounts = static_cast<DerivedType *>(this)->ev_count_exports(WorkSet, WorkSetSize, queries);
 
         /* Main loop that copies into the export table, then does primary and secondary evals. */
         do {
@@ -306,11 +320,11 @@ public:
 
             if(Nexportfull > 0)
                 message(0, "Toptree %s, iter %d. First particle %ld size %ld.\n", ev_label, Nexportfull, WorkSetStart, WorkSetSize);
-            ExportMemory2 exportlist;
+            ExportMemory2<QueryType> exportlist;
             /* First do the toptree and export particles for sending.*/
-            WorkSetStart = static_cast<DerivedType *>(this)->ev_toptree(WorkSet, WorkSetStart, WorkSetSize, parts, exportcounts, &exportlist);
+            WorkSetStart = static_cast<DerivedType *>(this)->ev_toptree(WorkSet, WorkSetStart, WorkSetSize, exportcounts, &exportlist, queries);
             /* All processes sync via alltoall.*/
-            ImpExpCounts counts(comm, exportlist);
+            ImpExpCounts<QueryType> counts(comm, exportlist);
             NExportTargets = counts.NExportTargets;
             Nexport_sum += counts.Nexport;
             Ndone = ev_ndone(WorkSetStart < WorkSetSize, comm);
@@ -318,13 +332,13 @@ public:
             /* exports is allocated first, then imports*/
             CommBuffer exports;
             CommBuffer imports;
-            ev_send_recv_export_import(&counts, &exportlist, &exports, &imports, parts);
+            ev_send_recv_export_import(&counts, &exportlist, &exports, &imports);
             tend = second();
             timecomp0 += timediff(tstart, tend);
             /* Only do this on the first iteration, as we only need to do it once.*/
             tstart = second();
             if(Nexportfull == 0)
-                static_cast<DerivedType *>(this)->ev_primary(WorkSet, WorkSetSize, parts); /* do local particles and prepare export list */
+                static_cast<DerivedType *>(this)->ev_primary(WorkSet, WorkSetSize, queries, parts); /* do local particles and prepare export list */
             tend = second();
             timecomp1 += timediff(tstart, tend);
             /* Do processing of received particles. We implement a queue that
@@ -359,6 +373,8 @@ public:
 
         /* GPU code needs to use cudaFree here. */
         static_cast<DerivedType *>(this)->ev_free_exports(exportcounts);
+
+        myfree(queries);
 
         if(postprocess) {
             double tstart = second();
@@ -556,7 +572,7 @@ private:
     }
 
     /* returns struct containing export counts */
-    void ev_primary(int * WorkSet, const int64_t WorkSetSize, particle_data * const parts)
+    void ev_primary(int * WorkSet, const int64_t WorkSetSize, QueryType * queries, particle_data * const parts)
     {
     #pragma omp parallel
         {
@@ -574,7 +590,7 @@ private:
             for(k = 0; k < WorkSetSize; k++) {
                 const int i = WorkSet ? WorkSet[k] : k;
                 /* Primary never uses node list */
-                QueryType input(parts[i], NULL, tree->firstnode, priv);
+                QueryType& input = queries[k];
                 ResultType result(input);
                 LocalTreeWalkType lv(tree->Nodes, input);
                 lv.template visit<TREEWALK_PRIMARY>(input, &result, priv, parts);
@@ -583,20 +599,18 @@ private:
         }
     }
 
-    int * ev_count_exports(int * WorkSet, const int64_t WorkSetSize, particle_data * const parts)
+    int * ev_count_exports(int * WorkSet, const int64_t WorkSetSize, QueryType * queries)
     {
         int * exportcounts = mymalloc("Export counts", int, WorkSetSize);
         /* Count all entries. */
         #pragma omp parallel
         {
             LocalTopTreeWalkType lv(tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->lastnode);
-            #pragma omp for schedule(static)
+            #pragma omp for
             for(int k = 0 ; k < WorkSetSize; k++) {
                 const int i = WorkSet ? WorkSet[k] : k;
-                /* Toptree never uses node list */
-                QueryType input(parts[i], NULL, tree->firstnode, priv);
-                /* Note index is into the WorkSet*/
-                exportcounts[k] = lv.template toptree_visit<TOPTREE_COUNT>(i, input, priv, NULL, 0);
+                /* Note index k is into the WorkSet and i is the particle.*/
+                exportcounts[k] = lv.template toptree_visit<TOPTREE_COUNT>(i, queries[k], priv, NULL, NULL, 0);
             }
         }
         /* Parallel inclusive scan */
@@ -604,7 +618,7 @@ private:
         return exportcounts;
     }
 
-    int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, particle_data * const parts, int * exportcounts, ExportMemory2 * const exportlist)
+    int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, int * exportcounts, ExportMemory2<QueryType> * const exportlist, QueryType * queries)
     {
         /* Adjust the indices for the restart */
         int64_t curSize = WorkSetSize - WorkSetStart;
@@ -634,6 +648,7 @@ private:
         }
         /* Note this is the sum including the current element. */
         exportlist->ExportTable = mymalloc("DataIndexTable", data_index, exportlist->Nexport);
+        exportlist->ExportQueries = mymalloc("ExportQueries", QueryType, exportlist->Nexport);
 
         /* Now we run toptree_visit again with the export offsets to make the export table.
          * Likely most particles have zero exports, so this will be somewhat faster than the first run. */
@@ -646,18 +661,19 @@ private:
             for(int k = 0; k < curSize; k++) {
                 int64_t nexport = exportcounts[k] - exportoffset;
                 data_index * currentexport = exportlist->ExportTable;
+                QueryType * currentexportquery = exportlist->ExportQueries;
                 if(k > 0) {
                     currentexport = &exportlist->ExportTable[exportcounts[k-1] - exportoffset];
+                    currentexportquery = &currentexportquery[exportcounts[k-1] - exportoffset];
                     nexport = exportcounts[k] - exportcounts[k-1];
                 }
                 /* With no exports we can skip evaluating this particle */
                 if(nexport == 0)
                     continue;
                 const int i = WorkSet ? WorkSet[k+WorkSetStart] : k + WorkSetStart;
-                /* Toptree never uses node list */
-                QueryType input(parts[i], NULL, tree->firstnode, priv);
+                QueryType& input = queries[k + WorkSetStart];
                 /* Indexing into the WorkSet, not the particle.*/
-                lv.template toptree_visit<TOPTREE_EXPORT>(i, input, priv, currentexport, nexport);
+                lv.template toptree_visit<TOPTREE_EXPORT>(i, input, priv, currentexport, currentexportquery, nexport);
             }
         }
 
@@ -684,7 +700,7 @@ private:
         }
     }
 
-    void ev_wait_secondary(CommBuffer * res_imports, CommBuffer * imports, ImpExpCounts* counts, struct particle_data * const parts)
+    void ev_wait_secondary(CommBuffer * res_imports, CommBuffer * imports, ImpExpCounts<QueryType>* counts, struct particle_data * const parts)
     {
         res_imports->databuf = mymanagedmalloc("ImportResult", char, counts->Nimport * sizeof(ResultType));
 
@@ -728,7 +744,7 @@ private:
     }
 
     /* Builds the list of exported particles and async sends the export queries. */
-    void ev_send_recv_export_import(const ImpExpCounts * const counts, const ExportMemory2 * const exportlist, CommBuffer * exports, CommBuffer * imports, const particle_data * const parts)
+    void ev_send_recv_export_import(const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist, CommBuffer * exports, CommBuffer * imports)
     {
         exports->databuf = mymalloc("ExportQuery", char, counts->Nexport * sizeof(QueryType));
         imports->databuf = mymanagedmalloc("ImportQuery", char, counts->Nimport * sizeof(QueryType));
@@ -740,17 +756,16 @@ private:
         /* Post recvs before sends. This sometimes allows for a fastpath.*/
         imports->MPI_fill(counts->Import_count, counts->Import_offset, type, COMM_RECV, 101922, counts->comm);
 
-        /* prepare particle data for export */
+        /* Transpose the export query list from being ordered by particle to being ordered by task for export*/
         int64_t * real_send_count = mymalloc("tmp_send_count", int64_t, counts->NTask);
         memset(real_send_count, 0, sizeof(int64_t)*counts->NTask);
         QueryType * export_queries = reinterpret_cast<QueryType*>(exports->databuf);
         for(size_t k = 0; k < exportlist->Nexport; k++) {
-            const int place = exportlist->ExportTable[k].Index;
             const int task = exportlist->ExportTable[k].Task;
             const int64_t bufpos = real_send_count[task] + counts->Export_offset[task];
             real_send_count[task]++;
-            /* Initialize the query in this memory */
-            new(&export_queries[bufpos]) QueryType(parts[place], exportlist->ExportTable[k].NodeList, -1, priv);
+            /* Copy the query to the export buffer. Note the index of the queries list is the same as the index of the ExportTable */
+            export_queries[bufpos] = exportlist->ExportQueries[k];
         }
     #ifdef DEBUG
     /* Checks!*/
@@ -765,7 +780,7 @@ private:
     }
 
     /* Receive the export results */
-    void ev_recv_export_result(CommBuffer * exportbuf, ImpExpCounts * counts)
+    void ev_recv_export_result(CommBuffer * exportbuf, ImpExpCounts<QueryType> * counts)
     {
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(ResultType), MPI_BYTE, &type);
@@ -779,7 +794,7 @@ private:
         return;
     }
 
-    void ev_reduce_export_result(CommBuffer * exportbuf, const ImpExpCounts * const counts, const ExportMemory2 * const exportlist, struct particle_data * const parts)
+    void ev_reduce_export_result(CommBuffer * exportbuf, const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist, struct particle_data * const parts)
     {
         /* Notice that we build the dataindex table individually
             * on each thread, so we are ordered by particle and have memory locality.*/
