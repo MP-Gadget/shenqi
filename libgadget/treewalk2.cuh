@@ -37,7 +37,6 @@ __global__ void count_toptree_exports(
     const topleaf_data * const TopLeaves,
     const int NTopLeaves,
     const int lastnode,
-    const int * const WorkSet,
     const int64_t WorkSetSize,
     // by reference so the destructor does not run,
     // which means in managed memory, and with all sub-arrays in managed memory
@@ -49,8 +48,7 @@ __global__ void count_toptree_exports(
         return;
 
     LocalTopTreeWalkType lv(Nodes, TopLeaves, NTopLeaves, lastnode);
-    const int i = WorkSet ? WorkSet[tid] : tid;
-    const int rt = lv.template toptree_visit<TOPTREE_COUNT>(i, queries[tid], *priv, NULL, NULL, 0);
+    const int rt = lv.template toptree_visit<TOPTREE_COUNT>(queries[tid], tid, *priv, NULL, NULL, 0);
     exportcounts[tid] = rt;
 }
 
@@ -64,7 +62,6 @@ void do_toptree_exports(
     const int NTopLeaves,
     const int lastnode,
     const int WorkSetStart,
-    const int * const WorkSet,
     const int64_t WorkSetSize,
     // by reference so the destructor does not run,
     // which means in managed memory, and with all sub-arrays in managed memory
@@ -92,57 +89,31 @@ void do_toptree_exports(
     /* With no exports we can skip evaluating this particle */
     if(nexport == 0)
         return;
-    const int i = WorkSet ? WorkSet[tid+WorkSetStart] : tid + WorkSetStart;
-    /* Toptree never uses node list */
-    QueryType& input = queries[tid + WorkSetStart];
     /* This will save exports to the memory in ExportTable[exportoffsets[tid-1]].
-     * We ignore return as it is the same as exportcounts. BunchSize is large as we arranged never to overflow.*/
-    lv.template toptree_visit<TOPTREE_EXPORT>(i, input, *priv, currentexport, currentexportquery, nexport);
+     * We ignore return as it is the same as exportcounts. We arranged never to overflow.*/
+    lv.template toptree_visit<TOPTREE_EXPORT>(queries[tid + WorkSetStart], tid + WorkSetStart, *priv, currentexport, currentexportquery, nexport);
 };
 
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType, typename OutputType>
+template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType, TreeWalkReduceMode mode>
 __global__
-void treewalk_primary_kernel(
+void treewalk_visit_kernel(
     // The memory here should be allocated cudaManagedMalloc
     QueryType * const queries,
+    ResultType * const results,
+    const int64_t WorkSetSize,
     particle_data * const parts,
     const NODE * const Nodes,
-    const int * const WorkSet,
-    const int64_t WorkSetSize,
     // by reference so the destructor does not run,
     // which means in managed memory, and with all sub-arrays in managed memory
-    const ParamType * priv,
-    const OutputType * output)
-{
-    int64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= WorkSetSize)
-        return;
-
-    const int64_t i = WorkSet ? (int64_t) WorkSet[tid] : tid;
-    ResultType result(queries[tid]);
-    LocalTreeWalkType lv(Nodes, queries[tid]);
-    lv.template visit<TREEWALK_PRIMARY>(queries[tid], &result, *priv, parts);
-    result.template reduce<TREEWALK_PRIMARY>(i, output, parts);
-};
-
-template <typename QueryType, typename ResultType, typename LocalTreeWalkType, typename ParamType, typename OutputType>
-__global__
-void treewalk_secondary_kernel(
-    // The memory here should be allocated cudaManagedMalloc
-    particle_data * const parts,
-    const NODE * const Nodes,
-    ResultType * results,
-    QueryType * imports,
-    const int64_t WorkSetSize,
     const ParamType * priv)
 {
     int64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= WorkSetSize)
         return;
 
-    ResultType * resoutput = new (&results[tid]) ResultType(imports[tid]);
-    LocalTreeWalkType lv(Nodes, imports[tid]);
-    lv.template visit<TREEWALK_GHOSTS>(imports[tid], resoutput, *priv, parts);
+    LocalTreeWalkType lv(Nodes, queries[tid]);
+    ResultType * result = new(&results[tid]) ResultType(queries[tid]);
+    lv.template visit<mode>(queries[tid], result, *priv, parts);
 };
 
 template <typename ParamType, typename OutputType>
@@ -209,7 +180,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         }
     }
 
-    int * ev_count_exports(int * WorkSet, const int64_t WorkSetSize, QueryType * queries)
+    int * ev_count_exports(QueryType * queries, const int64_t WorkSetSize)
     {
         int * exportcounts;
         /* Allocate at least 1 element so cudaFree is always valid. */
@@ -224,7 +195,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
 
         /* First count the exports from each particle and store the counts in exportcounts.*/
         count_toptree_exports<QueryType, LocalTopTreeWalkType, ParamType>
-        <<<blocks, threadsPerBlock>>>(queries, tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->lastnode, WorkSet, WorkSetSize, &priv, exportcounts);
+        <<<blocks, threadsPerBlock>>>(queries, tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->lastnode, WorkSetSize, &priv, exportcounts);
 
         /*  inclusive_scan is a partial sum:
          * it counts the total number of particle exports before and including the current point, so we know which
@@ -241,7 +212,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         cudaFree(exportcounts);
     }
 
-    int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, int * exportcounts, ExportMemory2<QueryType> * const exportlist, QueryType * queries)
+    int64_t ev_toptree(const int64_t WorkSetStart, const int64_t WorkSetSize, int * exportcounts, ExportMemory2<QueryType> * const exportlist, QueryType * queries)
     {
         const int threadsPerBlock = 256;
         /* Adjust the indices for the restart */
@@ -288,7 +259,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
          * Likely most particles have zero exports, so this will be somewhat faster than the first run. */
         do_toptree_exports<QueryType, LocalTopTreeWalkType, ParamType>
          <<<blocks, threadsPerBlock>>>(queries, tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->lastnode,
-             WorkSetStart, WorkSet, curSize, &priv, exportcounts, exportoffset, exportlist->ExportTable, exportlist->ExportQueries);
+             WorkSetStart, curSize, &priv, exportcounts, exportoffset, exportlist->ExportTable, exportlist->ExportQueries);
 
         cudaError_t status = cudaDeviceSynchronize();
         if (status != cudaSuccess)
@@ -299,44 +270,29 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         return WorkSetStart + curSize;
     }
 
-    // Function to launch kernel (wrapper)
-    void ev_primary(int * WorkSet, const int64_t WorkSetSize, QueryType * queries, particle_data * const parts) {
+    /* Perform evaluation of a chunk of queries and store the output in results.
+     *
+     * Arguments:
+     * - QueryType queries: an array of querys sent from another rank for evaluation on the local tree.
+     * - ResultType results: an array of results generated by walking the local tree, for returning to the original rank.
+     * - WorkSetSize: number of queries to evaluate.
+     * - parts: particle table to put at the roots of the tree.
+     * */
+    template <TreeWalkReduceMode mode>
+    void ev_visit(QueryType * queries, ResultType * results, const int64_t WorkSetSize, particle_data * const parts) {
         if(WorkSetSize == 0)
             return;
         const int threadsPerBlock = 256;
         const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
         /* All arrays need to be managed malloc or device:
          * particles, tree nodes,
-         * WorkSet, counters (device)
-         * priv and output should be heap-allocated as placement-new pointers in managed memory */
-        treewalk_primary_kernel<QueryType, ResultType, LocalTreeWalkType, ParamType, OutputType>
-        <<<blocks, threadsPerBlock>>>(queries, parts, tree->Nodes, WorkSet, WorkSetSize, &priv, output);
+         * priv should be heap-allocated as placement-new pointers in managed memory */
+        treewalk_visit_kernel<QueryType, ResultType, LocalTreeWalkType, ParamType, mode>
+        <<<blocks, threadsPerBlock>>>(queries, results, WorkSetSize, parts, tree->Nodes, &priv);
         cudaError_t status = cudaDeviceSynchronize();
         if (status != cudaSuccess)
-            endrun(5, "ev_primary kernel failed: %s\n", cudaGetErrorString(status));
+            endrun(5, "ev_visit kernel failed: %s\n", cudaGetErrorString(status));
     };
-
-    /* Perform evaluation of a chunk of secondary particles from a single processor.
-     *
-     * Arguments:
-     * - QueryType imports: an array of querys sent from another rank for evaluation on the local tree.
-     * - ResultType results: an array of results generated by walking the local tree, for returning to the original rank.
-     * - nimports_task: size of the query and result arrays.
-     * */
-    void ev_secondary(ResultType * results, QueryType * imports, const int64_t WorkSetSize, struct particle_data * const particles)
-    {
-        if(WorkSetSize == 0)
-            return;
-        const int threadsPerBlock = 256;
-        const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
-        /* All arrays need to be managed malloc or device:
-         * priv and output should be heap-allocated as placement-new pointers in managed memory */
-        treewalk_secondary_kernel<QueryType, ResultType, LocalTreeWalkType, ParamType, OutputType>
-        <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, results, imports, WorkSetSize, &priv);
-        cudaError_t status = cudaDeviceSynchronize();
-        if (status != cudaSuccess)
-            endrun(5, "ev_secondary kernel failed: %s\n", cudaGetErrorString(status));
-    }
 
     /* Do the postprocessing on the GPU. This simply evaluates the postprocess function for every particle. */
     void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const particles)

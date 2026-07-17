@@ -283,7 +283,8 @@ public:
         LocalTreeWalkType::validate_tree(tree);
         Nexport_sum = 0;
 
-        /* Build the queries from the particle table first, so we only need to read it once*/
+        /* Build the queries from the particle table first, so we only need to read it once.
+         * Allocate memory first, so that compute_bunchsize has a correct view of memory. */
         QueryType * queries = mymanagedmalloc("Queries", QueryType, WorkSetSize);
         #pragma omp parallel for
         for(int64_t k = 0 ; k < WorkSetSize; k++) {
@@ -291,6 +292,7 @@ public:
                 /* Toptree never uses node list */
                 new(&queries[k]) QueryType(parts[i], NULL, tree->firstnode, priv);
         }
+        ResultType * results = mymanagedmalloc("Results", ResultType, WorkSetSize);
 
         const int BunchSize = compute_bunchsize();
         int64_t nmin, nmax, total;
@@ -311,7 +313,7 @@ public:
         int64_t WorkSetStart = 0;
 
         /* We count all exports before the main export loop. */
-        int * exportcounts = static_cast<DerivedType *>(this)->ev_count_exports(WorkSet, WorkSetSize, queries);
+        int * exportcounts = static_cast<DerivedType *>(this)->ev_count_exports(queries, WorkSetSize);
 
         /* Main loop that copies into the export table, then does primary and secondary evals. */
         do {
@@ -322,7 +324,7 @@ public:
                 message(0, "Toptree %s, iter %d. First particle %ld size %ld.\n", ev_label, Nexportfull, WorkSetStart, WorkSetSize);
             ExportMemory2<QueryType> exportlist;
             /* First do the toptree and export particles for sending.*/
-            WorkSetStart = static_cast<DerivedType *>(this)->ev_toptree(WorkSet, WorkSetStart, WorkSetSize, exportcounts, &exportlist, queries);
+            WorkSetStart = static_cast<DerivedType *>(this)->ev_toptree(WorkSetStart, WorkSetSize, exportcounts, &exportlist, queries);
             /* All processes sync via alltoall.*/
             ImpExpCounts<QueryType> counts(comm, exportlist);
             NExportTargets = counts.NExportTargets;
@@ -338,7 +340,7 @@ public:
             /* Only do this on the first iteration, as we only need to do it once.*/
             tstart = second();
             if(Nexportfull == 0)
-                static_cast<DerivedType *>(this)->ev_primary(WorkSet, WorkSetSize, queries, parts); /* do local particles and prepare export list */
+                static_cast<DerivedType *>(this)->template ev_visit<TREEWALK_PRIMARY>(queries, results, WorkSetSize, parts); /* do local particles and prepare export list */
             tend = second();
             timecomp1 += timediff(tstart, tend);
             /* Do processing of received particles. We implement a queue that
@@ -362,7 +364,8 @@ public:
             tend = second();
             timewait1 += timediff(tstart, tend);
             tstart = second();
-            ev_reduce_export_result(&res_exports, &counts, &exportlist, parts);
+            /* Here the results array is summed and so ev_primary needs to be finished*/
+            ev_reduce_export_result(results, &res_exports, &counts, &exportlist);
             tend = second();
             timecommsumm += timediff(tstart, tend);
             Nexportfull++;
@@ -376,12 +379,26 @@ public:
 
         myfree(queries);
 
-        if(postprocess) {
-            double tstart = second();
-            static_cast<DerivedType *>(this)->ev_postprocess(WorkSet, WorkSetSize, parts);
-            double tend = second();
-            timecomp3 += timediff(tstart, tend);
+        /* Reduce the results onto the particle table. By the end of the loop this
+         * is the sum of the primary and secondary evals and only needs to be done once.*/
+        double tstart = second();
+
+        /* We unconditionally do this on the CPU. We will change the tree
+         * so that the particle table lives on the CPU.*/
+        #pragma omp parallel for
+        for(int64_t k = 0 ; k < WorkSetSize; k++) {
+                const int i = WorkSet ? WorkSet[k] : k;
+                /* Note the mode template doesn't do anything anymore*/
+                results[k].template reduce<TREEWALK_PRIMARY>(i, output, parts);
         }
+
+        myfree(results);
+
+        if(postprocess) {
+            static_cast<DerivedType *>(this)->ev_postprocess(WorkSet, WorkSetSize, parts);
+        }
+        double tend = second();
+        timecomp3 += timediff(tstart, tend);
     }
 
     void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const parts)
@@ -571,35 +588,29 @@ private:
         myfree(exportcounts);
     }
 
-    /* returns struct containing export counts */
-    void ev_primary(int * WorkSet, const int64_t WorkSetSize, QueryType * queries, particle_data * const parts)
+    /* Perform evaluation of a chunk of queries and store the output in results.
+     *
+     * Arguments:
+     * - QueryType queries: an array of querys sent from another rank for evaluation on the local tree.
+     * - ResultType results: an array of results generated by walking the local tree, for returning to the original rank.
+     * - WorkSetSize: number of queries to evaluate.
+     * - parts: particle table to put at the roots of the tree.
+     * */
+    template <TreeWalkReduceMode mode>
+    void ev_visit(QueryType * queries, ResultType * results, const int64_t WorkSetSize, particle_data * const parts)
     {
-    #pragma omp parallel
-        {
-            /* We must schedule dynamically so that we have reduced imbalance.
-            * We do not need to worry about the export buffer filling up.*/
-            /* chunk size: 1 and 1000 were slightly (3 percent) slower than 8.
-            * FoF treewalk needs a larger chnksz to avoid contention.*/
-            int64_t chnksz = WorkSetSize / (4*omp_get_num_threads());
-            if(chnksz < 1)
-                chnksz = 1;
-            if(chnksz > 100)
-                chnksz = 100;
-            int k;
-            #pragma omp for schedule(dynamic, chnksz) nowait
-            for(k = 0; k < WorkSetSize; k++) {
-                const int i = WorkSet ? WorkSet[k] : k;
-                /* Primary never uses node list */
-                QueryType& input = queries[k];
-                ResultType result(input);
-                LocalTreeWalkType lv(tree->Nodes, input);
-                lv.template visit<TREEWALK_PRIMARY>(input, &result, priv, parts);
-                result.template reduce<TREEWALK_PRIMARY>(i, output, parts);
-            }
+        /* We must schedule dynamically so that we have reduced imbalance.
+        * We do not need to worry about the export buffer filling up.*/
+        #pragma omp parallel for schedule(dynamic, 100)
+        for(int64_t k = 0; k < WorkSetSize; k++) {
+            QueryType& input = queries[k];
+            LocalTreeWalkType lv(tree->Nodes, input);
+            ResultType * result = new(&results[k]) ResultType(input);
+            lv.template visit<mode>(input, result, priv, parts);
         }
     }
 
-    int * ev_count_exports(int * WorkSet, const int64_t WorkSetSize, QueryType * queries)
+    int * ev_count_exports(QueryType * queries, const int64_t WorkSetSize)
     {
         int * exportcounts = mymalloc("Export counts", int, WorkSetSize);
         /* Count all entries. */
@@ -607,10 +618,9 @@ private:
         {
             LocalTopTreeWalkType lv(tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->lastnode);
             #pragma omp for
-            for(int k = 0 ; k < WorkSetSize; k++) {
-                const int i = WorkSet ? WorkSet[k] : k;
+            for(int64_t k = 0 ; k < WorkSetSize; k++) {
                 /* Note index k is into the WorkSet and i is the particle.*/
-                exportcounts[k] = lv.template toptree_visit<TOPTREE_COUNT>(i, queries[k], priv, NULL, NULL, 0);
+                exportcounts[k] = lv.template toptree_visit<TOPTREE_COUNT>(queries[k], k, priv, NULL, NULL, 0);
             }
         }
         /* Parallel inclusive scan */
@@ -618,7 +628,7 @@ private:
         return exportcounts;
     }
 
-    int64_t ev_toptree(int * WorkSet, const int64_t WorkSetStart, const int64_t WorkSetSize, int * exportcounts, ExportMemory2<QueryType> * const exportlist, QueryType * queries)
+    int64_t ev_toptree(const int64_t WorkSetStart, const int64_t WorkSetSize, int * exportcounts, ExportMemory2<QueryType> * const exportlist, QueryType * queries)
     {
         /* Adjust the indices for the restart */
         int64_t curSize = WorkSetSize - WorkSetStart;
@@ -658,7 +668,7 @@ private:
             LocalTopTreeWalkType lv(tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->lastnode);
 
             #pragma omp for
-            for(int k = 0; k < curSize; k++) {
+            for(int64_t k = 0; k < curSize; k++) {
                 int64_t nexport = exportcounts[k] - exportoffset;
                 data_index * currentexport = exportlist->ExportTable;
                 QueryType * currentexportquery = exportlist->ExportQueries;
@@ -670,34 +680,13 @@ private:
                 /* With no exports we can skip evaluating this particle */
                 if(nexport == 0)
                     continue;
-                const int i = WorkSet ? WorkSet[k+WorkSetStart] : k + WorkSetStart;
                 QueryType& input = queries[k + WorkSetStart];
-                /* Indexing into the WorkSet, not the particle.*/
-                lv.template toptree_visit<TOPTREE_EXPORT>(i, input, priv, currentexport, currentexportquery, nexport);
+                lv.template toptree_visit<TOPTREE_EXPORT>(input, k + WorkSetStart, priv, currentexport, currentexportquery, nexport);
             }
         }
 
         /* Start again with the next chunk not yet evaluated*/
         return WorkSetStart + curSize;
-    }
-
-    /* Perform evaluation of a chunk of secondary particles from a single processor.
-     *
-     * Arguments:
-     * - QueryType imports: an array of querys sent from another rank for evaluation on the local tree.
-     * - ResultType results: an array of results generated by walking the local tree, for returning to the original rank.
-     * - nimports_task: size of the query and result arrays.
-     *
-    Takes the data within imports, which should be a pointer to nimports_task values */
-    void ev_secondary(ResultType * results, QueryType * imports, const int64_t nimports_task, struct particle_data * const parts)
-    {
-        #pragma omp parallel for
-        for(int64_t j = 0; j < nimports_task; j++) {
-            QueryType * input = &(imports[j]);
-            ResultType * resoutput = new (&results[j]) ResultType(*input);
-            LocalTreeWalkType lv(tree->Nodes, *input);
-            lv.template visit<TREEWALK_GHOSTS>(*input, resoutput, priv, parts);
-        }
     }
 
     void ev_wait_secondary(CommBuffer * res_imports, CommBuffer * imports, ImpExpCounts<QueryType>* counts, struct particle_data * const parts)
@@ -719,8 +708,7 @@ private:
             /* This happens if all requests are MPI_REQUEST_NULL. It should never be hit*/
             if (complete_cnt == MPI_UNDEFINED)
                 break;
-            int j;
-            for(j = 0; j < complete_cnt; j++) {
+            for(int j = 0; j < complete_cnt; j++) {
                 const int i = complete_array[j];
                 /* Note the task number index is not the index in the request array (some tasks were skipped because we have zero exports)! */
                 const int task = imports->rqst_task[i];
@@ -732,7 +720,7 @@ private:
                 * If there are a large number of importing ranks each with a small number of imports, a better scheme could be to send each chunk to a separate openmp task.
                 * However, each openmp task by default only uses 1 thread. One may explicitly enable openmp nested parallelism, but I think that is not safe,
                 * or it would be enabled by default.*/
-                static_cast<DerivedType *>(this)->ev_secondary((ResultType *) dataresultstart, (QueryType *) databufstart, nimports_task, parts);
+                static_cast<DerivedType *>(this)->template ev_visit<TREEWALK_GHOSTS>((QueryType *) databufstart, (ResultType *) dataresultstart, nimports_task, parts);
                 /* Send the completed data back*/
                 MPI_Isend(dataresultstart, nimports_task, type, task, 101923, counts->comm, &res_imports->rdata_all[res_imports->nrequest()]);
                 res_imports->rqst_task.push_back(task);
@@ -794,23 +782,21 @@ private:
         return;
     }
 
-    void ev_reduce_export_result(CommBuffer * exportbuf, const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist, struct particle_data * const parts)
+    void ev_reduce_export_result(ResultType * results, CommBuffer * exportbuf, const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist)
     {
-        /* Notice that we build the dataindex table individually
-            * on each thread, so we are ordered by particle and have memory locality.*/
         int * real_recv_count = mymalloc("tmp_recv_count", int, counts->NTask);
         memset(real_recv_count, 0, sizeof(int)*counts->NTask);
         for(size_t k = 0; k < exportlist->Nexport; k++) {
-            const int place = exportlist->ExportTable[k].Index;
+            /* Note this is the index into the WorkSet (and thus results and queries) and not the particle table*/
+            const int worksetplace = exportlist->ExportTable[k].Index;
             const int task = exportlist->ExportTable[k].Task;
             const int64_t bufpos = real_recv_count[task] + counts->Export_offset[task];
-            real_recv_count[task]++;
-            ResultType * result = &((ResultType *) exportbuf->databuf)[bufpos];
-            result->template reduce<TREEWALK_GHOSTS>(place, output, parts);
+            results[worksetplace] += ((ResultType *) exportbuf->databuf)[bufpos];
 #ifdef DEBUG
-            if(result->ID != parts[place].ID)
-                endrun(8, "Error in communication: IDs mismatch %ld %ld\n", result->ID, parts[place].ID);
+            if(results[worksetplace].ID != ((ResultType*)exportbuf->databuf)[bufpos].ID)
+                endrun(8, "Error in communication target %d from buf %ld: IDs mismatch %ld %ld\n", worksetplace, bufpos, results[worksetplace].ID, ((ResultType*)exportbuf->databuf)[bufpos].ID);
 #endif
+            real_recv_count[task]++;
         }
         myfree(real_recv_count);
     }
