@@ -20,11 +20,11 @@ static int pm_mark_region_for_node(int startno, int rid, int * RegionInd, const 
 static void convert_node_to_region(PetaPM * pm, PetaPMRegion * r, struct NODE * Nodes);
 
 static int hybrid_nu_gravpm_is_active(int i);
-static void potential_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex * value);
+static void potential_transfer(PetaPM * pm, int64_t k2, int kpos[3], petapm_complex * value);
 static void compute_neutrino_power(PetaPM * pm);
-static void force_x_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex * value);
-static void force_y_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex * value);
-static void force_z_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex * value);
+static void force_x_transfer(PetaPM * pm, int64_t k2, int kpos[3], petapm_complex * value);
+static void force_y_transfer(PetaPM * pm, int64_t k2, int kpos[3], petapm_complex * value);
+static void force_z_transfer(PetaPM * pm, int64_t k2, int kpos[3], petapm_complex * value);
 static void readout_potential(PetaPM * pm, int i, double * mesh, double weight);
 static void readout_force_x(PetaPM * pm, int i, double * mesh, double weight);
 static void readout_force_y(PetaPM * pm, int i, double * mesh, double weight);
@@ -84,7 +84,7 @@ gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, d
     if(hybrid_nu_tracer(CP, Time))
         pstruct.active = &hybrid_nu_gravpm_is_active;
 
-    int i;
+    int64_t i;
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i++)
     {
@@ -323,7 +323,7 @@ static void compute_neutrino_power(PetaPM * pm) {
 /* Compute the power spectrum of the fourier transformed grid in value.
  * Store it in the PowerSpectrum structure */
 void
-powerspectrum_add_mode(Power * PowerSpectrum, const int64_t k2, const int kpos[3], pfft_complex * const value, const double invwindow, double Nmesh)
+powerspectrum_add_mode(Power * PowerSpectrum, const int64_t k2, const int kpos[3], petapm_complex * const value, const double invwindow, double Nmesh)
 {
     if(k2 == 0) {
         /* Save zero mode corresponding to the mean as the normalisation factor.*/
@@ -357,7 +357,7 @@ powerspectrum_add_mode(Power * PowerSpectrum, const int64_t k2, const int kpos[3
 
 /*Just read the power spectrum, without changing the input value.*/
 void
-measure_power_spectrum(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex *value) {
+measure_power_spectrum(PetaPM * pm, int64_t k2, int kpos[3], petapm_complex *value) {
     double f = 1.0;
     /* the CIC deconvolution kernel is
      *
@@ -376,7 +376,7 @@ measure_power_spectrum(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex *value
 }
 
 static void
-potential_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex *value)
+potential_transfer(PetaPM * pm, int64_t k2, int kpos[3], petapm_complex *value)
 {
     const double asmth2 = pow((2 * M_PI) * pm->Asmth / pm->Nmesh,2);
     double f = 1.0;
@@ -463,7 +463,7 @@ static int hybrid_nu_gravpm_is_active(int i) {
         return 1;
 }
 
-static void force_transfer(PetaPM * pm, int k, pfft_complex * value) {
+static void force_transfer(PetaPM * pm, int k, petapm_complex * value) {
     double tmp0;
     double tmp1;
     /*
@@ -477,13 +477,13 @@ static void force_transfer(PetaPM * pm, int k, pfft_complex * value) {
     value[0][0] = tmp0;
     value[0][1] = tmp1;
 }
-static void force_x_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex * value) {
+static void force_x_transfer(PetaPM * pm, int64_t k2, int kpos[3], petapm_complex * value) {
     force_transfer(pm, kpos[0], value);
 }
-static void force_y_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex * value) {
+static void force_y_transfer(PetaPM * pm, int64_t k2, int kpos[3], petapm_complex * value) {
     force_transfer(pm, kpos[1], value);
 }
-static void force_z_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex * value) {
+static void force_z_transfer(PetaPM * pm, int64_t k2, int kpos[3], petapm_complex * value) {
     force_transfer(pm, kpos[2], value);
 }
 static void readout_potential(PetaPM * pm, int i, double * mesh, double weight) {

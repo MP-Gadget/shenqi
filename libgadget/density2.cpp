@@ -160,7 +160,7 @@ set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSepa
         endrun(5, "tree Father array not allocated at initial hsml!\n");
     const double DesNumNgb = GetNumNgb(GetDensityKernelType());
     particle_data * const parts = PartManager->Base;
-    int i;
+    int64_t i;
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i++)
     {
@@ -180,14 +180,14 @@ set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSepa
 
             /* Check that we didn't somehow get a bad set of nodes*/
             if(p > tree->numnodes + tree->firstnode)
-                endrun(5, "Bad init father: i=%d, mass = %g type %d hsml %g no %d len %g father %d, numnodes %ld firstnode %ld\n",
+                endrun(5, "Bad init father: i=%ld, mass = %g type %d hsml %g no %d len %g father %d, numnodes %ld firstnode %ld\n",
                     i, parts[i].Mass, parts[i].Type, parts[i].Hsml, no, tree->Nodes[no].len, p, tree->numnodes, tree->firstnode);
             no = p;
         } while(10 * DesNumNgb * parts[i].Mass > tree->Nodes[no].mom.mass);
 
         /* Validate the tree node contents*/
         if(tree->Nodes[no].len > tree->BoxSize || tree->Nodes[no].mom.mass < parts[i].Mass)
-            endrun(5, "Bad tree moments: i=%d, mass = %g type %d hsml %g no %d len %g treemass %g\n",
+            endrun(5, "Bad tree moments: i=%ld, mass = %g type %d hsml %g no %d len %g treemass %g\n",
                     i, parts[i].Mass, parts[i].Type, parts[i].Hsml, no, tree->Nodes[no].len, tree->Nodes[no].mom.mass);
         parts[i].Hsml = MeanGasSeparation;
         if(no >= tree->firstnode) {
@@ -198,7 +198,7 @@ set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSepa
         }
 
         if(parts[i].Hsml <= 0)
-            endrun(5, "Bad hsml guess: i=%d, mass = %g type %d hsml %g no %d len %g treemass %g\n",
+            endrun(5, "Bad hsml guess: i=%ld, mass = %g type %d hsml %g no %d len %g treemass %g\n",
                     i, parts[i].Mass, parts[i].Type, parts[i].Hsml, no, tree->Nodes[no].len, tree->Nodes[no].mom.mass);
     }
 }

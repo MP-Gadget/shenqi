@@ -216,7 +216,8 @@ void write_cpu_log(int NumCurrentTiStep, const double atime, FILE * FdCPU, doubl
  */
 struct state_of_system compute_global_quantities_of_system(const double Time,  struct part_manager_type * PartManager)
 {
-    int i, j;
+    int j;
+    int64_t i;
     struct state_of_system sys;
     struct state_of_system SysState;
     double a1, a2, a3;

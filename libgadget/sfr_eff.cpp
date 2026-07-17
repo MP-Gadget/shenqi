@@ -775,6 +775,7 @@ struct sfr_eeqos_data get_sfr_eeqos(struct particle_data * part, struct sph_part
     data.trelax = sfr_params.MaxSfrTimescale;
     data.tsfr = sfr_params.MaxSfrTimescale;
     data.egyhot = sfr_params.EgySpecCold;
+    data.egycold = sfr_params.EgySpecCold;
     data.cloudfrac = 0;
     data.ne = 0;
 

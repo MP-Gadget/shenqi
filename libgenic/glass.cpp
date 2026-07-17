@@ -19,10 +19,10 @@
 #include <libgadget/powerspectrum.h>
 #include <libgadget/gravity.h>
 
-static void potential_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex * value);
-static void force_x_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex * value);
-static void force_y_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex * value);
-static void force_z_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex * value);
+static void potential_transfer(PetaPM *pm, int64_t k2, int kpos[3], petapm_complex * value);
+static void force_x_transfer(PetaPM *pm, int64_t k2, int kpos[3], petapm_complex * value);
+static void force_y_transfer(PetaPM *pm, int64_t k2, int kpos[3], petapm_complex * value);
+static void force_z_transfer(PetaPM *pm, int64_t k2, int kpos[3], petapm_complex * value);
 static void readout_force_x(PetaPM *pm, int i, double * mesh, double weight);
 static void readout_force_y(PetaPM *pm, int i, double * mesh, double weight);
 static void readout_force_z(PetaPM *pm, int i, double * mesh, double weight);
@@ -282,7 +282,7 @@ _prepare(PetaPM * pm, PetaPMParticleStruct * pstruct, void * userdata, int * Nre
  *
  *********************/
 
-static void potential_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex *value) {
+static void potential_transfer(PetaPM *pm, int64_t k2, int kpos[3], petapm_complex *value) {
 
     double f = 1.0;
     const double smth = 1.0 / k2;
@@ -326,7 +326,7 @@ static double diff_kernel(double w) {
     return 1 / 6.0 * (8 * sin (w) - sin (2 * w));
 }
 
-static void force_transfer(PetaPM *pm, int k, pfft_complex * value) {
+static void force_transfer(PetaPM *pm, int k, petapm_complex * value) {
     double tmp0;
     double tmp1;
     /*
@@ -340,13 +340,13 @@ static void force_transfer(PetaPM *pm, int k, pfft_complex * value) {
     value[0][0] = tmp0;
     value[0][1] = tmp1;
 }
-static void force_x_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex * value) {
+static void force_x_transfer(PetaPM *pm, int64_t k2, int kpos[3], petapm_complex * value) {
     force_transfer(pm, kpos[0], value);
 }
-static void force_y_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex * value) {
+static void force_y_transfer(PetaPM *pm, int64_t k2, int kpos[3], petapm_complex * value) {
     force_transfer(pm, kpos[1], value);
 }
-static void force_z_transfer(PetaPM *pm, int64_t k2, int kpos[3], pfft_complex * value) {
+static void force_z_transfer(PetaPM *pm, int64_t k2, int kpos[3], petapm_complex * value) {
     force_transfer(pm, kpos[2], value);
 }
 static void readout_force_x(PetaPM *pm, int i, double * mesh, double weight) {

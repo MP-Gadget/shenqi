@@ -88,18 +88,19 @@ int grid_index(int i, int j, int k, ptrdiff_t strides[3])
 }
 
 
-void save_uvbg_grids(int SnapshotFileCount, char * OutputDir, PetaPM * pm)
+void save_uvbg_grids(int SnapshotFileCount, std::string OutputDir, PetaPM * pm)
 {
     int n_ranks;
     int this_rank=-1;
-    int grid_n = pm->real_space_region.size[0] * pm->real_space_region.size[1] * pm->real_space_region.size[2];
     MPI_Comm_size(MPI_COMM_WORLD, &n_ranks);
     MPI_Comm_rank(MPI_COMM_WORLD, &this_rank);
 
     //TODO(jdavies): finish this grid writing function, it outputs fine but in the wrong rank order
     BigFile fout;
-    char fname[256];
-    sprintf(fname, "%s/UVgrids_%03d", OutputDir,SnapshotFileCount);
+    std::ostringstream s;
+    s << std::setw(3) << std::setfill('0') << SnapshotFileCount;
+    std::string OutputFile = OutputDir + "/UVgrids_"+s.str();
+    const char * fname = OutputFile.c_str();
     message(0, "saving uv grids to %s \n", fname);
 
     if(0 != big_file_mpi_create(&fout, fname, MPI_COMM_WORLD)) {
@@ -128,6 +129,8 @@ void save_uvbg_grids(int SnapshotFileCount, char * OutputDir, PetaPM * pm)
 
     //TODO: think about the cartesian communicator in the PetaPM struct
     //and the mapping between ranks, indices and positions
+
+    size_t grid_n = pm->real_space_region.size[0] * pm->real_space_region.size[1] * pm->real_space_region.size[2];
 
     size_t dims[2] = {(size_t)grid_n, 1};
     //J21 block
@@ -176,10 +179,10 @@ static double RtoM(double R)
 //TODO: look into _prepare (gravpm.c) and see if its worth implementing anything there
 static PetaPMRegion * makeregion(PetaPM * pm, PetaPMParticleStruct * pstruct, void * userdata, int * Nregions) {
     PetaPMRegion * regions = mymalloc2("Regions", PetaPMRegion, 1);
-    int NumPart = PartManager->NumPart;
+    int64_t NumPart = PartManager->NumPart;
     int k;
     int r = 0;
-    int i;
+    int64_t i;
     double min[3] = {pm->BoxSize, pm->BoxSize, pm->BoxSize};
     double max[3] = {0, 0, 0.};
 
@@ -205,14 +208,14 @@ static PetaPMRegion * makeregion(PetaPM * pm, PetaPMParticleStruct * pstruct, vo
 }
 
 //this is applied as global_transfer, dividing by n_cells due to the forward-reverse FFT
-static void divide_by_ncell(PetaPM * pm, int64_t k2, int k[3], pfft_complex * value){
+static void divide_by_ncell(PetaPM * pm, int64_t k2, int k[3], petapm_complex * value){
         int total_n_cells = (double)(uvbg_params.UVBGdim * uvbg_params.UVBGdim * uvbg_params.UVBGdim);
         value[0][0] /= total_n_cells;
         value[0][1] /= total_n_cells;
 }
 
 //transfer functions that applies a certain filter (top-hat or gaussian)
-static void filter_pm(PetaPM * pm, int64_t k2, int k[3], pfft_complex * value)
+static void filter_pm(PetaPM * pm, int64_t k2, int k[3], petapm_complex * value)
 {
     const int filter_type = uvbg_params.ReionFilterType;
     double k_mag = sqrt(k2) * (2 * M_PI / pm->Nmesh) * (pm->Nmesh / pm->BoxSize);
@@ -264,8 +267,8 @@ static void print_reion_debug_info(PetaPM * pm_mass, float * J21, float * xHI, d
     int neutral_count = 0;
     int ion_count = 0;
     int pm_idx;
-    int uvbg_dim = uvbg_params.UVBGdim;
-    int grid_n_real = uvbg_dim * uvbg_dim * uvbg_dim;
+    int64_t uvbg_dim = uvbg_params.UVBGdim;
+    int64_t grid_n_real = uvbg_dim * uvbg_dim * uvbg_dim;
 #pragma omp parallel for collapse(3) reduction(+:neutral_count,ion_count,total_mass,total_star) reduction(min:min_J21,min_mass,min_star,min_sfr) reduction(max:max_J21,max_mass,max_star,max_sfr) private(pm_idx)
     for (int ix = 0; ix < pm_mass->real_space_region.size[0]; ix++)
         for (int iy = 0; iy < pm_mass->real_space_region.size[1]; iy++)
@@ -423,8 +426,8 @@ static void reion_loop_pm(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr,
         double volume_weighted_global_xHI = 0.0;
         double mass_weighted_global_xHI = 0.0;
         double mass_weight = 0.0;
-        int uvbg_dim = uvbg_params.UVBGdim;
-        int grid_n_real = uvbg_dim * uvbg_dim * uvbg_dim;
+        int64_t uvbg_dim = uvbg_params.UVBGdim;
+        int64_t grid_n_real = uvbg_dim * uvbg_dim * uvbg_dim;
 #pragma omp parallel for collapse(3) reduction(+:volume_weighted_global_xHI,mass_weighted_global_xHI,mass_weight) private(pm_idx,density_over_mean)
         for (int ix = 0; ix < pm_mass->real_space_region.size[0]; ix++)
             for (int iy = 0; iy < pm_mass->real_space_region.size[1]; iy++)
@@ -475,7 +478,7 @@ static void init_particle_uvbg(){
 
     /* Reset local J21 */
 #pragma omp parallel for private(fesc_temp)
-    for(int ii = 0; ii < PartManager->NumPart; ii++) {
+    for(int64_t ii = 0; ii < PartManager->NumPart; ii++) {
         /* Init J21 and set escape fracitons for sph particles */
         if(P[ii].Type == 0) {
             SPHP(ii).local_J21 = 0.;
@@ -503,7 +506,7 @@ static void init_particle_uvbg(){
     }
 }
 
-void calculate_uvbg(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr, int WriteSnapshot, int SnapshotFileCount, char * OutputDir, double Time, Cosmology * CP, const struct UnitSystem units){
+void calculate_uvbg(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr, int WriteSnapshot, int SnapshotFileCount, std::string OutputDir, double Time, Cosmology * CP, const struct UnitSystem units){
     //setup filter radius range
     double Rmax = uvbg_params.ReionRBubbleMax;
     double Rmin = uvbg_params.ReionRBubbleMin;
@@ -554,7 +557,7 @@ void calculate_uvbg(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr, int Wri
     uvbg_params.CP = CP;
 
     /* initialize grids */
-    int grid_n = pm_mass->real_space_region.size[0]
+    int64_t grid_n = pm_mass->real_space_region.size[0]
         * pm_mass->real_space_region.size[1]
         * pm_mass->real_space_region.size[2];
 
@@ -563,7 +566,7 @@ void calculate_uvbg(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr, int Wri
     UVBGgrids.xHI = mymalloc("xHI", float, grid_n);
     float * xHI = UVBGgrids.xHI;
 
-    for (int ii = 0; ii < grid_n; ii++) {
+    for (int64_t ii = 0; ii < grid_n; ii++) {
         J21[ii] = 0.0f;
         xHI[ii] = 1.0f;
     }

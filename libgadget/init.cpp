@@ -117,7 +117,7 @@ inttime_t init(int RestartSnapNum, const std::string& OutputDir, struct header_d
     fof_init(MeanSeparation[1]);
 
     #pragma omp parallel for
-    for(int i = 0; i < PartManager->NumPart; i++)	/* initialize sph_properties */
+    for(int64_t i = 0; i < PartManager->NumPart; i++)	/* initialize sph_properties */
     {
         int j;
         Part[i].Ti_drift = Ti_Current;
@@ -155,7 +155,7 @@ inttime_t init(int RestartSnapNum, const std::string& OutputDir, struct header_d
         }
 
         if(!isfinite(SPHP(i).DelayTime ))
-            endrun(6, "Bad DelayTime %g for part %d id %ld\n", SPHP(i).DelayTime, i, Part[i].ID);
+            endrun(6, "Bad DelayTime %g for part %ld id %ld\n", SPHP(i).DelayTime, i, Part[i].ID);
         SPHP(i).DtEntropy = 0;
 
         if(RestartSnapNum == -1)
@@ -312,7 +312,7 @@ init_alloc_particle_slot_memory(struct part_manager_type * PartManager, struct s
  */
 void check_positions(struct part_manager_type * PartManager)
 {
-    int i;
+    int64_t i;
     int numzero = 0;
     int lastzero = -1;
 
@@ -322,7 +322,7 @@ void check_positions(struct part_manager_type * PartManager)
         double * Pos = PartManager->Base[i].Pos;
         for(j=0; j<3; j++) {
             if(Pos[j] < 0 || Pos[j] > PartManager->BoxSize || !isfinite(Pos[j]))
-                endrun(0,"Particle %d is outside the box (L=%g) at (%g %g %g)\n",i, PartManager->BoxSize, Pos[0], Pos[1], Pos[2]);
+                endrun(0,"Particle %ld is outside the box (L=%g) at (%g %g %g)\n",i, PartManager->BoxSize, Pos[0], Pos[1], Pos[2]);
         }
         if((Pos[0] < 1e-35) && (Pos[1] < 1e-35) && (Pos[2] < 1e-35)) {
             numzero++;
@@ -341,7 +341,7 @@ void check_positions(struct part_manager_type * PartManager)
  */
 void check_smoothing_length(struct part_manager_type * PartManager, double * MeanSpacing)
 {
-    int i;
+    int64_t i;
     int numprob = 0;
     int lastprob = -1;
     #pragma omp parallel for reduction(+: numprob) reduction(max:lastprob)

@@ -36,7 +36,7 @@ int fof_select_func(int i, const struct particle_data * Parts)
 }
 
 int fof_save_particles(FOFGroups * fof, const std::string fname, int SaveParticles, Cosmology * CP, double atime, const double * MassTable, int MetalReturnOn, MPI_Comm Comm) {
-    int i;
+    int64_t i;
     struct IOTable FOFIOTable = {0};
 
     fof_register_io_blocks(MetalReturnOn, &FOFIOTable);
@@ -60,7 +60,8 @@ int fof_save_particles(FOFGroups * fof, const std::string fname, int SaveParticl
         int ptype = FOFIOTable.ent[i].ptype;
         BigArray array = {0};
         if(ptype == PTYPE_FOF_GROUP) {
-            sprintf(blockname, "FOFGroups/%s", FOFIOTable.ent[i].name);
+            snprintf(blockname, 128, "FOFGroups/%s", FOFIOTable.ent[i].name);
+            blockname[127] = '\0';
             build_buffer_fof(fof, &array, &FOFIOTable.ent[i], &conv);
             petaio_save_block(&bf, blockname, &array, 1);
             petaio_destroy_buffer(&array);
@@ -128,7 +129,8 @@ int fof_save_particles(FOFGroups * fof, const std::string fname, int SaveParticl
             int ptype = IOTable.ent[i].ptype;
             BigArray array = {0};
             if(ptype < 6 && ptype >= 0) {
-                sprintf(blockname, "%d/%s", ptype, IOTable.ent[i].name);
+                snprintf(blockname, 128, "%d/%s", ptype, IOTable.ent[i].name);
+                blockname[127] = '\0';
                 petaio_build_buffer(&array, &IOTable.ent[i], selection + ptype_offset[ptype], ptype_count[ptype], halo_pman->Base, halo_sman, &conv);
 
                 message(0, "Writing Block %s\n", blockname);
@@ -409,7 +411,7 @@ static void fof_write_header(BigFile * bf, int64_t TotNgroups, const double atim
     if(0 != big_file_mpi_create_block(bf, &bh, "Header", NULL, 0, 0, 0, Comm)) {
         endrun(0, "Failed to create header\n");
     }
-    int i;
+    int64_t i;
     int k;
     int64_t npartLocal[6];
     int64_t npartTotal[6];

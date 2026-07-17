@@ -10,7 +10,7 @@ Description
 -----------
 
 Shenqi is ultimately derived from P-Gadget / Gadget-2, with the gravity solver algorithm from Gadget-4,
-although there has been significant changes since then. Shenqi's predecessor, MP-Gadget, is the source code
+although there has been significant changes since then. Shenqi's predecessor, MP-Gadget, was
 used to run the BlueTides and ASTRID simulations (http://bluetides-project.org).
 Shenqi makes heavy use of boost and a C++ compiler with C++20 and OpenMP 4.5 support.
 
@@ -20,12 +20,13 @@ MP-GenIC to generate ICs, as the IC formats are compatible.
 
 The infrastructure is heavily reworked. As a summary:
 
-- A better PM solver for long range force with Pencil FFT.
-- A better Tree solver with faster threading and less redundant code.
+- Template C++
+- CUDA
+- A better PM solver for long range force with Pencil FFT and CUFFT support.
+- A better Tree solver with threading and GPU support.
 - Hierarchical gravity timestepping following Gadget-4.
 - A better Domain decomposition that scales to half a million cores.
 - A easier to use IO module with a Python binding.
-- A more intuitive parameter file parser with schema and docstrings.
 - A cleaner code base with less conditional compilation flags.
 
 Physics models:
@@ -182,11 +183,13 @@ Contributors
 Gadget-2 was authored by Volker Springel.
 The original P-GADGET3 was maintained by Volker Springel
 
-shenqi was written by Simeon Bird, Yanhui Yang, and Nianyi Chen.
+shenqi was written by Simeon Bird and Yanhui Yang. 
+
+Other contributors are:
+Morgan Ohana, Yihao Zhou, Nianyu Chen.
 
 Contributors and maintainers of MP-Gadget included:
-
-Yu Feng, Yueying Ni, Yihao Zhou, Yanhui Yang. Nicholas Battaglia, Nianyi Chen, James Davies, Nishikanta Khandai, Karime Maamari, Chris Pederson, Phoebe Upton Sanderbeck, and Lauren Anderson.
+Simeon Bird, Yu Feng, James Davies, Yueying Ni, Yanhui Yang, Simon Mutch, Nianyi Chen, Yihao Zhou, Nicholas Battaglia, Lauren Anderson, Phoebe Upton Sanderbeck, Nishikanta Khandai, Chris Pedersen, Andreu Font-Ribera, Karime Maamari, Mahdi Qezlou.
 
 Code review
 -----------
@@ -209,7 +212,7 @@ For usage of the code, here is a DOI for this repository that you can cite
 Licence
 -------
 
-shenqi is distributed under the terms of a 3-clause BSD license or the GNU General Public License v2 or later, at the option of the user. The use of PFFT libraries usually forces distribution under the terms of the GNU General Public License v3.
+shenqi is distributed under the terms of a 3-clause BSD license or the GNU General Public License v2 or later, at the option of the user. If the FFTW3 backend to HeFFTe is used, rather than the CUFFT backend, the code is distributed under the terms of the GNU General Public License v3.
 
 Status
 ------

@@ -236,7 +236,7 @@ density_old(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int 
     else
         DENSITY_GET_PRIV(tw)->GradRho = NULL;
 
-    int i;
+    int64_t i;
     /* Init Left and Right: this has to be done before treewalk */
     #pragma omp parallel for
     for(i = 0; i < act->NumActiveParticle; i++)  {

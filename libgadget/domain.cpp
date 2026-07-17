@@ -94,9 +94,6 @@ void set_domain_params(ParameterSet * ps)
     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
     if(ThisTask == 0) {
         domain_params.DomainOverDecompositionFactor = param_get_int(ps, "DomainOverDecompositionFactor");
-        /* Create one domain per thread. This helps the balance and makes the treebuild merge faster*/
-        if(domain_params.DomainOverDecompositionFactor < 4)
-            domain_params.DomainOverDecompositionFactor = 4;
         domain_params.TopNodeAllocFactor = param_get_double(ps, "TopNodeAllocFactor");
         /* Deprecated: the domain subsample is now always sorted globally,
          * as the local sort produced worse domains for no meaningful speedup. */
@@ -239,7 +236,7 @@ void domain_decompose_full(DomainDecomp * ddecomp, MPI_Comm DomainComm)
          * Needs to be stored for the tree build, but the index must be to a final entry
          * in the ddecomp->TopLeaves array. */
         #pragma omp parallel for
-        for (int n = 0; n < PartManager->NumPart; n++) {
+        for (int64_t n = 0; n < PartManager->NumPart; n++) {
           /* Skip garbage particles, will be removed during exchange.*/
           if (PartManager->Base[n].IsGarbage)
             continue;
@@ -358,7 +355,7 @@ int domain_maintain(DomainDecomp * ddecomp, struct DriftData * drift, double ddr
     /* Can't update the random shift without re-decomposing domain*/
     const double rel_random_shift[3] = {0};
     #pragma omp parallel for
-    for(int i=0; i < PartManager->NumPart; i++) {
+    for(int64_t i=0; i < PartManager->NumPart; i++) {
         struct particle_data& pp = PartManager->Base[i];
         if(drift) {
             real_drift_particle(&pp, SlotsManager, ddrift, PartManager->BoxSize, rel_random_shift);
@@ -990,7 +987,7 @@ domain_check_for_local_refine_subsample(
     const MPI_Comm DomainComm)
 {
 
-    int i;
+    int64_t i;
 
     /* Watchout : Peano/Morton ordering is required by the tree
      * building algorithm in local_refine.
@@ -1005,7 +1002,7 @@ domain_check_for_local_refine_subsample(
      * and the merge approximation error grows with the number of ranks.
      * */
 
-    int Nsample = PartManager->NumPart / policy->SubSampleDistance;
+    int64_t Nsample = PartManager->NumPart / policy->SubSampleDistance;
 
     if(Nsample == 0 && PartManager->NumPart != 0) Nsample = 1;
     struct local_particle_data * LP = mymalloc("LocalParticleData", local_particle_data, Nsample);
@@ -1140,7 +1137,7 @@ domain_check_for_local_refine_subsample(
                  * Normally we would refine, but if Shift == 0 we don't have space.
                  * In this case we just add the current particle sample to the last toptree node.
                  */
-                endrun(10, "toptree[%d].Count=%ld, shift %d, last_leaf=%d key = %ld i= %d Nsample = %d\n",
+                endrun(10, "toptree[%d].Count=%ld, shift %d, last_leaf=%d key = %ld i= %ld Nsample = %ld\n",
                         leaf, topTree[leaf].Count, topTree[leaf].Shift, last_leaf,LP[i].Key, i, Nsample);
             }
             /* this will create a new node. */

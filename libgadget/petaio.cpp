@@ -167,7 +167,8 @@ petaio_save_snapshot(const std::string fname, struct IOTable * IOTable, int verb
          * But do still write them for stars and BHs as someone might expect them.*/
         if(NTotal[ptype] == 0 && ptype < 4)
             continue;
-        sprintf(blockname, "%d/%s", ptype, IOTable->ent[i].name);
+        snprintf(blockname, 128, "%d/%s", ptype, IOTable->ent[i].name);
+        blockname[127] = '\0';
         petaio_build_buffer(&array, &IOTable->ent[i], selection + ptype_offset[ptype], ptype_count[ptype], PartManager->Base, SlotsManager, &conv);
         petaio_save_block(&bf, blockname, &array, verbose);
         petaio_destroy_buffer(&array);
@@ -242,7 +243,7 @@ void
 petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struct header_data * header, struct part_manager_type * PartManager, struct slots_manager_type * SlotsManager, MPI_Comm Comm)
 {
     auto fname = petaio_get_snapshot_fname(num, OutputDir);
-    int i;
+    int64_t i;
     const int ic = (num == -1);
     BigFile bf = {0};
     message(0, "Reading snapshot %s\n", fname.c_str());
@@ -304,7 +305,8 @@ petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struc
              * internally intialized; */
             continue;
         }
-        sprintf(blockname, "%d/%s", ptype, IOTable->ent[i].name);
+        snprintf(blockname, 128, "%d/%s", ptype, IOTable->ent[i].name);
+        blockname[127] = '\0';
         petaio_alloc_buffer(&array, &IOTable->ent[i], header->NLocal[ptype]);
         int required = IOTable->ent[i].required;
         if(0 == strcmp(IOTable->ent[i].name, "Mass") && header->MassTable[ptype] > 0)
@@ -352,7 +354,7 @@ petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struc
         struct particle_data * parts = PartManager->Base;
         /* touch up the mass -- IC files save mass in header */
         #pragma omp parallel for
-        for(int i = 0; i < PartManager->NumPart; i++)
+        for(int64_t i = 0; i < PartManager->NumPart; i++)
         {
             if(header->MassTable[parts[i].Type] > 0)
                 parts[i].Mass = header->MassTable[parts[i].Type];
@@ -361,7 +363,7 @@ petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struc
         if (!IO.UsePeculiarVelocity ) {
             /* fixing the unit of velocity from Legacy GenIC IC */
             #pragma omp parallel for
-            for(int i = 0; i < PartManager->NumPart; i++) {
+            for(int64_t i = 0; i < PartManager->NumPart; i++) {
                 /* for GenIC's Gadget-1 snapshot Unit to Gadget-2 Internal velocity unit */
                 for(int k = 0; k < 3; k++)
                     parts[i].Vel[k] *= sqrt(header->TimeSnapshot) * header->TimeSnapshot;
@@ -537,7 +539,7 @@ void petaio_alloc_buffer(BigArray * array, IOTableEntry * ent, int64_t localsize
 
 /* readout array into P struct with setters */
 void petaio_readout_buffer(BigArray * array, IOTableEntry * ent, struct conversions * conv, struct part_manager_type * PartManager, struct slots_manager_type * SlotsManager) {
-    int i;
+    int64_t i;
     /* fill the buffer */
     char * p = (char *) array->data;
     for(i = 0; i < PartManager->NumPart; i ++) {

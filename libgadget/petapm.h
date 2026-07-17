@@ -1,8 +1,18 @@
 #ifndef __PETAPM_H__
 #define __PETAPM_H__
-#include <pfft.h>
+#include <mpi.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include "powerspectrum.h"
+
+/* Complex values on the Fourier mesh. Binary compatible with
+ * fftw_complex / std::complex<double>, avoids needing the FFT
+ * library headers here. */
+typedef double petapm_complex[2];
+
+/* Opaque holder for the heffte FFT plans, defined in petapm.cpp. */
+struct PetaPMPlans;
 
 typedef struct Region {
     /* represents a region in the FFT Mesh */
@@ -47,10 +57,8 @@ struct Layout {
 /* Data which is private to the PetaPM structure. Don't access from outside.*/
 typedef struct PetaPMPriv {
     /* These varibles are initialized by petapm_init*/
-
-    size_t fftsize;
-    pfft_plan plan_forw;
-    pfft_plan plan_back;
+    int64_t fftsize;
+    struct PetaPMPlans * plans;
     MPI_Comm comm_cart_2d;
 
     /* these variables are allocated every force calculation */
@@ -99,7 +107,7 @@ typedef struct {
     size_t offset_fesc; //offset in fof groups to fof mass
 } PetaPMReionPartStruct;
 
-typedef void (*petapm_transfer_func)(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex * value);
+typedef void (*petapm_transfer_func)(PetaPM * pm, int64_t k2, int kpos[3], petapm_complex * value);
 typedef void (*petapm_readout_func)(PetaPM * pm, int i, double * mesh, double weight);
 typedef PetaPMRegion * (*petapm_prepare_func)(PetaPM * pm, PetaPMParticleStruct * pstruct, void * data, int *Nregions);
 
@@ -124,9 +132,16 @@ typedef struct {
 typedef void * (*petapm_malloc_func)(char * name, size_t * size);
 typedef void * (*petapm_mfree_func)(void * ptr);
 
-void petapm_module_init(int Nthreads);
+/* UseGPU selects the cufft backend at run time (needs USE_CUDA at compile time). */
+void petapm_module_init(int Nthreads, int UseGPU);
 
 void petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_Comm comm);
+
+/* Execute the FFT plans held by pm on caller-provided buffers of at
+ * least pm->priv->fftsize doubles. Unscaled, like fftw. With the GPU
+ * backend the buffers must be device accessible (mymanagedmalloc). */
+void petapm_fft_r2c(PetaPM * pm, double * real, petapm_complex * complx);
+void petapm_fft_c2r(PetaPM * pm, petapm_complex * complx, double * real);
 void petapm_destroy(PetaPM * pm);
 void petapm_region_init_strides(PetaPMRegion * region);
 
@@ -142,11 +157,11 @@ PetaPMRegion * petapm_force_init(PetaPM * pm,
         PetaPMParticleStruct * pstruct,
         int * Nregions,
         void * userdata);
-pfft_complex * petapm_force_r2c(PetaPM * pm,
+petapm_complex * petapm_force_r2c(PetaPM * pm,
         PetaPMGlobalFunctions * global_functions
         );
 void petapm_force_c2r(PetaPM * pm,
-        pfft_complex * rho_k, PetaPMRegion * regions,
+        petapm_complex * rho_k, PetaPMRegion * regions,
         const int Nregions,
         PetaPMFunctions * functions);
 void petapm_force_finish(PetaPM * pm);
@@ -156,7 +171,7 @@ PetaPMRegion * petapm_get_real_region(PetaPM * pm);
 int petapm_mesh_to_k(PetaPM * pm, int i);
 int *petapm_get_thistask2d(PetaPM * pm);
 int *petapm_get_ntask2d(PetaPM * pm);
-pfft_complex * petapm_alloc_rhok(PetaPM * pm);
+petapm_complex * petapm_alloc_rhok(PetaPM * pm);
 
 void petapm_reion(PetaPM * pm_mass, PetaPM * pm_star, PetaPM * pm_sfr,
         petapm_prepare_func prepare,

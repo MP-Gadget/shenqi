@@ -158,7 +158,7 @@ static void update_replicas(double a, double BoxSize) {
  * write them to the lightcone file*/
 void lightcone_compute(const double a, const struct part_manager_type * const PartManager, const double ddrift, const RandTable * const rnd)
 {
-    int i;
+    int64_t i;
     lightcone_set_time(a, PartManager->BoxSize);
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i++)

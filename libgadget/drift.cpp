@@ -86,7 +86,7 @@ void drift_all_particles(inttime_t ti0, inttime_t ti1, const double ddrift, cons
     }
 
 #pragma omp parallel for
-    for(int i = 0; i < PartManager->NumPart; i++) {
+    for(int64_t i = 0; i < PartManager->NumPart; i++) {
 #ifdef DEBUG
         if(PartManager->Base[i].Ti_drift != ti0)
             endrun(10, "Drift time mismatch: (ids = %ld %ld) %ld != %ld\n",PartManager->Base[0].ID, PartManager->Base[i].ID, ti0,  PartManager->Base[i].Ti_drift);

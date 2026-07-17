@@ -92,7 +92,7 @@ init_uvf_table(const std::string& UVFluctuationFile, const double BoxSize, const
     if(fabs(TableBoxSize - BoxMpc) > BoxMpc * 1e-5)
         endrun(0, "Wrong UV fluctuation file! %s is for box size %g Mpc/h, but current box is %g Mpc/h\n", UVFluctuationFile.c_str(), TableBoxSize, BoxMpc);
 
-    if(UVF.Nside * UVF.Nside * UVF.Nside != bh.size)
+    if((size_t) UVF.Nside * UVF.Nside * UVF.Nside != bh.size)
         endrun(0, "Corrupt UV Fluctuation table: Nside = %ld, but table is %lu != %ld^3\n", UVF.Nside, bh.size, UVF.Nside);
 
     message(0, "Using NON-UNIFORM UV BG fluctuations from %s. Median reionization redshift is %g\n", UVFluctuationFile.c_str(), ReionRedshift);

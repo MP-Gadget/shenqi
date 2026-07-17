@@ -111,7 +111,7 @@ plane_pm_deposit_particles(PetaPM * pm, const Cosmology * CP, const double atime
     int NTask;
     MPI_Comm_size(pm->comm, &NTask);
 
-    double *real = mymalloc("PlanePMRealIn", double, pm->priv->fftsize);
+    double *real = mymanagedmalloc("PlanePMRealIn", double, pm->priv->fftsize);
     memset(real, 0, pm->priv->fftsize * sizeof(double));
 
     int *send_count = mymalloc("PlaneSendCount", int, NTask);
@@ -238,7 +238,7 @@ plane_pm_deposit_particles(PetaPM * pm, const Cosmology * CP, const double atime
 }
 
 static void
-plane_pm_apply_transfer(PetaPM * pm, pfft_complex * src, pfft_complex * dst, petapm_transfer_func H)
+plane_pm_apply_transfer(PetaPM * pm, petapm_complex * src, petapm_complex * dst, petapm_transfer_func H)
 {
     PetaPMRegion * region = &pm->fourier_space_region;
 
@@ -280,7 +280,7 @@ plane_compute_neutrino_power(PetaPM * pm)
 }
 
 static void
-plane_neutrino_correction_transfer(PetaPM * pm, int64_t k2, int kpos[3], pfft_complex * value)
+plane_neutrino_correction_transfer(PetaPM * pm, int64_t k2, int kpos[3], petapm_complex * value)
 {
     if(k2 == 0 || !PlanePMCP || !PlanePMCP->MassiveNuLinRespOn) {
         value[0][0] = 0.0;
@@ -320,10 +320,10 @@ plane_pm_grid_init_neutrino_correction(PlanePMGrid * grid, PetaPM * pm,
     double * real_mass = plane_pm_deposit_particles(&grid->pm, CP, atime, &total_mass);
     grid->mean_mass_cell = total_mass / ((double)grid->nmesh * grid->nmesh * grid->nmesh);
 
-    pfft_complex * density_k = (pfft_complex *) mymalloc2("PlaneDensityK", double, grid->pm.priv->fftsize);
-    pfft_complex * corrected_k = (pfft_complex *) mymalloc2("PlaneNuCorrectionK", double, grid->pm.priv->fftsize);
+    petapm_complex * density_k = (petapm_complex *) mymanagedmalloc("PlaneDensityK", double, grid->pm.priv->fftsize);
+    petapm_complex * corrected_k = (petapm_complex *) mymanagedmalloc("PlaneNuCorrectionK", double, grid->pm.priv->fftsize);
 
-    pfft_execute_dft_r2c(grid->pm.priv->plan_forw, real_mass, density_k);
+    petapm_fft_r2c(&grid->pm, real_mass, density_k);
     myfree(real_mass);
 
     PlanePMCP = CP;
@@ -337,8 +337,8 @@ plane_pm_grid_init_neutrino_correction(PlanePMGrid * grid, PetaPM * pm,
 
     powerspectrum_free(grid->pm.ps);
 
-    grid->real = mymalloc("PlaneNuCorrectionReal", double, grid->pm.priv->fftsize);
-    pfft_execute_dft_c2r(grid->pm.priv->plan_back, corrected_k, grid->real);
+    grid->real = mymanagedmalloc("PlaneNuCorrectionReal", double, grid->pm.priv->fftsize);
+    petapm_fft_c2r(&grid->pm, corrected_k, grid->real);
 
     myfree(corrected_k);
     myfree(density_k);
