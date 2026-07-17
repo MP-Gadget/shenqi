@@ -131,7 +131,18 @@ class GravTreeResult : public TreeWalkResultBase<GravTreeQuery, GravTreeOutput> 
     public:
     MyFloat Acc[3] = {0};
     MyFloat Potential = 0;
-    MYCUDAFN GravTreeResult(GravTreeQuery& query): TreeWalkResultBase(query), Potential(0) {}
+    MYCUDAFN GravTreeResult(GravTreeQuery& query): TreeWalkResultBase(query) {}
+
+    MYCUDAFN GravTreeResult& operator +=(const GravTreeResult& other)
+    {
+        static_cast<TreeWalkResultBase<GravTreeQuery, GravTreeOutput>& >(*this) += static_cast<const TreeWalkResultBase<GravTreeQuery, GravTreeOutput>& >(other);
+
+        Acc[0] += other.Acc[0];
+        Acc[1] += other.Acc[1];
+        Acc[2] += other.Acc[2];
+        Potential += other.Potential;
+        return *this;
+    }
 
     template<TreeWalkReduceMode mode>
     MYCUDAFN void reduce(const int place, const GravTreeOutput * output, struct particle_data * const parts)

@@ -101,6 +101,21 @@ class BHReposResult : public TreeWalkResultBase<BHDynFricQuery, BHDynFricOutput>
     MYCUDAFN BHReposResult(const BHDynFricQuery& query):
         TreeWalkResultBase<BHDynFricQuery, BHDynFricOutput>(query) {}
 
+    MYCUDAFN BHReposResult& operator +=(const BHReposResult& other)
+    {
+        static_cast<TreeWalkResultBase<BHDynFricQuery, BHDynFricOutput>&>(*this) += static_cast<const TreeWalkResultBase<BHDynFricQuery, BHDynFricOutput>&>(other);
+
+        if(BH_MinPot > other.BH_MinPot) {
+            BH_MinPot = other.BH_MinPot;
+            for(int k = 0; k < 3; k++) {
+                /* Movement occurs in drift.c */
+                BH_MinPotPos[k] = other.BH_MinPotPos[k];
+                BH_MinPotVel[k] = other.BH_MinPotVel[k];
+            }
+        }
+        return *this;
+    }
+
     template<TreeWalkReduceMode mode>
     MYCUDAFN void reduce(int place, const BHDynFricOutput * output, struct particle_data * const parts)
     {
@@ -127,6 +142,16 @@ class BHDynFricResult : public BHReposResult {
 
     MYCUDAFN BHDynFricResult(const BHDynFricQuery& query):
         BHReposResult(query) {}
+
+    MYCUDAFN BHDynFricResult& operator+=(const BHDynFricResult& other)
+    {
+        static_cast<BHReposResult&>(*this) += static_cast<const BHReposResult&>(other);
+        SurroundingDensity += other.SurroundingDensity;
+        SurroundingRmsVel += other.SurroundingRmsVel;
+        for(int j = 0; j < 3; j++)
+            SurroundingVel[j] += other.SurroundingVel[j];
+        return *this;
+    }
 
     template<TreeWalkReduceMode mode>
     MYCUDAFN void reduce(int place, const BHDynFricOutput * output, struct particle_data * const parts) {

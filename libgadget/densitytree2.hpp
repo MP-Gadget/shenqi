@@ -301,9 +301,25 @@ class DensityResult : public TreeWalkResultBase<DensityQuery, DensityOutput> {
         MyFloat Rot[3] = {0};
         /*Only used if sfr_need_to_compute_sph_grad_rho is true*/
         MyFloat GradRho[3] = {0};
-        MYCUDAFN DensityResult(DensityQuery& query): TreeWalkResultBase(query),
-        EgyRho(0), DhsmlEgyDensity(0), Rho(0), DhsmlDensity(0), Ngb(0), Div(0)
+        MYCUDAFN DensityResult(DensityQuery& query): TreeWalkResultBase(query)
         {}
+
+        MYCUDAFN DensityResult& operator +=(const DensityResult& other)
+        {
+            static_cast<TreeWalkResultBase<DensityQuery, DensityOutput>& >(*this) += static_cast<const TreeWalkResultBase<DensityQuery, DensityOutput>& >(other);
+
+            EgyRho += other.EgyRho;
+            DhsmlEgyDensity += other.DhsmlEgyDensity;
+            Rho += other.Rho;
+            DhsmlDensity += other.DhsmlDensity;
+            Ngb += other.Ngb;
+            Div += other.Div;
+            for(int d = 0; d < 3; d ++)
+                Rot[d] += other.Rot[d];
+            for (int d = 0; d < 3; d ++)
+                GradRho[d] += other.GradRho[d];
+            return *this;
+        }
 
         template<TreeWalkReduceMode mode>
         MYCUDAFN void reduce(int place, const DensityOutput * output, struct particle_data * const parts)

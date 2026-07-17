@@ -203,10 +203,23 @@ class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
     MyFloat Acc[3] = {0};
     MyFloat DtEntropy = 0;
     MyFloat MaxSignalVel = 0;
-    MYCUDAFN HydroResult(const HydroQuery query): TreeWalkResultBase(query), DtEntropy(0), MaxSignalVel(0)
+    MYCUDAFN HydroResult(const HydroQuery query): TreeWalkResultBase(query)
     {
         /* Note that if DensityIndependentSphOn is false, query.EgyRho is just Density*/
         MaxSignalVel = sqrt(GAMMA * query.Pressure / query.EgyRho);
+    }
+
+    MYCUDAFN HydroResult& operator +=(const HydroResult& other)
+    {
+        static_cast<TreeWalkResultBase<HydroQuery, HydroOutput>& >(*this) += static_cast<const TreeWalkResultBase<HydroQuery, HydroOutput>&>(other);
+
+        Acc[0] += other.Acc[0];
+        Acc[1] += other.Acc[1];
+        Acc[2] += other.Acc[2];
+        DtEntropy += other.DtEntropy;
+        if(other.MaxSignalVel > MaxSignalVel)
+            MaxSignalVel = other.MaxSignalVel;
+        return *this;
     }
 
     template<TreeWalkReduceMode mode>

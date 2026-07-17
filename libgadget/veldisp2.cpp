@@ -89,11 +89,24 @@ class BHVelDispResult : public TreeWalkResultBase<BHVelDispQuery, BHVelDispOutpu
     public:
     /* used for AGN kinetic feedback */
     MyFloat V2sumDM = 0;
-    MyFloat V1sumDM[3] = {0,0,0};
+
+    MyFloat V1sumDM[3] = {};
     MyFloat NumDM = 0;
 
     MYCUDAFN BHVelDispResult(const BHVelDispQuery& query):
         TreeWalkResultBase<BHVelDispQuery, BHVelDispOutput>(query) {}
+
+    MYCUDAFN BHVelDispResult& operator +=(const BHVelDispResult& other)
+    {
+        static_cast<TreeWalkResultBase<BHVelDispQuery, BHVelDispOutput>&>(*this) += static_cast<const TreeWalkResultBase<BHVelDispQuery, BHVelDispOutput>& >(other);
+
+        V2sumDM += other.V2sumDM;
+        for(int i = 0; i < 3; i++) {
+            V1sumDM[i] += other.V1sumDM[i];
+        }
+        NumDM += other.NumDM;
+        return *this;
+    }
 
     template<TreeWalkReduceMode mode>
     MYCUDAFN void reduce(int place, const BHVelDispOutput * output, struct particle_data * const parts)
@@ -397,13 +410,29 @@ int64_t build_vdisp_queue(int ** WorkSet, int * active_set, int64_t size, const 
 
 class WindVDispResult : public TreeWalkResultBase<WindVDispQuery, WindVDispOutput>{
     public:
-    double V1sum[NWINDHSML][3] = {0};
-    double V2sum[NWINDHSML] = {0};
-    double NumNgb[NWINDHSML] = {0};
+    double V1sum[NWINDHSML][3] = {};
+    double V2sum[NWINDHSML] = {};
+    double NumNgb[NWINDHSML] = {};
     int maxcmpte = NWINDHSML;
 
     MYCUDAFN WindVDispResult(const WindVDispQuery& query):
         TreeWalkResultBase<WindVDispQuery, WindVDispOutput>(query) {}
+
+    MYCUDAFN WindVDispResult& operator +=(const WindVDispResult& other)
+    {
+        static_cast<TreeWalkResultBase<WindVDispQuery, WindVDispOutput>&>(*this) += static_cast<const TreeWalkResultBase<WindVDispQuery, WindVDispOutput>&>(other);
+
+        if(maxcmpte > other.maxcmpte) {
+            maxcmpte = other.maxcmpte;
+        }
+        for(int i = 0; i < maxcmpte; i++) {
+            NumNgb[i] += other.NumNgb[i];
+            V2sum[i] += other.V2sum[i];
+            for(int j = 0; j < 3; j++)
+                V1sum[i][j] += other.V1sum[i][j];
+        }
+        return *this;
+    }
 
     template<TreeWalkReduceMode mode>
     MYCUDAFN void reduce(int place, const WindVDispOutput * output, struct particle_data * const parts)
