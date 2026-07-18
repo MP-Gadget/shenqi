@@ -538,9 +538,9 @@ turn_on_quasars(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmology * 
     walltime_measure("/HeIII/Build");
     for(iteration = 0; curionfrac < desired_ion_frac; iteration++){
         /* Get a new quasar*/
-        int new_qso = choose_QSO_halo(qso_cand.size(), &ncand_before, &ncand_tot, fof->TotNgroups+iteration, rnd);
+        size_t new_qso = choose_QSO_halo(qso_cand.size(), &ncand_before, &ncand_tot, fof->TotNgroups+iteration, rnd);
         if(new_qso >= qso_cand.size())
-            endrun(12, "HeII: QSO %d > no. candidates %lu! Cannot happen\n", new_qso, qso_cand.size());
+            endrun(12, "HeII: QSO %lu > no. candidates %lu! Cannot happen\n", new_qso, qso_cand.size());
         /* Make sure someone has a quasar*/
         if(ncand_tot <= 0) {
             if(desired_ion_frac - curionfrac > 0.1)
