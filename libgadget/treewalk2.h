@@ -278,7 +278,7 @@ public:
      * WorkSetSize: length of the active set
      * particle_data parts: list of particles to use
      */
-    void run_on_queue(int * WorkSet, int64_t WorkSetSize, particle_data * const parts, MPI_Comm comm, bool postprocess=true)
+    ResultType * run_on_queue(int * WorkSet, int64_t WorkSetSize, particle_data * const parts, MPI_Comm comm, bool postprocess=true)
     {
         LocalTreeWalkType::validate_tree(tree);
         Nexport_sum = 0;
@@ -383,30 +383,28 @@ public:
          * is the sum of the primary and secondary evals and only needs to be done once.*/
         double tstart = second();
 
-        /* We unconditionally do this on the CPU. We will change the tree
-         * so that the particle table lives on the CPU.*/
-        #pragma omp parallel for
-        for(int64_t k = 0 ; k < WorkSetSize; k++) {
-                const int i = WorkSet ? WorkSet[k] : k;
-                /* Note the mode template doesn't do anything anymore*/
-                results[k].template reduce<TREEWALK_PRIMARY>(i, output, parts);
-        }
-
-        myfree(results);
-
+        /* We shall eventually unconditionally do this on the CPU and change the tree
+         * so that the particle table lives there.*/
         if(postprocess) {
-            static_cast<DerivedType *>(this)->ev_postprocess(WorkSet, WorkSetSize, parts);
+            static_cast<DerivedType *>(this)->ev_postprocess(WorkSet, WorkSetSize, results, parts);
         }
         double tend = second();
         timecomp3 += timediff(tstart, tend);
+        if(postprocess) {
+                myfree(results);
+                return NULL;
+        }
+        else
+            return results;
     }
 
-    void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const parts)
+    void ev_postprocess(int * WorkSet, int64_t WorkSetSize, ResultType * results, particle_data * const parts)
     {
         #pragma omp parallel for
         for(int i = 0; i < WorkSetSize; i ++) {
             const int p_i = WorkSet ? WorkSet[i] : i;
-            output->postprocess(p_i, parts, &priv);
+            // /* Note that the results array is indexed like WorkSet*/
+            output->postprocess(p_i, results[i], parts, &priv);
         }
     }
 
@@ -520,7 +518,7 @@ public:
 
             int * CurQueue = ReDoQueue;
             /* ev_postprocess is not done in run_on_queue, instead, done in this loop*/
-            run_on_queue(CurQueue, size, parts, comm, false);
+            ResultType * results = run_on_queue(CurQueue, size, parts, comm, false);
 
             tstart = second();
             output->verbose = (Niteration >= MAXITER - 5);
@@ -529,7 +527,7 @@ public:
             #pragma omp parallel for reduction(max: maxnumngb) reduction(min: minnumngb)
             for(int i = 0; i < size; i ++) {
                 const int p_i = CurQueue ? CurQueue[i] : i;
-                double numngb = output->GetNumNgb(p_i);
+                double numngb = results[i].Ngb;
                 if(maxnumngb < numngb)
                     maxnumngb = numngb;
                 if(minnumngb > numngb)
@@ -538,7 +536,7 @@ public:
                 /* If we are done, postprocess returns 1, todo contains -1.
                  * If we need to repeat, postprocess returns 0, todo contains
                  * the new item to add to the redo queue*/
-                if(0 == output->postprocess(p_i, parts, &priv))
+                if(0 == output->postprocess(p_i, results[i], parts, &priv))
                     todo[i] = p_i;
                 /* If we are done repeating, update the hmax in the parent node,
                  * Only do this when gas particles are in the tree, since we only need
@@ -548,6 +546,8 @@ public:
                     if(update_hsml && (LocalTreeWalkType::tree_mask & (1<<parts[p_i].Type)))
                         update_tree_hmax_father(tree, p_i, parts[p_i].Pos, parts[p_i].Hsml);
             }
+            myfree(results);
+
             ReDoQueue = mymanagedmalloc("ReDoQueue", int, size);
             /* Compact the redo queue to remove done items with todo = -1*/
             auto end = std::copy_if(std::execution::par, todo, todo + size, ReDoQueue, [](int p_i){return p_i >= 0;});

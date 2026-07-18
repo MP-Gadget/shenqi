@@ -54,6 +54,43 @@
      }
  };
 
+/*Compute the absolute magnitude of the acceleration for a particle.*/
+MYCUDAFN static MyFloat
+grav_get_abs_accel(const struct particle_data& PP, const double G)
+{
+    double aold=0;
+    for(int j = 0; j < 3; j++) {
+        double ax = PP.FullTreeGravAccel[j] + PP.GravPM[j];
+        aold += ax*ax;
+    }
+    return sqrt(aold) / G;
+}
+
+class GravTreeQuery : public TreeWalkQueryBase<GravTreeParams> {
+  public:
+    MyFloat OldAcc;
+    MYCUDAFN GravTreeQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const GravTreeParams& priv) :
+        TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), OldAcc(grav_get_abs_accel(particle, priv.G)) {}
+};
+
+class GravTreeResult : public TreeWalkResultBase<GravTreeQuery> {
+    public:
+    MyFloat Acc[3] = {0};
+    MyFloat Potential = 0;
+    MYCUDAFN GravTreeResult(GravTreeQuery& query): TreeWalkResultBase(query) {}
+
+    MYCUDAFN GravTreeResult& operator +=(const GravTreeResult& other)
+    {
+        static_cast<TreeWalkResultBase<GravTreeQuery>& >(*this) += static_cast<const TreeWalkResultBase<GravTreeQuery>& >(other);
+
+        Acc[0] += other.Acc[0];
+        Acc[1] += other.Acc[1];
+        Acc[2] += other.Acc[2];
+        Potential += other.Potential;
+        return *this;
+    }
+};
+
 /* Class to store pointers to the outputs of the gravity code. */
 class GravTreeOutput
 {
@@ -85,76 +122,29 @@ class GravTreeOutput
      * @param parts Array of particle data to index with i
      * @param priv Data structure for parameters of the gravity treewalk.
      */
-     MYCUDAFN void postprocess(const int i, particle_data * const parts, const GravTreeParams * priv)
+     MYCUDAFN void postprocess(const int index, const GravTreeResult& result, particle_data * const parts, const GravTreeParams * priv)
      {
+        #if defined DEBUG && not defined __CUDACC__
+            if(parts[index].ID != result.ID)
+                endrun(2, "Mismatched ID (%ld != %ld) for particle %d in postprocess.\n", parts[index].ID, result.ID, index);
+        #endif
+
          const double G = priv->G;
-         Accel[i][0] *= G;
-         Accel[i][1] *= G;
-         Accel[i][2] *= G;
+         for(int j = 0; j < 3; j++)
+            Accel[index][j] = G * result.Acc[j];
 
          if(update_potential) {
              /* On a PM step, update the stored full tree grav accel for the next PM step.
              * Needs to be done here so internal treewalk iterations don't get a partial acceleration.*/
-             parts[i].FullTreeGravAccel[0] = Accel[i][0];
-             parts[i].FullTreeGravAccel[1] = Accel[i][1];
-             parts[i].FullTreeGravAccel[2] = Accel[i][2];
+            for(int j = 0; j < 3; j++)
+                parts[index].FullTreeGravAccel[j] = Accel[index][j];
              /* calculate the potential */
-             parts[i].Potential += parts[i].Mass / (priv->ForceSoftening / 2.8);
+             parts[index].Potential = result.Potential + parts[index].Mass / (priv->ForceSoftening / 2.8);
              /* remove self-potential */
-             parts[i].Potential -= 2.8372975 * pow(parts[i].Mass, 2.0 / 3) * priv->cbrtrho0;
-             parts[i].Potential *= G;
+             parts[index].Potential -= 2.8372975 * pow(parts[index].Mass, 2.0 / 3) * priv->cbrtrho0;
+             parts[index].Potential *= G;
          }
      }
-};
-
- /*Compute the absolute magnitude of the acceleration for a particle.*/
- MYCUDAFN static MyFloat
- grav_get_abs_accel(const struct particle_data& PP, const double G)
- {
-     double aold=0;
-     int j;
-     for(j = 0; j < 3; j++) {
-        double ax = PP.FullTreeGravAccel[j] + PP.GravPM[j];
-        aold += ax*ax;
-     }
-     return sqrt(aold) / G;
- }
-
- class GravTreeQuery : public TreeWalkQueryBase<GravTreeParams> {
-    public:
-    MyFloat OldAcc;
-    MYCUDAFN GravTreeQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const GravTreeParams& priv) :
-    TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), OldAcc(grav_get_abs_accel(particle, priv.G)) {}
- };
-
-class GravTreeResult : public TreeWalkResultBase<GravTreeQuery, GravTreeOutput> {
-    public:
-    MyFloat Acc[3] = {0};
-    MyFloat Potential = 0;
-    MYCUDAFN GravTreeResult(GravTreeQuery& query): TreeWalkResultBase(query) {}
-
-    MYCUDAFN GravTreeResult& operator +=(const GravTreeResult& other)
-    {
-        static_cast<TreeWalkResultBase<GravTreeQuery, GravTreeOutput>& >(*this) += static_cast<const TreeWalkResultBase<GravTreeQuery, GravTreeOutput>& >(other);
-
-        Acc[0] += other.Acc[0];
-        Acc[1] += other.Acc[1];
-        Acc[2] += other.Acc[2];
-        Potential += other.Potential;
-        return *this;
-    }
-
-    template<TreeWalkReduceMode mode>
-    MYCUDAFN void reduce(const int place, const GravTreeOutput * output, struct particle_data * const parts)
-    {
-        TreeWalkResultBase<GravTreeQuery, GravTreeOutput>::reduce<mode>(place, output, parts);
-        TREEWALK_REDUCE(output->Accel[place][0], Acc[0]);
-        TREEWALK_REDUCE(output->Accel[place][1], Acc[1]);
-        TREEWALK_REDUCE(output->Accel[place][2], Acc[2]);
-        if(output->update_potential) {
-            TREEWALK_REDUCE(parts[place].Potential, Potential);
-        }
-    }
 };
 
 /* Check whether a node should be discarded completely, its contents not contributing

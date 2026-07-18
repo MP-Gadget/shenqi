@@ -116,13 +116,14 @@ void treewalk_visit_kernel(
     lv.template visit<mode>(queries[tid], result, *priv, parts);
 };
 
-template <typename ParamType, typename OutputType>
+template <typename ResultType, typename ParamType, typename OutputType>
 __global__
 void treewalk_postprocess_kernel(
     // The memory here should be allocated cudaManagedMalloc
     particle_data * const parts,
     const int * WorkSet,
     const int64_t WorkSetSize,
+    ResultType * results,
     const ParamType * priv,
     OutputType * output)
 {
@@ -131,7 +132,7 @@ void treewalk_postprocess_kernel(
         return;
 
     const int p_i = WorkSet ? WorkSet[tid] : tid;
-    output->postprocess(p_i, parts, priv);
+    output->postprocess(p_i, results[tid], parts, priv);
 }
 
 template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType>
@@ -295,14 +296,14 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
     };
 
     /* Do the postprocessing on the GPU. This simply evaluates the postprocess function for every particle. */
-    void ev_postprocess(int * WorkSet, int64_t WorkSetSize, particle_data * const particles)
+    void ev_postprocess(int * WorkSet, int64_t WorkSetSize, ResultType * results, particle_data * const particles)
     {
         if(WorkSetSize == 0)
             return;
         const int threadsPerBlock = 256;
         const int blocks = (WorkSetSize + threadsPerBlock - 1) / threadsPerBlock;
-        treewalk_postprocess_kernel<ParamType, OutputType>
-        <<<blocks, threadsPerBlock>>>(particles, WorkSet, WorkSetSize, &priv, output);
+        treewalk_postprocess_kernel<ResultType, ParamType, OutputType>
+        <<<blocks, threadsPerBlock>>>(particles, WorkSet, WorkSetSize, results, &priv, output);
         cudaError_t status = cudaDeviceSynchronize();
         if (status != cudaSuccess)
             endrun(5, "ev_postprocess kernel failed: %s\n", cudaGetErrorString(status));

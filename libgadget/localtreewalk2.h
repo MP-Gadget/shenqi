@@ -114,7 +114,7 @@ template <typename ParamType=ParamTypeBase> class TreeWalkQueryBase
     }
 };
 
-template <typename QueryType, typename OutputType>
+template <typename QueryType>
 class TreeWalkResultBase
 {
 public:
@@ -128,29 +128,13 @@ public:
 #endif
     { }
 
-    MYCUDAFN TreeWalkResultBase& operator+=(const TreeWalkResultBase<QueryType, OutputType>& other)
+    MYCUDAFN TreeWalkResultBase& operator+=(const TreeWalkResultBase<QueryType>& other)
     {
 #if defined DEBUG && not defined __CUDACC__
         if(ID != other.ID)
             endrun(8, "Error in communication: IDs mismatch %ld %ld\n", ID, other.ID);
 #endif
         return *this;
-    }
-
-    /**
-    * Reduce partial results back to the local particle.
-    * Override to accumulate results from tree walk iterations.
-    *
-    * @param j      Particle index
-    * @param mode   Whether this is primary, ghost, or toptree reduction
-    */
-    template<TreeWalkReduceMode mode>
-    MYCUDAFN void reduce(const int j, const OutputType * priv, struct particle_data * const parts)
-    {
-        #if defined DEBUG && not defined __CUDACC__
-            if(parts[j].ID != ID)
-                endrun(2, "Mismatched ID (%ld != %ld) for particle %d in treewalk reduction, mode %d\n", parts[j].ID, ID, j, mode);
-        #endif
     }
 };
 
