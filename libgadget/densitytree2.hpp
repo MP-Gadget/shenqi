@@ -115,6 +115,11 @@ class DensityResult : public TreeWalkResultBase<DensityQuery> {
                 GradRho[d] += other.GradRho[d];
             return *this;
         }
+
+        double GetNumNgb() const
+        {
+            return Ngb;
+        }
 };
 
 class DensityOutput {

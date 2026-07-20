@@ -51,109 +51,6 @@ stellareffhsml(const int i, double left, double right, const double Hsml, const 
     return pow((1.*i+1)/(1.*NHSML+1) * (rvol - lvol) + lvol, 1./3);
 }
 
-class StellarDensityOutput {
-    public:
-    /* Current number of neighbours*/
-    MyFloat (*NumNgb)[NHSML];
-    MyFloat (*VolumeSPH)[NHSML];
-    /* Lower and upper bounds on smoothing length*/
-    MyFloat *Left, *Right;
-    /* Maximum index where NumNgb is valid. */
-    int * maxcmpte;
-    /* The SPH volume weight for each star: the output of this treewalk.*/
-    MyFloat * StarVolumeSPH;
-    particle_data * parts;
-    bool verbose = false;
-
-    StellarDensityOutput(MyFloat * StarVolumeSPH_i, const ForceTree * const tree, const int * WorkSet, const int64_t WorkSetSize, particle_data * const parts_i, slots_manager_type * slotsmanager):
-    StarVolumeSPH(StarVolumeSPH_i), parts(parts_i)
-    {
-        typedef MyFloat NumNgbArray[NHSML];
-        const int64_t nstar = slotsmanager->info[4].size;
-        Left = mymalloc("DENS_PRIV->Left", MyFloat, nstar);
-        Right = mymalloc("DENS_PRIV->Right", MyFloat, nstar);
-        NumNgb = mymalloc("DENS_PRIV->NumNgb", NumNgbArray, nstar);
-        VolumeSPH = mymalloc("DENS_PRIV->VolumeSPH", NumNgbArray, nstar);
-        maxcmpte = mymalloc("maxcmpte", int, nstar);
-
-        /*Initialise the bounds for the active stars*/
-        #pragma omp parallel for
-        for(int64_t i = 0; i < WorkSetSize; i++) {
-            const int p = WorkSet ? WorkSet[i] : i;
-            const int pi = parts[p].PI;
-            Left[pi] = 0;
-            Right[pi] = tree->BoxSize;
-            /* If somehow Hsml has become zero through underflow, use something non-zero
-             * to make sure we converge. */
-            if(parts[p].Hsml == 0) {
-                const int fat = force_get_father(p, tree);
-                parts[p].Hsml = tree->Nodes[fat].len;
-                if(parts[p].Hsml == 0)
-                    parts[p].Hsml = tree->BoxSize / pow(PartManager->NumPart, 1./3)/4.;
-            }
-        }
-    }
-
-    ~StellarDensityOutput()
-    {
-        myfree(maxcmpte);
-        myfree(VolumeSPH);
-        myfree(NumNgb);
-        myfree(Right);
-        myfree(Left);
-    }
-
-    double GetNumNgb(const int i)
-    {
-        const int pi = parts[i].PI;
-        return NumNgb[pi][maxcmpte[pi]-1];
-    }
-
-    /* Narrow the Hsml bounds from the computed neighbour numbers and store the
-     * SPH volume weight. Returns 1 if the star is done, 0 if it needs to be redone.*/
-    int
-    postprocess(const int i, particle_data * const parts, const StellarDensityPriv * priv)
-    {
-        const int pi = parts[i].PI;
-        const int maxcmpt = maxcmpte[pi];
-        double evalhsml[NHSML];
-        evalhsml[0] = stellareffhsml(0, Left[pi], Right[pi], parts[i].Hsml, priv->BoxSize);
-        for(int j = 1; j < maxcmpt; j++)
-            evalhsml[j] = stellareffhsml(j, Left[pi], Right[pi], parts[i].Hsml, priv->BoxSize);
-
-        int close = 0;
-        parts[i].Hsml = ngb_narrow_down(&Right[pi], &Left[pi], evalhsml, NumNgb[pi], maxcmpt, priv->DesNumNgb, &close, priv->BoxSize);
-        const double numngb = NumNgb[pi][close];
-
-        /* Save the volume weight for the metal return*/
-        StarVolumeSPH[pi] = VolumeSPH[pi][close];
-
-        /* now check whether we had enough neighbours */
-        if(numngb < (priv->DesNumNgb - priv->MaxNgbDeviation) ||
-                numngb > (priv->DesNumNgb + priv->MaxNgbDeviation))
-        {
-            /* This condition is here to prevent the density code looping forever if it encounters
-             * multiple particles at the same position. If this happens you likely have worse
-             * problems anyway, so warn also. */
-            if((Right[pi] - Left[pi]) < 1.0e-4 * Left[pi])
-            {
-                /* If this happens probably the exchange is screwed up and all your particles have moved to (0,0,0)*/
-                message(1, "Very tight Hsml bounds for i=%d ID=%lu type %d Hsml=%g Left=%g Right=%g Ngbs=%g des = %g Right-Left=%g pos=(%g|%g|%g)\n",
-                 i, parts[i].ID, parts[i].Type, evalhsml[0], Left[pi], Right[pi], numngb, priv->DesNumNgb, Right[pi] - Left[pi], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
-                return 1;
-            }
-            if(verbose)
-                message(1, "i=%d ID=%lu Hsml=%g lastdhsml=%g Left=%g Right=%g Ngbs=%g Right-Left=%g pos=(%g|%g|%g)\n",
-                 i, parts[i].ID, parts[i].Hsml, evalhsml[close], Left[pi], Right[pi], numngb, Right[pi] - Left[pi], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
-            /* More work needed: add this particle to the redo queue*/
-            return 0;
-        }
-        if(StarVolumeSPH[pi] == 0)
-            endrun(3, "i = %d pi = %d StarVolumeSPH %g hsml %g\n", i, pi, StarVolumeSPH[pi], parts[i].Hsml);
-        return 1;
-    }
-};
-
 class StellarDensityQuery : public TreeWalkQueryBase<StellarDensityPriv>
 {
     public:
@@ -179,18 +76,18 @@ class StellarDensityQuery : public TreeWalkQueryBase<StellarDensityPriv>
     }
 };
 
-class StellarDensityResult : public TreeWalkResultBase<StellarDensityQuery, StellarDensityOutput> {
+class StellarDensityResult : public TreeWalkResultBase<StellarDensityQuery> {
     public:
     MyFloat VolumeSPH[NHSML] = {};
     MyFloat Ngb[NHSML] = {};
     int maxcmpte = NHSML;
 
     MYCUDAFN StellarDensityResult(const StellarDensityQuery& query):
-        TreeWalkResultBase<StellarDensityQuery, StellarDensityOutput>(query) {}
+        TreeWalkResultBase<StellarDensityQuery>(query) {}
 
     MYCUDAFN StellarDensityResult& operator +=(const StellarDensityResult& other)
     {
-        static_cast<TreeWalkResultBase<StellarDensityQuery, StellarDensityOutput>&>(*this) += static_cast<const TreeWalkResultBase<StellarDensityQuery, StellarDensityOutput>&>(other);
+        static_cast<TreeWalkResultBase<StellarDensityQuery>& >(*this) += static_cast<const TreeWalkResultBase<StellarDensityQuery>&>(other);
 
         if(maxcmpte > other.maxcmpte) {
             maxcmpte = other.maxcmpte;
@@ -203,18 +100,94 @@ class StellarDensityResult : public TreeWalkResultBase<StellarDensityQuery, Stel
         return *this;
     }
 
-    template<TreeWalkReduceMode mode>
-    MYCUDAFN void reduce(int place, const StellarDensityOutput * output, struct particle_data * const parts)
+    double GetNumNgb() const
     {
-        const int pi = parts[place].PI;
-        if constexpr(mode == TREEWALK_PRIMARY)
-            output->maxcmpte[pi] = maxcmpte;
-        else if(output->maxcmpte[pi] > maxcmpte)
-            output->maxcmpte[pi] = maxcmpte;
-        for(int i = 0; i < maxcmpte; i++) {
-            TREEWALK_REDUCE(output->NumNgb[pi][i], Ngb[i]);
-            TREEWALK_REDUCE(output->VolumeSPH[pi][i], VolumeSPH[i]);
+        return Ngb[0];
+    }
+};
+
+class StellarDensityOutput {
+    public:
+    /* Lower and upper bounds on smoothing length*/
+    MyFloat *Left, *Right;
+    /* The SPH volume weight for each star: the output of this treewalk.*/
+    MyFloat * StarVolumeSPH;
+    particle_data * parts;
+    bool verbose = false;
+
+    StellarDensityOutput(MyFloat * StarVolumeSPH_i, const ForceTree * const tree, const int * WorkSet, const int64_t WorkSetSize, particle_data * const parts_i, slots_manager_type * slotsmanager):
+    StarVolumeSPH(StarVolumeSPH_i), parts(parts_i)
+    {
+        const int64_t nstar = slotsmanager->info[4].size;
+        Left = mymalloc("DENS_PRIV->Left", MyFloat, nstar);
+        Right = mymalloc("DENS_PRIV->Right", MyFloat, nstar);
+
+        /*Initialise the bounds for the active stars*/
+        #pragma omp parallel for
+        for(int64_t i = 0; i < WorkSetSize; i++) {
+            const int p = WorkSet ? WorkSet[i] : i;
+            const int pi = parts[p].PI;
+            Left[pi] = 0;
+            Right[pi] = tree->BoxSize;
+            /* If somehow Hsml has become zero through underflow, use something non-zero
+             * to make sure we converge. */
+            if(parts[p].Hsml == 0) {
+                const int fat = force_get_father(p, tree);
+                parts[p].Hsml = tree->Nodes[fat].len;
+                if(parts[p].Hsml == 0)
+                    parts[p].Hsml = tree->BoxSize / pow(PartManager->NumPart, 1./3)/4.;
+            }
         }
+    }
+
+    ~StellarDensityOutput()
+    {
+        myfree(Right);
+        myfree(Left);
+    }
+
+    /* Narrow the Hsml bounds from the computed neighbour numbers and store the
+     * SPH volume weight. Returns 1 if the star is done, 0 if it needs to be redone.*/
+    int
+    postprocess(const int i, StellarDensityResult& result, particle_data * const parts, const StellarDensityPriv * priv)
+    {
+        const int pi = parts[i].PI;
+        double evalhsml[NHSML];
+        evalhsml[0] = stellareffhsml(0, Left[pi], Right[pi], parts[i].Hsml, priv->BoxSize);
+        for(int j = 1; j < result.maxcmpte; j++)
+            evalhsml[j] = stellareffhsml(j, Left[pi], Right[pi], parts[i].Hsml, priv->BoxSize);
+
+        int close = 0;
+        parts[i].Hsml = ngb_narrow_down(&Right[pi], &Left[pi], evalhsml, result.Ngb, result.maxcmpte, priv->DesNumNgb, &close, priv->BoxSize);
+        const double numngb = result.Ngb[close];
+        /* Save the volume weight for the metal return*/
+        StarVolumeSPH[pi] = result.VolumeSPH[close];
+
+        /* Store the closet NumNgb so we can use it in do_hsml_loop*/
+        result.Ngb[0] = numngb;
+        /* now check whether we had enough neighbours */
+        if(numngb < (priv->DesNumNgb - priv->MaxNgbDeviation) ||
+                numngb > (priv->DesNumNgb + priv->MaxNgbDeviation))
+        {
+            /* This condition is here to prevent the density code looping forever if it encounters
+             * multiple particles at the same position. If this happens you likely have worse
+             * problems anyway, so warn also. */
+            if((Right[pi] - Left[pi]) < 1.0e-4 * Left[pi])
+            {
+                /* If this happens probably the exchange is screwed up and all your particles have moved to (0,0,0)*/
+                message(1, "Very tight Hsml bounds for i=%d ID=%lu type %d Hsml=%g Left=%g Right=%g Ngbs=%g des = %g Right-Left=%g pos=(%g|%g|%g)\n",
+                 i, parts[i].ID, parts[i].Type, evalhsml[0], Left[pi], Right[pi], numngb, priv->DesNumNgb, Right[pi] - Left[pi], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
+                return 1;
+            }
+            if(verbose)
+                message(1, "i=%d ID=%lu Hsml=%g lastdhsml=%g Left=%g Right=%g Ngbs=%g Right-Left=%g pos=(%g|%g|%g)\n",
+                 i, parts[i].ID, parts[i].Hsml, evalhsml[close], Left[pi], Right[pi], numngb, Right[pi] - Left[pi], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
+            /* More work needed: add this particle to the redo queue*/
+            return 0;
+        }
+        if(StarVolumeSPH[pi] == 0)
+            endrun(3, "i = %d pi = %d StarVolumeSPH %g hsml %g\n", i, pi, StarVolumeSPH[pi], parts[i].Hsml);
+        return 1;
     }
 };
 

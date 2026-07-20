@@ -527,11 +527,6 @@ public:
             #pragma omp parallel for reduction(max: maxnumngb) reduction(min: minnumngb)
             for(int i = 0; i < size; i ++) {
                 const int p_i = CurQueue ? CurQueue[i] : i;
-                double numngb = results[i].Ngb;
-                if(maxnumngb < numngb)
-                    maxnumngb = numngb;
-                if(minnumngb > numngb)
-                    minnumngb = numngb;
                 todo[i] = -1;
                 /* If we are done, postprocess returns 1, todo contains -1.
                  * If we need to repeat, postprocess returns 0, todo contains
@@ -545,6 +540,12 @@ public:
                 else if constexpr(LocalTreeWalkType::tree_mask & GASMASK)
                     if(update_hsml && (LocalTreeWalkType::tree_mask & (1<<parts[p_i].Type)))
                         update_tree_hmax_father(tree, p_i, parts[p_i].Pos, parts[p_i].Hsml);
+                /* Needs to happen after postprocess is called*/
+                double numngb = results[i].GetNumNgb();
+                if(maxnumngb < numngb)
+                    maxnumngb = numngb;
+                if(minnumngb > numngb)
+                    minnumngb = numngb;
             }
             myfree(results);
 

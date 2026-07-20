@@ -24,47 +24,6 @@ class BHVelDispPriv : public ParamTypeBase {
     BHVelDispPriv(double BoxSize, KickFactorData& kf_i): ParamTypeBase(BoxSize), kf(kf_i) {};
 };
 
-/* Computes the BH velocity dispersion for kinetic feedback*/
-class BHVelDispOutput {
-    public:
-    /* temporary computed for kinetic feedback energy threshold*/
-    MyFloat * NumDM;
-    MyFloat (*V1sumDM)[3];
-    MyFloat * V2sumDM;
-
-    BHVelDispOutput(slots_manager_type * SlotsManager)
-    {
-        NumDM = mymalloc("NumDM", MyFloat, SlotsManager->info[5].size);
-        V1sumDM = mymalloc("V1sumDM", My3Vec, SlotsManager->info[5].size);
-        V2sumDM = mymalloc("V2sumDM", MyFloat,  SlotsManager->info[5].size);
-    }
-
-    ~BHVelDispOutput()
-    {
-        myfree(V2sumDM);
-        myfree(V1sumDM);
-        myfree(NumDM);
-    }
-
-    void
-    postprocess(int i, particle_data * const parts, const BHVelDispPriv * priv)
-    {
-        const int PI = parts[i].PI;
-        /*************************************************************************/
-        /* decide whether to release KineticFdbkEnergy*/
-        const double numdm = NumDM[PI];
-        if (numdm > 0) {
-            double vdisp = V2sumDM[PI]/numdm;
-            for(int d = 0; d<3; d++)
-                vdisp -= pow(V1sumDM[PI][d]/numdm,2);
-            if(vdisp > 0)
-                BHP(i).VDisp = sqrt(vdisp / 3);
-        }
-    }
-
-};
-
-
 class BHVelDispQuery : public TreeWalkQueryBase<BHVelDispPriv>
 {
     public:
@@ -85,7 +44,7 @@ class BHVelDispQuery : public TreeWalkQueryBase<BHVelDispPriv>
     }
 };
 
-class BHVelDispResult : public TreeWalkResultBase<BHVelDispQuery, BHVelDispOutput> {
+class BHVelDispResult : public TreeWalkResultBase<BHVelDispQuery> {
     public:
     /* used for AGN kinetic feedback */
     MyFloat V2sumDM = 0;
@@ -94,11 +53,11 @@ class BHVelDispResult : public TreeWalkResultBase<BHVelDispQuery, BHVelDispOutpu
     MyFloat NumDM = 0;
 
     MYCUDAFN BHVelDispResult(const BHVelDispQuery& query):
-        TreeWalkResultBase<BHVelDispQuery, BHVelDispOutput>(query) {}
+        TreeWalkResultBase<BHVelDispQuery>(query) {}
 
     MYCUDAFN BHVelDispResult& operator +=(const BHVelDispResult& other)
     {
-        static_cast<TreeWalkResultBase<BHVelDispQuery, BHVelDispOutput>&>(*this) += static_cast<const TreeWalkResultBase<BHVelDispQuery, BHVelDispOutput>& >(other);
+        static_cast<TreeWalkResultBase<BHVelDispQuery>&>(*this) += static_cast<const TreeWalkResultBase<BHVelDispQuery>& >(other);
 
         V2sumDM += other.V2sumDM;
         for(int i = 0; i < 3; i++) {
@@ -107,16 +66,30 @@ class BHVelDispResult : public TreeWalkResultBase<BHVelDispQuery, BHVelDispOutpu
         NumDM += other.NumDM;
         return *this;
     }
+};
 
-    template<TreeWalkReduceMode mode>
-    MYCUDAFN void reduce(int place, const BHVelDispOutput * output, struct particle_data * const parts)
+/* Computes the BH velocity dispersion for kinetic feedback*/
+class BHVelDispOutput {
+    public:
+        /* Pointers to the BH particle data array*/
+        bh_particle_data * BhParts;
+
+    BHVelDispOutput(slots_manager_type * SlotsManager) : BhParts(SlotsManager->bh_slot())
+    {}
+
+    ~BHVelDispOutput()
+    {}
+
+    void
+    postprocess(int i, const BHVelDispResult& result, particle_data * const parts, const BHVelDispPriv * priv)
     {
-        int PI = Part[place].PI;
-        for (int k = 0; k < 3; k++){
-            TREEWALK_REDUCE(output->V1sumDM[PI][k], V1sumDM[k]);
-        }
-        TREEWALK_REDUCE(output->NumDM[PI], NumDM);
-        TREEWALK_REDUCE(output->V2sumDM[PI], V2sumDM);
+        if (result.NumDM <= 0)
+            return;
+        double vdisp = result.V2sumDM/result.NumDM;
+        for(int d = 0; d<3; d++)
+            vdisp -= pow(result.V1sumDM[d]/result.NumDM,2);
+        if(vdisp > 0)
+            BhParts[parts[i].PI].VDisp = sqrt(vdisp / 3);
     }
 };
 
@@ -240,100 +213,6 @@ vdispeffdmradius(const int i, double left, double right, double DMRadius, const 
     return pow((1.0*i+1)/(1.0*NWINDHSML+1) * (rvol - lvol) + lvol, 1./3);
 }
 
-
-class WindVDispOutput {
-    public:
-    /* Maximum index where NumNgb is valid. */
-    int * maxcmpte;
-    MyFloat (* V2sum)[NWINDHSML];
-    MyFloat (* V1sum)[NWINDHSML][3];
-    MyFloat (* NumNgb) [NWINDHSML];
-    /* Lower and upper bounds on smoothing length*/
-    MyFloat *Left, *Right, *DMRadius;
-    double BoxSize;
-    particle_data * parts;
-    sph_particle_data * SphParts;
-    bool verbose = false;
-
-    WindVDispOutput(const double BoxSize, const int * WorkSet, const int64_t WorkSetSize, particle_data * parts_i, slots_manager_type * slotsmanager):
-    parts(parts_i), SphParts(slotsmanager->sph_slot())
-    {
-        typedef MyFloat NumNgbArray[NWINDHSML];
-        typedef MyFloat NumNgb3VecArray[NWINDHSML][3];
-        Left = mymalloc("VDISP->Left", MyFloat, SlotsManager->info[0].size);
-        Right = mymalloc("VDISP->Right", MyFloat, SlotsManager->info[0].size);
-        DMRadius = mymalloc("VDISP->DMRadius", MyFloat, SlotsManager->info[0].size);
-        NumNgb = mymalloc("VDISP->NumNgb", NumNgbArray, SlotsManager->info[0].size);
-        V1sum = mymalloc("VDISP->V1Sum", NumNgb3VecArray, SlotsManager->info[0].size);
-        V2sum = mymalloc("VDISP->V2Sum", NumNgbArray, SlotsManager->info[0].size);
-        maxcmpte = mymalloc("maxcmpte", int, SlotsManager->info[0].size);
-
-        /*Initialise the arrays */
-        #pragma omp parallel for
-        for (int i = 0; i < WorkSetSize; i++) {
-            const int n = WorkSet ? WorkSet[i] : i;
-            if(parts[n].Type == 0) {
-                const int pi = parts[n].PI;
-                DMRadius[pi] = parts[n].Hsml;
-                Left[pi] = 0;
-                Right[pi] = BoxSize;
-                maxcmpte[pi] = NUMDMNGB;
-            }
-        }
-    }
-
-    ~WindVDispOutput()
-    {
-        myfree(maxcmpte);
-        myfree(V2sum);
-        myfree(V1sum);
-        myfree(NumNgb);
-        myfree(DMRadius);
-        myfree(Right);
-        myfree(Left);
-    }
-
-    double GetNumNgb(const int i)
-    {
-        int pi = parts[i].PI;
-        return NumNgb[pi][maxcmpte[pi]-1];
-    }
-
-    MYCUDAFN int
-    postprocess(const int i, particle_data * const parts, const WindVDispPriv * priv)
-    {
-        const int pi = parts[i].PI;
-        const int maxcmpt = maxcmpte[pi];
-        double evaldmradius[NWINDHSML];
-        for(int j = 0; j < maxcmpt; j++){
-            evaldmradius[j] = vdispeffdmradius(j, Left[pi], Right[pi], DMRadius[pi], priv->BoxSize);
-        }
-        int close = 0;
-        DMRadius[pi] = ngb_narrow_down(&Right[pi], &Left[pi], evaldmradius, NumNgb[pi], maxcmpt, NUMDMNGB, &close, priv->BoxSize);
-        double numngb = NumNgb[pi][close];
-        /* Ensure the largest entry is set to the current best NumNgb. */
-        NumNgb[pi][NWINDHSML-1] = numngb;
-
-        /*  If we have 40 neighbours, or if DMRadius is narrow, set vdisp and be done. Otherwise return 0 and add to redo queue. */
-        if((numngb >= (NUMDMNGB - MAXDMDEVIATION) && numngb <= (NUMDMNGB + MAXDMDEVIATION)) ||
-        (Right[pi] - Left[pi] < 5e-6 * Left[pi])) {
-            if(Right[pi] - Left[pi] < 5e-6 * Left[pi])
-                message(1, "Tight dm hsml for id %ld ngb %g radius %g\n",parts[i].ID, numngb, evaldmradius[close]);
-            double vdisp = V2sum[pi][close] / numngb;
-            for(int d = 0; d < 3; d++){
-                vdisp -= pow(V1sum[pi][close][d] / numngb,2);
-            }
-            if(vdisp > 0) {
-                if(parts[i].Type == 0)
-                    SphParts[pi].VDisp = sqrt(vdisp / 3);
-            }
-            return 1;
-        }
-        /* Add to redo queue */
-        return 0;
-    }
-};
-
 /* Code to compute velocity dispersions*/
 class WindVDispQuery : public TreeWalkQueryBase<WindVDispPriv>{
     public:
@@ -352,6 +231,106 @@ class WindVDispQuery : public TreeWalkQueryBase<WindVDispPriv>{
             DMRadius[i] = vdispeffdmradius(i, priv.Left[pi], priv.Right[pi], priv.DMRadius[pi], priv.BoxSize);
         }
         Hsml = DMRadius[NWINDHSML-1];
+    }
+};
+
+class WindVDispResult : public TreeWalkResultBase<WindVDispQuery>{
+    public:
+    double V1sum[NWINDHSML][3] = {};
+    double V2sum[NWINDHSML] = {};
+    double NumNgb[NWINDHSML] = {};
+    int maxcmpte = NWINDHSML;
+
+    MYCUDAFN WindVDispResult(const WindVDispQuery& query):
+        TreeWalkResultBase<WindVDispQuery>(query) {}
+
+    MYCUDAFN WindVDispResult& operator +=(const WindVDispResult& other)
+    {
+        static_cast<TreeWalkResultBase<WindVDispQuery>&>(*this) += static_cast<const TreeWalkResultBase<WindVDispQuery>&>(other);
+
+        if(maxcmpte > other.maxcmpte) {
+            maxcmpte = other.maxcmpte;
+        }
+        for(int i = 0; i < maxcmpte; i++) {
+            NumNgb[i] += other.NumNgb[i];
+            V2sum[i] += other.V2sum[i];
+            for(int j = 0; j < 3; j++)
+                V1sum[i][j] += other.V1sum[i][j];
+        }
+        return *this;
+    }
+
+    double GetNumNgb() const
+    {
+        return NumNgb[0];
+    }
+};
+
+class WindVDispOutput {
+    public:
+    /* Lower and upper bounds on smoothing length*/
+    MyFloat *Left, *Right, *DMRadius;
+    double BoxSize;
+    particle_data * parts;
+    sph_particle_data * SphParts;
+    bool verbose = false;
+
+    WindVDispOutput(const double BoxSize, const int * WorkSet, const int64_t WorkSetSize, particle_data * parts_i, slots_manager_type * slotsmanager):
+    parts(parts_i), SphParts(slotsmanager->sph_slot())
+    {
+        Left = mymalloc("VDISP->Left", MyFloat, SlotsManager->info[0].size);
+        Right = mymalloc("VDISP->Right", MyFloat, SlotsManager->info[0].size);
+        DMRadius = mymalloc("VDISP->DMRadius", MyFloat, SlotsManager->info[0].size);
+        /*Initialise the arrays */
+        #pragma omp parallel for
+        for (int i = 0; i < WorkSetSize; i++) {
+            const int n = WorkSet ? WorkSet[i] : i;
+            if(parts[n].Type == 0) {
+                const int pi = parts[n].PI;
+                DMRadius[pi] = parts[n].Hsml;
+                Left[pi] = 0;
+                Right[pi] = BoxSize;
+            }
+        }
+    }
+
+    ~WindVDispOutput()
+    {
+        myfree(DMRadius);
+        myfree(Right);
+        myfree(Left);
+    }
+
+    MYCUDAFN int
+    postprocess(const int place, WindVDispResult& result, particle_data * const parts, const WindVDispPriv * priv)
+    {
+        const int pi = parts[place].PI;
+        double evaldmradius[NWINDHSML];
+        for(int j = 0; j < result.maxcmpte; j++){
+            evaldmradius[j] = vdispeffdmradius(j, Left[pi], Right[pi], DMRadius[pi], priv->BoxSize);
+        }
+        int close = 0;
+        DMRadius[pi] = ngb_narrow_down(&Right[pi], &Left[pi], evaldmradius, result.NumNgb, result.maxcmpte, NUMDMNGB, &close, priv->BoxSize);
+        const double numngb = result.NumNgb[close];
+        result.NumNgb[0] = numngb;
+
+        /*  If we have 40 neighbours, or if DMRadius is narrow, set vdisp and be done. Otherwise return 0 and add to redo queue. */
+        if((numngb >= (NUMDMNGB - MAXDMDEVIATION) && numngb <= (NUMDMNGB + MAXDMDEVIATION)) ||
+        (Right[pi] - Left[pi] < 5e-6 * Left[pi])) {
+            if(Right[pi] - Left[pi] < 5e-6 * Left[pi])
+                message(1, "Tight dm hsml for id %ld ngb %g radius %g\n",parts[place].ID, numngb, evaldmradius[close]);
+            double vdisp = result.V2sum[close] / numngb;
+            for(int d = 0; d < 3; d++){
+                vdisp -= pow(result.V1sum[close][d] / numngb,2);
+            }
+            if(vdisp > 0) {
+                if(parts[place].Type == 0)
+                    SphParts[pi].VDisp = sqrt(vdisp / 3);
+            }
+            return 1;
+        }
+        /* Add to redo queue */
+        return 0;
     }
 };
 
@@ -407,52 +386,6 @@ int64_t build_vdisp_queue(int ** WorkSet, int * active_set, int64_t size, const 
         return end - *WorkSet;
     }
 }
-
-class WindVDispResult : public TreeWalkResultBase<WindVDispQuery, WindVDispOutput>{
-    public:
-    double V1sum[NWINDHSML][3] = {};
-    double V2sum[NWINDHSML] = {};
-    double NumNgb[NWINDHSML] = {};
-    int maxcmpte = NWINDHSML;
-
-    MYCUDAFN WindVDispResult(const WindVDispQuery& query):
-        TreeWalkResultBase<WindVDispQuery, WindVDispOutput>(query) {}
-
-    MYCUDAFN WindVDispResult& operator +=(const WindVDispResult& other)
-    {
-        static_cast<TreeWalkResultBase<WindVDispQuery, WindVDispOutput>&>(*this) += static_cast<const TreeWalkResultBase<WindVDispQuery, WindVDispOutput>&>(other);
-
-        if(maxcmpte > other.maxcmpte) {
-            maxcmpte = other.maxcmpte;
-        }
-        for(int i = 0; i < maxcmpte; i++) {
-            NumNgb[i] += other.NumNgb[i];
-            V2sum[i] += other.V2sum[i];
-            for(int j = 0; j < 3; j++)
-                V1sum[i][j] += other.V1sum[i][j];
-        }
-        return *this;
-    }
-
-    template<TreeWalkReduceMode mode>
-    MYCUDAFN void reduce(int place, const WindVDispOutput * output, struct particle_data * const parts)
-    {
-        int pi = Part[place].PI;
-        if constexpr(mode == TREEWALK_PRIMARY)
-            output->maxcmpte[pi] = maxcmpte;
-        else if (output->maxcmpte[pi] > maxcmpte)
-            output->maxcmpte[pi] = maxcmpte;
-        for (int i = 0; i < maxcmpte; i++){
-            TREEWALK_REDUCE(output->NumNgb[pi][i], NumNgb[i]);
-            TREEWALK_REDUCE(output->V2sum[pi][i], V2sum[i]);
-            for(int k = 0; k < 3; k ++) {
-                TREEWALK_REDUCE(output->V1sum[pi][i][k], V1sum[i][k]);
-            }
-        }
-    //     message(1, "Reduce ID=%ld, NGB_first=%d NGB_last=%d maxcmpte = %d, left = %g, right = %g\n",
-    //             Part[place].ID, O->Ngb[0],O->Ngb[O->maxcmpte-1],WINDP(place, Windd).maxcmpte,WINDP(place, Windd).Left,WINDP(place, Windd).Right);
-    }
-};
 
 class WindVDispLocalTreeWalk: public LocalNgbTreeWalk<WindVDispLocalTreeWalk, WindVDispQuery, WindVDispResult, WindVDispPriv, NGB_TREEFIND_ASYMMETRIC, DMMASK>
 {
