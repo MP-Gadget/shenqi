@@ -52,36 +52,6 @@ class BHDynFricPriv : public ParamTypeBase {
     BHDynFricPriv(double BoxSize, KickFactorData& kf_i, inttime_t Ti_Current_i, int BH_DynFrictionMethod_i): ParamTypeBase(BoxSize), kf(kf_i), Ti_Current(Ti_Current_i), BH_DynFrictionMethod(BH_DynFrictionMethod_i) {};
 };
 
-/* Computes the BH velocity dispersion for kinetic feedback*/
-class BHDynFricOutput {
-public:
-    size_t ZeroDF = 0; // Counter for zero density BHs
-    double ZeroDFMass = 0; /* Total mass of BHs with zero DF density*/
-    bh_particle_data * BhParts;
-    bool BlackHoleRepositionEnabled;
-
-    BHDynFricOutput(bool BlackHoleReposition, slots_manager_type * slotsmanager): BhParts(slotsmanager->bh_slot()), BlackHoleRepositionEnabled(BlackHoleReposition) {}
-
-    void
-    postprocess(int n, particle_data * const parts, const BHDynFricPriv * priv)
-    {
-        bh_particle_data& Bhpart = BhParts[parts[n].PI];
-        if(Bhpart.DF_SurroundingDensity > 0){
-            /* normalize velocity/dispersion */
-            Bhpart.DF_SurroundingRmsVel /= Bhpart.DF_SurroundingDensity;
-            Bhpart.DF_SurroundingRmsVel = sqrt(Bhpart.DF_SurroundingRmsVel);
-            for(int j = 0; j < 3; j++)
-                Bhpart.DF_SurroundingVel[j] /= Bhpart.DF_SurroundingDensity;
-        }
-        else {
-            #pragma omp atomic update
-            ZeroDF++;
-            #pragma omp atomic update
-            ZeroDFMass += Bhpart.Mass;
-        }
-    }
-};
-
 class BHDynFricQuery : public TreeWalkQueryBase<BHDynFricPriv>
 {
     public:
@@ -91,7 +61,7 @@ class BHDynFricQuery : public TreeWalkQueryBase<BHDynFricPriv>
     TreeWalkQueryBase<BHDynFricPriv>(particle, i_NodeList, firstnode, priv), Hsml(particle.Hsml) {}
 };
 
-class BHReposResult : public TreeWalkResultBase<BHDynFricQuery, BHDynFricOutput> {
+class BHReposResult : public TreeWalkResultBase<BHDynFricQuery> {
     public:
     /* Minimum potential for diagnostics*/
     MyFloat BH_MinPotPos[3] = {-1,-1,-1};
@@ -99,11 +69,11 @@ class BHReposResult : public TreeWalkResultBase<BHDynFricQuery, BHDynFricOutput>
     MyFloat BH_MinPot = BHPOTVALUEINIT;
 
     MYCUDAFN BHReposResult(const BHDynFricQuery& query):
-        TreeWalkResultBase<BHDynFricQuery, BHDynFricOutput>(query) {}
+        TreeWalkResultBase<BHDynFricQuery>(query) {}
 
     MYCUDAFN BHReposResult& operator +=(const BHReposResult& other)
     {
-        static_cast<TreeWalkResultBase<BHDynFricQuery, BHDynFricOutput>&>(*this) += static_cast<const TreeWalkResultBase<BHDynFricQuery, BHDynFricOutput>&>(other);
+        static_cast<TreeWalkResultBase<BHDynFricQuery>&>(*this) += static_cast<const TreeWalkResultBase<BHDynFricQuery>& >(other);
 
         if(BH_MinPot > other.BH_MinPot) {
             BH_MinPot = other.BH_MinPot;
@@ -114,23 +84,6 @@ class BHReposResult : public TreeWalkResultBase<BHDynFricQuery, BHDynFricOutput>
             }
         }
         return *this;
-    }
-
-    template<TreeWalkReduceMode mode>
-    MYCUDAFN void reduce(int place, const BHDynFricOutput * output, struct particle_data * const parts)
-    {
-        bh_particle_data& BhPart = output->BhParts[parts[place].PI];
-
-        if(BhPart.MinPot > BH_MinPot)
-        {
-            BhPart.JumpToMinPot = output->BlackHoleRepositionEnabled;
-            BhPart.MinPot = BH_MinPot;
-            for(int k = 0; k < 3; k++) {
-                /* Movement occurs in drift.c */
-                BhPart.MinPotPos[k] = BH_MinPotPos[k];
-                BhPart.MinPotVel[k] = BH_MinPotVel[k];
-            }
-        }
     }
 };
 
@@ -153,15 +106,68 @@ class BHDynFricResult : public BHReposResult {
         return *this;
     }
 
-    template<TreeWalkReduceMode mode>
-    MYCUDAFN void reduce(int place, const BHDynFricOutput * output, struct particle_data * const parts) {
-        bh_particle_data& BhPart = output->BhParts[parts[place].PI];
-        TREEWALK_REDUCE(BhPart.DF_SurroundingDensity, SurroundingDensity);
+};
+
+/* Computes the BH velocity dispersion for kinetic feedback*/
+class BHReposOutput {
+public:
+    bh_particle_data * BhParts;
+    bool BlackHoleRepositionEnabled;
+
+    BHReposOutput(bool BlackHoleReposition, slots_manager_type * slotsmanager):
+    BhParts(slotsmanager->bh_slot()), BlackHoleRepositionEnabled(BlackHoleReposition) {}
+
+    void
+    postprocess(int place, const BHReposResult& result, particle_data * const parts, const BHDynFricPriv * priv)
+    {
+        bh_particle_data& BhPart = BhParts[parts[place].PI];
+
+        if(BhPart.MinPot > result.BH_MinPot)
+        {
+            BhPart.JumpToMinPot = BlackHoleRepositionEnabled;
+            BhPart.MinPot = result.BH_MinPot;
+            for(int k = 0; k < 3; k++) {
+                /* Movement occurs in drift.c */
+                BhPart.MinPotPos[k] = result.BH_MinPotPos[k];
+                BhPart.MinPotVel[k] = result.BH_MinPotVel[k];
+            }
+        }
+    }
+};
+
+/* Computes the BH velocity dispersion for kinetic feedback*/
+class BHDynFricOutput : public BHReposOutput {
+public:
+    size_t ZeroDF = 0; // Counter for zero density BHs
+    double ZeroDFMass = 0; /* Total mass of BHs with zero DF density*/
+
+    BHDynFricOutput(bool BlackHoleReposition, slots_manager_type * slotsmanager):
+    BHReposOutput(BlackHoleReposition, slotsmanager) {}
+
+    void
+    postprocess(int place, const BHDynFricResult& result, particle_data * const parts, const BHDynFricPriv * priv)
+    {
+        bh_particle_data& BhPart = BhParts[parts[place].PI];
+        BhPart.DF_SurroundingDensity = result.SurroundingDensity;
         for(int j = 0; j < 3; j++)
-            TREEWALK_REDUCE(BhPart.DF_SurroundingVel[j], SurroundingVel[j]);
-        TREEWALK_REDUCE(BhPart.DF_SurroundingRmsVel, SurroundingRmsVel);
+            BhPart.DF_SurroundingVel[j] = result.SurroundingVel[j];
+        BhPart.DF_SurroundingRmsVel =  result.SurroundingRmsVel;
         /* Find minimum potential*/
-        static_cast<BHReposResult *>(this)->reduce<mode>(place, output, parts);
+        static_cast<BHReposOutput*>(this)->postprocess(place, result, parts, priv);
+
+        if(BhPart.DF_SurroundingDensity > 0){
+            /* normalize velocity/dispersion */
+            BhPart.DF_SurroundingRmsVel /= BhPart.DF_SurroundingDensity;
+            BhPart.DF_SurroundingRmsVel = sqrt(BhPart.DF_SurroundingRmsVel);
+            for(int j = 0; j < 3; j++)
+                BhPart.DF_SurroundingVel[j] /= BhPart.DF_SurroundingDensity;
+        }
+        else {
+            #pragma omp atomic update
+            ZeroDF++;
+            #pragma omp atomic update
+            ZeroDFMass += BhPart.Mass;
+        }
     }
 };
 
@@ -251,17 +257,17 @@ class BHDynFricLocalTreeWalk: public LocalNgbTreeWalk<BHDynFricLocalTreeWalk<Den
 
 class BHDynFricTopTreeWalk: public TopTreeWalk<BHDynFricQuery, BHDynFricPriv, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
-class BHReposTreeWalkCubic: public TreeWalk<BHReposTreeWalkCubic, BHDynFricQuery, BHReposResult, BHReposLocalTreeWalk<CubicDensityKernel>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput> {
+class BHReposTreeWalkCubic: public TreeWalk<BHReposTreeWalkCubic, BHDynFricQuery, BHReposResult, BHReposLocalTreeWalk<CubicDensityKernel>, BHDynFricTopTreeWalk, BHDynFricPriv, BHReposOutput> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class BHReposTreeWalkQuartic: public TreeWalk<BHReposTreeWalkQuartic, BHDynFricQuery, BHReposResult, BHReposLocalTreeWalk<QuarticDensityKernel>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput> {
+class BHReposTreeWalkQuartic: public TreeWalk<BHReposTreeWalkQuartic, BHDynFricQuery, BHReposResult, BHReposLocalTreeWalk<QuarticDensityKernel>, BHDynFricTopTreeWalk, BHDynFricPriv, BHReposOutput> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class BHReposTreeWalkQuintic: public TreeWalk<BHReposTreeWalkQuintic, BHDynFricQuery, BHReposResult, BHReposLocalTreeWalk<QuinticDensityKernel>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput> {
+class BHReposTreeWalkQuintic: public TreeWalk<BHReposTreeWalkQuintic, BHDynFricQuery, BHReposResult, BHReposLocalTreeWalk<QuinticDensityKernel>, BHDynFricTopTreeWalk, BHDynFricPriv, BHReposOutput> {
     public:
     using TreeWalk::TreeWalk;
 };

@@ -124,30 +124,6 @@ class HydroPriv : public ParamTypeBase {
     }
 };
 
-class HydroOutput {
-    public:
-    /* Pointer to the SPH particle data array*/
-    sph_particle_data * SphParts;
-
-    HydroOutput(slots_manager_type * SlotsManager): SphParts(SlotsManager->sph_slot()) {}
-
-    MYCUDAFN void postprocess(const int i, particle_data * const parts, const HydroPriv * priv)
-    {
-        if(parts[i].Type != 0)
-            return;
-        sph_particle_data * sphp = &SphParts[parts[i].PI];
-        /* Translate energy change rate into entropy change rate */
-        SphParts[parts[i].PI].DtEntropy *= GAMMA_MINUS1 / (priv->hubble_a2 * pow(sphp->Density, GAMMA_MINUS1));
-        /* if we have winds, we decouple particles briefly if delaytime>0 */
-        if(winds_is_particle_decoupled(sphp)) {
-            for(int k = 0; k < 3; k++)
-                sphp->HydroAccel[k] = 0;
-            sphp->DtEntropy = 0;
-            winds_decoupled_hydro(sphp, priv->atime, priv->WindSpeed, priv->WindFreeTravelDensThresh);
-        }
-    }
-};
-
 class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     public:
     /* This is set to Density if DensityIndependentSphOn is false*/
@@ -198,7 +174,7 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     };
 };
 
-class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
+class HydroResult: public TreeWalkResultBase<HydroQuery> {
     public:
     MyFloat Acc[3] = {0};
     MyFloat DtEntropy = 0;
@@ -211,7 +187,7 @@ class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
 
     MYCUDAFN HydroResult& operator +=(const HydroResult& other)
     {
-        static_cast<TreeWalkResultBase<HydroQuery, HydroOutput>& >(*this) += static_cast<const TreeWalkResultBase<HydroQuery, HydroOutput>&>(other);
+        static_cast<TreeWalkResultBase<HydroQuery>& >(*this) += static_cast<const TreeWalkResultBase<HydroQuery>& >(other);
 
         Acc[0] += other.Acc[0];
         Acc[1] += other.Acc[1];
@@ -221,22 +197,43 @@ class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
             MaxSignalVel = other.MaxSignalVel;
         return *this;
     }
+};
 
-    template<TreeWalkReduceMode mode>
-    MYCUDAFN void reduce(int place, const HydroOutput * output, struct particle_data * const parts)
+class HydroOutput {
+    public:
+    /* Pointer to the SPH particle data array*/
+    sph_particle_data * SphParts;
+
+    HydroOutput(slots_manager_type * SlotsManager): SphParts(SlotsManager->sph_slot()) {}
+
+    MYCUDAFN void postprocess(const int place, const HydroResult& result, particle_data * const parts, const HydroPriv * priv)
     {
-        TreeWalkResultBase::reduce<mode>(place, output, parts);
-        struct sph_particle_data * sphpart = &output->SphParts[parts[place].PI];
+        if(parts[place].Type != 0)
+            return;
+
+        #if defined DEBUG && not defined __CUDACC__
+            if(parts[place].ID != result.ID)
+                endrun(2, "Mismatched ID (%ld != %ld) for particle %d in postprocess.\n", parts[place].ID, result.ID, place);
+        #endif
+
+        struct sph_particle_data * sphpart = &SphParts[parts[place].PI];
+        sphpart->MaxSignalVel = result.MaxSignalVel;
+
+        /* if we have winds, we decouple particles briefly if delaytime>0 */
+        if(winds_is_particle_decoupled(sphpart)) {
+            for(int k = 0; k < 3; k++)
+                sphpart->HydroAccel[k] = 0;
+            sphpart->DtEntropy = 0;
+            winds_decoupled_hydro(sphpart, priv->atime, priv->WindSpeed, priv->WindFreeTravelDensThresh);
+            return;
+        }
+
         for(int k = 0; k < 3; k++)
-            TREEWALK_REDUCE(sphpart->HydroAccel[k], Acc[k]);
+            sphpart->HydroAccel[k] = result.Acc[k];
 
-        TREEWALK_REDUCE(sphpart->DtEntropy, DtEntropy);
-
-        /* Need TREEWALK_PRIMARY or sphpart->MaxSignalVel < MaxSignalVel*/
-        if constexpr(mode == TREEWALK_PRIMARY)
-            sphpart->MaxSignalVel = MaxSignalVel;
-        else if(sphpart->MaxSignalVel < MaxSignalVel)
-               sphpart->MaxSignalVel = MaxSignalVel;
+        sphpart->DtEntropy = result.DtEntropy;
+        /* Translate energy change rate into entropy change rate */
+        sphpart->DtEntropy *= GAMMA_MINUS1 / (priv->hubble_a2 * pow(sphpart->Density, GAMMA_MINUS1));
     }
 };
 
