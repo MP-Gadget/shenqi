@@ -710,7 +710,7 @@ void get_delta_nu(Cosmology * CP, const _delta_tot_table * const d_tot, const do
                 dtot_spline = [sp](const double x) { return (*sp)(x); };
             }
             else {
-                auto sp = std::make_shared<boost::math::barycentric_rational<double>>(std::move(loga),std::move(delta_tot_k), Na-1);
+                auto sp = std::make_shared<boost::math::interpolators::barycentric_rational<double>>(std::move(loga),std::move(delta_tot_k), Na-1);
                 dtot_spline = [sp](const double x) { return (*sp)(x); };
             }
             /**integration kernel for get_delta_nu*/
