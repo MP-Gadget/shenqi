@@ -285,6 +285,7 @@ public:
 
         /* Build the queries from the particle table first, so we only need to read it once.
          * Allocate memory first, so that compute_bunchsize has a correct view of memory. */
+        ResultType * results = mymanagedmalloc("Results", ResultType, WorkSetSize);
         QueryType * queries = mymanagedmalloc("Queries", QueryType, WorkSetSize);
         #pragma omp parallel for
         for(int64_t k = 0 ; k < WorkSetSize; k++) {
@@ -292,7 +293,6 @@ public:
                 /* Toptree never uses node list */
                 new(&queries[k]) QueryType(parts[i], NULL, tree->firstnode, priv);
         }
-        ResultType * results = mymanagedmalloc("Results", ResultType, WorkSetSize);
 
         const int BunchSize = compute_bunchsize();
         int64_t nmin, nmax, total;
@@ -479,7 +479,7 @@ public:
         /*The amount of memory eventually allocated per tree buffer*/
         const size_t query_type_elsize = sizeof(QueryType);
         const size_t result_type_elsize = sizeof(ResultType);
-        size_t bytesperbuffer = sizeof(struct data_index) + query_type_elsize + result_type_elsize;
+        size_t bytesperbuffer = sizeof(struct data_index) + 2*query_type_elsize + result_type_elsize;
         /*This memory scales like the number of imports. In principle this could be much larger than Nexport
         * if the tree is very imbalanced and many processors all need to export to this one. In practice I have
         * not seen this happen, but provide a parameter to boost the memory for Nimport just in case.*/
