@@ -256,27 +256,23 @@ static double gaussian_rng(double mu, double sigma, const int64_t seed, const Ra
 
 /* Build a list of halos which are candidates for becoming a quasar.
  * We use only halos with the right mass range.*/
-static int
-build_qso_candidate_list(int ** qso_cand, FOFGroups * fof)
+static std::vector<int>
+build_qso_candidate_list(FOFGroups * fof)
 {
     /*Loop over all halos, building the candidate list.*/
-    int i, ncand=0;
-    *qso_cand = mymalloc("Quasar_candidates", int, (fof->Ngroups+1));
-    for(i = 0; i < fof->Ngroups; i++)
+    std::vector<int> qso_cand;
+    for(int i = 0; i < fof->Ngroups; i++)
     {
         /* Check that it has the right mass*/
-        if(fof->Group[i].Mass < QSOLightupParams.qso_candidate_min_mass)
+        auto& group = fof->Group[i];
+        if(group.Mass < QSOLightupParams.qso_candidate_min_mass)
             continue;
-        if(fof->Group[i].Mass > QSOLightupParams.qso_candidate_max_mass)
+        if(group.Mass > QSOLightupParams.qso_candidate_max_mass)
             continue;
         /*Add to the candidate list*/
-        (*qso_cand)[ncand] = i;
-        ncand++;
+        qso_cand.push_back(i);
     }
-    /*Poison value at the end for safety.*/
-    (*qso_cand)[ncand] = -1;
-    *qso_cand = myrealloc(*qso_cand, int, (ncand+1));
-    return ncand;
+    return qso_cand;
 }
 
 /* Count the number of halos present on all tasks, and the number of halos present on tasks
@@ -443,7 +439,7 @@ ionize_copy(int place, TreeWalkQueryQSOLightup * I, TreeWalk * tw)
  * Returns the number of particles ionized
  */
 static int64_t
-ionize_all_part(int qso_ind, int * qso_cand, struct QSOPriv priv, ForceTree * tree)
+ionize_all_part(int qso_ind, std::vector<int>& qso_cand, struct QSOPriv priv, ForceTree * tree)
 {
     /* This treewalk finds not yet ionized particles within the radius of the black hole, ionizes them and
      * adds an instantaneous heating to them. */
@@ -492,8 +488,6 @@ ionize_all_part(int qso_ind, int * qso_cand, struct QSOPriv priv, ForceTree * tr
 static void
 turn_on_quasars(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmology * CP, double uu_in_cgs, RandTable * rnd, FILE * FdHelium)
 {
-    int ncand = 0;
-    int * qso_cand = NULL;
     int64_t n_gas_tot=0, tot_n_ionized=0, ncand_tot=0;
     MPI_Allreduce(&SlotsManager->info[0].size, &n_gas_tot, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     // Evaluate the interpolators
@@ -525,28 +519,28 @@ turn_on_quasars(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmology * 
     double initionfrac = gas_ionization_fraction();
     double curionfrac = initionfrac;
 
+    std::vector<int> qso_cand;
+
     message(0, "HeII: Started helium reionization model with ionization fraction %g\n", initionfrac);
     if(curionfrac < desired_ion_frac) {
-        ncand = build_qso_candidate_list(&qso_cand, fof);
+        qso_cand = build_qso_candidate_list(fof);
         walltime_measure("/HeIII/Find");
     }
 
-    int64_t ncand_before = count_QSO_halos(ncand, &ncand_tot, MPI_COMM_WORLD);
+    int64_t ncand_before = count_QSO_halos(qso_cand.size(), &ncand_tot, MPI_COMM_WORLD);
     int iteration;
 
     /* If there are no quasars this will be tough*/
     if(ncand_tot == 0) {
-        if(qso_cand)
-            myfree(qso_cand);
         return;
     }
     message(0, "HeII: Built quasar candidate list from %ld quasars\n", ncand_tot);
     walltime_measure("/HeIII/Build");
     for(iteration = 0; curionfrac < desired_ion_frac; iteration++){
         /* Get a new quasar*/
-        int new_qso = choose_QSO_halo(ncand, &ncand_before, &ncand_tot, fof->TotNgroups+iteration, rnd);
-        if(new_qso >= ncand)
-            endrun(12, "HeII: QSO %d > no. candidates %d! Cannot happen\n", new_qso, ncand);
+        size_t new_qso = choose_QSO_halo(qso_cand.size(), &ncand_before, &ncand_tot, fof->TotNgroups+iteration, rnd);
+        if(new_qso >= qso_cand.size())
+            endrun(12, "HeII: QSO %lu > no. candidates %lu! Cannot happen\n", new_qso, qso_cand.size());
         /* Make sure someone has a quasar*/
         if(ncand_tot <= 0) {
             if(desired_ion_frac - curionfrac > 0.1)
@@ -591,15 +585,9 @@ turn_on_quasars(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmology * 
         }
 
         /* Remove this candidate from the list by moving the list down.*/
-        if( new_qso >= 0) {
-            memmove(qso_cand+new_qso, qso_cand+new_qso+1, (ncand - new_qso)*sizeof(int));
-            ncand--;
-        }
+        if( new_qso >= 0)
+            qso_cand.erase(qso_cand.begin() + new_qso);
     }
-    if(qso_cand) {
-        myfree(qso_cand);
-    }
-
     if(tot_n_ionized > 0)
         message(0, "HeII: HeIII fraction from %g -> %g, ionizing %ld. Wanted %g.\n", initionfrac, curionfrac, tot_n_ionized, desired_ion_frac);
     else

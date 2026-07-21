@@ -10,8 +10,8 @@
 double specialJ(const double x, const double vcmnubylight, const double nufrac_low);
 double fslength(Cosmology * CP, const double logai, const double logaf, const double light);
 
-void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, int verbose) {};
-int petaio_read_block(BigFile * bf, const char * blockname, BigArray * array, int required)
+void petaio_save_block(BigFile * bf, const std::string& blockname, BigArray * array, int verbose) {};
+int petaio_read_block(BigFile * bf, const std::string& blockname, BigArray * array, int required)
 {
     return 0;
 }

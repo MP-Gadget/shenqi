@@ -153,12 +153,9 @@ petaio_save_snapshot(const std::string fname, struct IOTable * IOTable, int verb
 
     petaio_write_header(&bf, atime, NTotal, CP, &Header);
 
-    int i;
-    for(i = 0; i < IOTable->used; i ++) {
+    for(IOTableEntry& ent : IOTable->ent) {
         /* only process the particle blocks */
-        char blockname[128];
-        int ptype = IOTable->ent[i].ptype;
-        BigArray array = {0};
+        const int ptype = ent.ptype;
         /*This exclude FOF blocks*/
         if(!(ptype < 6 && ptype >= 0)) {
             continue;
@@ -167,9 +164,9 @@ petaio_save_snapshot(const std::string fname, struct IOTable * IOTable, int verb
          * But do still write them for stars and BHs as someone might expect them.*/
         if(NTotal[ptype] == 0 && ptype < 4)
             continue;
-        snprintf(blockname, 128, "%d/%s", ptype, IOTable->ent[i].name);
-        blockname[127] = '\0';
-        petaio_build_buffer(&array, &IOTable->ent[i], selection + ptype_offset[ptype], ptype_count[ptype], PartManager->Base, SlotsManager, &conv);
+        std::string blockname = std::to_string(ptype) + "/" + ent.name;
+        BigArray array = {0};
+        petaio_build_buffer(&array, &ent, selection + ptype_offset[ptype], ptype_count[ptype], PartManager->Base, SlotsManager, &conv);
         petaio_save_block(&bf, blockname, &array, verbose);
         petaio_destroy_buffer(&array);
     }
@@ -268,18 +265,16 @@ petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struc
     conv.atime = header->TimeSnapshot;
     conv.hubble = hubble_function(CP, header->TimeSnapshot);
 
-    struct IOTable IOTable[1] = {0};
+    struct IOTable IOTable[1] = {};
     int missing_mass_from_header[6] = {0};
     /* Always try to read the metal tables.
      * This lets us turn it off for a short period and then re-enable it.
      * Note the metal fields are non-fatal so this does not break resuming without metals.*/
     register_io_blocks(IOTable, 0, 1);
 
-    for(i = 0; i < IOTable->used; i ++) {
+    for(IOTableEntry& ent : IOTable->ent) {
         /* only process the particle blocks */
-        char blockname[128];
-        int ptype = IOTable->ent[i].ptype;
-        BigArray array = {0};
+        const int ptype = ent.ptype;
         if(!(ptype < 6 && ptype >= 0)) {
             continue;
         }
@@ -287,34 +282,34 @@ petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struc
         if(ic) {
             /* for IC read in only three blocks */
             int keep = 0;
-            keep |= (0 == strcmp(IOTable->ent[i].name, "Position"));
-            keep |= (0 == strcmp(IOTable->ent[i].name, "Velocity"));
-            keep |= (0 == strcmp(IOTable->ent[i].name, "ID"));
+            keep |= (ent.name == "Position");
+            keep |= (ent.name == "Velocity");
+            keep |= (ent.name == "ID");
             if (ptype == 5) {
-                keep |= (0 == strcmp(IOTable->ent[i].name, "Mass"));
-                keep |= (0 == strcmp(IOTable->ent[i].name, "BlackholeMass"));
-                keep |= (0 == strcmp(IOTable->ent[i].name, "MinPotPos"));
+                keep |= (ent.name == "Mass");
+                keep |= (ent.name == "BlackholeMass");
+                keep |= (ent.name == "MinPotPos");
             }
             /* Some IC codes may set the particle mass directly, rather than in the header*/
             if(header->MassTable[ptype] <= 0)
-                keep |= (0 == strcmp(IOTable->ent[i].name, "Mass"));
+                keep |= (ent.name == "Mass");
             if(!keep) continue;
         }
-        if(IOTable->ent[i].setter == NULL) {
+        if(ent.setter == NULL) {
             /* FIXME: do not know how to read this block; assume the fucker is
              * internally intialized; */
             continue;
         }
-        snprintf(blockname, 128, "%d/%s", ptype, IOTable->ent[i].name);
-        blockname[127] = '\0';
-        petaio_alloc_buffer(&array, &IOTable->ent[i], header->NLocal[ptype]);
-        int required = IOTable->ent[i].required;
-        if(0 == strcmp(IOTable->ent[i].name, "Mass") && header->MassTable[ptype] > 0)
+        std::string blockname = std::to_string(ptype) + "/" + ent.name;
+        BigArray array = {0};
+        petaio_alloc_buffer(&array, &ent, header->NLocal[ptype]);
+        int required = ent.required;
+        if(ent.name == "Mass" && header->MassTable[ptype] > 0)
             required = 0;
         int read_status = petaio_read_block(&bf, blockname, &array, required);
         if(0 == read_status)
-            petaio_readout_buffer(&array, &IOTable->ent[i], &conv, PartManager, SlotsManager);
-        else if(0 == strcmp(IOTable->ent[i].name, "Mass") && header->MassTable[ptype] > 0)
+            petaio_readout_buffer(&array, &ent, &conv, PartManager, SlotsManager);
+        else if(ent.name == "Mass" && header->MassTable[ptype] > 0)
             missing_mass_from_header[ptype] = 1;
         petaio_destroy_buffer(&array);
     }
@@ -526,7 +521,7 @@ petaio_read_header_internal(BigFile * bf, Cosmology * CP, struct header_data * H
 void petaio_alloc_buffer(BigArray * array, IOTableEntry * ent, int64_t localsize) {
     size_t dims[2];
     ptrdiff_t strides[2];
-    int elsize = dtype_itemsize(ent->dtype);
+    int elsize = dtype_itemsize(ent->dtype.c_str());
 
     dims[0] = localsize;
     dims[1] = ent->items;
@@ -534,7 +529,7 @@ void petaio_alloc_buffer(BigArray * array, IOTableEntry * ent, int64_t localsize
     strides[0] = elsize * ent->items;
     char * buffer = mymalloc("IOBUFFER", char, dims[0] * dims[1] * elsize);
 
-    big_array_init(array, buffer, ent->dtype, 2, dims, strides);
+    big_array_init(array, buffer, ent->dtype.c_str(), 2, dims, strides);
 }
 
 /* readout array into P struct with setters */
@@ -585,32 +580,32 @@ void petaio_destroy_buffer(BigArray * array) {
 }
 
 /* read a block from disk, spread the values to memory with setters  */
-int petaio_read_block(BigFile * bf, const char * blockname, BigArray * array, int required) {
+int petaio_read_block(BigFile * bf, const std::string& blockname, BigArray * array, int required) {
     BigBlock bb = {0};
     BigBlockPtr ptr = {0};
 
     /* open the block */
-    if(0 != big_file_mpi_open_block(bf, &bb, blockname, MPI_COMM_WORLD)) {
+    if(0 != big_file_mpi_open_block(bf, &bb, blockname.c_str(), MPI_COMM_WORLD)) {
         if(required)
-            endrun(0, "Failed to open block at %s:%s\n", blockname, big_file_get_error_message());
+            endrun(0, "Failed to open block at %s:%s\n", blockname.c_str(), big_file_get_error_message());
         else
             return 1;
     }
     if(0 != big_block_seek(&bb, &ptr, 0)) {
-            endrun(1, "Failed to seek block %s: %s\n", blockname, big_file_get_error_message());
+            endrun(1, "Failed to seek block %s: %s\n", blockname.c_str(), big_file_get_error_message());
     }
     if(0 != big_block_mpi_read(&bb, &ptr, array, IO.MaxIORanks, MPI_COMM_WORLD)) {
-        endrun(1, "Failed to read from block %s: %s\n", blockname, big_file_get_error_message());
+        endrun(1, "Failed to read from block %s: %s\n", blockname.c_str(), big_file_get_error_message());
     }
     if(0 != big_block_mpi_close(&bb, MPI_COMM_WORLD)) {
-        endrun(0, "Failed to close block at %s:%s\n", blockname,
+        endrun(0, "Failed to close block at %s:%s\n", blockname.c_str(),
                     big_file_get_error_message());
     }
     return 0;
 }
 
 /* save a block to disk */
-void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, int verbose)
+void petaio_save_block(BigFile * bf, const std::string& blockname, BigArray * array, int verbose)
 {
     size_t size, count_local = array->dims[0];
     MPI_Allreduce(&count_local, &size, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
@@ -629,15 +624,15 @@ void petaio_save_block(BigFile * bf, const char * blockname, BigArray * array, i
         NumWriters = MaxNumFiles;
 
     if(verbose) {
-        message(0, "Will write %td particles with %d writers for %s. \n", size, NumWriters, blockname);
+        message(0, "Will write %td particles with %d writers for %s. \n", size, NumWriters, blockname.c_str());
     }
     /* create and write the block */
-    if(0 != big_block_mpi_create_and_write(bf, blockname, array, NumWriters, MPI_COMM_WORLD)) {
-        endrun(0, "Failed to write block at %s:%s\n", blockname,
+    if(0 != big_block_mpi_create_and_write(bf, blockname.c_str(), array, NumWriters, MPI_COMM_WORLD)) {
+        endrun(0, "Failed to write block at %s:%s\n", blockname.c_str(),
                     big_file_get_error_message());
     }
     if(verbose)
-        message(0, "Done writing %td particles for %s\n", size, blockname);
+        message(0, "Done writing %td particles for %s\n", size, blockname.c_str());
 }
 
 /*
@@ -663,22 +658,16 @@ void io_register_io_block(const char * name,
         int required,
         struct IOTable * IOTable
         ) {
-    if (IOTable->used == IOTable->allocated) {
-        IOTable->ent = myrealloc(IOTable->ent, IOTableEntry, 2*IOTable->allocated);
-        IOTable->allocated *= 2;
-    }
-    IOTableEntry * ent = &IOTable->ent[IOTable->used];
-    strncpy(ent->name, name, 63);
-    ent->name[63] = '\0';
-    ent->zorder = IOTable->used;
-    ent->ptype = ptype;
-    strncpy(ent->dtype, dtype, 7);
-    ent->dtype[7] = '\0';
-    ent->getter = getter;
-    ent->setter = setter;
-    ent->items = items;
-    ent->required = required;
-    IOTable->used ++;
+    IOTableEntry ent = {};
+    ent.name = name;
+    ent.zorder = IOTable->ent.size();
+    ent.ptype = ptype;
+    ent.dtype = dtype;
+    ent.getter = getter;
+    ent.setter = setter;
+    ent.items = items;
+    ent.required = required;
+    IOTable->ent.push_back(ent);
 }
 
 static void GTPosition(int i, double * out, void * baseptr, void * smanptr, const struct conversions * params) {
@@ -919,9 +908,7 @@ static bool order_by_type(const IOTableEntry& pa, const IOTableEntry& pb)
 void register_io_blocks(struct IOTable * IOTable, int WriteGroupID, int MetalReturnOn)
 {
     int i;
-    IOTable->used = 0;
-    IOTable->allocated = 100;
-    IOTable->ent = mymalloc2("IOTable", IOTableEntry, IOTable->allocated);
+    IOTable->ent.clear();
     /* Bare Bone Gravity*/
     for(i = 0; i < 6; i ++) {
         /* We put Mass first because sometimes there is
@@ -1016,7 +1003,7 @@ void register_io_blocks(struct IOTable * IOTable, int WriteGroupID, int MetalRet
     /* end excursion set*/
 
     /*Sort IO blocks so similar types are together; then ordered by the sequence they are declared. */
-    std::sort(IOTable->ent, IOTable->ent + IOTable->used, order_by_type);
+    std::sort(IOTable->ent.begin(), IOTable->ent.end(), order_by_type);
 }
 
 /* Add extra debug blocks to the output*/
@@ -1058,10 +1045,10 @@ void register_debug_io_blocks(struct IOTable * IOTable)
     IO_REG_WRONLY(StarVelDisp,       "f4", 1, 4, IOTable);
 
     /*Sort IO blocks so similar types are together; then ordered by the sequence they are declared. */
-    std::sort(IOTable->ent, IOTable->ent + IOTable->used, order_by_type);
+    std::sort(IOTable->ent.begin(), IOTable->ent.end(), order_by_type);
 }
 
 void destroy_io_blocks(struct IOTable * IOTable) {
-    myfree(IOTable->ent);
-    IOTable->allocated = 0;
+    /* Assigning an empty vector releases the memory. */
+    IOTable->ent = std::vector<IOTableEntry>();
 }

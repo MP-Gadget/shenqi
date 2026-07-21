@@ -43,20 +43,20 @@ include ../Makefile.version
 GADGET_C_SRCS =  partmanager.c \
 	 density.c treewalk.c \
 	 gravshort-tree.c gravshort-pair.c \
-	 gravpm.c gravity.c \
-	 densitykernel.c \
-	 config.c uvbg.c \
-	 lenstools.c
+	 gravity.c \
+	 densitykernel.c
 
 GADGET_CPP_SRCS = hydra2.cpp gravshort-tree2.cpp walltime.cpp \
 	density2.cpp veldisp2.cpp hci.cpp init.cpp powerspectrum.cpp \
 cooling.cpp cooling_rates.cpp cooling_uvfluc.cpp cooling_qso_lightup.cpp \
 cosmology.cpp neutrinos_lra.cpp omega_nu_single.cpp timebinmgr.cpp lightcone.cpp \
-fof.cpp fofpetaio.cpp petaio.cpp petapm.cpp \
+fof.cpp fofpetaio.cpp petaio.cpp \
+gravpm.cpp petapm.cpp \
 stats.cpp drift.cpp checkpoint.cpp \
 slotsmanager.cpp domain.cpp timestep.cpp  plane.cpp winds.cpp \
 exchange.cpp sfr_eff.cpp runtests.cpp run.cpp metal_return.cpp stellar_density2.cpp \
-bhinfo.cpp blackhole.cpp bhdynfric.cpp forcetree.cpp
+bhinfo.cpp blackhole.cpp bhdynfric.cpp forcetree.cpp \
+uvbg.cpp lenstools.cpp 
 
 GADGET_CUDA_SRCS = gravshortcuda.cu densitycuda.cu hydracuda.cu
 
@@ -83,6 +83,8 @@ GADGET_UTILS_OBJS := $(GADGET_UTILS_OBJS:%=.objs/%)
 all: libgadget.a libgadget-utils.a
 
 .PHONY: all test run-tests
+
+.objs/petaio.o: petaio.cpp config.h
 
 .objs/utils/test_%: tests/test_%.cpp .objs/utils/%.o libgadget-utils.a
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
@@ -153,10 +155,9 @@ libgadget.a: $(GADGET_OBJS)
 	$(AR) r $@ $(GADGET_OBJS)
 
 clean:
-	rm -rf .objs libgadget.a libgadget-utils.a config.c
+	rm -rf .objs libgadget.a libgadget-utils.a config.h
 
-config.c: $(CONFIG)
-	mkdir -p `dirname $@`
+config.h: $(CONFIG) makeconfig.sh
 	MPICC="$(MPICC)" CFLAGS="$(CFLAGS)" OPT="$(OPT)" OPTIMIZE="$(OPTIMIZE)" VERSION="$(VERSION)" bash makeconfig.sh $@
 
 GADGET_DEPS := $(GADGET_OBJS:.o=.d)
@@ -169,9 +170,9 @@ GADGET_UTILS_DEPS := $(GADGET_UTILS_OBJS:.o=.d)
 #It checks whether they are the same.
 #If they are not the same it makes config.h as a PHONY target to be rebuilt.
 GIT=$(subst -,_,$(shell git describe --always --dirty --abbrev=10))
-EXISTGIT=$(shell grep "GADGET_VERSION" config.c)
+EXISTGIT=$(shell grep "GADGET_VERSION" config.h)
 ifeq (,$(findstring $(GIT),$(EXISTGIT)))
-.PHONY: config.c
+.PHONY: config.h
 endif
 
 MPI_SHOWME := $(shell $(MPICC) -showme)

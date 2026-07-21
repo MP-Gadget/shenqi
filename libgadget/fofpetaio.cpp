@@ -37,7 +37,7 @@ int fof_select_func(int i, const struct particle_data * Parts)
 
 int fof_save_particles(FOFGroups * fof, const std::string fname, int SaveParticles, Cosmology * CP, double atime, const double * MassTable, int MetalReturnOn, MPI_Comm Comm) {
     int64_t i;
-    struct IOTable FOFIOTable = {0};
+    struct IOTable FOFIOTable = {};
 
     fof_register_io_blocks(MetalReturnOn, &FOFIOTable);
     /* sort the groups according to group-number */
@@ -54,16 +54,12 @@ int fof_save_particles(FOFGroups * fof, const std::string fname, int SaveParticl
 
     fof_write_header(&bf, fof->TotNgroups, atime, MassTable, CP, Comm);
 
-    for(i = 0; i < FOFIOTable.used; i ++) {
+    for(IOTableEntry& ent : FOFIOTable.ent) {
         /* only process the particle blocks */
-        char blockname[128];
-        int ptype = FOFIOTable.ent[i].ptype;
-        BigArray array = {0};
-        if(ptype == PTYPE_FOF_GROUP) {
-            snprintf(blockname, 128, "FOFGroups/%s", FOFIOTable.ent[i].name);
-            blockname[127] = '\0';
-            build_buffer_fof(fof, &array, &FOFIOTable.ent[i], &conv);
-            petaio_save_block(&bf, blockname, &array, 1);
+        if(ent.ptype == PTYPE_FOF_GROUP) {
+            BigArray array = {0};
+            build_buffer_fof(fof, &array, &ent, &conv);
+            petaio_save_block(&bf, "FOFGroups/"+ent.name, &array, 1);
             petaio_destroy_buffer(&array);
         }
     }
@@ -73,7 +69,7 @@ int fof_save_particles(FOFGroups * fof, const std::string fname, int SaveParticl
     /* Store whether we need a new domain_maintain after we return*/
     int domain_needed = 0;
     if(SaveParticles) {
-        struct IOTable IOTable = {0};
+        struct IOTable IOTable = {};
         register_io_blocks(&IOTable, 1, MetalReturnOn);
         struct part_manager_type * halo_pman = NULL;
         struct slots_manager_type * halo_sman = NULL;
@@ -123,18 +119,14 @@ int fof_save_particles(FOFGroups * fof, const std::string fname, int SaveParticl
 
         walltime_measure("/FOF/IO/argind");
 
-        for(i = 0; i < IOTable.used; i ++) {
+        for(IOTableEntry& ent : IOTable.ent) {
             /* only process the particle blocks */
-            char blockname[128];
-            int ptype = IOTable.ent[i].ptype;
-            BigArray array = {0};
+            int ptype = ent.ptype;
             if(ptype < 6 && ptype >= 0) {
-                snprintf(blockname, 128, "%d/%s", ptype, IOTable.ent[i].name);
-                blockname[127] = '\0';
-                petaio_build_buffer(&array, &IOTable.ent[i], selection + ptype_offset[ptype], ptype_count[ptype], halo_pman->Base, halo_sman, &conv);
-
-                message(0, "Writing Block %s\n", blockname);
-
+                BigArray array = {0};
+                std::string blockname = std::to_string(ptype) + "/" + ent.name;
+                petaio_build_buffer(&array, &ent, selection + ptype_offset[ptype], ptype_count[ptype], halo_pman->Base, halo_sman, &conv);
+                message(0, "Writing Block %s\n", blockname.c_str());
                 petaio_save_block(&bf, blockname, &array, 1);
                 petaio_destroy_buffer(&array);
             }
@@ -526,11 +518,7 @@ SIMPLE_PROPERTY_FOF(BlackholeAccretionRate, BH_Mdot, float, 1)
 SIMPLE_PROPERTY_FOF(MassHeIonized, MassHeIonized, float, 1)
 
 static void fof_register_io_blocks(int MetalReturnOn, struct IOTable * IOTable) {
-    IOTable->used = 0;
-    IOTable->allocated = 100;
-    /* Allocate high so we can do a domain exchange,
-     * potentially increasing the slots, around this*/
-    IOTable->ent = mymalloc2("IOTable", IOTableEntry, IOTable->allocated);
+    IOTable->ent.clear();
 
     IO_REG(GroupID, "u4", 1, PTYPE_FOF_GROUP, IOTable);
     IO_REG(Mass, "f4", 1, PTYPE_FOF_GROUP, IOTable);

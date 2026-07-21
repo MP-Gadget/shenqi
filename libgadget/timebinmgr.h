@@ -27,14 +27,15 @@
 
 typedef struct SyncPoint SyncPoint;
 
+/* By default a SyncPoint produces no output. */
 struct SyncPoint
 {
     double loga;
-    int plane_snapnum;  //! The snapshot number for the plane
-    bool write_snapshot;
-    bool write_fof;
-    bool calc_uvbg;  //! Calculate the UV background
-    bool write_plane;  //! Write a plane
+    int plane_snapnum = -1;  //! The snapshot number for the plane
+    bool write_snapshot = false;
+    bool write_fof = false;
+    bool calc_uvbg = false;  //! Calculate the UV background
+    bool write_plane = false;  //! Write a plane
 };
 
 /*Get the dti from the timebin*/

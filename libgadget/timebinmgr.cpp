@@ -1,6 +1,7 @@
 #include <mpi.h>
 #include <math.h>
 #include <vector>
+#include <algorithm>
 #include <boost/math/quadrature/gauss_kronrod.hpp>
 
 #include "timebinmgr.h"
@@ -75,14 +76,9 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
     this->CP = CP;
 
     std::vector<SyncPoint> SyncPoints;
-    /* Set up first entry*/
+    /* Set up first entry: no output here. */
     SyncPoint tmpsync;
     tmpsync.loga = log(TimeIC);
-    tmpsync.write_snapshot = false; /* by default no output here. */
-    tmpsync.write_fof = false;
-    tmpsync.calc_uvbg = false;
-    tmpsync.write_plane = false;
-    tmpsync.plane_snapnum = -1;
     SyncPoints.push_back(tmpsync);
 
     // set up UVBG syncpoints at given intervals
@@ -94,11 +90,7 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
         while (uv_a <= a_end) {
             SyncPoint tmpsync;
             tmpsync.loga = log(uv_a);
-            tmpsync.write_snapshot = false; /* by default no output here. */
-            tmpsync.write_fof = false;
             tmpsync.calc_uvbg = true;
-            tmpsync.write_plane = false;
-            tmpsync.plane_snapnum = -1;
             SyncPoints.push_back(tmpsync);
             //message(0,"added UVBG syncpoint at a = %.3f z = %.3f, Nsync = %ld\n",uv_a,1/uv_a - 1,SyncPoints.size());
             // TODO(smutch): OK - this is ridiculous (sorry!), but I just wanted to quickly hack something...
@@ -115,20 +107,16 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
     }
 
     tmpsync.loga = log(TimeMax);
-    tmpsync.write_snapshot = true; /* by default no output here. */
+    tmpsync.write_snapshot = true;
     tmpsync.write_fof = true;
-    tmpsync.calc_uvbg = false;
-    tmpsync.write_plane = false;
-    tmpsync.plane_snapnum = -1;
     SyncPoints.push_back(tmpsync);
 
-    /* we do an insertion sort here. A heap is faster but who cares the speed for this? */
+    /* Finds the first SyncPoint with loga >= the given loga, keeping SyncPoints sorted. */
+    auto by_loga = [](const SyncPoint& s, double loga) { return s.loga < loga; };
+
     for(size_t i = 0; i < Sync.OutputListTimes.size(); i ++) {
-        // print outputlisttime and index
-        // message(0, "outIdx: %d, outtime: %g, planeoutIdx: %d, planeouttime: %g.\n", outIdx, Sync.OutputListTimes[outIdx], planeoutIdx, Sync.PlaneOutputListTimes[planeoutIdx]);
-        size_t j = 0;
         double a = Sync.OutputListTimes[i];
-        double loga = log(Sync.OutputListTimes[i]);
+        double loga = log(a);
 
         if(a < TimeIC || a > TimeMax) {
             /*If the user inputs syncpoints outside the scope of the simulation, it can mess
@@ -137,34 +125,23 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
             continue;
         }
 
-        for(j = 0; j < SyncPoints.size(); j ++) {
-            if(loga <= SyncPoints[j].loga) {
-                break;
-            }
-        }
-        /* found, so loga >= SyncPoints[j].loga */
-        if(j == SyncPoints.size() || loga != SyncPoints[j].loga) {
-            /* insert the item; */
+        auto it = std::lower_bound(SyncPoints.begin(), SyncPoints.end(), loga, by_loga);
+        if(it == SyncPoints.end() || loga != it->loga) {
+            /* insert a blank item; */
+            SyncPoint tmpsync;
             tmpsync.loga = loga;
-            tmpsync.write_snapshot = false; /* by default no output here. */
-            tmpsync.write_fof = false;
-            tmpsync.calc_uvbg = false;
-            tmpsync.write_plane = false;
-            tmpsync.plane_snapnum = -1;
-            SyncPoints.insert(SyncPoints.begin() + j, tmpsync);
-            //message(0,"added outlist syncpoint at a = %.3f, j = %ld, Ns = %ld\n",a,j,SyncPoints.size());
+            it = SyncPoints.insert(it, tmpsync);
         }
-        if(SyncPoints[j].loga > log(no_snapshot_until_time)) {
-            SyncPoints[j].write_snapshot = true;
+        if(it->loga > log(no_snapshot_until_time)) {
+            it->write_snapshot = true;
             if(SnapshotWithFOF)
-                SyncPoints[j].write_fof = true;
+                it->write_fof = true;
         }
-        SyncPoints[j].plane_snapnum = -1;
+        it->plane_snapnum = -1;
     }
 
     /* Now insert the plane outputs*/
     for(size_t i = 0; i < Sync.PlaneOutputListTimes.size(); i ++) {
-        size_t j = 0;
         double a = Sync.PlaneOutputListTimes[i];
         double loga = log(a);
         if(a < TimeIC || a > TimeMax) {
@@ -174,35 +151,22 @@ TimeBinMgr::TimeBinMgr(Cosmology * CP, double TimeIC, double TimeMax, double no_
             continue;
         }
 
-        for(j = 0; j < SyncPoints.size(); j ++) {
-            if(loga <= SyncPoints[j].loga) {
-                break;
-            }
-        }
-        /* found, so loga >= SyncPoints[j].loga */
+        auto it = std::lower_bound(SyncPoints.begin(), SyncPoints.end(), loga, by_loga);
         // to avoid setting sync points too close to each other (which can cause bad timestep errors)
-        if(j == SyncPoints.size() || fabs(loga - SyncPoints[j].loga) > 1e-4) {
+        if(it == SyncPoints.end() || fabs(loga - it->loga) > 1e-4) {
             /* insert a blank item with no snapshot output. */
+            SyncPoint tmpsync;
             tmpsync.loga = loga;
-            tmpsync.write_snapshot = false; /* by default no output here. */
-            tmpsync.write_fof = false;
-            tmpsync.calc_uvbg = false;
-            tmpsync.write_plane = false;
-            tmpsync.plane_snapnum = -1;
-            SyncPoints.insert(SyncPoints.begin() + j, tmpsync);
-            //message(0,"added outlist syncpoint at a = %.3f, j = %ld, Ns = %ld\n",a,j,SyncPoints.size());
+            it = SyncPoints.insert(it, tmpsync);
         }
-        SyncPoints[j].write_plane = 1;
-        SyncPoints[j].plane_snapnum = i;
+        it->write_plane = 1;
+        it->plane_snapnum = i;
     }
 
     // This avoids the memory access overhead of std::vector and avoids copying.
-    this->SyncPoints = std::make_unique<SyncPoint[]>(SyncPoints.size());
     this->NSyncPoints = SyncPoints.size();
-    //message(1,"NSyncPoints = %ld, OutputListLength = %ld , timemax = %.3f\n",NSyncPoints,Sync.OutputListLength,TimeMax);
-    for(int i = 0; i < this->NSyncPoints; i++) {
-        this->SyncPoints[i] = SyncPoints[i];
-    }
+    this->SyncPoints = std::make_unique<SyncPoint[]>(SyncPoints.size());
+    std::copy(SyncPoints.begin(), SyncPoints.end(), this->SyncPoints.get());
 }
 
 /* Function to compute comoving distance using the adaptive integrator */
