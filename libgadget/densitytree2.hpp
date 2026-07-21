@@ -96,7 +96,7 @@ class DensityResult : public TreeWalkResultBase<DensityQuery> {
         MyFloat Rot[3] = {0};
         /*Only used if sfr_need_to_compute_sph_grad_rho is true*/
         MyFloat GradRho[3] = {0};
-        MYCUDAFN DensityResult(DensityQuery& query): TreeWalkResultBase(query)
+        MYCUDAFN DensityResult(const DensityQuery& query): TreeWalkResultBase(query)
         {}
 
         MYCUDAFN DensityResult& operator +=(const DensityResult& other)

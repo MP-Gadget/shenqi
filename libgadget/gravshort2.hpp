@@ -77,7 +77,7 @@ class GravTreeResult : public TreeWalkResultBase<GravTreeQuery> {
     public:
     MyFloat Acc[3] = {0};
     MyFloat Potential = 0;
-    MYCUDAFN GravTreeResult(GravTreeQuery& query): TreeWalkResultBase(query) {}
+    MYCUDAFN GravTreeResult(const GravTreeQuery& query): TreeWalkResultBase(query) {}
 
     MYCUDAFN GravTreeResult& operator +=(const GravTreeResult& other)
     {
