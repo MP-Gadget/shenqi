@@ -545,7 +545,7 @@ public:
             MPI_Reduce(&minnumngb, &minngb, 1, MPI_DOUBLE, MPI_MIN, 0, comm);
             message(0, "Iter=%d Max ngb=%g, min ngb=%g\n", Niteration, maxngb, minngb);
     #ifdef DEBUG
-            if(size < 10 && Niteration > 20 ) {
+            if(size > 0 && size < 10 && Niteration > 20 ) {
                 int pp = ReDoQueue[0];
                 message(1, "Remaining i=%d, t %d, pos %g %g %g, hsml: %g\n", pp, parts[pp].Type, parts[pp].Pos[0], parts[pp].Pos[1], parts[pp].Pos[2], parts[pp].Hsml);
             }
