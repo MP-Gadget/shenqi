@@ -27,7 +27,7 @@ MPI_TESTED = fof exchange gravity density forcetree2_mpi
 
 TESTBIN :=$(UTILS_TESTED:%=.objs/utils/test_%) $(UTILS_MPI_TESTED:%=.objs/utils/test_%) $(TESTED:%=.objs/test_%) $(MPI_TESTED:%=.objs/test_%)
 MPISUITE = $(MPI_TESTED:%=test_%) $(UTILS_MPI_TESTED:%=utils/test_%)
-SUITE = $(TESTED:%=test_%) $(UTILS_TESTED:%=utils/test_%) $(MPISUITE)
+SUITE = $(TESTED:%=test_%) $(UTILS_TESTED:%=utils/test_%)
 include ../Makefile.rules
 
 FILES = $(shell git ls-files)
@@ -145,14 +145,16 @@ objs/test_densitykernel: tests/test_densitykernel.cpp densitykernel.hpp
 build-tests: $(TESTBIN)
 
 test : build-tests
-	trap 'err=1' ERR; for tt in $(SUITE) ; do \
+	trap 'err=1' ERR; \
+	for tt in $(SUITE) ; do \
 		echo Running $$tt; \
-		if [[ " $(MPISUITE) " == *" $$tt "* ]]; then \
-			mpirun --oversubscribe -np 4 .objs/$$tt ;  \
-		else \
-			.objs/$$tt ; \
-		fi ;  \
-	done; exit $$err
+		.objs/$$tt ; \
+	done; \
+	for tt in $(MPISUITE) ; do \
+		echo Running $$tt "(4 ranks)"; \
+		OMP_NUM_THREADS=2 mpirun --oversubscribe -np 4 --bind-to none .objs/$$tt ; \
+	done; \
+	exit $$err
 
 libgadget-utils.a: $(GADGET_UTILS_OBJS)
 	$(AR) r $@ $(GADGET_UTILS_OBJS)
