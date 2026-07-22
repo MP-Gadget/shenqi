@@ -310,7 +310,7 @@ count_QSO_halos(int ncand, int64_t * ncand_tot, MPI_Comm Comm)
  *
  * Returns: the local index of the halo in FOF if the halo is hosted on this rank, -1 if the halo is not hosted on this rank
  */
-static int
+static int64_t
 choose_QSO_halo(int64_t ncand, int64_t * ncand_before, int64_t * ncand_tot, int64_t randseed, const RandTable * const rnd)
 {
     double drand = get_random_number(randseed, rnd);
@@ -538,8 +538,8 @@ turn_on_quasars(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmology * 
     walltime_measure("/HeIII/Build");
     for(iteration = 0; curionfrac < desired_ion_frac; iteration++){
         /* Get a new quasar*/
-        size_t new_qso = choose_QSO_halo(qso_cand.size(), &ncand_before, &ncand_tot, fof->TotNgroups+iteration, rnd);
-        if(new_qso >= qso_cand.size())
+        int64_t new_qso = choose_QSO_halo(qso_cand.size(), &ncand_before, &ncand_tot, fof->TotNgroups+iteration, rnd);
+        if(new_qso >= (int64_t) qso_cand.size())
             endrun(12, "HeII: QSO %lu > no. candidates %lu! Cannot happen\n", new_qso, qso_cand.size());
         /* Make sure someone has a quasar*/
         if(ncand_tot <= 0) {
