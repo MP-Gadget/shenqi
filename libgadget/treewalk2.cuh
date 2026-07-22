@@ -112,8 +112,7 @@ void treewalk_visit_kernel(
         return;
 
     LocalTreeWalkType lv(Nodes, queries[tid]);
-    ResultType * result = new(&results[tid]) ResultType(queries[tid]);
-    lv.template visit<mode>(queries[tid], result, *priv, parts);
+    results[tid] = lv.template visit<mode>(queries[tid], *priv, parts);
 };
 
 template <typename ResultType, typename ParamType, typename OutputType>
