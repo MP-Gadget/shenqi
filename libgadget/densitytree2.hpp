@@ -52,211 +52,6 @@ class DensityPriv : public ParamTypeBase {
 };
 
 
-class DensityOutput {
-    public:
-    /* The gradient of the density, used sometimes during star formation.
-     * May be NULL.*/
-    MyFloat * GradRho;
-    /* Current number of neighbours*/
-    MyFloat *NumNgb;
-    /* Lower and upper bounds on smoothing length*/
-    MyFloat *Left, *Right;
-    MyFloat (*Rot)[3];
-    /* This is the DhsmlDensityFactor for the pure density,
-     * not the entropy weighted density.
-     * If DensityIndependentSphOn = 0 then DhsmlEgyDensityFactor and DhsmlDensityFactor
-     * are the same and this is not used.
-     * If DensityIndependentSphOn = 1 then this is used to set DhsmlEgyDensityFactor.*/
-    MyFloat * DhsmlDensityFactor;
-    /* Whether to output extra debugging information during postprocess. */
-    double MaxNumNgbDeviation;
-    bool verbose;
-    /* Pointers to the SPH and BH particle data arrays*/
-    sph_particle_data * SphParts;
-    bh_particle_data * BhParts;
-
-    DensityOutput(const bool GradRho_mag, const int64_t NumPart, const double BoxSize, const double MaxNgbDeviation, slots_manager_type * slotsmanager):
-    MaxNumNgbDeviation(MaxNgbDeviation), verbose(false), SphParts(slotsmanager->sph_slot()), BhParts(slotsmanager->bh_slot())
-    {
-        Left = mymanagedmalloc("DENS_PRIV->Left", MyFloat, NumPart);
-        Right = mymanagedmalloc("DENS_PRIV->Right", MyFloat, NumPart);
-        NumNgb = mymanagedmalloc("DENS_PRIV->NumNgb", MyFloat, NumPart);
-        Rot = mymanagedmalloc("DENS_PRIV->Rot", My3Vec, slotsmanager->info[0].size);
-        /* This one stores the gradient for h finding. The factor stored in SPHP->DhsmlEgyDensityFactor depends on whether PE SPH is enabled.*/
-        DhsmlDensityFactor = mymanagedmalloc("DhsmlDensity", MyFloat, NumPart);
-        if(GradRho_mag)
-            GradRho = mymanagedmalloc("SPH_GradRho", MyFloat, 3 * slotsmanager->info[0].size);
-        else
-            GradRho = NULL;
-
-        /* Init Left and Right: this has to be done before treewalk */
-        #pragma omp parallel for
-        for(int64_t i = 0; i < NumPart; i++)  {
-            Right[i] = BoxSize;
-            NumNgb[i] = 0;
-            Left[i] = 0;
-        }
-    }
-
-    double GetNumNgb(const int i)
-    {
-        return NumNgb[i];
-    }
-
-    ~DensityOutput()
-    {
-        if(GradRho)
-            myfree(GradRho);
-        myfree(DhsmlDensityFactor);
-        myfree(Rot);
-        myfree(NumNgb);
-        myfree(Right);
-        myfree(Left);
-    }
-
-    MYCUDAFN int
-    postprocess(const int i, particle_data * const parts, const DensityPriv * priv)
-    {
-        int done = 0;
-        MyFloat * DhsmlDens = &(DhsmlDensityFactor[i]);
-        double density = -1;
-        if(parts[i].Type == 0)
-            density = SphParts[parts[i].PI].Density;
-        else if(parts[i].Type == 5)
-            density = BhParts[parts[i].PI].Density;
-#if defined DEBUG && not defined __CUDACC__
-        if(density <= 0 && NumNgb[i] > 0) {
-            endrun(12, "Particle %d type %d has bad density: %g\n", i, parts[i].Type, density);
-        }
-#endif
-        *DhsmlDens *= parts[i].Hsml / (NUMDIMS * density);
-        *DhsmlDens = 1 / (1 + *DhsmlDens);
-
-        /* Uses DhsmlDensityFactor and changes Hsml, hence the location.*/
-        if(priv->update_hsml) {
-            done = density_check_neighbours(i, verbose, parts, priv);
-        }
-
-        if(parts[i].Type == 0)
-        {
-            int PI = parts[i].PI;
-            /*Compute the EgyWeight factors, which are only useful for density independent SPH */
-            if(priv->DoEgyDensity) {
-                double EntPred;
-                if(priv->EntVarPred)
-                    EntPred = priv->EntVarPred[parts[i].PI];
-                else
-                    EntPred = priv->kf.SPH_EntVarPred(parts[i], SphParts[parts[i].PI]);
-#if defined DEBUG && not defined __CUDACC__
-                if(EntPred <= 0 || SphParts[parts[i].PI].EgyWtDensity <=0)
-                    endrun(12, "Particle %d has bad predicted entropy: %g or EgyWtDensity: %g, Particle ID = %ld, pos %g %g %g, vel %g %g %g, mass = %g, density = %g, MaxSignalVel = %g, Entropy = %g, DtEntropy = %g \n", i, EntPred, SphParts[parts[i].PI].EgyWtDensity, parts[i].ID, parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2], parts[i].Vel[0], parts[i].Vel[1], parts[i].Vel[2], parts[i].Mass, SphParts[parts[i].PI].Density, SphParts[parts[i].PI].MaxSignalVel, SphParts[parts[i].PI].Entropy, SphParts[parts[i].PI].DtEntropy);
-#endif
-                SphParts[parts[i].PI].DhsmlEgyDensityFactor *= parts[i].Hsml/ (NUMDIMS * SphParts[parts[i].PI].EgyWtDensity);
-                SphParts[parts[i].PI].DhsmlEgyDensityFactor *= - (*DhsmlDens);
-                SphParts[parts[i].PI].EgyWtDensity /= EntPred;
-            }
-            else
-                SphParts[parts[i].PI].DhsmlEgyDensityFactor = *DhsmlDens;
-
-            MyFloat * Roti = Rot[PI];
-            SphParts[parts[i].PI].CurlVel = sqrt(Roti[0] * Roti[0] + Roti[1] * Roti[1] + Roti[2] * Roti[2]) / SphParts[parts[i].PI].Density;
-
-            SphParts[parts[i].PI].DivVel /= SphParts[parts[i].PI].Density;
-            parts[i].DtHsml = (1.0 / NUMDIMS) * SphParts[parts[i].PI].DivVel * parts[i].Hsml;
-        }
-        else if(parts[i].Type == 5)
-        {
-            BhParts[parts[i].PI].DivVel /= BhParts[parts[i].PI].Density;
-            parts[i].DtHsml = (1.0 / NUMDIMS) * BhParts[parts[i].PI].DivVel * parts[i].Hsml;
-        }
-        return done;
-    }
-
-    /* Returns 1 if we are done and do not need to loop. 0 if we need to repeat.*/
-    MYCUDAFN int
-    density_check_neighbours (const int i, const int verbose, struct particle_data * const parts, const DensityPriv * priv)
-    {
-        /* now check whether we had enough neighbours */
-        double desnumngb = priv->DesNumNgb;
-
-        if(priv->BlackHoleOn && parts[i].Type == 5)
-            desnumngb = priv->DesNumNgbBH;
-
-#if defined DEBUG && not defined __CUDACC__
-        if(verbose)
-        {
-             message(1, "i=%d ID=%lu Hsml=%g Left=%g Right=%g Ngbs=%g (des %g) Right-Left=%g pos=(%g|%g|%g)\n",
-                 i, parts[i].ID, parts[i].Hsml, Left[i], Right[i],
-                 NumNgb[i], desnumngb, Right[i] - Left[i], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
-        }
-#endif
-        if(NumNgb[i] < (desnumngb - MaxNumNgbDeviation) ||
-                (NumNgb[i] > (desnumngb + MaxNumNgbDeviation)))
-        {
-            /* This condition is here to prevent the density code looping forever if it encounters
-             * multiple particles at the same position. If this happens you likely have worse
-             * problems anyway, so warn also. */
-            if((Right[i] - Left[i]) < 1.0e-5 * Right[i])
-            {
-#if defined DEBUG && not defined __CUDACC__
-                /* If this happens probably the exchange is screwed up and all your particles have moved to (0,0,0)*/
-                message(1, "Very tight Hsml bounds for i=%d ID=%lu Hsml=%g Left=%g Right=%g Ngbs=%g (des %g) Right-Left=%g pos=(%g|%g|%g) \n",
-                 i, parts[i].ID, parts[i].Hsml, Left[i], Right[i], NumNgb[i], desnumngb, Right[i] - Left[i], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
-#endif
-                parts[i].Hsml = Right[i];
-                return 1;
-            }
-
-            /* If we need more neighbours, move the lower bound up. If we need fewer, move the upper bound down.*/
-            if(NumNgb[i] < desnumngb) {
-                    Left[i] = parts[i].Hsml;
-            } else {
-                    Right[i] = parts[i].Hsml;
-            }
-
-            /* Next step is geometric mean of previous. */
-            if((Right[i] < priv->BoxSize && Left[i] > 0) || (parts[i].Hsml * 1.26 > 0.99 * priv->BoxSize))
-                parts[i].Hsml = cbrt(0.5 * (pow(Left[i], 3) + pow(Right[i], 3)));
-            else
-            {
-#if defined DEBUG && not defined __CUDACC__
-                if(!(Right[i] < priv->BoxSize) && Left[i] == 0)
-                    endrun(8188, "Cannot occur. Check for memory corruption: i=%d L = %g R = %g N=%g. Type %d, Pos %g %g %g hsml %g Box %g\n", i, Left[i], Right[i], NumNgb[i], parts[i].Type, parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2], parts[i].Hsml, priv->BoxSize);
-#endif
-                MyFloat DensFac = DhsmlDensityFactor[i];
-                double fac = 1.26;
-                if(NumNgb[i] > 0)
-                    fac = 1 - (NumNgb[i] - desnumngb) / (NUMDIMS * NumNgb[i]) * DensFac;
-
-                /* Find the initial bracket using the kernel gradients*/
-                if(Right[i] > 0.99 * priv->BoxSize && Left[i] > 0)
-                    if(DensFac <= 0 || fabs(NumNgb[i] - desnumngb) >= 0.5 * desnumngb || fac > 1.26)
-                        fac = 1.26;
-
-                if(Right[i] < 0.99*priv->BoxSize && Left[i] == 0)
-                    if(DensFac <=0 || fac < 1./3)
-                        fac = 1./3;
-
-                parts[i].Hsml *= fac;
-            }
-
-            if(Right[i] < priv->MinGasHsml) {
-                parts[i].Hsml = priv->MinGasHsml;
-                return 1;
-            }
-
-            /* We need to repeat the particle! */
-            return 0;
-        }
-        else {
-            /* We might have got here by serendipity, without bounding.*/
-            if(parts[i].Hsml < priv->MinGasHsml)
-                parts[i].Hsml = priv->MinGasHsml;
-            return 1;
-        }
-    }
-};
-
 class DensityQuery : public TreeWalkQueryBase<DensityPriv>
 {
     public:
@@ -288,7 +83,7 @@ class DensityQuery : public TreeWalkQueryBase<DensityPriv>
         };
 };
 
-class DensityResult : public TreeWalkResultBase<DensityQuery, DensityOutput> {
+class DensityResult : public TreeWalkResultBase<DensityQuery> {
     /*These are only used for density independent SPH*/
     public:
         MyFloat EgyRho = 0;
@@ -301,46 +96,232 @@ class DensityResult : public TreeWalkResultBase<DensityQuery, DensityOutput> {
         MyFloat Rot[3] = {0};
         /*Only used if sfr_need_to_compute_sph_grad_rho is true*/
         MyFloat GradRho[3] = {0};
-        MYCUDAFN DensityResult(DensityQuery& query): TreeWalkResultBase(query),
-        EgyRho(0), DhsmlEgyDensity(0), Rho(0), DhsmlDensity(0), Ngb(0), Div(0)
+        MYCUDAFN DensityResult(const DensityQuery& query): TreeWalkResultBase(query)
         {}
 
-        template<TreeWalkReduceMode mode>
-        MYCUDAFN void reduce(int place, const DensityOutput * output, struct particle_data * const parts)
+        MYCUDAFN DensityResult& operator +=(const DensityResult& other)
         {
-            TreeWalkResultBase::reduce<mode>(place, output, parts);
-            TREEWALK_REDUCE(output->NumNgb[place], Ngb);
-            TREEWALK_REDUCE(output->DhsmlDensityFactor[place], DhsmlDensity);
+            static_cast<TreeWalkResultBase<DensityQuery>& >(*this) += static_cast<const TreeWalkResultBase<DensityQuery>& >(other);
 
-            if(parts[place].Type == 0)
-            {
-                TREEWALK_REDUCE(output->SphParts[parts[place].PI].Density, Rho);
-
-                TREEWALK_REDUCE(output->SphParts[parts[place].PI].DivVel, Div);
-                int pi = parts[place].PI;
-                TREEWALK_REDUCE(output->Rot[pi][0], Rot[0]);
-                TREEWALK_REDUCE(output->Rot[pi][1], Rot[1]);
-                TREEWALK_REDUCE(output->Rot[pi][2], Rot[2]);
-
-                MyFloat * gradrho = output->GradRho;
-
-                if(gradrho) {
-                    TREEWALK_REDUCE(gradrho[3*pi], GradRho[0]);
-                    TREEWALK_REDUCE(gradrho[3*pi+1], GradRho[1]);
-                    TREEWALK_REDUCE(gradrho[3*pi+2], GradRho[2]);
-                }
-
-                /*Only used for density independent SPH*/
-                TREEWALK_REDUCE(output->SphParts[parts[place].PI].EgyWtDensity, EgyRho);
-                TREEWALK_REDUCE(output->SphParts[parts[place].PI].DhsmlEgyDensityFactor, DhsmlEgyDensity);
-            }
-            else if(parts[place].Type == 5)
-            {
-                TREEWALK_REDUCE(output->BhParts[parts[place].PI].Density, Rho);
-                TREEWALK_REDUCE(output->BhParts[parts[place].PI].DivVel, Div);
-            }
+            EgyRho += other.EgyRho;
+            DhsmlEgyDensity += other.DhsmlEgyDensity;
+            Rho += other.Rho;
+            DhsmlDensity += other.DhsmlDensity;
+            Ngb += other.Ngb;
+            Div += other.Div;
+            for(int d = 0; d < 3; d ++)
+                Rot[d] += other.Rot[d];
+            for (int d = 0; d < 3; d ++)
+                GradRho[d] += other.GradRho[d];
+            return *this;
         }
 
+        double GetNumNgb() const
+        {
+            return Ngb;
+        }
+};
+
+class DensityOutput {
+    public:
+    /* The gradient of the density, used sometimes during star formation.
+     * May be NULL.*/
+    MyFloat * GradRho;
+    /* Lower and upper bounds on smoothing length*/
+    MyFloat *Left, *Right;
+    /* Whether to output extra debugging information during postprocess. */
+    double MaxNumNgbDeviation;
+    bool verbose;
+    /* Pointers to the SPH and BH particle data arrays*/
+    sph_particle_data * SphParts;
+    bh_particle_data * BhParts;
+
+    DensityOutput(const bool GradRho_mag, const int64_t NumPart, const double BoxSize, const double MaxNgbDeviation, slots_manager_type * slotsmanager):
+    MaxNumNgbDeviation(MaxNgbDeviation), verbose(false), SphParts(slotsmanager->sph_slot()), BhParts(slotsmanager->bh_slot())
+    {
+        Left = mymanagedmalloc("DENS_PRIV->Left", MyFloat, NumPart);
+        Right = mymanagedmalloc("DENS_PRIV->Right", MyFloat, NumPart);
+        if(GradRho_mag)
+            GradRho = mymanagedmalloc("SPH_GradRho", MyFloat, 3 * slotsmanager->info[0].size);
+        else
+            GradRho = NULL;
+
+        /* Init Left and Right: this has to be done before treewalk */
+        #pragma omp parallel for
+        for(int64_t i = 0; i < NumPart; i++)  {
+            Right[i] = BoxSize;
+            Left[i] = 0;
+        }
+    }
+
+    ~DensityOutput()
+    {
+        if(GradRho)
+            myfree(GradRho);
+        myfree(Right);
+        myfree(Left);
+    }
+
+    MYCUDAFN int
+    postprocess(const int place, const DensityResult& result, particle_data * const parts, const DensityPriv * priv)
+    {
+    #if defined DEBUG && not defined __CUDACC__
+        if(parts[place].ID != result.ID)
+                endrun(2, "Mismatched ID (%ld != %ld) for particle %d in postprocess.\n", parts[place].ID, result.ID, place);
+        if(result.Rho <= 0 && result.Ngb > 0)
+            endrun(12, "Particle %d type %d ID %ld has bad density: %g with ngb %g\n", place, parts[place].Type, parts[place].ID, result.Rho, result.Ngb);
+    #endif
+
+        /* Store results back into the particle table*/
+        if(parts[place].Type == 0)
+        {
+            const int pi = parts[place].PI;
+            SphParts[pi].Density = result.Rho;
+            SphParts[pi].DivVel = result.Div;
+
+            if(GradRho)
+                for(int j = 0; j < 3; j++)
+                    GradRho[3*pi+j] = result.GradRho[j];
+
+            /*Only used for density independent SPH*/
+            SphParts[pi].EgyWtDensity = result.EgyRho;
+            SphParts[pi].DhsmlEgyDensityFactor = result.DhsmlEgyDensity;
+        }
+        else if(parts[place].Type == 5)
+        {
+            BhParts[parts[place].PI].Density = result.Rho;
+            BhParts[parts[place].PI].DivVel = result.Div;
+        }
+
+        /* Convert the Dhsml density factor*/
+        double DhsmlDensity = result.DhsmlDensity * parts[place].Hsml / (NUMDIMS * result.Rho);
+        DhsmlDensity = 1 / (1 + DhsmlDensity);
+
+        int done = 0;
+
+        /* Uses DhsmlDensityFactor and changes Hsml, hence the location.*/
+        if(priv->update_hsml) {
+            done = density_check_neighbours(place, verbose, result.Ngb, DhsmlDensity, parts, priv);
+        }
+
+        if(parts[place].Type == 0)
+        {
+            const int PI = parts[place].PI;
+            /*Compute the EgyWeight factors, which are only useful for density independent SPH */
+            if(priv->DoEgyDensity) {
+                double EntPred;
+                if(priv->EntVarPred)
+                    EntPred = priv->EntVarPred[PI];
+                else
+                    EntPred = priv->kf.SPH_EntVarPred(parts[place], SphParts[PI]);
+#if defined DEBUG && not defined __CUDACC__
+                if(EntPred <= 0 || SphParts[PI].EgyWtDensity <=0) {
+                    int i = place;
+                    endrun(12, "Particle %d has bad predicted entropy: %g or EgyWtDensity: %g, Particle ID = %ld, pos %g %g %g, vel %g %g %g, mass = %g, density = %g, MaxSignalVel = %g, Entropy = %g, DtEntropy = %g \n", place, EntPred, SphParts[PI].EgyWtDensity, parts[place].ID, parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2], parts[i].Vel[0], parts[i].Vel[1], parts[i].Vel[2], parts[i].Mass, SphParts[PI].Density, SphParts[PI].MaxSignalVel, SphParts[PI].Entropy, SphParts[PI].DtEntropy);
+                }
+#endif
+                SphParts[PI].DhsmlEgyDensityFactor *= parts[place].Hsml/ (NUMDIMS * SphParts[PI].EgyWtDensity);
+                SphParts[PI].DhsmlEgyDensityFactor *= -1.*DhsmlDensity;
+                SphParts[PI].EgyWtDensity /= EntPred;
+            }
+            else
+                SphParts[PI].DhsmlEgyDensityFactor = DhsmlDensity;
+
+            SphParts[PI].CurlVel = sqrt(result.Rot[0] * result.Rot[0] + result.Rot[1] * result.Rot[1] + result.Rot[2] * result.Rot[2]) / SphParts[PI].Density;
+            SphParts[PI].DivVel /= SphParts[PI].Density;
+            parts[place].DtHsml = (1.0 / NUMDIMS) * SphParts[PI].DivVel * parts[place].Hsml;
+        }
+        else if(parts[place].Type == 5)
+        {
+            const int PI = parts[place].PI;
+            BhParts[PI].DivVel /= BhParts[PI].Density;
+            parts[place].DtHsml = (1.0 / NUMDIMS) * BhParts[PI].DivVel * parts[place].Hsml;
+        }
+        return done;
+    }
+
+    /* Returns 1 if we are done and do not need to loop. 0 if we need to repeat.*/
+    MYCUDAFN int
+    density_check_neighbours (const int i, const int verbose, const double NumNgb, const double DensFac, struct particle_data * const parts, const DensityPriv * priv)
+    {
+        /* now check whether we had enough neighbours */
+        double desnumngb = priv->DesNumNgb;
+
+        if(priv->BlackHoleOn && parts[i].Type == 5)
+            desnumngb = priv->DesNumNgbBH;
+
+#if defined DEBUG && not defined __CUDACC__
+        if(verbose)
+        {
+             message(1, "i=%d ID=%lu Hsml=%g Left=%g Right=%g Ngbs=%g (des %g) Right-Left=%g pos=(%g|%g|%g)\n",
+                 i, parts[i].ID, parts[i].Hsml, Left[i], Right[i],
+                 NumNgb, desnumngb, Right[i] - Left[i], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
+        }
+#endif
+        if(NumNgb < (desnumngb - MaxNumNgbDeviation) ||
+                (NumNgb > (desnumngb + MaxNumNgbDeviation)))
+        {
+            /* This condition is here to prevent the density code looping forever if it encounters
+             * multiple particles at the same position. If this happens you likely have worse
+             * problems anyway, so warn also. */
+            if((Right[i] - Left[i]) < 1.0e-5 * Right[i])
+            {
+#if defined DEBUG && not defined __CUDACC__
+                /* If this happens probably the exchange is screwed up and all your particles have moved to (0,0,0)*/
+                message(1, "Very tight Hsml bounds for i=%d ID=%lu Hsml=%g Left=%g Right=%g Ngbs=%g (des %g) Right-Left=%g pos=(%g|%g|%g) \n",
+                 i, parts[i].ID, parts[i].Hsml, Left[i], Right[i], NumNgb, desnumngb, Right[i] - Left[i], parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2]);
+#endif
+                parts[i].Hsml = Right[i];
+                return 1;
+            }
+
+            /* If we need more neighbours, move the lower bound up. If we need fewer, move the upper bound down.*/
+            if(NumNgb < desnumngb) {
+                    Left[i] = parts[i].Hsml;
+            } else {
+                    Right[i] = parts[i].Hsml;
+            }
+
+            /* Next step is geometric mean of previous. */
+            if((Right[i] < priv->BoxSize && Left[i] > 0) || (parts[i].Hsml * 1.26 > 0.99 * priv->BoxSize))
+                parts[i].Hsml = cbrt(0.5 * (pow(Left[i], 3) + pow(Right[i], 3)));
+            else
+            {
+#if defined DEBUG && not defined __CUDACC__
+                if(!(Right[i] < priv->BoxSize) && Left[i] == 0)
+                    endrun(8188, "Cannot occur. Check for memory corruption: i=%d L = %g R = %g N=%g. Type %d, Pos %g %g %g hsml %g Box %g\n", i, Left[i], Right[i], NumNgb, parts[i].Type, parts[i].Pos[0], parts[i].Pos[1], parts[i].Pos[2], parts[i].Hsml, priv->BoxSize);
+#endif
+                double fac = 1.26;
+                if(NumNgb > 0)
+                    fac = 1 - (NumNgb - desnumngb) / (NUMDIMS * NumNgb) * DensFac;
+
+                /* Find the initial bracket using the kernel gradients*/
+                if(Right[i] > 0.99 * priv->BoxSize && Left[i] > 0)
+                    if(DensFac <= 0 || fabs(NumNgb - desnumngb) >= 0.5 * desnumngb || fac > 1.26)
+                        fac = 1.26;
+
+                if(Right[i] < 0.99*priv->BoxSize && Left[i] == 0)
+                    if(DensFac <=0 || fac < 1./3)
+                        fac = 1./3;
+
+                parts[i].Hsml *= fac;
+            }
+
+            if(Right[i] < priv->MinGasHsml) {
+                parts[i].Hsml = priv->MinGasHsml;
+                return 1;
+            }
+
+            /* We need to repeat the particle! */
+            return 0;
+        }
+        else {
+            /* We might have got here by serendipity, without bounding.*/
+            if(parts[i].Hsml < priv->MinGasHsml)
+                parts[i].Hsml = priv->MinGasHsml;
+            return 1;
+        }
+    }
 };
 
 /* Explicitly define the template specialisations and use the base constructors.
