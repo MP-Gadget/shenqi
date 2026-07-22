@@ -369,10 +369,10 @@ public:
      * @return number of particle-particle interactions.
      */
      template<TreeWalkReduceMode mode>
-     MYCUDAFN int64_t visit(QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
+     MYCUDAFN ResultType visit(QueryType& input, const ParamType& priv, const struct particle_data * const parts)
      {
          static_assert(mode != TREEWALK_TOPTREE, "Toptree should call toptree_visit, not visit.");
-         int64_t ninteractions = 0;
+         ResultType output(input);
          for(int inode = 0; inode < NODELISTLENGTH && input.NodeList[inode] >= 0; inode++)
          {
              int no = input.NodeList[inode];
@@ -409,8 +409,7 @@ public:
                         if(!((1<<parts[other].Type) & mask))
                             continue;
                         /* Call ngbiter for the child class */
-                        static_cast<DerivedType*>(this)->ngbiter(input, parts[other], output, priv);
-                        ninteractions++;
+                        static_cast<DerivedType*>(this)->ngbiter(input, parts[other], &output, priv);
                     }
                     /* Move sideways*/
                     no = current->sibling;
@@ -426,7 +425,7 @@ public:
                 no = current->s.suns[0];
              }
          }
-         return ninteractions;
+         return output;
      }
     /**
     * Neighbour iteration function - called for each particle pair.

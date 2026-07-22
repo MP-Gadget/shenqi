@@ -226,7 +226,7 @@ class GravLocalTreeWalk {
      * Returns the number of particle-particle and particle-node interactions.
      */
     template<TreeWalkReduceMode mode>
-    MYCUDAFN int64_t visit(const GravTreeQuery& input, GravTreeResult * output, const GravTreeParams& priv, const struct particle_data * const parts)
+    MYCUDAFN GravTreeResult visit(const GravTreeQuery& input, const GravTreeParams& priv, const struct particle_data * const parts)
     {
         static_assert(mode != TREEWALK_TOPTREE, "Toptree should call toptree_visit, not visit.");
 
@@ -237,11 +237,11 @@ class GravLocalTreeWalk {
         const double aold = priv.ErrTolForceAcc * input.OldAcc;
 
         //message(1, "BH: %d, opening angle %g aold %g\n", TreeUseBH, BHOpeningAngle2, aold);
-        /*Start the tree walk*/
-        int64_t listindex, ninteractions=0;
+        GravTreeResult output(input);
 
+        /*Start the tree walk*/
         /* Primary treewalk only ever has one nodelist entry*/
-        for(listindex = 0; listindex < NODELISTLENGTH; listindex++)
+        for(int64_t listindex = 0; listindex < NODELISTLENGTH; listindex++)
         {
             /* Use the next node in the node list if we are doing a secondary walk.
              * For a primary walk the node list only ever contains one node. */
@@ -281,8 +281,7 @@ class GravLocalTreeWalk {
                     /* ok, node can be used */
                     no = nop->sibling;
                     /* Compute the acceleration and apply it to the output structure*/
-                    apply_accn(output, dx, r2, nop->mom.mass, cellsize, priv.gravtab, priv.ForceSoftening);
-                    ninteractions++;
+                    apply_accn(&output, dx, r2, nop->mom.mass, cellsize, priv.gravtab, priv.ForceSoftening);
                     continue;
                 }
 
@@ -297,8 +296,7 @@ class GravLocalTreeWalk {
                             dx[j] = NEAREST(parts[pp].Pos[j] - input.Pos[j], priv.BoxSize);
                         const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
                         /* Compute the acceleration and apply it to the output structure*/
-                        apply_accn(output, dx, r2, parts[pp].Mass, cellsize, priv.gravtab, priv.ForceSoftening);
-                        ninteractions++;
+                        apply_accn(&output, dx, r2, parts[pp].Mass, cellsize, priv.gravtab, priv.ForceSoftening);
                     }
                     no = nop->sibling;
                     continue;
@@ -319,7 +317,7 @@ class GravLocalTreeWalk {
                 no = nop->s.suns[0];
             }
         }
-        return ninteractions;
+        return output;
     }
 
     /* Add the acceleration from a node or particle to the output structure,

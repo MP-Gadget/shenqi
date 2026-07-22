@@ -608,8 +608,7 @@ private:
         for(int64_t k = 0; k < WorkSetSize; k++) {
             QueryType& input = queries[k];
             LocalTreeWalkType lv(tree->Nodes, input);
-            ResultType * result = new(&results[k]) ResultType(input);
-            lv.template visit<mode>(input, result, priv, parts);
+            results[k] = lv.template visit<mode>(input, priv, parts);
         }
     }
 
