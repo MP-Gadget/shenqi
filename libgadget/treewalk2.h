@@ -222,14 +222,12 @@ public:
     double timewait1;
     /* Time spent in the toptree*/
     double timecomp0;
-    /* This is the time spent in ev_primary*/
+    /* This is the time spent in the primary local treewalk*/
     double timecomp1;
-    /* This is the time spent in ev_secondary (which may overlap with primary time)*/
+    /* This is the time spent in secondary treewalk computing for remote particles*/
     double timecomp2;
-    /* Time spent in post-processing and pre-processing*/
+    /* Time spent in post-processing and reduction*/
     double timecomp3;
-    /* Time spent for the reductions.*/
-    double timecommsumm;
     /* Total number of exported particles
      * (Nexport is only the exported particles in the current export buffer). */
     int64_t Nexport_sum;
@@ -241,7 +239,7 @@ public:
     TreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const ParamType& i_priv, OutputType * i_out):
         tree(i_tree), ev_label(i_ev_label),
         priv(i_priv), output(i_out),
-        timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
+        timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0),
         Nexport_sum(0), NExportTargets(0)
     {    }
 
@@ -259,7 +257,6 @@ public:
     {
         double tstart, tend;
         tstart = second();
-        LocalTreeWalkType::validate_tree(tree);
 
         int * WorkSet=NULL;
         int64_t WorkSetSize = build_queue(&WorkSet, active_set, size, parts);
@@ -283,6 +280,10 @@ public:
         LocalTreeWalkType::validate_tree(tree);
         Nexport_sum = 0;
 
+        double tstart, tend;
+
+        tstart = second();
+
         /* Build the queries from the particle table first, so we only need to read it once.
          * Allocate memory first, so that compute_bunchsize has a correct view of memory. */
         ResultType * results = mymanagedmalloc("Results", ResultType, WorkSetSize);
@@ -293,6 +294,8 @@ public:
                 /* Toptree never uses node list */
                 new(&queries[k]) QueryType(parts[i], NULL, tree->firstnode, priv);
         }
+        tend = second();
+        timecomp3 += timediff(tstart, tend);
 
         const int BunchSize = compute_bunchsize();
         int64_t nmin, nmax, total;
@@ -312,12 +315,14 @@ public:
         /* Start first iteration at the beginning*/
         int64_t WorkSetStart = 0;
 
+        tstart = second();
         /* We count all exports before the main export loop. */
         int * exportcounts = static_cast<DerivedType *>(this)->ev_count_exports(queries, WorkSetSize);
+        tend = second();
+        timecomp0 += timediff(tstart, tend);
 
         /* Main loop that copies into the export table, then does primary and secondary evals. */
         do {
-            double tstart, tend;
             tstart = second();
 
             if(Nexportfull > 0)
@@ -362,12 +367,10 @@ public:
             tstart = second();
             res_exports.wait();
             tend = second();
-            timewait1 += timediff(tstart, tend);
-            tstart = second();
             /* Here the results array is summed and so ev_primary needs to be finished*/
             ev_reduce_export_result(results, &res_exports, &counts, &exportlist);
             tend = second();
-            timecommsumm += timediff(tstart, tend);
+            timewait1 += timediff(tstart, tend);
             Nexportfull++;
             /* The destructors for the CommBuffers will fire at this point,
             * which means there is an implicit wait() */
@@ -381,14 +384,14 @@ public:
 
         /* Reduce the results onto the particle table. By the end of the loop this
          * is the sum of the primary and secondary evals and only needs to be done once.*/
-        double tstart = second();
+        tstart = second();
 
         /* We shall eventually unconditionally do this on the CPU and change the tree
          * so that the particle table lives there.*/
         if(postprocess) {
             static_cast<DerivedType *>(this)->ev_postprocess(WorkSet, WorkSetSize, results, parts);
         }
-        double tend = second();
+        tend = second();
         timecomp3 += timediff(tstart, tend);
         if(postprocess) {
                 myfree(results);
@@ -459,8 +462,7 @@ public:
         walltime_add(walltimeprefix+"/WalkSec", timecomp2);
         walltime_add(walltimeprefix+"/PostProc", timecomp3);
         walltime_add(walltimeprefix+"/Wait", timewait1);
-        walltime_add(walltimeprefix+"/Reduce", timecommsumm);
-        walltime_add(walltimeprefix+"/Misc", timeall - (timecomp + timewait1 + timecommsumm));
+        walltime_add(walltimeprefix+"/Misc", timeall - (timecomp + timewait1));
 
         int NTask;
         MPI_Comm_size(comm, &NTask);
@@ -469,7 +471,7 @@ public:
         MPI_Reduce(&NExportTargets, &o_NExportTargets, 1, MPI_INT64, MPI_SUM, 0, comm);
         message(0, "%s: average exports: %g avg target ranks: %g\n",
             ev_label, ((double) Nexport)/ NTask, ((double) o_NExportTargets)/ NTask);
-        message(0, "%s: top: %g prim: %g sec: %g wait: %g postproc: %g reduce: %g\n", ev_label, timecomp0, timecomp1, timecomp2, timewait1, timecomp3, timecommsumm);
+        message(0, "%s: top: %g prim: %g sec: %g wait: %g postproc: %g\n", ev_label, timecomp0, timecomp1, timecomp2, timewait1, timecomp3);
     }
 
     /* 7/9/24: The code segfaults if the send/recv buffer is larger than 4GB in size.
