@@ -14,6 +14,7 @@ CMakeFiles/
 compile_commands.json
 .zed
 libgadget/config.c
+libgadget/config.h
 depends/bin
 depends/lib
 depends/share
