@@ -14,7 +14,7 @@ produced by the C++ pattern:
     dm_ics_file.write((char*)&part_vy, sizeof(double));
     dm_ics_file.write((char*)&part_vz, sizeof(double));
 
-So each record is 56 bytes: (x, y, z, mass, vx, vy, vz). Dark matter (MP-Gadget
+So each record is 56 little-endian bytes: (x, y, z, mass, vx, vy, vz). Dark matter (MP-Gadget
 particle type 1) is given with --input and gas (particle type 0) with --gas-input;
 at least one of the two is required and both may be given together. Gas is assumed
 to be written with the same 7-double record layout as the dark matter. Multiple
@@ -55,16 +55,11 @@ import os.path
 import numpy as np
 import bigfile
 
-# One Nyx particle record: position (3), mass (1), velocity (3), all float64.
-RECORD_BYTES = 7 * 8
-
-
-def nyx_dtype(byteswap):
-    """Structured dtype for a single Nyx particle record."""
-    endian = ">" if byteswap else "<"
-    return np.dtype([("pos", (endian + "f8", 3)),
-                     ("mass", endian + "f8"),
-                     ("vel", (endian + "f8", 3))])
+# One Nyx particle record: position (3), mass (1), velocity (3), little-endian float64.
+NYX_DTYPE = np.dtype([("pos", ("<f8", 3)),
+                      ("mass", "<f8"),
+                      ("vel", ("<f8", 3))])
+RECORD_BYTES = NYX_DTYPE.itemsize
 
 
 def count_particles(infiles):
@@ -137,22 +132,20 @@ def stream_type(bf, ptype, infiles, args, idstart, nfiles):
     bf.create(grp + "/Mass", dtype=("f4", 1), size=npart, Nfile=nfiles)
     bf.create(grp + "/ID", dtype=("u8", 1), size=npart, Nfile=nfiles)
 
-    dt = nyx_dtype(args.big_endian)
     offset = 0
     for f in infiles:
         with open(f, "rb") as fh:
             while True:
-                chunk = np.fromfile(fh, dtype=dt, count=args.chunk)
+                chunk = np.fromfile(fh, dtype=NYX_DTYPE, count=args.chunk)
                 n = chunk.shape[0]
                 if n == 0:
                     break
                 # Positions stay double precision, scaled to the output length unit.
-                pos = np.array(chunk["pos"], dtype=np.float64) * args.pos_unit
-                bf[grp + "/Position"].write(offset, pos)
+                bf[grp + "/Position"].write(offset, chunk["pos"] * args.pos_unit)
                 # Velocity and mass are stored single precision, as MP-Gadget expects.
-                vel = (np.array(chunk["vel"], dtype=np.float64) * args.vel_unit).astype(np.float32)
+                vel = (chunk["vel"] * args.vel_unit).astype(np.float32)
                 bf[grp + "/Velocity"].write(offset, vel)
-                mass = (np.array(chunk["mass"], dtype=np.float64) * args.mass_unit).astype(np.float32)
+                mass = (chunk["mass"] * args.mass_unit).astype(np.float32)
                 bf[grp + "/Mass"].write(offset, mass)
                 ids = np.arange(offset, offset + n, dtype=np.uint64) + np.uint64(idstart)
                 bf[grp + "/ID"].write(offset, ids)
@@ -236,7 +229,6 @@ if __name__ == "__main__":
 
     parser.add_argument('--firstid', type=int, default=1, help='ID of the first particle (IDs are assigned sequentially).')
     parser.add_argument('--chunk', type=int, default=1 << 22, help='Number of particles to read/write per chunk.')
-    parser.add_argument('--big-endian', action='store_true', help='Input file is big-endian (default little-endian).')
 
     args = parser.parse_args()
 
