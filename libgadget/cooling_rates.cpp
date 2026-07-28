@@ -131,21 +131,20 @@ class TreeCoolData
                 std::ifstream tcool(TreeCoolFile, std::ifstream::in);
                 if(!tcool.good())
                     endrun(456, "Could not open photon background (TREECOOL) file at: '%s'\n", TreeCoolFile.c_str());
-                while(tcool.good()) {
+                while(true) {
                     double zz, gHI, gHeI, gHeII, eHI, eHeI, eHeII;
-                    tcool >> zz;
+                    /* Extract a whole row before storing any of it: the trailing
+                     * newline of the last row leaves the stream good, so reading
+                     * field by field appends a spurious duplicate of that row. */
+                    tcool >> zz >> gHI >> gHeI >> gHeII >> eHI >> eHeI >> eHeII;
+                    if(tcool.fail())
+                        break;
                     Gamma_log1z.push_back(zz);
-                    tcool >> gHI;
                     Gamma_HI.push_back(log10(gHI));
-                    tcool >> gHeI;
                     Gamma_HeI.push_back(log10(gHeI));
-                    tcool >> gHeII;
                     Gamma_HeII.push_back(log10(gHeII));
-                    tcool >> eHI;
                     Eps_HI.push_back(log10(eHI));
-                    tcool >> eHeI;
                     Eps_HeI.push_back(log10(eHeI));
-                    tcool >> eHeII;
                     Eps_HeII.push_back(log10(eHeII));
                 }
                 if(!valid())
