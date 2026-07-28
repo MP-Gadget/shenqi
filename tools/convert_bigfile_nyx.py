@@ -2,9 +2,10 @@
 Script to convert Nyx-style raw binary initial conditions into MP-Gadget bigfile
 initial conditions.
 
-The Nyx IC file is assumed to be a flat, header-less stream of particle records,
-each record being 7 double precision numbers written back-to-back, exactly as
-produced by the C++ pattern:
+The Nyx IC file is assumed to begin with two double precision header variables,
+which are skipped, followed by a flat stream of particle records, each record
+being 7 double precision numbers written back-to-back, exactly as produced by the
+C++ pattern:
 
     dm_ics_file.write((char*)&part_x,  sizeof(double)); //position
     dm_ics_file.write((char*)&part_y,  sizeof(double));
@@ -14,7 +15,8 @@ produced by the C++ pattern:
     dm_ics_file.write((char*)&part_vy, sizeof(double));
     dm_ics_file.write((char*)&part_vz, sizeof(double));
 
-So each record is 56 little-endian bytes: (x, y, z, mass, vx, vy, vz). Dark matter (MP-Gadget
+So each file is 16 header bytes followed by 56 little-endian bytes per particle:
+(x, y, z, mass, vx, vy, vz). Dark matter (MP-Gadget
 particle type 1) is given with --input and gas (particle type 0) with --gas-input;
 at least one of the two is required and both may be given together. Gas is assumed
 to be written with the same 7-double record layout as the dark matter. Multiple
@@ -61,15 +63,18 @@ NYX_DTYPE = np.dtype([("pos", ("<f8", 3)),
                       ("vel", ("<f8", 3))])
 RECORD_BYTES = NYX_DTYPE.itemsize
 
+# Each Nyx file opens with two float64 header variables, which we skip over.
+HEADER_BYTES = 2 * 8
+
 
 def count_particles(infiles):
     """Total number of particles across all input files, checking record alignment."""
     npart = 0
     for f in infiles:
-        sz = os.path.getsize(f)
-        if sz % RECORD_BYTES != 0:
-            raise IOError("File %s size %d is not a multiple of the %d byte record size"
-                          % (f, sz, RECORD_BYTES))
+        sz = os.path.getsize(f) - HEADER_BYTES
+        if sz < 0 or sz % RECORD_BYTES != 0:
+            raise IOError("File %s size %d is not a %d byte header plus a whole number of %d byte records"
+                          % (f, os.path.getsize(f), HEADER_BYTES, RECORD_BYTES))
         npart += sz // RECORD_BYTES
     return npart
 
@@ -135,6 +140,7 @@ def stream_type(bf, ptype, infiles, args, idstart, nfiles):
     offset = 0
     for f in infiles:
         with open(f, "rb") as fh:
+            fh.seek(HEADER_BYTES)
             while True:
                 chunk = np.fromfile(fh, dtype=NYX_DTYPE, count=args.chunk)
                 n = chunk.shape[0]
