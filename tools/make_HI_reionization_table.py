@@ -53,6 +53,7 @@ DifferentTransferFunctions = integer(0,1, default=1)
 UnitLength_in_cm  = float(default=3.085678e21)
 Omega_fld = float(0,1,default=0)
 w0_fld = float(default=-1)
+UnitaryAmplitude = integer(0,1,default=1)
 wa_fld = float(default=0)
 MNue = float(min=0, default=0)
 MNum = float(min=0, default=0)
@@ -145,7 +146,7 @@ def generate_zreion_file(paramfile, output, redshift, resolution, ignoreunitary=
     cosmo = Cosmology(h=config["HubbleParam"],Omega0_cdm=omegacdm,T0_cmb=config["CMBTemperature"])
     unitary = False
     if not ignoreunitary:
-        unitary = config["Unitary"]
+        unitary = config["UnitaryAmplitude"]
     state = get_lpt(pm,Redshift, cosmo, config["Seed"], unitary=unitary, invertphase=config["InvertPhase"])
     real = state.to_mesh()
 
