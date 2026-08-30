@@ -28,7 +28,7 @@ hci_init(HCIManager * manager, std::string& prefix, const double WallClockTimeLi
 
     manager->WallClockTimeLimit = WallClockTimeLimit;
     manager->AutoCheckPointTime = AutoCheckPointTime;
-    manager->TimeLastCheckPoint = manager->timer_begin;
+    manager->TimeLastCheckPoint = 0;
     manager->FOFEnabled = FOFEnabled;
     manager->LongestTimeBetweenQueries = 0;
 }
