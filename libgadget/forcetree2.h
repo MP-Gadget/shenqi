@@ -1249,6 +1249,21 @@ public:
         } while(!__atomic_compare_exchange(&(node->mom.hmax), &readhmax, &newhmax, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
     }
 
+    /* Update hmax recursively for all internal nodes*/
+    void
+    force_tree_calc_hmax(DomainDecomp * ddecomp)
+    {
+        force_update_node_parallel(ddecomp);
+        /* Exchange the pseudo-data*/
+        force_exchange_pseudodata(ddecomp);
+        #pragma omp parallel
+        #pragma omp single nowait
+        {
+            force_treeupdate_pseudos(0, 1);
+        }
+        hmax_computed_flag = true;
+    }
+
 private:
     /* Add a particle to a node in a known empty location.
      * Parent is assumed to be locked.*/
