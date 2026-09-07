@@ -791,69 +791,6 @@ public:
         return -1;
     }
 
-    /*! This function communicates the values of the multipole moments of the
-    *  top-level tree-nodes of the ddecomp grid.  This data can then be used to
-    *  update the pseudo-particles on each CPU accordingly.
-    */
-    void force_exchange_pseudodata(const DomainDecomp * const ddecomp)
-    {
-        struct topleaf_momentsdata {
-            MyFloat s[3];
-            MyFloat mass;
-            MyFloat hmax;
-        };
-
-        struct topleaf_momentsdata * TopLeafMoments = mymalloc("TopLeafMoments", struct topleaf_momentsdata, ddecomp->NTopLeaves);
-
-        #pragma omp parallel for
-        for(int i = ddecomp->Tasks[ThisTask].StartLeaf; i < ddecomp->Tasks[ThisTask].EndLeaf; i ++) {
-            int no = ddecomp->TopLeaves[i].treenode;
-            if(ddecomp->TopLeaves[i].Task != ThisTask)
-                endrun(131231231, "TopLeaf %d Task table is corrupted: task is %d\n", i, ddecomp->TopLeaves[i].Task);
-            /* read out the multipole moments from the local base cells */
-            TopLeafMoments[i].s[0] = Nodes[no].mom.cofm[0];
-            TopLeafMoments[i].s[1] = Nodes[no].mom.cofm[1];
-            TopLeafMoments[i].s[2] = Nodes[no].mom.cofm[2];
-            TopLeafMoments[i].mass = Nodes[no].mom.mass;
-            TopLeafMoments[i].hmax = Nodes[no].mom.hmax;
-        }
-
-        /* share the pseudo-particle data across CPUs */
-        int NTask;
-        MPI_Comm_size(MPI_COMM_WORLD, &NTask);
-
-        int * recvcounts = mymalloc("recvcounts", int, NTask);
-        int * recvoffset = mymalloc("recvoffset", int, NTask);
-
-        for(int recvTask = 0; recvTask < NTask; recvTask++)
-        {
-            recvoffset[recvTask] = ddecomp->Tasks[recvTask].StartLeaf * sizeof(TopLeafMoments[0]);
-            recvcounts[recvTask] = (ddecomp->Tasks[recvTask].EndLeaf - ddecomp->Tasks[recvTask].StartLeaf) * sizeof(TopLeafMoments[0]);
-        }
-
-        MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL,
-                &TopLeafMoments[0], recvcounts, recvoffset,
-                MPI_BYTE, MPI_COMM_WORLD);
-
-        myfree(recvoffset);
-        myfree(recvcounts);
-
-        for(int ta = 0; ta < NTask; ta++) {
-            if(ta == ThisTask)
-                continue; /* bypass ThisTask since it is already up to date */
-            #pragma omp parallel for
-            for(int i = ddecomp->Tasks[ta].StartLeaf; i < ddecomp->Tasks[ta].EndLeaf; i ++) {
-                const int no = ddecomp->TopLeaves[i].treenode;
-                Nodes[no].mom.cofm[0] = TopLeafMoments[i].s[0];
-                Nodes[no].mom.cofm[1] = TopLeafMoments[i].s[1];
-                Nodes[no].mom.cofm[2] = TopLeafMoments[i].s[2];
-                Nodes[no].mom.mass = TopLeafMoments[i].mass;
-                Nodes[no].mom.hmax = TopLeafMoments[i].hmax;
-            }
-        }
-        myfree(TopLeafMoments);
-    }
-
     /* Add a particle to the tree, extending the tree as necessary. Locking is done,
     * so may be called from a threaded context*/
     int add_particle_to_tree(int i, int cur_start, struct NodeCache *nc, int64_t* nnext)
@@ -1061,6 +998,14 @@ public:
         }
     }
 
+    /* In the child classes, this does the update of the pseudo-node moments.
+     * Here we just do the taskwait.*/
+    void modify_pseudo_node(struct NODE * node)
+    {
+        /*Make sure all child nodes are done*/
+        #pragma omp taskwait
+    }
+
     /*! This function updates the top-level tree after the multipole moments of
     *  the pseudo-particles have been updated.
     */
@@ -1096,43 +1041,7 @@ public:
                 }
             }
         }
-        /* Zero the moments*/
-        Nodes[no].mom.mass = 0;
-        Nodes[no].mom.cofm[0] = 0;
-        Nodes[no].mom.cofm[1] = 0;
-        Nodes[no].mom.cofm[2] = 0;
-        Nodes[no].mom.hmax = 0;
-
-        /*Make sure all child nodes are done*/
-        #pragma omp taskwait
-
-        for(j = 0; j < 8; j++)
-        {
-            const int p = Nodes[no].s.suns[j];
-
-            Nodes[no].mom.mass += (Nodes[p].mom.mass);
-            Nodes[no].mom.cofm[0] += (Nodes[p].mom.mass * Nodes[p].mom.cofm[0]);
-            Nodes[no].mom.cofm[1] += (Nodes[p].mom.mass * Nodes[p].mom.cofm[1]);
-            Nodes[no].mom.cofm[2] += (Nodes[p].mom.mass * Nodes[p].mom.cofm[2]);
-
-            if(Nodes[p].mom.hmax > Nodes[no].mom.hmax)
-                Nodes[no].mom.hmax = Nodes[p].mom.hmax;
-            if(Nodes[p].f.DependsOnLocalMass)
-                Nodes[no].f.DependsOnLocalMass = 1;
-        }
-
-        if(Nodes[no].mom.mass)
-        {
-            Nodes[no].mom.cofm[0] /= Nodes[no].mom.mass;
-            Nodes[no].mom.cofm[1] /= Nodes[no].mom.mass;
-            Nodes[no].mom.cofm[2] /= Nodes[no].mom.mass;
-        }
-        else
-        {
-            Nodes[no].mom.cofm[0] = Nodes[no].center[0];
-            Nodes[no].mom.cofm[1] = Nodes[no].center[1];
-            Nodes[no].mom.cofm[2] = Nodes[no].center[2];
-        }
+        static_cast<DerivedTree*>(this)->modify_pseudo_node(&Nodes[no]);
     }
 
 #ifdef DEBUG
@@ -1286,6 +1195,74 @@ private:
             }
         }
     }
+
+    /* Update the pseudo-node hmax.*/
+    void modify_pseudo_node(struct NODE * node)
+    {
+        /* Zero the moments*/
+        node->mom.hmax = 0;
+
+        /*Make sure all child nodes are done*/
+        #pragma omp taskwait
+
+        for(int j = 0; j < 8; j++)
+        {
+            const int p = node->s.suns[j];
+            if(Nodes[p].mom.hmax > node->mom.hmax)
+                node->mom.hmax = Nodes[p].mom.hmax;
+            if(Nodes[p].f.DependsOnLocalMass)
+                node->f.DependsOnLocalMass = 1;
+        }
+    }
+
+        /*! This function communicates the values of the multipole moments of the
+    *  top-level tree-nodes of the ddecomp grid.  This data can then be used to
+    *  update the pseudo-particles on each CPU accordingly.
+    */
+    void force_exchange_pseudodata(const DomainDecomp * const ddecomp)
+    {
+        MyFloat * TopLeafMoments = mymalloc("TopLeafMoments", MyFloat, ddecomp->NTopLeaves);
+
+        #pragma omp parallel for
+        for(int i = ddecomp->Tasks[ThisTask].StartLeaf; i < ddecomp->Tasks[ThisTask].EndLeaf; i ++) {
+            int no = ddecomp->TopLeaves[i].treenode;
+            if(ddecomp->TopLeaves[i].Task != ThisTask)
+                endrun(131231231, "TopLeaf %d Task table is corrupted: task is %d\n", i, ddecomp->TopLeaves[i].Task);
+            /* read out the hmax from the local base cells */
+            TopLeafMoments[i] = Nodes[no].mom.hmax;
+        }
+
+        /* share the pseudo-particle data across CPUs */
+        int NTask;
+        MPI_Comm_size(MPI_COMM_WORLD, &NTask);
+
+        int * recvcounts = mymalloc("recvcounts", int, NTask);
+        int * recvoffset = mymalloc("recvoffset", int, NTask);
+
+        for(int recvTask = 0; recvTask < NTask; recvTask++)
+        {
+            recvoffset[recvTask] = ddecomp->Tasks[recvTask].StartLeaf * sizeof(TopLeafMoments[0]);
+            recvcounts[recvTask] = (ddecomp->Tasks[recvTask].EndLeaf - ddecomp->Tasks[recvTask].StartLeaf) * sizeof(TopLeafMoments[0]);
+        }
+
+        MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL,
+                &TopLeafMoments[0], recvcounts, recvoffset,
+                MPI_BYTE, MPI_COMM_WORLD);
+
+        myfree(recvoffset);
+        myfree(recvcounts);
+
+        for(int ta = 0; ta < NTask; ta++) {
+            if(ta == ThisTask)
+                continue; /* bypass ThisTask since it is already up to date */
+            #pragma omp parallel for
+            for(int i = ddecomp->Tasks[ta].StartLeaf; i < ddecomp->Tasks[ta].EndLeaf; i ++) {
+                const int no = ddecomp->TopLeaves[i].treenode;
+                Nodes[no].mom.hmax = TopLeafMoments[i];
+            }
+        }
+        myfree(TopLeafMoments);
+    }
 };
 
 /*Structure containing the Node pointer, and various Tree metadata.*/
@@ -1337,6 +1314,106 @@ private:
         for(int k=0; k<3; k++)
             pnode.mom.cofm[k] += (part.Mass * part.Pos[k]);
     }
+
+    /* In the child classes, this does the update of the pseudo-node moments.
+     * Here we just do the taskwait.*/
+    void modify_pseudo_node(struct NODE * node)
+    {
+        /* Zero the moments*/
+        node->mom.mass = 0;
+        node->mom.cofm[0] = 0;
+        node->mom.cofm[1] = 0;
+        node->mom.cofm[2] = 0;
+
+        /*Make sure all child nodes are done*/
+        #pragma omp taskwait
+
+        for(int j = 0; j < 8; j++)
+        {
+            const int p = node->s.suns[j];
+
+            node->mom.mass += (Nodes[p].mom.mass);
+            node->mom.cofm[0] += (Nodes[p].mom.mass * Nodes[p].mom.cofm[0]);
+            node->mom.cofm[1] += (Nodes[p].mom.mass * Nodes[p].mom.cofm[1]);
+            node->mom.cofm[2] += (Nodes[p].mom.mass * Nodes[p].mom.cofm[2]);
+
+            if(Nodes[p].f.DependsOnLocalMass)
+                node->f.DependsOnLocalMass = 1;
+        }
+
+        if(node->mom.mass)
+        {
+            node->mom.cofm[0] /= node->mom.mass;
+            node->mom.cofm[1] /= node->mom.mass;
+            node->mom.cofm[2] /= node->mom.mass;
+        }
+        else
+        {
+            node->mom.cofm[0] = node->center[0];
+            node->mom.cofm[1] = node->center[1];
+            node->mom.cofm[2] = node->center[2];
+        }
+    }
+        /*! This function communicates the values of the multipole moments of the
+    *  top-level tree-nodes of the ddecomp grid.  This data can then be used to
+    *  update the pseudo-particles on each CPU accordingly.
+    */
+    void force_exchange_pseudodata(const DomainDecomp * const ddecomp)
+    {
+        struct topleaf_momentsdata {
+            MyFloat s[3];
+            MyFloat mass;
+        };
+
+        struct topleaf_momentsdata * TopLeafMoments = mymalloc("TopLeafMoments", struct topleaf_momentsdata, ddecomp->NTopLeaves);
+
+        #pragma omp parallel for
+        for(int i = ddecomp->Tasks[ThisTask].StartLeaf; i < ddecomp->Tasks[ThisTask].EndLeaf; i ++) {
+            int no = ddecomp->TopLeaves[i].treenode;
+            if(ddecomp->TopLeaves[i].Task != ThisTask)
+                endrun(131231231, "TopLeaf %d Task table is corrupted: task is %d\n", i, ddecomp->TopLeaves[i].Task);
+            /* read out the multipole moments from the local base cells */
+            TopLeafMoments[i].s[0] = Nodes[no].mom.cofm[0];
+            TopLeafMoments[i].s[1] = Nodes[no].mom.cofm[1];
+            TopLeafMoments[i].s[2] = Nodes[no].mom.cofm[2];
+            TopLeafMoments[i].mass = Nodes[no].mom.mass;
+        }
+
+        /* share the pseudo-particle data across CPUs */
+        int NTask;
+        MPI_Comm_size(MPI_COMM_WORLD, &NTask);
+
+        int * recvcounts = mymalloc("recvcounts", int, NTask);
+        int * recvoffset = mymalloc("recvoffset", int, NTask);
+
+        for(int recvTask = 0; recvTask < NTask; recvTask++)
+        {
+            recvoffset[recvTask] = ddecomp->Tasks[recvTask].StartLeaf * sizeof(TopLeafMoments[0]);
+            recvcounts[recvTask] = (ddecomp->Tasks[recvTask].EndLeaf - ddecomp->Tasks[recvTask].StartLeaf) * sizeof(TopLeafMoments[0]);
+        }
+
+        MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL,
+                &TopLeafMoments[0], recvcounts, recvoffset,
+                MPI_BYTE, MPI_COMM_WORLD);
+
+        myfree(recvoffset);
+        myfree(recvcounts);
+
+        for(int ta = 0; ta < NTask; ta++) {
+            if(ta == ThisTask)
+                continue; /* bypass ThisTask since it is already up to date */
+            #pragma omp parallel for
+            for(int i = ddecomp->Tasks[ta].StartLeaf; i < ddecomp->Tasks[ta].EndLeaf; i ++) {
+                const int no = ddecomp->TopLeaves[i].treenode;
+                Nodes[no].mom.cofm[0] = TopLeafMoments[i].s[0];
+                Nodes[no].mom.cofm[1] = TopLeafMoments[i].s[1];
+                Nodes[no].mom.cofm[2] = TopLeafMoments[i].s[2];
+                Nodes[no].mom.mass = TopLeafMoments[i].mass;
+            }
+        }
+        myfree(TopLeafMoments);
+    }
+
 };
 
 
