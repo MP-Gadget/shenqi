@@ -77,7 +77,9 @@ struct bh_particle_data : public particle_data_ext {
 /*Data for each star particle*/
 struct star_particle_data: public particle_data_ext
 {
-    float LastEnrichmentMyr;  /* Last time the star particle had an enrichment event, in Myr since FormationTime.*/
+    float LastEnrichmentMyr;  /* Last time the star particle had an enrichment event, in Myr since FormationTime.
+                               * Note this is written to and read from snapshots in Myr/h, for compatibility with
+                               * older files: the conversion is in GT4LastEnrichmentMyr and ST4LastEnrichmentMyr.*/
     MyFloat TotalMassReturned; /* The total mass returned from this star since formation.
                                   The initial mass of the SSP in this star is STARP.TotalMassReturned + P.Mass.
                                   It is stored like this to retain compatibility with older snapshots. */

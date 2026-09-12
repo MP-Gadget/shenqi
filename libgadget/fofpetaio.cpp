@@ -51,6 +51,7 @@ int fof_save_particles(FOFGroups * fof, const std::string fname, int SaveParticl
     struct conversions conv = {0};
     conv.atime = atime;
     conv.hubble = hubble_function(CP, atime);
+    conv.HubbleParam = CP->HubbleParam;
 
     fof_write_header(&bf, fof->TotNgroups, atime, MassTable, CP, Comm);
 

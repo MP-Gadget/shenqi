@@ -150,6 +150,7 @@ petaio_save_snapshot(const std::string fname, struct IOTable * IOTable, int verb
     struct conversions conv = {0};
     conv.atime = atime;
     conv.hubble = hubble_function(CP, atime);
+    conv.HubbleParam = CP->HubbleParam;
 
     petaio_write_header(&bf, atime, NTotal, CP, &Header);
 
@@ -264,6 +265,7 @@ petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struc
     struct conversions conv = {0};
     conv.atime = header->TimeSnapshot;
     conv.hubble = hubble_function(CP, header->TimeSnapshot);
+    conv.HubbleParam = CP->HubbleParam;
 
     struct IOTable IOTable[1] = {};
     int missing_mass_from_header[6] = {0};
@@ -771,7 +773,6 @@ SIMPLE_PROPERTY_PI(DelayTime, DelayTime, float, 1, struct sph_particle_data)
 SIMPLE_PROPERTY_TYPE_PI(StarFormationTime, 4, FormationTime, float, 1, struct star_particle_data)
 SIMPLE_PROPERTY_PI(BirthDensity, BirthDensity, float, 1, struct star_particle_data)
 SIMPLE_PROPERTY_TYPE_PI(Metallicity, 4, Metallicity, float, 1, struct star_particle_data)
-SIMPLE_PROPERTY_TYPE_PI(LastEnrichmentMyr, 4, LastEnrichmentMyr, float, 1, struct star_particle_data)
 SIMPLE_PROPERTY_TYPE_PI(TotalMassReturned, 4, TotalMassReturned, float, 1, struct star_particle_data)
 SIMPLE_PROPERTY_TYPE_PI(Metallicity, 0, Metallicity, float, 1, struct sph_particle_data)
 SIMPLE_PROPERTY_TYPE_PI(Metals, 4, Metals[0], float, NMETALS, struct star_particle_data)
@@ -797,6 +798,30 @@ SIMPLE_SETTER_PI(STBlackholeMinPotPos , MinPotPos[0], double, 3, struct bh_parti
 SIMPLE_PROPERTY_PI(J21, local_J21, float, 1, struct sph_particle_data)
 SIMPLE_PROPERTY_PI(ZReionized, zreion, float, 1, struct sph_particle_data)
 #endif
+
+/* LastEnrichmentMyr is held in memory in Myr, but written to and read from the
+ * snapshot in Myr/h. The internal time unit is UnitTime_in_s / h, so Myr/h is
+ * what the code produced before the h in atime_to_myr was fixed, and every
+ * existing snapshot stores it that way: converting here keeps those files
+ * readable and keeps newly written files readable by older versions, while the
+ * enrichment code works in physical Myr.*/
+static void GT4LastEnrichmentMyr(int i, float * out, void * baseptr, void * smanptr, const struct conversions * params) {
+    int PI = ((struct particle_data *) baseptr)[i].PI;
+    int ptype = ((struct particle_data *) baseptr)[i].Type;
+    struct slot_info * info = &(((struct slots_manager_type *) smanptr)->info[ptype]);
+    struct star_particle_data * sl = (struct star_particle_data *) info->ptr;
+    out[0] = sl[PI].LastEnrichmentMyr * params->HubbleParam;
+}
+
+static void ST4LastEnrichmentMyr(int i, float * out, void * baseptr, void * smanptr, const struct conversions * params) {
+    int PI = ((struct particle_data *) baseptr)[i].PI;
+    int ptype = ((struct particle_data *) baseptr)[i].Type;
+    struct slot_info * info = &(((struct slots_manager_type *) smanptr)->info[ptype]);
+    struct star_particle_data * sl = (struct star_particle_data *) info->ptr;
+    if(!(params->HubbleParam > 0))
+        endrun(1, "HubbleParam = %g reading LastEnrichmentMyr: conversions not initialised.\n", params->HubbleParam);
+    sl[PI].LastEnrichmentMyr = out[0] / params->HubbleParam;
+}
 
 static void GTBlackholeMinPotPos(int i, double * out, void * baseptr, void * smanptr, const struct conversions * params) {
     /* Remove the particle offset before saving*/
