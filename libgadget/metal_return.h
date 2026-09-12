@@ -37,6 +37,10 @@ struct MetalReturnPriv {
     struct SpinLocks * spin;
 };
 
+/* Compute the time elapsed between two scale factors, in Myr.
+ * Exposed for testing.*/
+double atime_to_myr(Cosmology *CP, double atime1, double atime2);
+
 void metal_return(const ActiveParticles * act, ForceTree * gasTree, Cosmology * CP, const double atime, const double AvgGasMass);
 
 void set_metal_return_params(ParameterSet * ps);

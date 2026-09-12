@@ -166,8 +166,8 @@ static double chabrier_imf(double mass)
     }
 }
 
-/* Compute the difference in internal time units between two scale factors.*/
-static double atime_to_myr(Cosmology *CP, double atime1, double atime2)
+/* Compute the time elapsed between two scale factors, in Myr.*/
+double atime_to_myr(Cosmology *CP, double atime1, double atime2)
 {
     /* t = dt/da da = 1/(Ha) da*/
     auto atime_integ = [CP] (const double atime) {
