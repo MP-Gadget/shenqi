@@ -166,15 +166,15 @@ static double chabrier_imf(double mass)
     }
 }
 
-/* Compute the difference in internal time units between two scale factors.*/
-static double atime_to_myr(Cosmology *CP, double atime1, double atime2)
+/* Compute the time elapsed between two scale factors, in Myr.*/
+double atime_to_myr(Cosmology *CP, double atime1, double atime2)
 {
     /* t = dt/da da = 1/(Ha) da*/
     auto atime_integ = [CP] (const double atime) {
         return 1/(hubble_function(CP, atime) * atime);
     };
     double tmyr = boost::math::quadrature::gauss_kronrod<double, 61>::integrate(atime_integ, atime1, atime2);
-    return tmyr * CP->UnitTime_in_s / SEC_PER_MEGAYEAR;
+    return tmyr * CP->UnitTime_in_s / (CP->HubbleParam * SEC_PER_MEGAYEAR);
 }
 
 /* Functions for the root finder*/

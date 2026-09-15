@@ -41,6 +41,9 @@ struct conversions
 {
     double atime;
     double hubble;
+    /* HubbleParam, for blocks which are stored in the file with a factor of h
+     * that the code does not carry in memory: see LastEnrichmentMyr.*/
+    double HubbleParam;
 };
 
 typedef void (*property_getter) (int i, void * result, void * baseptr, void * slotptr, const struct conversions * params);

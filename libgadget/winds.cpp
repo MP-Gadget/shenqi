@@ -87,7 +87,9 @@ void
 init_winds(double FactorSN, double EgySpecSN, double PhysDensThresh, double UnitTime_in_s)
 {
     wind_params.WindSpeed = sqrt(2 * wind_params.WindEnergyFraction * FactorSN * EgySpecSN / (1 - FactorSN));
-    /* Convert wind free travel time from Myr to internal units*/
+    /* Convert wind free travel time from Myr/h to internal units.
+     * The internal time unit is UnitTime_in_s / h seconds, so the 1/h in the
+     * parameter is what makes this conversion free of HubbleParam.*/
     wind_params.MaxWindFreeTravelTime = wind_params.MaxWindFreeTravelTime * SEC_PER_MEGAYEAR / UnitTime_in_s;
     wind_params.WindFreeTravelDensThresh = wind_params.WindFreeTravelDensFac * PhysDensThresh;
     if(HAS(wind_params.WindModel, WIND_FIXED_EFFICIENCY)) {
