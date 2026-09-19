@@ -114,35 +114,28 @@ template <typename ParamType=ParamTypeBase> class TreeWalkQueryBase
     }
 };
 
-template <typename QueryType, typename OutputType>
+template <typename QueryType>
 class TreeWalkResultBase
 {
-    public:
-    #ifdef DEBUG
-        MyIDType ID;
-    #endif
+public:
+#ifdef DEBUG
+    MyIDType ID;
+#endif
 
-        MYCUDAFN TreeWalkResultBase(const QueryType& query)
-        #ifdef DEBUG
-        : ID(query.ID)
-        #endif
-        { }
+    MYCUDAFN TreeWalkResultBase(const QueryType& query)
+#ifdef DEBUG
+    : ID(query.ID)
+#endif
+    { }
 
-        /**
-        * Reduce partial results back to the local particle.
-        * Override to accumulate results from tree walk iterations.
-        *
-        * @param j      Particle index
-        * @param mode   Whether this is primary, ghost, or toptree reduction
-        */
-        template<TreeWalkReduceMode mode>
-        MYCUDAFN void reduce(const int j, const OutputType * priv, struct particle_data * const parts)
-        {
-            #if defined DEBUG && not defined __CUDACC__
-                if(parts[j].ID != ID)
-                    endrun(2, "Mismatched ID (%ld != %ld) for particle %d in treewalk reduction, mode %d\n", parts[j].ID, ID, j, mode);
-            #endif
-        }
+    MYCUDAFN TreeWalkResultBase& operator+=(const TreeWalkResultBase<QueryType>& other)
+    {
+#if defined DEBUG && not defined __CUDACC__
+        if(ID != other.ID)
+            endrun(8, "Error in communication: IDs mismatch %ld %ld\n", ID, other.ID);
+#endif
+        return *this;
+    }
 };
 
 /**
@@ -181,15 +174,17 @@ cull_node(const double * const Pos, const double BoxSize, const MyFloat Hsml, co
     return 1;
 };
 
-/*!< Thread-local list of the particles to be exported,
+/*!< Index of the particles to be exported in the Result table,
  * and the destination tasks. This table allows the
 results to be disentangled again and to be
-assigned to the correct particle.*/
+assigned to the correct Result.*/
 struct data_index
 {
+    /* This is the task we export the particle to.*/
     int Task;
+    /* This is the index of the current export
+     * in the WorkSet/Query/Result table.*/
     int Index;
-    int NodeList[NODELISTLENGTH];
 };
 
 /* Class that stores thread-local information and walks the toptree, finding exports, for a particle. */
@@ -208,7 +203,7 @@ public:
      * @return the number of nodes used in the dataindex table on success, -1 if export buffer is full
      */
     template <enum TopTreeMode mode>
-    MYCUDAFN int toptree_visit(const int target, const QueryType& input, const ParamType& priv, data_index * const DataIndexTable, const size_t BunchSize)
+    MYCUDAFN int toptree_visit(const QueryType& input, const int queryindex, const ParamType& priv, data_index * const DataIndexTable, QueryType * const exportquery, const size_t BunchSize)
     {
         //message(1, "Starting toptree visit for target %d Nexport %ld\n", target, Nexport);
         /* The number of exports from this particle treewalk. If negative, signals the buffer filled up.*/
@@ -232,7 +227,7 @@ public:
                 if constexpr(mode == TOPTREE_COUNT)
                     NThisParticleExport = export_count(current->s.suns[0], NThisParticleExport);
                 else {
-                    NThisParticleExport = export_particle(current->s.suns[0], target, NThisParticleExport, DataIndexTable, BunchSize);
+                    NThisParticleExport = export_particle(current->s.suns[0], NThisParticleExport, DataIndexTable, input, queryindex, exportquery, BunchSize);
                     /* Exit the loop as we cannot export more particles.*/
                     if(NThisParticleExport < 0)
                         break;
@@ -251,10 +246,8 @@ public:
         }
 #if defined DEBUG && not defined __CUDACC__
         if(NThisParticleExport > 1000)
-            message(5, "%ld exports for particle %d! Odd.\n", NThisParticleExport, target);
+            message(5, "%ld exports for particle with ID %ld! Odd.\n", NThisParticleExport, input.ID);
 #endif
-        /* If we filled up, this partial toptree walk will be discarded and the toptree loop exited.*/
-        //message(5, "Export buffer full for particle %d with %ld (%lu) exports\n", target, NThisParticleExport, Nexport);
         return NThisParticleExport;
     }
 
@@ -266,12 +259,11 @@ protected:
      * This can also be called from a nonthreaded code
      *
      * */
-    MYCUDAFN int64_t export_particle(const int no, const int target, int64_t nexp, data_index * const DataIndexTable, const int64_t BunchSize)
+    MYCUDAFN int64_t export_particle(const int no, int64_t nexp, data_index * const DataIndexTable, const QueryType& input, const int queryindex, QueryType * const exportquery, const int64_t BunchSize)
     {
-        //message(1, "Export_particle: no %d target %d exports %ld %lu nodelist %ld\n", no, target, NThisParticleExport, Nexport, nodelistindex);
     #if defined DEBUG && not defined __CUDACC__
         if(no - lastnode > NTopLeaves)
-            endrun(1, "Bad export leaf: no = %d lastnode %d ntop %d target %d\n", no, lastnode, NTopLeaves, target);
+            endrun(1, "Bad export leaf: no = %d lastnode %d ntop %d query ID %ld\n", no, lastnode, NTopLeaves, input.ID);
     #endif
         const topleaf_data * const topleaf = &TopLeaves[no - lastnode];
         const int task = topleaf->Task;
@@ -280,13 +272,13 @@ protected:
         if(nexp >= 1 && lasttask == task) {
     #if defined DEBUG && not defined __CUDACC__
             /* This is just to be safe: only happens if our indices are off.*/
-            if(DataIndexTable[nexp - 1].Index != target)
-                endrun(1, "Previous of %ld exports is target %d not current %d\n", nexp, DataIndexTable[nexp-1].Index, target);
-            if(nodelistindex < NODELISTLENGTH && DataIndexTable[nexp-1].NodeList[nodelistindex] != -1)
-                endrun(1, "Current nodelist %ld entry (%d) not empty!\n", nodelistindex, DataIndexTable[nexp-1].NodeList[nodelistindex]);
+            if(input.ID != exportquery[nexp-1].ID)
+                endrun(1, "Mismatched ID (%ld != %ld) at export %ld exporting to node %d\n", input.ID, exportquery[nexp-1].ID, nexp, no);
+            if(nodelistindex < NODELISTLENGTH && exportquery[nexp-1].NodeList[nodelistindex] != -1)
+                endrun(1, "Current nodelist %ld entry (%d) not empty!\n", nodelistindex, exportquery[nexp-1].NodeList[nodelistindex]);
     #endif
             if(nodelistindex < NODELISTLENGTH) {
-                DataIndexTable[nexp-1].NodeList[nodelistindex] = topleaf->treenode;
+                exportquery[nexp-1].NodeList[nodelistindex] = topleaf->treenode;
                 nodelistindex++;
                 return nexp;
             }
@@ -296,10 +288,11 @@ protected:
             return -1;
         }
         DataIndexTable[nexp].Task = task;
-        DataIndexTable[nexp].Index = target;
-        DataIndexTable[nexp].NodeList[0] = topleaf->treenode;
+        DataIndexTable[nexp].Index = queryindex;
+        exportquery[nexp] = input;
+        exportquery[nexp].NodeList[0] = topleaf->treenode;
         for(int i = 1; i < NODELISTLENGTH; i++)
-            DataIndexTable[nexp].NodeList[i] = -1;
+            exportquery[nexp].NodeList[i] = -1;
         nodelistindex = 1;
         lasttask = task;
         nexp++;
@@ -376,10 +369,10 @@ public:
      * @return number of particle-particle interactions.
      */
      template<TreeWalkReduceMode mode>
-     MYCUDAFN int64_t visit(QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
+     MYCUDAFN ResultType visit(QueryType& input, const ParamType& priv, const struct particle_data * const parts)
      {
          static_assert(mode != TREEWALK_TOPTREE, "Toptree should call toptree_visit, not visit.");
-         int64_t ninteractions = 0;
+         ResultType output(input);
          for(int inode = 0; inode < NODELISTLENGTH && input.NodeList[inode] >= 0; inode++)
          {
              int no = input.NodeList[inode];
@@ -416,8 +409,7 @@ public:
                         if(!((1<<parts[other].Type) & mask))
                             continue;
                         /* Call ngbiter for the child class */
-                        static_cast<DerivedType*>(this)->ngbiter(input, parts[other], output, priv);
-                        ninteractions++;
+                        static_cast<DerivedType*>(this)->ngbiter(input, parts[other], &output, priv);
                     }
                     /* Move sideways*/
                     no = current->sibling;
@@ -433,7 +425,7 @@ public:
                 no = current->s.suns[0];
              }
          }
-         return ninteractions;
+         return output;
      }
     /**
     * Neighbour iteration function - called for each particle pair.
@@ -459,121 +451,4 @@ public:
     }
 };
 
-/* Variant of the local tree walk that uses an Ngblist.
- */
-template <typename DerivedType, typename QueryType, typename ResultType, typename ParamType, NgbTreeFindSymmetric symmetric, int mask>
-class LocalNgbListTreeWalk : public LocalNgbTreeWalk<DerivedType, QueryType, ResultType, ParamType, symmetric, mask>
-{
-public:
-    /* Constructor from treewalk */
-    MYCUDAFN LocalNgbListTreeWalk(const NODE * const Nodes, int * i_ngblist, const QueryType& input):
-    LocalNgbTreeWalk<DerivedType, QueryType, ResultType, ParamType, symmetric, mask>(Nodes, input), ngblist(i_ngblist)
-    { }
-    /**
-     * Variant of ngbiter that uses an Ngblist: first it builds a list of
-     * particles to evaluate, then it evaluates them.
-     * The ngblist is generally preferred for memory locality reasons and
-     * to avoid particles being partially evaluated
-     * twice if the buffer fills up. Do not use this variant if the evaluation
-     * wants to change the search radius, such as for density code.
-     * Use this one if the treewalk modifies other particles.
-     **/
-    template<TreeWalkReduceMode mode>
-    MYCUDAFN int64_t visit(QueryType& input, ResultType * output, const ParamType& priv, const struct particle_data * const parts)
-    {
-        int64_t ninteractions = 0;
-        int inode = 0;
-
-        for(inode = 0; inode < NODELISTLENGTH && input->NodeList[inode] >= 0; inode++)
-        {
-            int numcand = ngb_treefind_threads<mode>(input, input->NodeList[inode]);
-            /* If we are here, export is successful. Work on this particle -- first
-             * filter out all of the candidates that are actually outside. */
-            int numngb;
-            for(numngb = 0; numngb < numcand; numngb ++) {
-                const int other = ngblist[numngb];
-
-                /* Skip garbage*/
-                if(parts[other].IsGarbage)
-                    continue;
-                /* In case the type of the particle has changed since the tree was built.
-                 * Happens for wind treewalk for gas turned into stars on this timestep.*/
-                if(!((1<<parts[other].Type) & mask)) {
-                    continue;
-                }
-                ngbiter(input, other, output, priv, parts);
-            }
-            ninteractions += numngb;
-        }
-        return ninteractions;
-    }
-
-protected:
-    /* List of particles to evaluate */
-    int * ngblist;
-    /*****
-    * This is the internal code that looks for particles in the ngb tree from
-    * searchcenter upto hsml. if iter->symmetric is NGB_TREE_FIND_SYMMETRIC, then up to
-    * max(part.Hsml, iter->Hsml).
-    *
-    * Particle that intersects with other domains are marked for export.
-    * The hosting nodes (leaves of the global tree) are exported as well.
-    *
-    * For all 'other' particle within the neighbourhood and are local on this processor,
-    * this function calls the ngbiter member of the TreeWalk object.
-    * iter->base.other, iter->base.dist iter->base.r2, iter->base.r, are properly initialized.
-    *
-    * */
-    template<TreeWalkReduceMode mode>
-    MYCUDAFN int ngb_treefind_threads(QueryType& input, int startnode)
-    {
-        int no;
-        int numcand = 0;
-
-        const double BoxSize = this->BoxSize;
-
-        no = startnode;
-
-        while(no >= 0)
-        {
-            struct NODE *current = &this->Nodes[no];
-            /* When walking exported particles we start from the encompassing top-level node,
-             * so if we get back to a top-level node again we are done.*/
-            if constexpr(mode == TREEWALK_GHOSTS) {
-                /* The first node is always top-level*/
-                if(current->f.TopLevel && no != startnode) {
-                    /* we reached a top-level node again, which means that we are done with the branch */
-                    break;
-                }
-            }
-
-            if(0 == cull_node<symmetric>(input.Pos, BoxSize, input.Hsml, current)) {
-                /* in case the node can be discarded */
-                no = current->sibling;
-                continue;
-            }
-
-            /* Node contains relevant particles, add them.*/
-            if(current->f.ChildType == PARTICLE_NODE_TYPE) {
-                int i;
-                int * suns = current->s.suns;
-                for (i = 0; i < current->s.noccupied; i++) {
-                    ngblist[numcand++] = suns[i];
-                }
-                /* Move sideways*/
-                no = current->sibling;
-                continue;
-            }
-            else if(current->f.ChildType == PSEUDO_NODE_TYPE) {
-                /* pseudo particle: this has already been evaluated with the toptree. Move sideways.*/
-                no = current->sibling;
-                continue;
-            }
-            /* ok, we need to open the node */
-            no = current->s.suns[0];
-        }
-
-        return numcand;
-    }
-};
 #endif
