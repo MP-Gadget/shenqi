@@ -7,7 +7,7 @@ include $(CONFIG)
 TESTED = power thermal
 TESTBIN := $(TESTED:%=.objs/test_%) $(MPI_TESTED:%=.objs/test_%)
 MPISUITE = $(MPI_TESTED:%=test_%)
-SUITE = $(TESTED:%=test_%) $(MPISUITE)
+SUITE = $(TESTED:%=test_%)
 
 include ../Makefile.rules
 
@@ -27,13 +27,16 @@ all : libgenic.a
 build-tests: $(TESTBIN)
 
 test : build-tests
-	trap 'err=1' ERR; for tt in $(SUITE) ; do \
-		if [[ "$(MPISUITE)" =~ .*$$tt.* ]]; then \
-			mpirun -np 4 .objs/$$tt ;  \
-		else \
-			.objs/$$tt ; \
-		fi ;  \
-	done; exit $$err
+	trap 'err=1' ERR; \
+	for tt in $(SUITE) ; do \
+		echo Running $$tt; \
+		.objs/$$tt ; \
+	done; \
+	for tt in $(MPISUITE) ; do \
+		echo Running $$tt "(4 ranks)"; \
+		OMP_NUM_THREADS=2 OMPI_MCA_rmaps_base_oversubscribe=1 mpirun -np 4 --bind-to none .objs/$$tt ; \
+	done; \
+	exit $$err
 
 libgenic.a: $(OBJS)
 	$(AR) r $@ $(OBJS)
