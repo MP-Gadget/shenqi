@@ -308,11 +308,15 @@ HEADl(int stop, int i, const int * const Head)
 
 /* Rewrite a tree so that all values in it point directly to the true root.
  * This means that the trees are O(1) deep and speeds up future accesses.
- * See https://arxiv.org/abs/1607.03224 */
+ * See https://arxiv.org/abs/1607.03224
+ * Never write the root's own entry: called with i == r, the old loop wrote Head[r] = r and
+ * undid a concurrent link of r below a smaller root (a lost union). */
 static void
 update_root(int i, const int r, int * Head)
 {
     int t = i;
+    if(i == r)
+        return;
     do {
         i = t;
         #pragma omp atomic capture
@@ -324,6 +328,13 @@ update_root(int i, const int r, int * Head)
          * or if the new head is less than or equal to the desired head, indicating
          * another thread changed us*/
     } while(t != i && (t > r));
+}
+
+/* For tests/test_fof.cpp only: update_root is static. */
+void
+fof_update_root_for_test(int i, int r, int * Head)
+{
+    update_root(i, r, Head);
 }
 
 /* Find the current head particle by walking the tree. No updates are done
