@@ -29,7 +29,7 @@ static void readout_vel_z(PetaPM * pm, int i, double * mesh, double weight);
 static void readout_disp_x(PetaPM * pm, int i, double * mesh, double weight);
 static void readout_disp_y(PetaPM * pm, int i, double * mesh, double weight);
 static void readout_disp_z(PetaPM * pm, int i, double * mesh, double weight);
-static void gaussian_fill(int Nmesh, PetaPMRegion * region, petapm_complex * rho_k, int UnitaryAmplitude, int InvertPhase, const int Seed);
+static void gaussian_fill(int Nmesh, PetaPMRegion * region, petapm_complex * rho_k, int UnitaryAmplitude, int InvertPhase, const int64_t Seed);
 
 static inline double periodic_wrap(double x, const double BoxSize)
 {
@@ -360,7 +360,7 @@ static void readout_disp_z(PetaPM * pm, int i, double * mesh, double weight) {
 }
 
 static void
-gaussian_fill(int Nmesh, PetaPMRegion * region, petapm_complex * rho_k, int setUnitaryAmplitude, int setInvertPhase, const int Seed)
+gaussian_fill(int Nmesh, PetaPMRegion * region, petapm_complex * rho_k, int setUnitaryAmplitude, int setInvertPhase, const int64_t Seed)
 {
     /* fastpm deals with strides properly; petapm not. So we translate it here. */
     PMDesc pm[1];
