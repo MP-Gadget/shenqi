@@ -1,6 +1,7 @@
 #ifndef FORCETREE2_H
 #define FORCETREE2_H
 
+#include <omp.h>
 #include "types.h"
 #include "domain.h"
 #include "timestep.h"
@@ -294,6 +295,7 @@ public:
         nfreep->mom.hmax = 0;
         /* Set the treenode for this node*/
         ddecomp->TopLeaves[0].treenode = numnodes;
+        numnodes++;
         /* create a set of empty nodes corresponding to the top-level ddecomp
          * grid. We need to generate these nodes first to make sure that we have a
          * complete top-level tree which allows the easy insertion of the
@@ -326,8 +328,8 @@ protected:
     /* Constructor for derived classes: sets up the toptree and the mask, but
      * does not build the local tree. The derived class is responsible for
      * calling ForceTree_internal itself.*/
-    ForceTree(DomainDecomp * ddecomp, const double BoxSize, const int i_mask):
-    TopTree(ddecomp, BoxSize), mask(i_mask)
+    ForceTree(part_manager_type& PartManager, DomainDecomp * ddecomp, const int i_mask):
+    TopTree(ddecomp, PartManager.BoxSize), mask(i_mask), MaxPart(PartManager.MaxPart)
     {  }
 
     void ForceTree_internal(part_manager_type& PartManager, DomainDecomp * ddecomp, ActiveParticles * act, const std::string EmergencyOutputDir)
@@ -341,12 +343,16 @@ protected:
 
         /* Make a copy of the node pointer from the toptree*/
         struct NODE * TopNodes = Nodes;
+        /* Number of toptree nodes: numnodes is overwritten by force_tree_create_nodes,
+         * so store it to restore on a retry.*/
+        const int64_t ntopnodes = numnodes;
 
         do
         {
             /* Allocate memory: note that because node numbers are passed around between ranks,
             * this has to be something which is the same on all ranks. */
             Nodes = mymanagedmalloc("Nodes_base", struct NODE, (maxnodes + 1));
+            numnodes = ntopnodes;
             memcpy(Nodes, TopNodes, numnodes * sizeof(struct NODE));
             lastnode = maxnodes;
 
@@ -403,7 +409,7 @@ public:
     * This is much faster than _full: because the particles are sorted by type the merge step is much faster than
     * with all particle types, and of course the tree is smaller.*/
     ForceTree(part_manager_type& PartManager, DomainDecomp * ddecomp, const int i_mask, const std::string EmergencyOutputDir):
-    TopTree(ddecomp, PartManager.BoxSize), mask(i_mask)
+    TopTree(ddecomp, PartManager.BoxSize), mask(i_mask), MaxPart(PartManager.MaxPart)
     {
         message(0, "Tree construction for types: %d.\n", mask);
         /* Build for all particles*/
@@ -411,14 +417,10 @@ public:
         ForceTree_internal(PartManager, ddecomp, &act, EmergencyOutputDir);
     }
 
+#ifdef DEBUG
     bool node_is_pseudo_particle(const int no) const
     {
         return no >= lastnode;
-    }
-
-    bool node_is_particle(const int no) const
-    {
-        return no < 0 && no >= -1 * MaxPart;
     }
 
     bool
@@ -426,6 +428,7 @@ public:
     {
         return (no >= 0) && (no < numnodes);
     }
+#endif
 
     /* Add a particle to a node in a known empty location.
      * Parent is assumed to be locked.*/
@@ -484,7 +487,7 @@ public:
                 newsuns[i] = newsuns[0] + i;
                 struct NODE *nfreep = &Nodes[newsuns[i]];
                 /* We create a new leaf node.*/
-                new (nfreep) NODE(nprnt, 1);
+                new (nfreep) NODE(nprnt, i);
                 /*Set father of new node*/
                 nfreep->father = parent;
             }
@@ -877,7 +880,7 @@ public:
             else if(nright->f.ChildType == PARTICLE_NODE_TYPE) {
                 int i;
                 for(i = 0; i < nright->s.noccupied; i++) {
-                    if(nright->s.suns[i] >= 0)
+                    if(nright->s.suns[i] < 0 || nright->s.suns[i] >= MaxPart)
                         endrun(8, "Bad child %d of %d in %d\n", i, nright->s.suns[i], this_right);
                     if(add_particle_to_tree(nright->s.suns[i], this_left, nc, nnext) < 0)
                         return 1;
@@ -919,7 +922,7 @@ public:
                 /* Add the left particles to the right*/
                 int i;
                 for(i = 0; i < nleft->s.noccupied; i++) {
-                    if(nleft->s.suns[i] >= 0)
+                    if(nleft->s.suns[i] < 0 || nleft->s.suns[i] >= MaxPart)
                         endrun(8, "Bad child %d of %d in left %d\n", i, nleft->s.suns[i], this_left);
                     if(add_particle_to_tree(nleft->s.suns[i], this_right, nc, nnext) < 0)
                         return 1;
@@ -1114,7 +1117,7 @@ public:
     /* Build a tree structure using all particles, compute moments and allocate a father array.
      * This is the fattest tree constructor, allows moments and walking up and down.*/
     ForceTreeHmax(part_manager_type& PartManager, DomainDecomp * ddecomp, int i_mask, const std::string EmergencyOutputDir):
-    ForceTree(ddecomp, PartManager.BoxSize, i_mask)
+    ForceTree(PartManager, ddecomp, i_mask)
     {
         /* Allocate the Father array before building: modify_internal_node
          * fills it in as each particle is attached to a node.*/
@@ -1125,6 +1128,12 @@ public:
 #endif
         ActiveParticles act = init_empty_active_particles(&PartManager);
         ForceTree_internal(PartManager, ddecomp, &act, EmergencyOutputDir);
+    }
+
+    ~ForceTreeHmax(void)
+    {
+        if(Father)
+            myfree(Father);
     }
 
     /* Update the hmax in the parent node of the particle p_i*/
@@ -1280,7 +1289,7 @@ public:
     /* Build a tree structure using all particles, compute moments and allocate a father array.
      * This is the fattest tree constructor, allows moments and walking up and down.*/
     ForceTreeMoments(part_manager_type& PartManager, DomainDecomp * ddecomp, ActiveParticles * act, bool HybridNuTracer, const std::string EmergencyOutputDir):
-    ForceTree(ddecomp, PartManager.BoxSize, ALLMASK), full_particle_tree_flag(act == NULL)
+    ForceTree(PartManager, ddecomp, ALLMASK), full_particle_tree_flag(act == NULL)
     {
         /* Build for all particles by default, but skip neutrinos if they are passive.*/
         if(HybridNuTracer)
