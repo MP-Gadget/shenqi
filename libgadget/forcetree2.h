@@ -1286,15 +1286,21 @@ public:
     /* Flags that the tree contains all particles*/
     bool full_particle_tree_flag;
 
-    /* Build a tree structure using all particles, compute moments and allocate a father array.
-     * This is the fattest tree constructor, allows moments and walking up and down.*/
+    /* Build a tree structure using the particles in act and compute moments.
+     * If act is NULL, or has no ActiveParticle list, all particles are used and full_particle_tree_flag is set
+     * (even if passive neutrinos are excluded).*/
     ForceTreeMoments(part_manager_type& PartManager, DomainDecomp * ddecomp, ActiveParticles * act, bool HybridNuTracer, const std::string EmergencyOutputDir):
-    ForceTree(PartManager, ddecomp, ALLMASK), full_particle_tree_flag(act == NULL)
+    ForceTree(PartManager, ddecomp, ALLMASK), full_particle_tree_flag(act == NULL || act->ActiveParticle == NULL)
     {
         /* Build for all particles by default, but skip neutrinos if they are passive.*/
         if(HybridNuTracer)
             mask = GASMASK + DMMASK + STARMASK + BHMASK;
-        ForceTree_internal(PartManager, ddecomp, act, EmergencyOutputDir);
+        ActiveParticles myact;
+        if(!act)
+            myact = init_empty_active_particles(&PartManager);
+        else
+            myact = *act;
+        ForceTree_internal(PartManager, ddecomp, &myact, EmergencyOutputDir);
         walltime_measure("/Tree/Build/Nodes");
         /* Compute moments of the force tree, recursively.*/
         force_update_node_parallel(ddecomp);
