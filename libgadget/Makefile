@@ -16,6 +16,7 @@ TESTED = cooling \
 	slotsmanager \
 	powerspectrum \
 	forcetree \
+	forcetree2 \
 	timebinmgr \
 	neutrinos_lra \
 	omega_nu_single \
@@ -133,6 +134,9 @@ objs/test_densitykernel: tests/test_densitykernel.cpp densitykernel.hpp
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_forcetree: tests/test_forcetree.cpp libgadget.a libgadget-utils.a
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+
+.objs/test_forcetree2: tests/test_forcetree2.cpp libgadget.a libgadget-utils.a
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 build-tests: $(TESTBIN)
