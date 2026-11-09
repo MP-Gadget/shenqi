@@ -179,8 +179,6 @@ public:
  * No particle data is entered here: it simply mirrors the domain decomposition.*/
 class TopTree {
 protected:
-    /*Index of first pseudo-particle node*/
-    int64_t lastnode;
     /* Number of actually allocated nodes*/
     int64_t numnodes = 0;
     /*Pointer to the tree nodes. If a negative index is given, a particle is accessed.*/
@@ -236,15 +234,15 @@ protected:
                         TopLeaves[curtopnode.Leaf].treenode = numnodes;
                         /* We set the first child as a pointer to the topleaf, essentially constructing the pseudoparticles early.
                         * We do not set nocc, so this first child will be over-written on local nodes when we construct the full tree.*/
-                        Nodes[numnodes].s.suns[0] = curtopnode.Leaf + lastnode;
+                        Nodes[numnodes].s.suns[0] = curtopnode.Leaf;
                         if(TopLeaves[curtopnode.Leaf].Task != ThisTask)
                             Nodes[numnodes].f.ChildType = PSEUDO_NODE_TYPE;
                     }
 
                     numnodes++;
 
-                    if(numnodes >= lastnode)
-                        endrun(11, "Not enough force nodes to topnode grid: need %ld\n", lastnode);
+                    if(numnodes >= ddecomp->NTopNodes+2)
+                        endrun(11, "Not enough force nodes to topnode grid: need %d\n", ddecomp->NTopNodes+2);
                 }
         /* Set sibling on the child*/
         for(int j=0; j<7; j++) {
@@ -271,10 +269,8 @@ public:
     {
         /* Allocate memory. Two extra for the first node and for a sentinel*/
         Nodes = mymanagedmalloc("Nodes_base", struct NODE, ddecomp->NTopNodes+2);
-        lastnode = ddecomp->NTopNodes+2;
         MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
 
-        // message(1, "Building toptree last %d, topnodes %d\n", lastnode, ddecomp->NTopNodes);
         numnodes = 0;       /* index of first free node */
         struct NODE *nfreep = &Nodes[numnodes];
         nfreep->len = BoxSize*1.001;
@@ -324,6 +320,8 @@ protected:
     /* Number of particles stored in this tree*/
     int64_t NumParticles;
     int64_t MaxPart;
+    /* Maximum allocated nodes*/
+    int64_t maxnodes;
 
     /* Constructor for derived classes: sets up the toptree and the mask, but
      * does not build the local tree. The derived class is responsible for
@@ -334,7 +332,6 @@ protected:
 
     void ForceTree_internal(part_manager_type& PartManager, DomainDecomp * ddecomp, ActiveParticles * act, const std::string EmergencyOutputDir)
     {
-        int64_t maxnodes = TreeAllocFactor * PartManager.NumPart + ddecomp->NTopNodes;
         /* int64_t maxmaxnodes;
         MPI_Reduce(&maxnodes, &maxmaxnodes, 1, MPI_INT64, MPI_MAX,0, MPI_COMM_WORLD);
         message(0, "Treebuild: Largest is %g MByte for %ld tree nodes. (presently allocated %g MB)\n",
@@ -351,10 +348,10 @@ protected:
         {
             /* Allocate memory: note that because node numbers are passed around between ranks,
             * this has to be something which is the same on all ranks. */
+            maxnodes = TreeAllocFactor * PartManager.NumPart + ddecomp->NTopNodes;
             Nodes = mymanagedmalloc("Nodes_base", struct NODE, (maxnodes + 1));
             numnodes = ntopnodes;
             memcpy(Nodes, TopNodes, numnodes * sizeof(struct NODE));
-            lastnode = maxnodes;
 
             force_tree_create_nodes(act, ddecomp);
 
@@ -370,11 +367,10 @@ protected:
                     break;
     #endif
                 }
-                maxnodes = TreeAllocFactor * PartManager.NumPart + ddecomp->NTopNodes;
-                message(1, "TreeAllocFactor from %g to %g now %ld tree nodes\n", TreeAllocFactor, TreeAllocFactor*1.15, maxnodes);
+                message(1, "TreeAllocFactor from %g to %g was %ld tree nodes\n", TreeAllocFactor, TreeAllocFactor*1.15, maxnodes);
             }
         }
-        while(numnodes >= lastnode);
+        while(numnodes >= maxnodes);
 
     #ifdef DEBUG
         if(MPIU_Any(TreeAllocFactor > 3.0, MPI_COMM_WORLD)) {
@@ -399,8 +395,8 @@ protected:
         MPI_Reduce(&NumParticles, &allact, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
         MPI_Reduce(&numnodes, &maxnumnodes, 1, MPI_INT64, MPI_MAX, 0, MPI_COMM_WORLD);
     #endif
-        message(0, "Tree constructed (type mask: %d) with %ld particles. Num nodes %ld, first pseudo %ld. NTopLeaves %d\n",
-                mask, allact, maxnumnodes, lastnode, NTopLeaves);
+        message(0, "Tree constructed (type mask: %d) with %ld particles. Num nodes %ld, NTopLeaves %d\n",
+                mask, allact, maxnumnodes, NTopLeaves);
     }
 
 public:
@@ -418,11 +414,6 @@ public:
     }
 
 #ifdef DEBUG
-    bool node_is_pseudo_particle(const int no) const
-    {
-        return no >= lastnode;
-    }
-
     bool
     node_is_node(const int no) const
     {
@@ -462,7 +453,7 @@ public:
             /* Get memory for 8 extra nodes from our cache.*/
             newsuns[0] = nc->get_freenode(nnext);
             /*If we already have too many nodes, exit loop.*/
-            if(nc->nnext_thread >= lastnode) {
+            if(nc->nnext_thread >= maxnodes) {
                 /* This means that we have > NMAXCHILD particles in the same place,
                 * which usually indicates a bug in the particle evolution. Print some helpful debug information.*/
                 message(1, "Failed placing %d at %g %g %g, type %d, ID %ld. Others were %d (%g %g %g, t %d ID %ld) and %d (%g %g %g, t %d ID %ld).\n",
@@ -470,7 +461,7 @@ public:
                     oldsuns[0], Part[oldsuns[0]].Pos[0], Part[oldsuns[0]].Pos[1], Part[oldsuns[0]].Pos[2], Part[oldsuns[0]].Type, Part[oldsuns[0]].ID,
                     oldsuns[1], Part[oldsuns[1]].Pos[0], Part[oldsuns[1]].Pos[1], Part[oldsuns[1]].Pos[2], Part[oldsuns[1]].Type, Part[oldsuns[1]].ID
                 );
-                nc->nnext_thread = lastnode + 10 * NODECACHE_SIZE;
+                nc->nnext_thread = maxnodes + 10 * NODECACHE_SIZE;
                 /* If this is not the first layer created,
                     * we need to mark the overall parent as a node node
                     * while marking this one as a particle node */
@@ -613,7 +604,7 @@ public:
             for(int j = 0; j < act->NumActiveParticle; j++)
             {
                 /*Can't break from openmp for*/
-                if(nc.nnext_thread >= lastnode)
+                if(nc.nnext_thread >= maxnodes)
                     continue;
 
                 /* Pick the next particle from the active list if there is one*/
@@ -663,7 +654,7 @@ public:
             for(int j = 0; j < EndLeaf - StartLeaf; j++) {
                 /* These are the addresses of the real topnodes*/
                 const int target = topnodes[j];
-                if(nc.nnext_thread >= lastnode)
+                if(nc.nnext_thread >= maxnodes)
                     continue;
                 for(int t = 1; t < nthr; t++) {
                     const int righttop = topnodes[j + t * (EndLeaf - StartLeaf)];
@@ -815,8 +806,8 @@ public:
             /*No lock needed: if we have an internal node here it will be stable*/
             child = Nodes[cur].s.suns[subnode];
 
-            if(child > lastnode || child < 0)
-                endrun(1,"Corruption in tree build: N[%d].[%d] = %d > lastnode (%ld)\n",cur, subnode, child, lastnode);
+            if(child > maxnodes || child < 0)
+                endrun(1,"Corruption in tree build: N[%d].[%d] = %d > maxnodes (%ld)\n",cur, subnode, child, maxnodes);
             cur = child;
         }
         while(child >= 0);
@@ -854,7 +845,7 @@ public:
                 endrun(10, "Encountered invalid node: %d %d < 0\n", this_left, this_right);
             struct NODE * nleft = &Nodes[this_left];
             struct NODE * nright = &Nodes[this_right];
-            if(nc->nnext_thread >= lastnode)
+            if(nc->nnext_thread >= maxnodes)
                 return 1;
     #ifdef DEBUG
             /* Stop when we reach another topnode*/
@@ -1026,8 +1017,8 @@ public:
             const int p = Nodes[no].s.suns[j];
 
             /*This may not happen as we are an internal top level node*/
-            if(p < 0 || p >= lastnode)
-                endrun(6767, "Updating pseudos: %d -> %d which is not an internal node between 0 and %ld\n",no, p, lastnode);
+            if(p < 0 || p >= maxnodes)
+                endrun(6767, "Updating pseudos: %d -> %d which is not an internal node between 0 and %ld\n",no, p, maxnodes);
     #ifdef DEBUG
             /* Check we don't move to another part of the tree*/
             if(Nodes[p].father != no)
@@ -1056,17 +1047,22 @@ public:
         {
             struct NODE * current = &Nodes[no];
             if(current->sibling != -1 && !node_is_node(current->sibling))
-                endrun(5, "Node %d (type %d) has sibling %d next %d father %d final %ld last %ld ntop %d\n", no, current->f.ChildType, current->sibling, current->s.suns[0], current->father, numnodes, lastnode, NTopLeaves);
+                endrun(5, "Node %d (type %d) has sibling %d next %d father %d final %ld last %ld ntop %d\n", no, current->f.ChildType, current->sibling, current->s.suns[0], current->father, numnodes, maxnodes, NTopLeaves);
 
             if(current->f.ChildType == PSEUDO_NODE_TYPE) {
-                /* pseudo particle: nextnode should be a pseudo particle, sibling should be a node. */
-                if(!node_is_pseudo_particle(current->s.suns[0]))
-                    endrun(5, "Pseudo Node %d has next node %d sibling %d father %d final %ld last %ld ntop %d\n", no, current->s.suns[0], current->sibling, current->father, numnodes, lastnode, NTopLeaves);
+                /* pseudo particle: nextnode should be a remote topleaf whose treenode is this node. */
+                const int leaf = current->s.suns[0];
+                if(leaf < 0 || leaf >= NTopLeaves)
+                    endrun(5, "Pseudo Node %d has next node %d not a topleaf (ntop %d) sibling %d father %d\n", no, leaf, NTopLeaves, current->sibling, current->father);
+                if(TopLeaves[leaf].treenode != no)
+                    endrun(5, "Pseudo Node %d has topleaf %d with treenode %d != node\n", no, leaf, TopLeaves[leaf].treenode);
+                if(TopLeaves[leaf].Task == ThisTask)
+                    endrun(5, "Pseudo Node %d has topleaf %d on local task %d\n", no, leaf, ThisTask);
             }
             else if(current->f.ChildType == NODE_NODE_TYPE) {
                 /* Next node should be another node */
                 if(!node_is_node(current->s.suns[0]))
-                    endrun(5, "Node Node %d has next node which is particle %d sibling %d father %d final %ld last %ld ntop %d\n", no, current->s.suns[0], current->sibling, current->father, numnodes, lastnode, NTopLeaves);
+                    endrun(5, "Node Node %d has next node which is particle %d sibling %d father %d final %ld last %ld ntop %d\n", no, current->s.suns[0], current->sibling, current->father, numnodes, maxnodes, NTopLeaves);
                 no = current->s.suns[0];
                 continue;
             }

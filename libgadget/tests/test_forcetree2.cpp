@@ -16,7 +16,7 @@
 
 static struct ClockTable Clocks;
 
-/* The tree internals (Nodes, numnodes, lastnode) are protected.
+/* The tree internals (Nodes, numnodes, maxnodes) are protected.
  * This wrapper exposes them read-only for testing, and inherits the tree constructors.*/
 template <typename Tree>
 class TestTree : public Tree {
@@ -24,7 +24,7 @@ public:
     using Tree::Tree;
     const NODE * nodes() const { return this->Nodes; }
     int64_t get_numnodes() const { return this->numnodes; }
-    int64_t get_lastnode() const { return this->lastnode; }
+    int64_t get_maxnodes() const { return this->maxnodes; }
     int64_t get_numparticles() const { return this->NumParticles; }
     int64_t get_maxpart() const { return this->MaxPart; }
 };
@@ -269,7 +269,7 @@ static void do_tree_test(const int numpart, DomainDecomp * ddecomp)
         double end = MPI_Wtime();
         double ms = (end - start)*1000;
         BOOST_TEST(tb.full_particle_tree_flag == c.full);
-        BOOST_TEST(tb.get_numnodes() < tb.get_lastnode());
+        BOOST_TEST(tb.get_numnodes() < tb.get_maxnodes());
         printf("Active list %s: number of nodes used: %ld. Built tree and moments in %.3g ms. Total mass: %g\n",
                c.name, tb.get_numnodes(), ms, tb.nodes()[0].mom.mass);
         BOOST_TEST(fabs(tb.nodes()[0].mom.mass - numpart) < 0.5);
