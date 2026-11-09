@@ -27,6 +27,8 @@ public:
     int64_t get_maxnodes() const { return this->maxnodes; }
     int64_t get_numparticles() const { return this->NumParticles; }
     int64_t get_maxpart() const { return this->MaxPart; }
+    /* Time in ms spent in DEBUG validation during construction, to exclude it from build timings*/
+    double get_validate_ms() const { return this->validate_time * 1000; }
 };
 
 typedef TestTree<ForceTreeMoments> TestTreeMoments;
@@ -267,11 +269,11 @@ static void do_tree_test(const int numpart, DomainDecomp * ddecomp)
         double start = MPI_Wtime();
         TestTreeMoments tb(*PartManager, ddecomp, c.act, false, "");
         double end = MPI_Wtime();
-        double ms = (end - start)*1000;
+        double ms = (end - start)*1000 - tb.get_validate_ms();
         BOOST_TEST(tb.full_particle_tree_flag == c.full);
         BOOST_TEST(tb.get_numnodes() < tb.get_maxnodes());
-        printf("Active list %s: number of nodes used: %ld. Built tree and moments in %.3g ms. Total mass: %g\n",
-               c.name, tb.get_numnodes(), ms, tb.nodes()[0].mom.mass);
+        printf("Active list %s: number of nodes used: %ld. Built tree and moments in %.3g ms (excluding %.3g ms validation). Total mass: %g\n",
+               c.name, tb.get_numnodes(), ms, tb.get_validate_ms(), tb.nodes()[0].mom.mass);
         BOOST_TEST(fabs(tb.nodes()[0].mom.mass - numpart) < 0.5);
         TreeWalkInfo info = check_tree(tb, numpart);
         check_siblings(tb, info.reachable.size());
@@ -345,8 +347,8 @@ static double do_tree_mask_hmax_update_test(const int numpart, DomainDecomp * dd
     double start = MPI_Wtime();
     TestTreeHmax tb(*PartManager, ddecomp, GASMASK, "");
     double end = MPI_Wtime();
-    double ms = (end - start)*1000;
-    printf("Built gas tree in %.3g ms\n", ms);
+    double ms = (end - start)*1000 - tb.get_validate_ms();
+    printf("Built gas tree in %.3g ms (excluding %.3g ms validation)\n", ms, tb.get_validate_ms());
     BOOST_TEST(tb.hmax_computed_flag == false);
     BOOST_TEST(tb.Father);
     BOOST_TEST(tb.nfather == numpart);

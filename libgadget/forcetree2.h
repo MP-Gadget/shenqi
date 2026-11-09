@@ -326,6 +326,9 @@ protected:
     int64_t MaxPart;
     /* Maximum allocated nodes*/
     int64_t maxnodes;
+    /* Time in seconds spent in the DEBUG tree validation during construction.
+     * Zero without DEBUG. Lets the build time be measured separately from the validation.*/
+    double validate_time = 0;
 
     /* Constructor for derived classes: sets up the toptree and the mask, but
      * does not build the local tree. The derived class is responsible for
@@ -398,7 +401,9 @@ protected:
         int64_t allact = NumParticles;
         int64_t maxnumnodes = numnodes;
     #ifdef DEBUG
+        const double validate_start = MPI_Wtime();
         force_validate_nextlist();
+        validate_time = MPI_Wtime() - validate_start;
         MPI_Reduce(&NumParticles, &allact, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
         MPI_Reduce(&numnodes, &maxnumnodes, 1, MPI_INT64, MPI_MAX, 0, MPI_COMM_WORLD);
     #endif
@@ -420,13 +425,11 @@ public:
         ForceTree_internal(PartManager, ddecomp, &act, EmergencyOutputDir);
     }
 
-#ifdef DEBUG
     bool
     node_is_node(const int no) const
     {
         return (no >= 0) && (no < numnodes);
     }
-#endif
 
     /* Add a particle to a node in a known empty location.
      * Parent is assumed to be locked.*/
