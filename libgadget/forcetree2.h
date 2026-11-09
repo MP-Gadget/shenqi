@@ -304,6 +304,10 @@ public:
         myfree(Nodes);
     }
 
+    /* The tree owns its Nodes allocation, so copying would double free.*/
+    TopTree(const TopTree&) = delete;
+    TopTree& operator=(const TopTree&) = delete;
+
 };
 
 /*Structure containing the Node pointer, and various Tree metadata.
@@ -349,6 +353,9 @@ protected:
             /* Allocate memory: note that because node numbers are passed around between ranks,
             * this has to be something which is the same on all ranks. */
             maxnodes = TreeAllocFactor * PartManager.NumPart + ddecomp->NTopNodes;
+            /* Node indices are stored as int, and the node cache may run past maxnodes, so leave headroom.*/
+            if(maxnodes >= (1L<<30) + (1L<<29))
+                endrun(5, "Size of tree overflowed for NumPart = %ld, maxnodes = %ld!\n", PartManager.NumPart, maxnodes);
             Nodes = mymanagedmalloc("Nodes_base", struct NODE, (maxnodes + 1));
             numnodes = ntopnodes;
             memcpy(Nodes, TopNodes, numnodes * sizeof(struct NODE));
@@ -1017,8 +1024,8 @@ public:
             const int p = Nodes[no].s.suns[j];
 
             /*This may not happen as we are an internal top level node*/
-            if(p < 0 || p >= maxnodes)
-                endrun(6767, "Updating pseudos: %d -> %d which is not an internal node between 0 and %ld\n",no, p, maxnodes);
+            if(p < 0 || p >= numnodes)
+                endrun(6767, "Updating pseudos: %d -> %d which is not an internal node between 0 and %ld\n",no, p, numnodes);
     #ifdef DEBUG
             /* Check we don't move to another part of the tree*/
             if(Nodes[p].father != no)
@@ -1131,6 +1138,10 @@ public:
         if(Father)
             myfree(Father);
     }
+
+    /* The tree owns its Father allocation, so copying would double free.*/
+    ForceTreeHmax(const ForceTreeHmax&) = delete;
+    ForceTreeHmax& operator=(const ForceTreeHmax&) = delete;
 
     /* Update the hmax in the parent node of the particle p_i*/
     void
