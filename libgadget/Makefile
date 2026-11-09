@@ -23,7 +23,7 @@ TESTED = cooling \
 	gravity density \
 	metal_return
 
-MPI_TESTED = fof exchange gravity density
+MPI_TESTED = fof exchange gravity density forcetree2_mpi
 
 TESTBIN :=$(UTILS_TESTED:%=.objs/utils/test_%) $(UTILS_MPI_TESTED:%=.objs/utils/test_%) $(TESTED:%=.objs/test_%) $(MPI_TESTED:%=.objs/test_%)
 MPISUITE = $(MPI_TESTED:%=test_%) $(UTILS_MPI_TESTED:%=utils/test_%)
@@ -137,6 +137,9 @@ objs/test_densitykernel: tests/test_densitykernel.cpp densitykernel.hpp
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_forcetree2: tests/test_forcetree2.cpp libgadget.a libgadget-utils.a
+	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
+
+.objs/test_forcetree2_mpi: tests/test_forcetree2_mpi.cpp libgadget.a libgadget-utils.a
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 build-tests: $(TESTBIN)
