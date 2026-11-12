@@ -23,7 +23,6 @@ static struct ClockTable Clocks;
 class TestTopTree : public TopTree<MomentNODE> {
 public:
     using TopTree::TopTree;
-    const auto * nodes() const { return this->Nodes; }
     int64_t get_numnodes() const { return this->numnodes; }
 };
 
@@ -31,7 +30,6 @@ template <typename Tree>
 class TestTree : public Tree {
 public:
     using Tree::Tree;
-    const auto * nodes() const { return this->Nodes; }
     int64_t get_numnodes() const { return this->numnodes; }
     int64_t get_numparticles() const { return this->NumParticles; }
 };
@@ -321,9 +319,9 @@ BOOST_AUTO_TEST_CASE(test_toptree_mpi)
 
     TestTopTree tree(&ddecomp, PartManager->BoxSize);
     BOOST_TEST(tree.get_numnodes() == ddecomp.NTopNodes);
-    check_toptree(tree.nodes(), &ddecomp, false);
-    check_toptree_consistent(tree.nodes(), &ddecomp);
-    check_walk(tree.nodes(), tree.get_numnodes(), &ddecomp);
+    check_toptree(tree.get_nodes(), &ddecomp, false);
+    check_toptree_consistent(tree.get_nodes(), &ddecomp);
+    check_walk(tree.get_nodes(), tree.get_numnodes(), &ddecomp);
     teardown_particles(&ddecomp);
 }
 
@@ -334,7 +332,7 @@ BOOST_AUTO_TEST_CASE(test_forcetree_moments_mpi)
     const int NTopLeaves = ddecomp.NTopLeaves;
 
     TestTreeMoments tb(*PartManager, &ddecomp, NULL, false, "");
-    const auto * Nodes = tb.nodes();
+    const auto * Nodes = tb.get_nodes();
     BOOST_TEST(tb.get_numparticles() == PartManager->NumPart);
     check_toptree(Nodes, &ddecomp, true);
     check_toptree_consistent(Nodes, &ddecomp);
@@ -418,7 +416,7 @@ static double do_hmax_test(DomainDecomp * ddecomp, const bool active)
     }
     tb.force_tree_calc_hmax(ddecomp);
     BOOST_TEST(tb.hmax_computed_flag);
-    const auto * Nodes = tb.nodes();
+    const auto * Nodes = tb.get_nodes();
     check_toptree(Nodes, ddecomp, true);
     check_toptree_consistent(Nodes, ddecomp);
     check_walk(Nodes, tb.get_numnodes(), ddecomp);

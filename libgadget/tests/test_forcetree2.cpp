@@ -16,13 +16,12 @@
 
 static struct ClockTable Clocks;
 
-/* The tree internals (Nodes, numnodes, maxnodes) are protected.
+/* The tree internals (numnodes, maxnodes) are protected; Nodes is available via get_nodes().
  * This wrapper exposes them read-only for testing, and inherits the tree constructors.*/
 template <typename Tree>
 class TestTree : public Tree {
 public:
     using Tree::Tree;
-    const auto * nodes() const { return this->Nodes; }
     int64_t get_numnodes() const { return this->numnodes; }
     int64_t get_maxnodes() const { return this->maxnodes; }
     int64_t get_numparticles() const { return this->NumParticles; }
@@ -51,7 +50,7 @@ struct TreeWalkInfo {
 template <typename Tree>
 static void walk_node(const Tree& tb, const int no, const int numpart, TreeWalkInfo& info)
 {
-    const auto * Nodes = tb.nodes();
+    const auto * Nodes = tb.get_nodes();
     const auto * nop = &Nodes[no];
     BOOST_TEST_REQUIRE(tb.node_is_node(no));
     info.reachable.push_back(no);
@@ -117,7 +116,7 @@ static TreeWalkInfo check_tree(const Tree& tb, const int numpart)
     TreeWalkInfo info;
     info.pfather.assign(numpart, -1);
     /* Root node*/
-    const auto * Nodes = tb.nodes();
+    const auto * Nodes = tb.get_nodes();
     BOOST_TEST(Nodes[0].father == -1);
     BOOST_TEST(Nodes[0].sibling == -1);
     BOOST_TEST(Nodes[0].TopLevel);
@@ -142,7 +141,7 @@ static TreeWalkInfo check_tree(const Tree& tb, const int numpart)
 template <typename Tree>
 static void check_siblings(const Tree& tb, const int64_t nreal)
 {
-    const auto * Nodes = tb.nodes();
+    const auto * Nodes = tb.get_nodes();
     int node = 0;
     int counter = 0;
     int sibcntr = 0;
@@ -186,7 +185,7 @@ static void check_siblings(const Tree& tb, const int64_t nreal)
  * that the mass and center of mass are correct.*/
 static void check_moments(const TestTreeMoments& tb, const int numpart, const TreeWalkInfo& info)
 {
-    const auto * Nodes = tb.nodes();
+    const auto * Nodes = tb.get_nodes();
     const int64_t numnodes = tb.get_numnodes();
     std::vector<double> mass(numnodes, 0);
     std::vector<double> cofm(3*numnodes, 0);
@@ -273,8 +272,8 @@ static void do_tree_test(const int numpart, DomainDecomp * ddecomp)
         BOOST_TEST(tb.full_particle_tree_flag == c.full);
         BOOST_TEST(tb.get_numnodes() < tb.get_maxnodes());
         printf("Active list %s: number of nodes used: %ld. Built tree and moments in %.3g ms (excluding %.3g ms validation). Total mass: %g\n",
-               c.name, tb.get_numnodes(), ms, tb.get_validate_ms(), tb.nodes()[0].mass);
-        BOOST_TEST(fabs(tb.nodes()[0].mass - numpart) < 0.5);
+               c.name, tb.get_numnodes(), ms, tb.get_validate_ms(), tb.get_nodes()[0].mass);
+        BOOST_TEST(fabs(tb.get_nodes()[0].mass - numpart) < 0.5);
         TreeWalkInfo info = check_tree(tb, numpart);
         check_siblings(tb, info.reachable.size());
         check_moments(tb, numpart, info);
@@ -308,7 +307,7 @@ static int check_inside(int i, const auto * node)
  * that is the distance between each particle and node center is larger than hmax.*/
 static void check_hmax(const TestTreeHmax& tb, const int numpart, const TreeWalkInfo& info)
 {
-    const auto * Nodes = tb.nodes();
+    const auto * Nodes = tb.get_nodes();
     for(int i=0; i<numpart; i++)
     {
         /* Father array should agree with the tree walk*/
@@ -364,7 +363,7 @@ static double do_tree_mask_hmax_update_test(const int numpart, DomainDecomp * dd
     end = MPI_Wtime();
     ms = (end - start)*1000;
     BOOST_TEST(tb.hmax_computed_flag == true);
-    const double roothmax = tb.nodes()[0].hmax;
+    const double roothmax = tb.get_nodes()[0].hmax;
     printf("Updated hmax (active = %d) in %.3g ms. Root hmax: %g\n", active, ms, roothmax);
     TreeWalkInfo info = check_tree(tb, numpart);
     check_siblings(tb, info.reachable.size());

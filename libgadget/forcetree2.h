@@ -70,9 +70,10 @@ struct NodeChild
     int noccupied;
 };
 
-/* Common part of a tree node. This is only used as a protected base of the node
- * types for each tree (MomentNODE, HmaxNODE), so that an array of derived nodes cannot
- * be implicitly converted to a NODE pointer, which would index it with the wrong stride.
+/* Common part of a tree node. This is used directly as the node type of ForceTreeSimple,
+ * and as a protected base of the node types for the other trees (MomentNODE, HmaxNODE),
+ * so that an array of derived nodes cannot be implicitly converted to a NODE pointer,
+ * which would index it with the wrong stride.
  * The derived classes re-export the members with using declarations.*/
 class NODE
 {
@@ -121,9 +122,6 @@ public:
             (fabs(2*(Pos[2] - center[2])) <= len + nugget);
         return inside;
     }
-
-protected:
-    /* Constructors are protected: a NODE is only ever constructed as part of a derived node.*/
 
     /* Initialise the root node.*/
     NODE(double BoxSize) : sibling(-1), father(-1), len(BoxSize*1.001),
@@ -322,6 +320,15 @@ protected:
     }
 
 public:
+    /* The type of the nodes in this tree. Tree walks check it against their own node_type.*/
+    using node_type = NodeType;
+
+    /* Read-only access for the tree walks. The node array is in managed memory, so it may be passed to the GPU.*/
+    const NodeType * get_nodes() const { return Nodes; }
+    /* The TopLeaves are shared with the domain decomposition: TopLeaves[i].treenode is the node index of top leaf i in the most recently built tree.*/
+    const topleaf_data * get_topleaves() const { return TopLeaves; }
+    int get_ntopleaves() const { return NTopLeaves; }
+
     double BoxSize;
 
     /* A toptree for domain exchange. This creates only the topnodes, which shadow elements of the domain decomposition.*/
@@ -1114,6 +1121,11 @@ public:
         walltime_measure("/Tree/Build/Validate");
     }
 #endif
+};
+
+
+class ForceTreeSimple : public ForceTree<ForceTreeSimple, NODE>  {
+    using ForceTree::ForceTree;
 };
 
 /* ForceTree variant which contains hmax.*/
