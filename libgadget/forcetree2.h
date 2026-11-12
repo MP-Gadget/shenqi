@@ -70,6 +70,10 @@ struct NodeChild
     int noccupied;
 };
 
+/* Common part of a tree node. This is only used as a protected base of the node
+ * types for each tree (MomentNODE, HmaxNODE), so that an array of derived nodes cannot
+ * be implicitly converted to a NODE pointer, which would index it with the wrong stride.
+ * The derived classes re-export the members with using declarations.*/
 class NODE
 {
 public:
@@ -89,34 +93,6 @@ public:
     bool InternalTopLevel;
     bool DependsOnLocalMass;
     unsigned int ChildType :2; /* Specify the type of children this node has: particles, other nodes, or pseudo-particles. */
-
-
-    /* Initialise the root node.*/
-    NODE(double BoxSize) : sibling(-1), father(-1), len(BoxSize*1.001),
-    TopLevel(true), InternalTopLevel(false), DependsOnLocalMass(false), ChildType(PARTICLE_NODE_TYPE)
-    {
-        for(int i = 0; i < 3; i++)
-            center[i] = BoxSize/2.;
-        for(int i = 0; i < NMAXCHILD; i++)
-            s.suns[i] = -1;
-        s.noccupied = 0;
-    }
-
-    /* Initialise an internal node. The parent is assumed to be locked, and
-     * we have assured that nothing else will change the node while we are here.*/
-    NODE(NODE *parent, int subnode) : sibling(-10), father(-10), len(0.5 * parent->len),
-    TopLevel(false), InternalTopLevel(false), DependsOnLocalMass(false), ChildType(PARTICLE_NODE_TYPE)
-    {
-        for(int j = 0; j < 3; j++) {
-            /* Detect which quadrant we are in by testing the bits of subnode:
-            * if (subnode & [1,2,4]) is true we add lenhalf, otherwise subtract lenhalf*/
-            const int sign = (subnode & (1 << j)) ? 1 : -1;
-            center[j] = parent->center[j] + sign* len / 2;
-        }
-        for(int j = 0; j < NMAXCHILD; j++)
-            s.suns[j] = -1;
-        s.noccupied = 0;
-    }
 
     /* Get the subnode for a given particle and parent node.
     * This splits a parent node into 8 subregions depending on the particle position.
@@ -145,11 +121,54 @@ public:
             (fabs(2*(Pos[2] - center[2])) <= len + nugget);
         return inside;
     }
+
+protected:
+    /* Constructors are protected: a NODE is only ever constructed as part of a derived node.*/
+
+    /* Initialise the root node.*/
+    NODE(double BoxSize) : sibling(-1), father(-1), len(BoxSize*1.001),
+    TopLevel(true), InternalTopLevel(false), DependsOnLocalMass(false), ChildType(PARTICLE_NODE_TYPE)
+    {
+        for(int i = 0; i < 3; i++)
+            center[i] = BoxSize/2.;
+        for(int i = 0; i < NMAXCHILD; i++)
+            s.suns[i] = -1;
+        s.noccupied = 0;
+    }
+
+    /* Initialise an internal node. The parent is assumed to be locked, and
+     * we have assured that nothing else will change the node while we are here.*/
+    NODE(NODE *parent, int subnode) : sibling(-10), father(-10), len(0.5 * parent->len),
+    TopLevel(false), InternalTopLevel(false), DependsOnLocalMass(false), ChildType(PARTICLE_NODE_TYPE)
+    {
+        for(int j = 0; j < 3; j++) {
+            /* Detect which quadrant we are in by testing the bits of subnode:
+            * if (subnode & [1,2,4]) is true we add lenhalf, otherwise subtract lenhalf*/
+            const int sign = (subnode & (1 << j)) ? 1 : -1;
+            center[j] = parent->center[j] + sign* len / 2;
+        }
+        for(int j = 0; j < NMAXCHILD; j++)
+            s.suns[j] = -1;
+        s.noccupied = 0;
+    }
 };
 
-class MomentNODE: public NODE
+class MomentNODE: protected NODE
 {
 public:
+    /* Re-export the common node members (see the comment on NODE)*/
+    using NODE::sibling;
+    using NODE::father;
+    using NODE::len;
+    using NODE::center;
+    using NODE::s;
+    using NODE::TopLevel;
+    using NODE::InternalTopLevel;
+    using NODE::DependsOnLocalMass;
+    using NODE::ChildType;
+    using NODE::get_subnode;
+    using NODE::inside_node;
+
     MyFloat cofm[3];		/*!< center of mass of node */
     MyFloat mass;		/*!< mass of node */
 
@@ -185,10 +204,23 @@ public:
     }
 };
 
-class HmaxNODE: public NODE
+class HmaxNODE: protected NODE
 {
 public:
-    MyFloat hmax;           /*!< maximum amount by which Pos + Hsml of all gas particles in the node exceeds len for this node. */
+    /* Re-export the common node members (see the comment on NODE)*/
+    using NODE::sibling;
+    using NODE::father;
+    using NODE::len;
+    using NODE::center;
+    using NODE::s;
+    using NODE::TopLevel;
+    using NODE::InternalTopLevel;
+    using NODE::DependsOnLocalMass;
+    using NODE::ChildType;
+    using NODE::get_subnode;
+    using NODE::inside_node;
+
+    MyFloat hmax;          /*!< maximum amount by which Pos + Hsml of all gas particles in the node exceeds len for this node. */
 
     HmaxNODE(double BoxSize) : NODE(BoxSize), hmax(0) {}
     /* Initialise an internal node. The parent is assumed to be locked, and

@@ -47,7 +47,7 @@ static int this_task(void)
 }
 
 /* Particle inside node, allowing for rounding in the node geometry.*/
-static bool inside(const double Pos[3], const NODE * node)
+static bool inside(const double Pos[3], const auto * node)
 {
     for(int j = 0; j < 3; j++)
         if(fabs(Pos[j] - node->center[j]) > node->len/2 * (1 + 1e-6))
