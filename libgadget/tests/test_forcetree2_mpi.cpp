@@ -190,17 +190,34 @@ static void check_toptree(const auto * Nodes, const DomainDecomp * ddecomp, cons
     BOOST_TEST(nbad == 0);
 }
 
-/* Check the top tree is the same on every rank, comparing to rank 0.
- * If moments is set, compares mass and center of mass, if hmax is set compares hmax.*/
-static void check_toptree_consistent(const MomentNODE * Nodes, const DomainDecomp * ddecomp, const bool hmax)
+/* Node-type specific values that should agree between ranks on the top tree*/
+static bool values_agree(const MomentNODE& a, const MomentNODE& b)
+{
+    bool good = fabs(a.mass - b.mass) <= 1e-10 * b.mass;
+    for(int k = 0; k < 3; k++)
+        good = good && fabs(a.cofm[k] - b.cofm[k]) <= 1e-10 * PartManager->BoxSize;
+    return good;
+}
+
+static bool values_agree(const HmaxNODE& a, const HmaxNODE& b)
+{
+    return fabs(a.hmax - b.hmax) <= 1e-10;
+}
+
+/* Check the top tree is the same on every rank, comparing to rank 0:
+ * the geometry and links, and the moments (mass and center of mass) or hmax,
+ * depending on the node type. The top-level values of remote leaves come
+ * from the pseudo particle exchange, so this checks the exchange.*/
+template <typename NodeType>
+static void check_toptree_consistent(const NodeType * Nodes, const DomainDecomp * ddecomp)
 {
     const int NTopNodes = ddecomp->NTopNodes;
-    std::vector<MomentNODE> root(Nodes, Nodes + NTopNodes);
-    MPI_Bcast(root.data(), NTopNodes * sizeof(MomentNODE), MPI_BYTE, 0, MPI_COMM_WORLD);
+    std::vector<NodeType> root(Nodes, Nodes + NTopNodes);
+    MPI_Bcast(root.data(), NTopNodes * sizeof(NodeType), MPI_BYTE, 0, MPI_COMM_WORLD);
     int nbad = 0;
     for(int no = 0; no < NTopNodes; no++) {
-        const MomentNODE& a = Nodes[no];
-        const MomentNODE& b = root[no];
+        const NodeType& a = Nodes[no];
+        const NodeType& b = root[no];
         bool good = a.len == b.len && a.father == b.father && a.sibling == b.sibling
             && a.InternalTopLevel == b.InternalTopLevel;
         for(int k = 0; k < 3; k++)
@@ -208,9 +225,7 @@ static void check_toptree_consistent(const MomentNODE * Nodes, const DomainDecom
         if(a.InternalTopLevel)
             for(int j = 0; j < 8; j++)
                 good = good && a.s.suns[j] == b.s.suns[j];
-        good = good && fabs(a.mass - b.mass) <= 1e-10 * b.mass;
-        for(int k = 0; k < 3; k++)
-            good = good && fabs(a.cofm[k] - b.cofm[k]) <= 1e-10 * PartManager->BoxSize;
+        good = good && values_agree(a, b);
         if(!good)
             nbad++;
     }
@@ -307,7 +322,7 @@ BOOST_AUTO_TEST_CASE(test_toptree_mpi)
     TestTopTree tree(&ddecomp, PartManager->BoxSize);
     BOOST_TEST(tree.get_numnodes() == ddecomp.NTopNodes);
     check_toptree(tree.nodes(), &ddecomp, false);
-    check_toptree_consistent(tree.nodes(), &ddecomp, false);
+    check_toptree_consistent(tree.nodes(), &ddecomp);
     check_walk(tree.nodes(), tree.get_numnodes(), &ddecomp);
     teardown_particles(&ddecomp);
 }
@@ -322,7 +337,7 @@ BOOST_AUTO_TEST_CASE(test_forcetree_moments_mpi)
     const auto * Nodes = tb.nodes();
     BOOST_TEST(tb.get_numparticles() == PartManager->NumPart);
     check_toptree(Nodes, &ddecomp, true);
-    check_toptree_consistent(Nodes, &ddecomp, false);
+    check_toptree_consistent(Nodes, &ddecomp);
     check_walk(Nodes, tb.get_numnodes(), &ddecomp);
     check_local_particles(Nodes, tb.get_numnodes(), &ddecomp);
 
@@ -405,6 +420,7 @@ static double do_hmax_test(DomainDecomp * ddecomp, const bool active)
     BOOST_TEST(tb.hmax_computed_flag);
     const auto * Nodes = tb.nodes();
     check_toptree(Nodes, ddecomp, true);
+    check_toptree_consistent(Nodes, ddecomp);
     check_walk(Nodes, tb.get_numnodes(), ddecomp);
     std::vector<int> pfather = check_local_particles(Nodes, tb.get_numnodes(), ddecomp);
 
