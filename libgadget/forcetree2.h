@@ -78,12 +78,6 @@ public:
     MyFloat len;			/*!< sidelength of treenode */
     MyFloat center[3];		/*!< geometrical center of node */
 
-    struct {
-        MyFloat cofm[3];		/*!< center of mass of node */
-        MyFloat mass;		/*!< mass of node */
-        MyFloat hmax;           /*!< maximum amount by which Pos + Hsml of all gas particles in the node exceeds len for this node. */
-    } mom;
-
     /* If the current node needs to be opened, go to the first element of this array.
      * In principle storing the full array wastes memory, because we only use it for the leaf nodes.
      * However, in practice the wasted memory is fairly small: there are sum(1/8^n) ~ 0.15 internal nodes
@@ -91,38 +85,37 @@ public:
      * Any attempt to get it back by using a separate allocation means we lost the ability to resize
      * the Nodes array and that is always worse.*/
     struct NodeChild s;
-    struct {
-        unsigned int InternalTopLevel :1; /* TopLevel and has a child which is also TopLevel*/
-        unsigned int TopLevel :1; /* Node corresponding to a toplevel node */
-        unsigned int DependsOnLocalMass :1;  /* Intersects with local mass */
-        unsigned int ChildType :2; /* Specify the type of children this node has: particles, other nodes, or pseudo-particles.
-                                    * (should be an enum, but not standard in C).*/
-        unsigned int unused : 3; /* Spare bits*/
-    } f;
+    bool TopLevel;
+    bool InternalTopLevel;
+    bool DependsOnLocalMass;
+    unsigned int ChildType :2; /* Specify the type of children this node has: particles, other nodes, or pseudo-particles. */
+
+
+    /* Initialise the root node.*/
+    NODE(double BoxSize) : sibling(-1), father(-1), len(BoxSize*1.001),
+    TopLevel(true), InternalTopLevel(false), DependsOnLocalMass(false), ChildType(PARTICLE_NODE_TYPE)
+    {
+        for(int i = 0; i < 3; i++)
+            center[i] = BoxSize/2.;
+        for(int i = 0; i < NMAXCHILD; i++)
+            s.suns[i] = -1;
+        s.noccupied = 0;
+    }
 
     /* Initialise an internal node. The parent is assumed to be locked, and
      * we have assured that nothing else will change the node while we are here.*/
-    NODE(struct NODE *parent, int subnode) : sibling(-10), father(-10), len(0.5 * parent->len)
+    NODE(NODE *parent, int subnode) : sibling(-10), father(-10), len(0.5 * parent->len),
+    TopLevel(false), InternalTopLevel(false), DependsOnLocalMass(false), ChildType(PARTICLE_NODE_TYPE)
     {
-        const MyFloat lenhalf = 0.25 * parent->len;
-        f.TopLevel = 0;
-        f.InternalTopLevel = 0;
-        f.DependsOnLocalMass = 0;
-        f.ChildType = PARTICLE_NODE_TYPE;
-        f.unused = 0;
-
         for(int j = 0; j < 3; j++) {
             /* Detect which quadrant we are in by testing the bits of subnode:
             * if (subnode & [1,2,4]) is true we add lenhalf, otherwise subtract lenhalf*/
             const int sign = (subnode & (1 << j)) ? 1 : -1;
-            center[j] = parent->center[j] + sign*lenhalf;
+            center[j] = parent->center[j] + sign* len / 2;
         }
         for(int j = 0; j < NMAXCHILD; j++)
             s.suns[j] = -1;
         s.noccupied = 0;
-        memset(&(mom.cofm),0,3*sizeof(MyFloat));
-        mom.mass = 0;
-        mom.hmax = 0;
     }
 
     /* Get the subnode for a given particle and parent node.
@@ -131,7 +124,7 @@ public:
     * are currently inserting
     * Returns a value between 0 and 7.
     * */
-    int get_subnode(const double Pos[3])
+    int get_subnode(const double Pos[3]) const
     {
         /*Loop is unrolled to help out the compiler,which normally only manages it at -O3*/
         return (Pos[0] > center[0]) +
@@ -142,7 +135,7 @@ public:
     /*Check whether a particle is inside the volume covered by a node,
     * by checking whether each dimension is close enough to center (L1 metric).
     * 'Nugget' is the allowed floating point error.*/
-    int inside_node(const double Pos[3], const double nugget)
+    int inside_node(const double Pos[3], const double nugget) const
     {
         /*One can also use a loop, but the compiler unrolls it only at -O3,
         *so this is a little faster*/
@@ -152,37 +145,74 @@ public:
             (fabs(2*(Pos[2] - center[2])) <= len + nugget);
         return inside;
     }
+};
+
+class MomentNODE: public NODE
+{
+public:
+    MyFloat cofm[3];		/*!< center of mass of node */
+    MyFloat mass;		/*!< mass of node */
+
+    /* Initialise the root node.*/
+    MomentNODE(double BoxSize) : NODE(BoxSize), mass(0)
+    {
+        memset(&(cofm),0,3*sizeof(MyFloat));
+    }
+
+    /* Initialise an internal node. The parent is assumed to be locked, and
+     * we have assured that nothing else will change the node while we are here.*/
+    MomentNODE(MomentNODE *parent, int subnode) : NODE(parent, subnode), mass(0)
+    {
+        memset(&(cofm),0,3*sizeof(MyFloat));
+    }
 
     /* Set the center of mass of the current node*/
     void force_update_particle_node(void)
     {
     #ifdef DEBUG
-        if(f.ChildType != PARTICLE_NODE_TYPE)
-            endrun(3, "force_update_particle_node called on node of wrong type %d!\n", f.ChildType);
+        if(ChildType != PARTICLE_NODE_TYPE)
+            endrun(3, "force_update_particle_node called on node of wrong type %d!\n", ChildType);
     #endif
-        int j;
-        /*Set the center of mass moments*/
-        const double mass = mom.mass;
         /* Be careful about empty nodes*/
         if(mass > 0) {
-            for(j = 0; j < 3; j++)
-                mom.cofm[j] /= mass;
+            for(int j = 0; j < 3; j++)
+                cofm[j] /= mass;
         }
         else {
-            for(j = 0; j < 3; j++)
-                mom.cofm[j] = center[j];
+            for(int j = 0; j < 3; j++)
+                cofm[j] = center[j];
         }
+    }
+};
+
+class HmaxNODE: public NODE
+{
+public:
+    MyFloat hmax;           /*!< maximum amount by which Pos + Hsml of all gas particles in the node exceeds len for this node. */
+
+    HmaxNODE(double BoxSize) : NODE(BoxSize), hmax(0) {}
+    /* Initialise an internal node. The parent is assumed to be locked, and
+     * we have assured that nothing else will change the node while we are here.*/
+    HmaxNODE(HmaxNODE *parent, int subnode) : NODE(parent, subnode), hmax(0) { }
+
+    /* Set the center of mass of the current node*/
+    void force_update_particle_node(void)
+    {
+    #ifdef DEBUG
+        if(ChildType != PARTICLE_NODE_TYPE)
+            endrun(3, "force_update_particle_node called on node of wrong type %d!\n", ChildType);
+    #endif
     }
 };
 
 /*Structure that contains the top tree only, and various Tree metadata.
  * No particle data is entered here: it simply mirrors the domain decomposition.*/
-class TopTree {
+template <typename NodeType> class TopTree {
 protected:
     /* Number of actually allocated nodes*/
     int64_t numnodes = 0;
     /*Pointer to the tree nodes. If a negative index is given, a particle is accessed.*/
-    struct NODE *Nodes = NULL;
+    NodeType *Nodes = NULL;
     /*Pointer to the TopLeaves struct imported from Domain. Sets up the pseudo particles.*/
     struct topleaf_data * TopLeaves = NULL;
     /*Number of TopLeaves*/
@@ -214,29 +244,27 @@ protected:
 
                     Nodes[no].s.suns[count] = numnodes;
                     /*We are an internal top level node as we now have a child top level.*/
-                    Nodes[no].f.InternalTopLevel = 1;
-                    Nodes[no].f.ChildType = NODE_NODE_TYPE;
+                    Nodes[no].InternalTopLevel = 1;
+                    Nodes[no].ChildType = NODE_NODE_TYPE;
                     Nodes[no].s.noccupied = NODEFULL;
 
                     /* We create a new leaf node.*/
-                    new (&Nodes[numnodes]) NODE(&Nodes[no], count);
+                    new (&Nodes[numnodes]) NodeType(&Nodes[no], count);
                     /*Set father of new node*/
                     Nodes[numnodes].father = no;
                     /*All nodes here are top level nodes*/
-                    Nodes[numnodes].f.TopLevel = 1;
+                    Nodes[numnodes].TopLevel = 1;
 
                     if(curdaughter + sub >= ddecomp->NTopNodes)
                         endrun(5, "Invalid topnode: daughter %d sub %d > topnodes %d\n", curdaughter, sub, ddecomp->NTopNodes);
                     const struct topnode_data curtopnode = ddecomp->TopNodes[curdaughter + sub];
                     if(curtopnode.Daughter == -1) {
-                        int ThisTask;
-                        MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
                         TopLeaves[curtopnode.Leaf].treenode = numnodes;
                         /* We set the first child as a pointer to the topleaf, essentially constructing the pseudoparticles early.
                         * We do not set nocc, so this first child will be over-written on local nodes when we construct the full tree.*/
                         Nodes[numnodes].s.suns[0] = curtopnode.Leaf;
-                        if(TopLeaves[curtopnode.Leaf].Task != ThisTask)
-                            Nodes[numnodes].f.ChildType = PSEUDO_NODE_TYPE;
+                        if(TopLeaves[curtopnode.Leaf].Task != this->ThisTask)
+                            Nodes[numnodes].ChildType = PSEUDO_NODE_TYPE;
                     }
 
                     numnodes++;
@@ -268,27 +296,12 @@ public:
     TopTree(DomainDecomp * ddecomp, const double i_BoxSize) : TopLeaves(ddecomp->TopLeaves), NTopLeaves(ddecomp->NTopLeaves), BoxSize(i_BoxSize)
     {
         /* Allocate memory. Two extra for the first node and for a sentinel*/
-        Nodes = mymanagedmalloc("Nodes_base", struct NODE, ddecomp->NTopNodes+2);
+        Nodes = mymanagedmalloc("Nodes_base", NodeType, ddecomp->NTopNodes+2);
         MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
 
         numnodes = 0;       /* index of first free node */
-        struct NODE *nfreep = &Nodes[numnodes];
-        nfreep->len = BoxSize*1.001;
-        for(int i = 0; i < 3; i++)
-            nfreep->center[i] = BoxSize/2.;
-        for(int i = 0; i < NMAXCHILD; i++)
-            nfreep->s.suns[i] = -1;
-        nfreep->s.noccupied = 0;
-        nfreep->father = -1;
-        nfreep->sibling = -1;
-        nfreep->f.TopLevel = 1;
-        nfreep->f.InternalTopLevel = 0;
-        nfreep->f.DependsOnLocalMass = 0;
-        nfreep->f.ChildType = PARTICLE_NODE_TYPE;
-        nfreep->f.unused = 0;
-        memset(&(nfreep->mom.cofm),0,3*sizeof(MyFloat));
-        nfreep->mom.mass = 0;
-        nfreep->mom.hmax = 0;
+        /* Construct the root node*/
+        new(&Nodes[numnodes]) NodeType(BoxSize);
         /* Set the treenode for this node*/
         ddecomp->TopLeaves[0].treenode = numnodes;
         numnodes++;
@@ -312,8 +325,11 @@ public:
 
 /*Structure containing the Node pointer, and various Tree metadata.
  * This stores the oct-tree structure.*/
-template <typename DerivedTree> class ForceTree : public TopTree {
+template <typename DerivedTree, typename NodeType> class ForceTree : public TopTree<NodeType> {
 protected:
+    using TopTree<NodeType>::Nodes;
+    using TopTree<NodeType>::numnodes;
+
     /* Each processor allocates a number of nodes which is TreeAllocFactor times
        the maximum(!) number of particles.  Note: A typical local tree for N
        particles needs usually about ~0.65*N nodes.
@@ -334,7 +350,7 @@ protected:
      * does not build the local tree. The derived class is responsible for
      * calling ForceTree_internal itself.*/
     ForceTree(part_manager_type& PartManager, DomainDecomp * ddecomp, const int i_mask):
-    TopTree(ddecomp, PartManager.BoxSize), mask(i_mask), MaxPart(PartManager.MaxPart)
+    TopTree<NodeType>(ddecomp, PartManager.BoxSize), mask(i_mask), MaxPart(PartManager.MaxPart)
     {  }
 
     void ForceTree_internal(part_manager_type& PartManager, DomainDecomp * ddecomp, ActiveParticles * act, const std::string EmergencyOutputDir)
@@ -342,11 +358,11 @@ protected:
         /* int64_t maxmaxnodes;
         MPI_Reduce(&maxnodes, &maxmaxnodes, 1, MPI_INT64, MPI_MAX,0, MPI_COMM_WORLD);
         message(0, "Treebuild: Largest is %g MByte for %ld tree nodes. (presently allocated %g MB)\n",
-            maxmaxnodes * sizeof(struct NODE) / (1024.0 * 1024.0), maxmaxnodes, PartManager->MaxPart,
+            maxmaxnodes * sizeof(NodeType) / (1024.0 * 1024.0), maxmaxnodes, PartManager->MaxPart,
             mymalloc_usedbytes() / (1024.0 * 1024.0));*/
 
         /* Make a copy of the node pointer from the toptree*/
-        struct NODE * TopNodes = Nodes;
+        auto * TopNodes = Nodes;
         /* Number of toptree nodes: numnodes is overwritten by force_tree_create_nodes,
          * so store it to restore on a retry.*/
         const int64_t ntopnodes = numnodes;
@@ -359,9 +375,9 @@ protected:
             /* Node indices are stored as int, and the node cache may run past maxnodes, so leave headroom.*/
             if(maxnodes >= (1L<<30) + (1L<<29))
                 endrun(5, "Size of tree overflowed for NumPart = %ld, maxnodes = %ld!\n", PartManager.NumPart, maxnodes);
-            Nodes = mymanagedmalloc("Nodes_base", struct NODE, (maxnodes + 1));
+            Nodes = mymanagedmalloc("Nodes_base", NodeType, (maxnodes + 1));
             numnodes = ntopnodes;
-            memcpy(Nodes, TopNodes, numnodes * sizeof(struct NODE));
+            memcpy(Nodes, TopNodes, numnodes * sizeof(NodeType));
 
             force_tree_create_nodes(act, ddecomp);
 
@@ -408,7 +424,7 @@ protected:
         MPI_Reduce(&numnodes, &maxnumnodes, 1, MPI_INT64, MPI_MAX, 0, MPI_COMM_WORLD);
     #endif
         message(0, "Tree constructed (type mask: %d) with %ld particles. Num nodes %ld, NTopLeaves %d\n",
-                mask, allact, maxnumnodes, NTopLeaves);
+                mask, allact, maxnumnodes, ddecomp->NTopLeaves);
     }
 
 public:
@@ -417,7 +433,7 @@ public:
     * This is much faster than _full: because the particles are sorted by type the merge step is much faster than
     * with all particle types, and of course the tree is smaller.*/
     ForceTree(part_manager_type& PartManager, DomainDecomp * ddecomp, const int i_mask, const std::string EmergencyOutputDir):
-    TopTree(ddecomp, PartManager.BoxSize), mask(i_mask), MaxPart(PartManager.MaxPart)
+    TopTree<NodeType>(ddecomp, PartManager.BoxSize), mask(i_mask), MaxPart(PartManager.MaxPart)
     {
         message(0, "Tree construction for types: %d.\n", mask);
         /* Build for all particles*/
@@ -449,7 +465,7 @@ public:
 
         do {
             int i;
-            struct NODE *nprnt = &Nodes[parent];
+            NodeType *nprnt = &Nodes[parent];
 
             /* Braces to scope oldsuns and newsuns*/
             {
@@ -477,18 +493,18 @@ public:
                     * while marking this one as a particle node */
                 if(firstparent != parent)
                 {
-                    nprnt->f.ChildType = PARTICLE_NODE_TYPE;
+                    nprnt->ChildType = PARTICLE_NODE_TYPE;
                     nprnt->s.noccupied = NMAXCHILD;
-                    Nodes[firstparent].f.ChildType = NODE_NODE_TYPE;
+                    Nodes[firstparent].ChildType = NODE_NODE_TYPE;
                     Nodes[firstparent].s.noccupied = NODEFULL;
                 }
                 return 1;
             }
             for(i=0; i<8; i++) {
                 newsuns[i] = newsuns[0] + i;
-                struct NODE *nfreep = &Nodes[newsuns[i]];
+                NodeType *nfreep = &Nodes[newsuns[i]];
                 /* We create a new leaf node.*/
-                new (nfreep) NODE(nprnt, i);
+                new (nfreep) NodeType(nprnt, i);
                 /*Set father of new node*/
                 nfreep->father = parent;
             }
@@ -502,7 +518,7 @@ public:
                 * we will always have a free slot. */
                 int subnode = nprnt->get_subnode(Part[oldsuns[i]].Pos);
                 int child = newsuns[subnode];
-                struct NODE * nchild = &Nodes[child];
+                NodeType * nchild = &Nodes[child];
                 static_cast<DerivedTree*>(this)->modify_internal_node(child, nchild->s.noccupied, oldsuns[i]);
                 nchild->s.noccupied++;
             }
@@ -513,18 +529,16 @@ public:
             /* Set sibling for the new rank. Since empty at this point, point onwards.*/
             for(i=0; i<7; i++) {
                 int child = nprnt->s.suns[i];
-                struct NODE * nchild = &Nodes[child];
+                NodeType * nchild = &Nodes[child];
                 nchild->sibling = nprnt->s.suns[i+1];
             }
             /* Final child needs special handling: set to the parent's sibling.*/
             Nodes[nprnt->s.suns[7]].sibling = nprnt->sibling;
-            /* Zero the momenta for the parent*/
-            memset(&nprnt->mom, 0, sizeof(nprnt->mom));
 
             /* Now try again to add the new particle*/
             int subnode = nprnt->get_subnode(Part[p_toplace].Pos);
             int child = nprnt->s.suns[subnode];
-            struct NODE * nchild = &Nodes[child];
+            NodeType * nchild = &Nodes[child];
             if(nchild->s.noccupied < NMAXCHILD) {
                 static_cast<DerivedTree*>(this)->modify_internal_node(child, nchild->s.noccupied, p_toplace);
                 nchild->s.noccupied++;
@@ -536,7 +550,7 @@ public:
                 /* The current child is going to have new nodes created beneath it,
                 * so mark it a Node-containing node. It cannot be accessed until
                 * we mark the top-level parent, so no need for atomics.*/
-                Nodes[child].f.ChildType = NODE_NODE_TYPE;
+                Nodes[child].ChildType = NODE_NODE_TYPE;
                 Nodes[child].s.noccupied = NODEFULL;
                 parent = child;
             }
@@ -544,7 +558,7 @@ public:
 
         /* A new node is created. Mark the (original) parent as an internal node with node children.
         * This goes last so that we don't access the child before it is constructed.*/
-        Nodes[firstparent].f.ChildType = NODE_NODE_TYPE;
+        Nodes[firstparent].ChildType = NODE_NODE_TYPE;
         Nodes[firstparent].s.noccupied = NODEFULL;
         return 0;
     }
@@ -557,8 +571,8 @@ public:
         int64_t nnext = numnodes;
 
         /* Set up thread-local copies of the topnodes to anchor the subtrees. */
-        const int StartLeaf = ddecomp->Tasks[ThisTask].StartLeaf;
-        const int EndLeaf = ddecomp->Tasks[ThisTask].EndLeaf;
+        const int StartLeaf = ddecomp->Tasks[this->ThisTask].StartLeaf;
+        const int EndLeaf = ddecomp->Tasks[this->ThisTask].EndLeaf;
         const int nthr = omp_get_max_threads();
         int * topnodes = ta_malloc("topnodes", int, (EndLeaf - StartLeaf) * nthr);
         /* Topnodes for each thread. For tid 0, just use the real tree. Saves copying the tree back.*/
@@ -569,7 +583,7 @@ public:
             for(int j = 0; j < EndLeaf - StartLeaf; j++) {
                 /* Make a local copy*/
                 topnodes[j + t * (EndLeaf - StartLeaf)] = nnext;
-                memmove(&Nodes[nnext], &Nodes[topnodes[j]], sizeof(struct NODE));
+                Nodes[nnext] = Nodes[topnodes[j]];
                 nnext++;
             }
         }
@@ -710,8 +724,8 @@ public:
     int force_update_node_recursive(const int no, const int sib, const int level)
     {
     #ifdef DEBUG
-        if(Nodes[no].f.ChildType != NODE_NODE_TYPE)
-            endrun(3, "force_update_node_recursive called on node %d of type %d != %d!\n", no, Nodes[no].f.ChildType, NODE_NODE_TYPE);
+        if(Nodes[no].ChildType != NODE_NODE_TYPE)
+            endrun(3, "force_update_node_recursive called on node %d of type %d != %d!\n", no, Nodes[no].ChildType, NODE_NODE_TYPE);
     #endif
         int j;
         int * const suns = Nodes[no].s.suns;
@@ -727,8 +741,8 @@ public:
             * mess up the pseudo-data exchange.
             * This may happen for a pseudo particle host or, in very rare cases,
             * when one of the local domains is empty. */
-            while(jj < 8 && !Nodes[suns[jj]].f.TopLevel &&
-                Nodes[suns[jj]].f.ChildType == PARTICLE_NODE_TYPE &&
+            while(jj < 8 && !Nodes[suns[jj]].TopLevel &&
+                Nodes[suns[jj]].ChildType == PARTICLE_NODE_TYPE &&
                 Nodes[suns[jj]].s.noccupied == 0) {
                         jj++;
             }
@@ -736,7 +750,7 @@ public:
                 suns[j] = suns[jj];
             else
                 suns[j] = -1;
-            if(suns[j] >= 0 && Nodes[suns[j]].f.ChildType == NODE_NODE_TYPE)
+            if(suns[j] >= 0 && Nodes[suns[j]].ChildType == NODE_NODE_TYPE)
                 childcnt++;
         }
 
@@ -751,9 +765,9 @@ public:
             /* This is set in create_nodes but needed because we may remove empty nodes above.*/
             Nodes[p].sibling = nextsib;
             /* Nodes containing particles or pseudo-particles*/
-            if(Nodes[p].f.ChildType == PARTICLE_NODE_TYPE)
+            if(Nodes[p].ChildType == PARTICLE_NODE_TYPE)
                 Nodes[p].force_update_particle_node();
-            if(Nodes[p].f.ChildType == NODE_NODE_TYPE) {
+            if(Nodes[p].ChildType == NODE_NODE_TYPE) {
                 /* Don't spawn a new task if we are deep enough that we already spawned a lot.*/
                 if(childcnt > 1 && level < 512) {
                     const int newlevel = level * childcnt;
@@ -766,31 +780,7 @@ public:
             }
         }
 
-        /*Make sure all child nodes are done*/
-        #pragma omp taskwait
-
-        /*Now we do the moments*/
-        for(j = 0; j < 8; j++)
-        {
-            const int p = suns[j];
-            if(p < 0)
-                continue;
-            Nodes[no].mom.mass += (Nodes[p].mom.mass);
-            Nodes[no].mom.cofm[0] += (Nodes[p].mom.mass * Nodes[p].mom.cofm[0]);
-            Nodes[no].mom.cofm[1] += (Nodes[p].mom.mass * Nodes[p].mom.cofm[1]);
-            Nodes[no].mom.cofm[2] += (Nodes[p].mom.mass * Nodes[p].mom.cofm[2]);
-            if(Nodes[p].mom.hmax > Nodes[no].mom.hmax)
-                Nodes[no].mom.hmax = Nodes[p].mom.hmax;
-        }
-
-        /*Set the center of mass moments*/
-        const double mass = Nodes[no].mom.mass;
-        /* In principle all the children could be pseudo-particles*/
-        if(mass > 0) {
-            Nodes[no].mom.cofm[0] /= mass;
-            Nodes[no].mom.cofm[1] /= mass;
-            Nodes[no].mom.cofm[2] /= mass;
-        }
+        static_cast<DerivedTree*>(this)->modify_pseudo_node(&Nodes[no]);
 
         return -1;
     }
@@ -853,23 +843,23 @@ public:
         {
             if(this_left < 0 || this_right < 0)
                 endrun(10, "Encountered invalid node: %d %d < 0\n", this_left, this_right);
-            struct NODE * nleft = &Nodes[this_left];
-            struct NODE * nright = &Nodes[this_right];
+            auto * nleft = &Nodes[this_left];
+            auto * nright = &Nodes[this_right];
             if(nc->nnext_thread >= maxnodes)
                 return 1;
     #ifdef DEBUG
             /* Stop when we reach another topnode*/
-            if((nleft->f.TopLevel && this_left != left) || (nright->f.TopLevel && this_right != right))
-                endrun(6, "Encountered another topnode: left %d == right %d! type %d\n", this_left, this_right, nleft->f.ChildType);
+            if((nleft->TopLevel && this_left != left) || (nright->TopLevel && this_right != right))
+                endrun(6, "Encountered another topnode: left %d == right %d! type %d\n", this_left, this_right, nleft->ChildType);
             if(this_left == this_right)
-                endrun(6, "Odd: left %d == right %d! type %d\n", this_left, this_right, nleft->f.ChildType);
+                endrun(6, "Odd: left %d == right %d! type %d\n", this_left, this_right, nleft->ChildType);
     //         message(1, "left %d right %d\n", this_left, this_right);
             /* Trees should be synced*/
             if(fabs(nleft->len / nright->len-1) > 1e-6)
                 endrun(6, "Merge unsynced trees: %d %d len %g %g\n", this_left, this_right, nleft->len, nright->len);
     #endif
             /* Two node nodes: keep walking down*/
-            if(nleft->f.ChildType == NODE_NODE_TYPE && nright->f.ChildType == NODE_NODE_TYPE) {
+            if(nleft->ChildType == NODE_NODE_TYPE && nright->ChildType == NODE_NODE_TYPE) {
                 if(Nodes[nleft->s.suns[0]].father < 0 || Nodes[nright->s.suns[0]].father < 0)
                     endrun(7, "Walking to nodes (%d %d) from (%d %d) fathers (%d %d)\n",
                         nleft->s.suns[0], nright->s.suns[0], this_left, this_right, Nodes[nleft->s.suns[0]].father, Nodes[nright->s.suns[0]].father);
@@ -878,7 +868,7 @@ public:
                 continue;
             }
             /* If the right node has particles, add them to the left node, go to sibling on right and left.*/
-            else if(nright->f.ChildType == PARTICLE_NODE_TYPE) {
+            else if(nright->ChildType == PARTICLE_NODE_TYPE) {
                 int i;
                 for(i = 0; i < nright->s.noccupied; i++) {
                     if(nright->s.suns[i] < 0 || nright->s.suns[i] >= MaxPart)
@@ -894,7 +884,7 @@ public:
                 /* This condition is checking for the root node, which has no siblings*/
                 if(this_right > right) {
                     /* Find the father, then the next child*/
-                    struct NODE * fat = &Nodes[nright->father];
+                    auto * fat = &Nodes[nright->father];
                     /* Find the position of this child in the father*/
                     int sunloc = 0;
                     for(i = 0; i < 8; i++)
@@ -919,7 +909,7 @@ public:
             }
             /* If the left node has particles, add them to the right node,
             * then copy the right node over the left node and go to (old) sibling on right and left.*/
-            else if(nleft->f.ChildType == PARTICLE_NODE_TYPE && nright->f.ChildType == NODE_NODE_TYPE) {
+            else if(nleft->ChildType == PARTICLE_NODE_TYPE && nright->ChildType == NODE_NODE_TYPE) {
                 /* Add the left particles to the right*/
                 int i;
                 for(i = 0; i < nleft->s.noccupied; i++) {
@@ -929,10 +919,8 @@ public:
                         return 1;
                 }
                 /* Copy the right node over the left*/
-                memmove(&nleft->s, &nright->s, sizeof(nleft->s));
-                nleft->f.ChildType = NODE_NODE_TYPE;
-                /* Zero the momenta for the parent*/
-                memset(&nleft->mom, 0, sizeof(nleft->mom));
+                nleft->s = nright->s;
+                nleft->ChildType = NODE_NODE_TYPE;
                 /* Reset children to the new parent:
                 * this assumes nright is a NODE NODE*/
                 for(i = 0; i < 8; i++) {
@@ -946,7 +934,7 @@ public:
                 /* Walk downwards making sure all the children point to the new sibling.
                 * Note also changes last particle node child. */
                 int nn = this_left;
-                while(Nodes[nn].f.ChildType == NODE_NODE_TYPE) {
+                while(Nodes[nn].ChildType == NODE_NODE_TYPE) {
                     nn = Nodes[nn].s.suns[7];
     #ifdef DEBUG
                     if(Nodes[nn].sibling != oldsib)
@@ -962,7 +950,7 @@ public:
                 continue;
             }
             else
-                endrun(6, "Nodes %d %d have unexpected type %d %d\n", this_left, this_right, nleft->f.ChildType, nright->f.ChildType);
+                endrun(6, "Nodes %d %d have unexpected type %d %d\n", this_left, this_right, nleft->ChildType, nright->ChildType);
         }
         return 0;
     }
@@ -982,21 +970,23 @@ public:
     */
     void force_update_node_parallel(const DomainDecomp * const ddecomp)
     {
+        int ThisTask;
+        MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
     #pragma omp parallel
     #pragma omp single nowait
         {
             for(int i = ddecomp->Tasks[ThisTask].StartLeaf; i < ddecomp->Tasks[ThisTask].EndLeaf; i ++) {
                 const int no = ddecomp->TopLeaves[i].treenode;
                 /* Set local mass dependence*/
-                Nodes[no].f.DependsOnLocalMass = 1;
+                Nodes[no].DependsOnLocalMass = 1;
                 /* Nodes containing other nodes: the overwhelmingly likely case.*/
-                if(Nodes[no].f.ChildType == NODE_NODE_TYPE) {
+                if(Nodes[no].ChildType == NODE_NODE_TYPE) {
                     #pragma omp task default(none) firstprivate(no)
                     force_update_node_recursive(no, Nodes[no].sibling, 1);
                 }
-                else if(Nodes[no].f.ChildType == PARTICLE_NODE_TYPE)
+                else if(Nodes[no].ChildType == PARTICLE_NODE_TYPE)
                     Nodes[no].force_update_particle_node();
-                else if(Nodes[no].f.ChildType == PSEUDO_NODE_TYPE)
+                else if(Nodes[no].ChildType == PSEUDO_NODE_TYPE)
                     endrun(5, "Error, found pseudo node %d but domain entry %d says on task %d\n", no, i, ThisTask);
             }
         }
@@ -1004,7 +994,7 @@ public:
 
     /* In the child classes, this does the update of the pseudo-node moments.
      * Here we just do the taskwait.*/
-    void modify_pseudo_node(struct NODE * node)
+    void modify_pseudo_node(NodeType * node)
     {
         /*Make sure all child nodes are done*/
         #pragma omp taskwait
@@ -1016,7 +1006,7 @@ public:
     void force_treeupdate_pseudos(const int no, const int level)
     {
         /* This happens if we have a trivial domain with only one entry*/
-        if(!Nodes[no].f.InternalTopLevel)
+        if(!Nodes[no].InternalTopLevel)
             return;
 
         int j;
@@ -1035,7 +1025,7 @@ public:
                 endrun(6767, "Tried to update toplevel node %d with parent %d != expected %d\n", p, Nodes[p].father, no);
     #endif
 
-            if(Nodes[p].f.InternalTopLevel) {
+            if(Nodes[p].InternalTopLevel) {
                 if(level < 512) {
                     #pragma omp task default(none) firstprivate(p, level)
                     force_treeupdate_pseudos(p, level*8);
@@ -1055,24 +1045,24 @@ public:
         int no = 0;
         while(no != -1)
         {
-            struct NODE * current = &Nodes[no];
+            auto * current = &Nodes[no];
             if(current->sibling != -1 && !node_is_node(current->sibling))
-                endrun(5, "Node %d (type %d) has sibling %d next %d father %d final %ld last %ld ntop %d\n", no, current->f.ChildType, current->sibling, current->s.suns[0], current->father, numnodes, maxnodes, NTopLeaves);
+                endrun(5, "Node %d (type %d) has sibling %d next %d father %d final %ld last %ld ntop %d\n", no, current->ChildType, current->sibling, current->s.suns[0], current->father, numnodes, maxnodes, this->NTopLeaves);
 
-            if(current->f.ChildType == PSEUDO_NODE_TYPE) {
+            if(current->ChildType == PSEUDO_NODE_TYPE) {
                 /* pseudo particle: nextnode should be a remote topleaf whose treenode is this node. */
                 const int leaf = current->s.suns[0];
-                if(leaf < 0 || leaf >= NTopLeaves)
-                    endrun(5, "Pseudo Node %d has next node %d not a topleaf (ntop %d) sibling %d father %d\n", no, leaf, NTopLeaves, current->sibling, current->father);
-                if(TopLeaves[leaf].treenode != no)
-                    endrun(5, "Pseudo Node %d has topleaf %d with treenode %d != node\n", no, leaf, TopLeaves[leaf].treenode);
-                if(TopLeaves[leaf].Task == ThisTask)
-                    endrun(5, "Pseudo Node %d has topleaf %d on local task %d\n", no, leaf, ThisTask);
+                if(leaf < 0 || leaf >= this->NTopLeaves)
+                    endrun(5, "Pseudo Node %d has next node %d not a topleaf (ntop %d) sibling %d father %d\n", no, leaf, this->NTopLeaves, current->sibling, current->father);
+                if(this->TopLeaves[leaf].treenode != no)
+                    endrun(5, "Pseudo Node %d has topleaf %d with treenode %d != node\n", no, leaf, this->TopLeaves[leaf].treenode);
+                if(this->TopLeaves[leaf].Task == this->ThisTask)
+                    endrun(5, "Pseudo Node %d has topleaf %d on local task %d\n", no, leaf, this->ThisTask);
             }
-            else if(current->f.ChildType == NODE_NODE_TYPE) {
+            else if(current->ChildType == NODE_NODE_TYPE) {
                 /* Next node should be another node */
                 if(!node_is_node(current->s.suns[0]))
-                    endrun(5, "Node Node %d has next node which is particle %d sibling %d father %d final %ld last %ld ntop %d\n", no, current->s.suns[0], current->sibling, current->father, numnodes, maxnodes, NTopLeaves);
+                    endrun(5, "Node Node %d has next node which is particle %d sibling %d father %d final %ld last %ld ntop %d\n", no, current->s.suns[0], current->sibling, current->father, numnodes, maxnodes, this->NTopLeaves);
                 no = current->s.suns[0];
                 continue;
             }
@@ -1082,11 +1072,10 @@ public:
         for(no = 0; no < numnodes; no++)
         {
             if(!node_is_node(Nodes[no].father) && Nodes[no].father >= 0) {
-                struct NODE *current = &Nodes[no];
-                message(1, "Danger! no %d has father %d, next %d sib %d, (ptype = %d) len %g center (%g %g %g) mass %g cofm %g %g %g TL %d DLM %d ITL %d nocc %d suns %d %d %d %d\n", no, current->father, current->s.suns[0], current->sibling, current->f.ChildType,
+                auto *current = &Nodes[no];
+                message(1, "Danger! no %d has father %d, next %d sib %d, (ptype = %d) len %g center (%g %g %g) TL %d DLM %d ITL %d nocc %d suns %d %d %d %d\n", no, current->father, current->s.suns[0], current->sibling, current->ChildType,
                     current->len, current->center[0], current->center[1], current->center[2],
-                    current->mom.mass, current->mom.cofm[0], current->mom.cofm[1], current->mom.cofm[2],
-                    current->f.TopLevel, current->f.DependsOnLocalMass, current->f.InternalTopLevel, current->s.noccupied,
+                    current->TopLevel, current->DependsOnLocalMass, current->InternalTopLevel, current->s.noccupied,
                     current->s.suns[0], current->s.suns[1], current->s.suns[2], current->s.suns[3]);
             }
         }
@@ -1096,9 +1085,7 @@ public:
 };
 
 /* ForceTree variant which contains hmax.*/
-class ForceTreeHmax : public ForceTree<ForceTreeHmax> {
-    /* The CRTP base dispatches to our modify_internal_node, which is private.*/
-    friend class ForceTree<ForceTreeHmax>;
+class ForceTreeHmax : public ForceTree<ForceTreeHmax, HmaxNODE> {
 public:
     /* Flags that hmax has been computed for this tree*/
     bool hmax_computed_flag = false;
@@ -1157,7 +1144,7 @@ public:
         if(no < 0)
             endrun(5, "Father for particle %d pos %g %g %g hsml %g not initialised, likely not in tree\n", p_i, Pos[0], Pos[1], Pos[2], Hsml);
     #endif
-        struct NODE * node = &Nodes[no];
+        auto * node = &Nodes[no];
         /* How much does this particle peek beyond this node?
             * Note len does not change so we can read it without a lock or atomic. */
 
@@ -1168,13 +1155,13 @@ public:
 
         MyFloat readhmax;
         #pragma omp atomic read
-        readhmax = node->mom.hmax;
+        readhmax = node->hmax;
 
         do {
             if (newhmax <= readhmax)
                 break;
             /* Swap in the new hmax only if the old one hasn't changed. */
-        } while(!__atomic_compare_exchange(&(node->mom.hmax), &readhmax, &newhmax, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
+        } while(!__atomic_compare_exchange(&(node->hmax), &readhmax, &newhmax, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
     }
 
     /* Update hmax recursively for all internal nodes*/
@@ -1192,7 +1179,6 @@ public:
         hmax_computed_flag = true;
     }
 
-private:
     /* Add a particle to a node in a known empty location.
      * Parent is assumed to be locked.*/
     void modify_internal_node(int parent, int subnode, int p_toplace)
@@ -1210,16 +1196,16 @@ private:
             /* Maximal distance any of the member particles peek out from the side of the node.
             * May be at most hsml, as |Pos - Center| < len/2.*/
             for(int j = 0; j < 3; j++) {
-                pnode.mom.hmax = DMAX(pnode.mom.hmax, fabs(part.Pos[j] - pnode.center[j]) + part.Hsml - pnode.len/2.);
+                pnode.hmax = DMAX(pnode.hmax, fabs(part.Pos[j] - pnode.center[j]) + part.Hsml - pnode.len/2.);
             }
         }
     }
 
     /* Update the pseudo-node hmax.*/
-    void modify_pseudo_node(struct NODE * node)
+    void modify_pseudo_node(HmaxNODE * node)
     {
-        /* Zero the moments*/
-        node->mom.hmax = 0;
+        /* Zero hmax*/
+        node->hmax = 0;
 
         /*Make sure all child nodes are done*/
         #pragma omp taskwait
@@ -1227,14 +1213,18 @@ private:
         for(int j = 0; j < 8; j++)
         {
             const int p = node->s.suns[j];
-            if(Nodes[p].mom.hmax > node->mom.hmax)
-                node->mom.hmax = Nodes[p].mom.hmax;
-            if(Nodes[p].f.DependsOnLocalMass)
-                node->f.DependsOnLocalMass = 1;
+            /* Empty slot: non-toplevel nodes have their suns compacted, leaving -1 at the end*/
+            if(p < 0)
+                continue;
+            if(Nodes[p].hmax > node->hmax)
+                node->hmax = Nodes[p].hmax;
+            if(Nodes[p].DependsOnLocalMass)
+                node->DependsOnLocalMass = true;
         }
     }
 
-        /*! This function communicates the values of the multipole moments of the
+private:
+    /*! This function communicates the values of the multipole moments of the
     *  top-level tree-nodes of the ddecomp grid.  This data can then be used to
     *  update the pseudo-particles on each CPU accordingly.
     */
@@ -1248,7 +1238,7 @@ private:
             if(ddecomp->TopLeaves[i].Task != ThisTask)
                 endrun(131231231, "TopLeaf %d Task table is corrupted: task is %d\n", i, ddecomp->TopLeaves[i].Task);
             /* read out the hmax from the local base cells */
-            TopLeafMoments[i] = Nodes[no].mom.hmax;
+            TopLeafMoments[i] = Nodes[no].hmax;
         }
 
         /* share the pseudo-particle data across CPUs */
@@ -1277,7 +1267,7 @@ private:
             #pragma omp parallel for
             for(int i = ddecomp->Tasks[ta].StartLeaf; i < ddecomp->Tasks[ta].EndLeaf; i ++) {
                 const int no = ddecomp->TopLeaves[i].treenode;
-                Nodes[no].mom.hmax = TopLeafMoments[i];
+                Nodes[no].hmax = TopLeafMoments[i];
             }
         }
         myfree(TopLeafMoments);
@@ -1289,9 +1279,7 @@ private:
  * it points to another node. For nodes which have type PARTICLE_NODE_TYPE
  * if points to a particle. For nodes which have type PSEUDO_NODE_TYPE
  * it points to a pseudo particle on another processor.*/
-class ForceTreeMoments : public ForceTree <ForceTreeMoments> {
-    /* The CRTP base dispatches to our modify_internal_node, which is private.*/
-    friend class ForceTree<ForceTreeMoments>;
+class ForceTreeMoments : public ForceTree <ForceTreeMoments, MomentNODE> {
 public:
     /* Flags that the tree contains all particles*/
     bool full_particle_tree_flag;
@@ -1326,7 +1314,6 @@ public:
 
     ~ForceTreeMoments(void){ }
 
-private:
     /* Add a particle to a node in a known empty location.
      * Parent is assumed to be locked.*/
     void
@@ -1335,20 +1322,20 @@ private:
         ForceTree::modify_internal_node(parent, subnode, p_toplace);
         const struct particle_data& part = Part[p_toplace];
         auto& pnode = Nodes[parent];
-        pnode.mom.mass += (part.Mass);
+        pnode.mass += (part.Mass);
         for(int k=0; k<3; k++)
-            pnode.mom.cofm[k] += (part.Mass * part.Pos[k]);
+            pnode.cofm[k] += (part.Mass * part.Pos[k]);
     }
 
     /* In the child classes, this does the update of the pseudo-node moments.
      * Here we just do the taskwait.*/
-    void modify_pseudo_node(struct NODE * node)
+    void modify_pseudo_node(MomentNODE * node)
     {
         /* Zero the moments*/
-        node->mom.mass = 0;
-        node->mom.cofm[0] = 0;
-        node->mom.cofm[1] = 0;
-        node->mom.cofm[2] = 0;
+        node->mass = 0;
+        node->cofm[0] = 0;
+        node->cofm[1] = 0;
+        node->cofm[2] = 0;
 
         /*Make sure all child nodes are done*/
         #pragma omp taskwait
@@ -1356,30 +1343,35 @@ private:
         for(int j = 0; j < 8; j++)
         {
             const int p = node->s.suns[j];
+            /* Empty slot: non-toplevel nodes have their suns compacted, leaving -1 at the end*/
+            if(p < 0)
+                continue;
 
-            node->mom.mass += (Nodes[p].mom.mass);
-            node->mom.cofm[0] += (Nodes[p].mom.mass * Nodes[p].mom.cofm[0]);
-            node->mom.cofm[1] += (Nodes[p].mom.mass * Nodes[p].mom.cofm[1]);
-            node->mom.cofm[2] += (Nodes[p].mom.mass * Nodes[p].mom.cofm[2]);
+            node->mass += (Nodes[p].mass);
+            node->cofm[0] += (Nodes[p].mass * Nodes[p].cofm[0]);
+            node->cofm[1] += (Nodes[p].mass * Nodes[p].cofm[1]);
+            node->cofm[2] += (Nodes[p].mass * Nodes[p].cofm[2]);
 
-            if(Nodes[p].f.DependsOnLocalMass)
-                node->f.DependsOnLocalMass = 1;
+            if(Nodes[p].DependsOnLocalMass)
+                node->DependsOnLocalMass = true;
         }
 
-        if(node->mom.mass)
+        if(node->mass)
         {
-            node->mom.cofm[0] /= node->mom.mass;
-            node->mom.cofm[1] /= node->mom.mass;
-            node->mom.cofm[2] /= node->mom.mass;
+            node->cofm[0] /= node->mass;
+            node->cofm[1] /= node->mass;
+            node->cofm[2] /= node->mass;
         }
         else
         {
-            node->mom.cofm[0] = node->center[0];
-            node->mom.cofm[1] = node->center[1];
-            node->mom.cofm[2] = node->center[2];
+            node->cofm[0] = node->center[0];
+            node->cofm[1] = node->center[1];
+            node->cofm[2] = node->center[2];
         }
     }
-        /*! This function communicates the values of the multipole moments of the
+
+private:
+    /*! This function communicates the values of the multipole moments of the
     *  top-level tree-nodes of the ddecomp grid.  This data can then be used to
     *  update the pseudo-particles on each CPU accordingly.
     */
@@ -1398,10 +1390,10 @@ private:
             if(ddecomp->TopLeaves[i].Task != ThisTask)
                 endrun(131231231, "TopLeaf %d Task table is corrupted: task is %d\n", i, ddecomp->TopLeaves[i].Task);
             /* read out the multipole moments from the local base cells */
-            TopLeafMoments[i].s[0] = Nodes[no].mom.cofm[0];
-            TopLeafMoments[i].s[1] = Nodes[no].mom.cofm[1];
-            TopLeafMoments[i].s[2] = Nodes[no].mom.cofm[2];
-            TopLeafMoments[i].mass = Nodes[no].mom.mass;
+            TopLeafMoments[i].s[0] = Nodes[no].cofm[0];
+            TopLeafMoments[i].s[1] = Nodes[no].cofm[1];
+            TopLeafMoments[i].s[2] = Nodes[no].cofm[2];
+            TopLeafMoments[i].mass = Nodes[no].mass;
         }
 
         /* share the pseudo-particle data across CPUs */
@@ -1430,10 +1422,10 @@ private:
             #pragma omp parallel for
             for(int i = ddecomp->Tasks[ta].StartLeaf; i < ddecomp->Tasks[ta].EndLeaf; i ++) {
                 const int no = ddecomp->TopLeaves[i].treenode;
-                Nodes[no].mom.cofm[0] = TopLeafMoments[i].s[0];
-                Nodes[no].mom.cofm[1] = TopLeafMoments[i].s[1];
-                Nodes[no].mom.cofm[2] = TopLeafMoments[i].s[2];
-                Nodes[no].mom.mass = TopLeafMoments[i].mass;
+                Nodes[no].cofm[0] = TopLeafMoments[i].s[0];
+                Nodes[no].cofm[1] = TopLeafMoments[i].s[1];
+                Nodes[no].cofm[2] = TopLeafMoments[i].s[2];
+                Nodes[no].mass = TopLeafMoments[i].mass;
             }
         }
         myfree(TopLeafMoments);

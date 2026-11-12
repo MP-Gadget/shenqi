@@ -22,7 +22,7 @@ template <typename Tree>
 class TestTree : public Tree {
 public:
     using Tree::Tree;
-    const NODE * nodes() const { return this->Nodes; }
+    const auto * nodes() const { return this->Nodes; }
     int64_t get_numnodes() const { return this->numnodes; }
     int64_t get_maxnodes() const { return this->maxnodes; }
     int64_t get_numparticles() const { return this->NumParticles; }
@@ -51,19 +51,19 @@ struct TreeWalkInfo {
 template <typename Tree>
 static void walk_node(const Tree& tb, const int no, const int numpart, TreeWalkInfo& info)
 {
-    const NODE * Nodes = tb.nodes();
-    const NODE * nop = &Nodes[no];
+    const auto * Nodes = tb.nodes();
+    const auto * nop = &Nodes[no];
     BOOST_TEST_REQUIRE(tb.node_is_node(no));
     info.reachable.push_back(no);
 
-    if(nop->f.ChildType == PARTICLE_NODE_TYPE) {
+    if(nop->ChildType == PARTICLE_NODE_TYPE) {
         BOOST_TEST(nop->s.noccupied >= 0);
         BOOST_TEST(nop->s.noccupied <= NMAXCHILD);
         info.tot_empty += NMAXCHILD - nop->s.noccupied;
         if(nop->s.noccupied == 0) {
             info.nempty++;
             /* Only toplevel nodes should be kept when empty*/
-            BOOST_TEST(nop->f.TopLevel);
+            BOOST_TEST(nop->TopLevel);
         }
         for(int j = 0; j < nop->s.noccupied; j++) {
             const int child = nop->s.suns[j];
@@ -73,10 +73,10 @@ static void walk_node(const Tree& tb, const int no, const int numpart, TreeWalkI
             BOOST_TEST(info.pfather[child] == -1);
             info.pfather[child] = no;
             /* Particle should be inside the node*/
-            BOOST_TEST(const_cast<NODE *>(nop)->inside_node(PartManager->Base[child].Pos, 1e-6 * nop->len));
+            BOOST_TEST(nop->inside_node(PartManager->Base[child].Pos, 1e-6 * nop->len));
         }
     }
-    else if(nop->f.ChildType == NODE_NODE_TYPE) {
+    else if(nop->ChildType == NODE_NODE_TYPE) {
         BOOST_TEST(nop->s.noccupied == NODEFULL);
         int nchild = 0;
         int seen_subnode = 0;
@@ -90,14 +90,14 @@ static void walk_node(const Tree& tb, const int no, const int numpart, TreeWalkI
             }
             nchild++;
             BOOST_TEST_REQUIRE(tb.node_is_node(child));
-            const NODE * nchld = &Nodes[child];
+            const auto * nchld = &Nodes[child];
             BOOST_TEST(nchld->father == no);
             BOOST_TEST(fabs(nchld->len / nop->len - 0.5) < 1e-4);
             /* Child center should be offset by len/4 in each direction*/
             for(int k = 0; k < 3; k++)
                 BOOST_TEST(fabs(fabs(nchld->center[k] - nop->center[k]) - nop->len / 4) < 1e-6 * nop->len);
             /* Each child should be in a distinct octant*/
-            const int sub = const_cast<NODE *>(nop)->get_subnode(nchld->center);
+            const int sub = nop->get_subnode(nchld->center);
             BOOST_TEST(!(seen_subnode & (1 << sub)));
             seen_subnode |= (1 << sub);
             walk_node(tb, child, numpart, info);
@@ -117,10 +117,10 @@ static TreeWalkInfo check_tree(const Tree& tb, const int numpart)
     TreeWalkInfo info;
     info.pfather.assign(numpart, -1);
     /* Root node*/
-    const NODE * Nodes = tb.nodes();
+    const auto * Nodes = tb.nodes();
     BOOST_TEST(Nodes[0].father == -1);
     BOOST_TEST(Nodes[0].sibling == -1);
-    BOOST_TEST(Nodes[0].f.TopLevel);
+    BOOST_TEST(Nodes[0].TopLevel);
     walk_node(tb, 0, numpart, info);
 
     int64_t nintree = 0;
@@ -142,13 +142,13 @@ static TreeWalkInfo check_tree(const Tree& tb, const int numpart)
 template <typename Tree>
 static void check_siblings(const Tree& tb, const int64_t nreal)
 {
-    const NODE * Nodes = tb.nodes();
+    const auto * Nodes = tb.nodes();
     int node = 0;
     int counter = 0;
     int sibcntr = 0;
     while(node >= 0) {
         BOOST_TEST_REQUIRE(tb.node_is_node(node));
-        const NODE * nop = &Nodes[node];
+        const auto * nop = &Nodes[node];
         const int sib = nop->sibling;
         BOOST_TEST_REQUIRE(sib >= -1);
         BOOST_TEST_REQUIRE(sib < tb.get_numnodes());
@@ -172,7 +172,7 @@ static void check_siblings(const Tree& tb, const int64_t nreal)
         counter++;
         BOOST_TEST_REQUIRE(counter <= nreal);
 
-        if(nop->f.ChildType == PARTICLE_NODE_TYPE)
+        if(nop->ChildType == PARTICLE_NODE_TYPE)
             node = sib;
         else
             node = nop->s.suns[0];
@@ -186,7 +186,7 @@ static void check_siblings(const Tree& tb, const int64_t nreal)
  * that the mass and center of mass are correct.*/
 static void check_moments(const TestTreeMoments& tb, const int numpart, const TreeWalkInfo& info)
 {
-    const NODE * Nodes = tb.nodes();
+    const auto * Nodes = tb.nodes();
     const int64_t numnodes = tb.get_numnodes();
     std::vector<double> mass(numnodes, 0);
     std::vector<double> cofm(3*numnodes, 0);
@@ -206,25 +206,25 @@ static void check_moments(const TestTreeMoments& tb, const int numpart, const Tr
     }
     int nbad = 0;
     for(const int node : info.reachable) {
-        const NODE * nop = &Nodes[node];
-        if(fabs(nop->mom.mass - mass[node]) > 0.5) {
+        const auto * nop = &Nodes[node];
+        if(fabs(nop->mass - mass[node]) > 0.5) {
             if(nbad++ < 10)
                 printf("node %d mass %g / expected %g TL %d DLM %d ITL %d type %d\n",
-                    node, nop->mom.mass, mass[node], nop->f.TopLevel,
-                    nop->f.DependsOnLocalMass, nop->f.InternalTopLevel, nop->f.ChildType);
+                    node, nop->mass, mass[node], nop->TopLevel,
+                    nop->DependsOnLocalMass, nop->InternalTopLevel, nop->ChildType);
         }
-        BOOST_TEST(fabs(nop->mom.mass - mass[node]) < 0.5);
+        BOOST_TEST(fabs(nop->mass - mass[node]) < 0.5);
         for(int k = 0; k < 3; k++) {
-            BOOST_TEST(nop->mom.cofm[k] <= PartManager->BoxSize);
-            BOOST_TEST(nop->mom.cofm[k] >= 0);
+            BOOST_TEST(nop->cofm[k] <= PartManager->BoxSize);
+            BOOST_TEST(nop->cofm[k] >= 0);
             if(mass[node] > 0)
-                BOOST_TEST(fabs(nop->mom.cofm[k] - cofm[3*node+k] / mass[node]) < 1e-6 * PartManager->BoxSize);
+                BOOST_TEST(fabs(nop->cofm[k] - cofm[3*node+k] / mass[node]) < 1e-6 * PartManager->BoxSize);
             else
-                BOOST_TEST(nop->mom.cofm[k] == nop->center[k]);
+                BOOST_TEST(nop->cofm[k] == nop->center[k]);
         }
     }
     /* Local mass flag is set on the topleaf*/
-    BOOST_TEST(Nodes[0].f.DependsOnLocalMass);
+    BOOST_TEST(Nodes[0].DependsOnLocalMass);
 }
 
 /* Set up the particle properties common to all tests and sort them.*/
@@ -273,8 +273,8 @@ static void do_tree_test(const int numpart, DomainDecomp * ddecomp)
         BOOST_TEST(tb.full_particle_tree_flag == c.full);
         BOOST_TEST(tb.get_numnodes() < tb.get_maxnodes());
         printf("Active list %s: number of nodes used: %ld. Built tree and moments in %.3g ms (excluding %.3g ms validation). Total mass: %g\n",
-               c.name, tb.get_numnodes(), ms, tb.get_validate_ms(), tb.nodes()[0].mom.mass);
-        BOOST_TEST(fabs(tb.nodes()[0].mom.mass - numpart) < 0.5);
+               c.name, tb.get_numnodes(), ms, tb.get_validate_ms(), tb.nodes()[0].mass);
+        BOOST_TEST(fabs(tb.nodes()[0].mass - numpart) < 0.5);
         TreeWalkInfo info = check_tree(tb, numpart);
         check_siblings(tb, info.reachable.size());
         check_moments(tb, numpart, info);
@@ -282,7 +282,7 @@ static void do_tree_test(const int numpart, DomainDecomp * ddecomp)
 }
 
 /* Find the hmax value between a node and a particle.*/
-static double compute_distance(int i, const NODE * node)
+static double compute_distance(int i, const auto * node)
 {
     double hmax = 0;
     for(int j = 0; j < 3; j++) {
@@ -296,7 +296,7 @@ static double compute_distance(int i, const NODE * node)
 
 /* Test whether particle is inside node.
  * 0 if outside node, 1 if inside node. */
-static int check_inside(int i, const NODE * node)
+static int check_inside(int i, const auto * node)
 {
     for(int j = 0; j < 3; j++)
         if (fabs(PartManager->Base[i].Pos[j] - node->center[j]) > node->len/2)
@@ -308,7 +308,7 @@ static int check_inside(int i, const NODE * node)
  * that is the distance between each particle and node center is larger than hmax.*/
 static void check_hmax(const TestTreeHmax& tb, const int numpart, const TreeWalkInfo& info)
 {
-    const NODE * Nodes = tb.nodes();
+    const auto * Nodes = tb.nodes();
     for(int i=0; i<numpart; i++)
     {
         /* Father array should agree with the tree walk*/
@@ -318,8 +318,8 @@ static void check_hmax(const TestTreeHmax& tb, const int numpart, const TreeWalk
             /* Test whether particle is in node*/
             BOOST_TEST(check_inside(i, &Nodes[j]));
             /* Test whether hmax is set correctly*/
-            BOOST_TEST(compute_distance(i, &Nodes[j]) <= Nodes[j].mom.hmax+1e-5);
-            BOOST_TEST(Nodes[j].mom.hmax >= 0);
+            BOOST_TEST(compute_distance(i, &Nodes[j]) <= Nodes[j].hmax+1e-5);
+            BOOST_TEST(Nodes[j].hmax >= 0);
             j = tb.get_father_node(j);
         }
     }
@@ -364,7 +364,7 @@ static double do_tree_mask_hmax_update_test(const int numpart, DomainDecomp * dd
     end = MPI_Wtime();
     ms = (end - start)*1000;
     BOOST_TEST(tb.hmax_computed_flag == true);
-    const double roothmax = tb.nodes()[0].mom.hmax;
+    const double roothmax = tb.nodes()[0].hmax;
     printf("Updated hmax (active = %d) in %.3g ms. Root hmax: %g\n", active, ms, roothmax);
     TreeWalkInfo info = check_tree(tb, numpart);
     check_siblings(tb, info.reachable.size());

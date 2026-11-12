@@ -20,10 +20,10 @@
 static struct ClockTable Clocks;
 
 /* The tree internals are protected: these wrappers expose them read-only for testing.*/
-class TestTopTree : public TopTree {
+class TestTopTree : public TopTree<MomentNODE> {
 public:
     using TopTree::TopTree;
-    const NODE * nodes() const { return this->Nodes; }
+    const auto * nodes() const { return this->Nodes; }
     int64_t get_numnodes() const { return this->numnodes; }
 };
 
@@ -31,7 +31,7 @@ template <typename Tree>
 class TestTree : public Tree {
 public:
     using Tree::Tree;
-    const NODE * nodes() const { return this->Nodes; }
+    const auto * nodes() const { return this->Nodes; }
     int64_t get_numnodes() const { return this->numnodes; }
     int64_t get_numparticles() const { return this->NumParticles; }
 };
@@ -111,7 +111,7 @@ static void teardown_particles(DomainDecomp * ddecomp)
 /* Check the top tree structure and that it mirrors the domain decomposition.
  * Nodes is a tree whose first NTopNodes nodes are the top tree.
  * DependsOnLocalMass is set when moments (or hmax) are computed, so is only checked if updated is set.*/
-static void check_toptree(const NODE * Nodes, const DomainDecomp * ddecomp, const bool updated)
+static void check_toptree(const auto * Nodes, const DomainDecomp * ddecomp, const bool updated)
 {
     const int ThisTask = this_task();
     const int NTopNodes = ddecomp->NTopNodes;
@@ -119,7 +119,7 @@ static void check_toptree(const NODE * Nodes, const DomainDecomp * ddecomp, cons
     /* Root covers the whole box*/
     BOOST_TEST(Nodes[0].father == -1);
     BOOST_TEST(Nodes[0].sibling == -1);
-    BOOST_TEST(Nodes[0].f.TopLevel);
+    BOOST_TEST(Nodes[0].TopLevel);
     BOOST_TEST(fabs(Nodes[0].len - PartManager->BoxSize * 1.001) < 1e-10);
 
     /* Every leaf has its own top-level leaf node, which points back to it*/
@@ -130,33 +130,33 @@ static void check_toptree(const NODE * Nodes, const DomainDecomp * ddecomp, cons
         BOOST_TEST_REQUIRE(no < NTopNodes);
         BOOST_TEST(leafof[no] == -1);
         leafof[no] = l;
-        const NODE * nop = &Nodes[no];
-        BOOST_TEST(nop->f.TopLevel);
-        BOOST_TEST(!nop->f.InternalTopLevel);
+        const auto * nop = &Nodes[no];
+        BOOST_TEST(nop->TopLevel);
+        BOOST_TEST(!nop->InternalTopLevel);
         if(ddecomp->TopLeaves[l].Task == ThisTask) {
-            BOOST_TEST(nop->f.ChildType != PSEUDO_NODE_TYPE);
-            BOOST_TEST(nop->f.DependsOnLocalMass == updated);
+            BOOST_TEST(nop->ChildType != PSEUDO_NODE_TYPE);
+            BOOST_TEST(nop->DependsOnLocalMass == updated);
         }
         else {
-            BOOST_TEST(nop->f.ChildType == PSEUDO_NODE_TYPE);
+            BOOST_TEST(nop->ChildType == PSEUDO_NODE_TYPE);
             /* Pseudo particle index is the leaf number*/
             BOOST_TEST(nop->s.suns[0] == l);
-            BOOST_TEST(!nop->f.DependsOnLocalMass);
+            BOOST_TEST(!nop->DependsOnLocalMass);
         }
     }
 
     /* Internal top-level nodes have 8 top-level children, which are either internal or leaves*/
     int ninternal = 0;
     for(int no = 0; no < NTopNodes; no++) {
-        const NODE * nop = &Nodes[no];
-        BOOST_TEST(nop->f.TopLevel);
-        if(!nop->f.InternalTopLevel) {
+        const auto * nop = &Nodes[no];
+        BOOST_TEST(nop->TopLevel);
+        if(!nop->InternalTopLevel) {
             BOOST_TEST(leafof[no] >= 0);
             continue;
         }
         ninternal++;
         BOOST_TEST(leafof[no] == -1);
-        BOOST_TEST(nop->f.ChildType == NODE_NODE_TYPE);
+        BOOST_TEST(nop->ChildType == NODE_NODE_TYPE);
         int seen = 0;
         bool anylocal = false;
         for(int j = 0; j < 8; j++) {
@@ -164,17 +164,17 @@ static void check_toptree(const NODE * Nodes, const DomainDecomp * ddecomp, cons
             BOOST_TEST_REQUIRE(c > no);
             BOOST_TEST_REQUIRE(c < NTopNodes);
             BOOST_TEST(Nodes[c].father == no);
-            BOOST_TEST(Nodes[c].f.TopLevel);
+            BOOST_TEST(Nodes[c].TopLevel);
             BOOST_TEST(fabs(Nodes[c].len / nop->len - 0.5) < 1e-10);
-            const int sub = const_cast<NODE *>(nop)->get_subnode(Nodes[c].center);
+            const int sub = nop->get_subnode(Nodes[c].center);
             BOOST_TEST(!(seen & (1 << sub)));
             seen |= 1 << sub;
             /* Siblings run through the children, the last pointing to the parent's sibling*/
             BOOST_TEST(Nodes[c].sibling == (j < 7 ? nop->s.suns[j+1] : nop->sibling));
-            anylocal = anylocal || Nodes[c].f.DependsOnLocalMass;
+            anylocal = anylocal || Nodes[c].DependsOnLocalMass;
         }
         /* Local mass dependence propagates up from the local leaves*/
-        BOOST_TEST(nop->f.DependsOnLocalMass == (updated && anylocal));
+        BOOST_TEST(nop->DependsOnLocalMass == (updated && anylocal));
     }
     /* An oct-tree with L leaves has (L-1)/7 internal nodes*/
     BOOST_TEST(ninternal * 7 + 1 == ddecomp->NTopLeaves);
@@ -192,29 +192,25 @@ static void check_toptree(const NODE * Nodes, const DomainDecomp * ddecomp, cons
 
 /* Check the top tree is the same on every rank, comparing to rank 0.
  * If moments is set, compares mass and center of mass, if hmax is set compares hmax.*/
-static void check_toptree_consistent(const NODE * Nodes, const DomainDecomp * ddecomp, const bool moments, const bool hmax)
+static void check_toptree_consistent(const MomentNODE * Nodes, const DomainDecomp * ddecomp, const bool hmax)
 {
     const int NTopNodes = ddecomp->NTopNodes;
-    std::vector<NODE> root(Nodes, Nodes + NTopNodes);
-    MPI_Bcast(root.data(), NTopNodes * sizeof(NODE), MPI_BYTE, 0, MPI_COMM_WORLD);
+    std::vector<MomentNODE> root(Nodes, Nodes + NTopNodes);
+    MPI_Bcast(root.data(), NTopNodes * sizeof(MomentNODE), MPI_BYTE, 0, MPI_COMM_WORLD);
     int nbad = 0;
     for(int no = 0; no < NTopNodes; no++) {
-        const NODE& a = Nodes[no];
-        const NODE& b = root[no];
+        const MomentNODE& a = Nodes[no];
+        const MomentNODE& b = root[no];
         bool good = a.len == b.len && a.father == b.father && a.sibling == b.sibling
-            && a.f.InternalTopLevel == b.f.InternalTopLevel;
+            && a.InternalTopLevel == b.InternalTopLevel;
         for(int k = 0; k < 3; k++)
             good = good && a.center[k] == b.center[k];
-        if(a.f.InternalTopLevel)
+        if(a.InternalTopLevel)
             for(int j = 0; j < 8; j++)
                 good = good && a.s.suns[j] == b.s.suns[j];
-        if(moments) {
-            good = good && fabs(a.mom.mass - b.mom.mass) <= 1e-10 * b.mom.mass;
-            for(int k = 0; k < 3; k++)
-                good = good && fabs(a.mom.cofm[k] - b.mom.cofm[k]) <= 1e-10 * PartManager->BoxSize;
-        }
-        if(hmax)
-            good = good && fabs(a.mom.hmax - b.mom.hmax) <= 1e-10;
+        good = good && fabs(a.mass - b.mass) <= 1e-10 * b.mass;
+        for(int k = 0; k < 3; k++)
+            good = good && fabs(a.cofm[k] - b.cofm[k]) <= 1e-10 * PartManager->BoxSize;
         if(!good)
             nbad++;
     }
@@ -223,7 +219,7 @@ static void check_toptree_consistent(const NODE * Nodes, const DomainDecomp * dd
 
 /* Walk the tree in treewalk order (suns[0] to open, sibling to skip) from the root,
  * checking it terminates and visits each top leaf once.*/
-static void check_walk(const NODE * Nodes, const int64_t numnodes, const DomainDecomp * ddecomp)
+static void check_walk(const auto * Nodes, const int64_t numnodes, const DomainDecomp * ddecomp)
 {
     int no = 0;
     int64_t count = 0;
@@ -231,10 +227,10 @@ static void check_walk(const NODE * Nodes, const int64_t numnodes, const DomainD
     while(no >= 0) {
         BOOST_TEST_REQUIRE(no < numnodes);
         BOOST_TEST_REQUIRE(count++ <= numnodes);
-        const NODE * nop = &Nodes[no];
-        if(nop->f.TopLevel && !nop->f.InternalTopLevel)
+        const auto * nop = &Nodes[no];
+        if(nop->TopLevel && !nop->InternalTopLevel)
             nleaves++;
-        if(nop->f.ChildType == NODE_NODE_TYPE)
+        if(nop->ChildType == NODE_NODE_TYPE)
             no = nop->s.suns[0];
         else
             no = nop->sibling;
@@ -243,13 +239,13 @@ static void check_walk(const NODE * Nodes, const int64_t numnodes, const DomainD
 }
 
 /* Walk the subtree below a local node, recording the parent of every particle.*/
-static void walk_local(const NODE * Nodes, const int64_t numnodes, const int no, std::vector<int>& pfather)
+static void walk_local(const auto * Nodes, const int64_t numnodes, const int no, std::vector<int>& pfather)
 {
     BOOST_TEST_REQUIRE(no >= 0);
     BOOST_TEST_REQUIRE(no < numnodes);
-    const NODE * nop = &Nodes[no];
-    BOOST_TEST_REQUIRE(nop->f.ChildType != PSEUDO_NODE_TYPE);
-    if(nop->f.ChildType == PARTICLE_NODE_TYPE) {
+    const auto * nop = &Nodes[no];
+    BOOST_TEST_REQUIRE(nop->ChildType != PSEUDO_NODE_TYPE);
+    if(nop->ChildType == PARTICLE_NODE_TYPE) {
         for(int j = 0; j < nop->s.noccupied; j++) {
             const int p = nop->s.suns[j];
             BOOST_TEST_REQUIRE(p >= 0);
@@ -266,7 +262,7 @@ static void walk_local(const NODE * Nodes, const int64_t numnodes, const int no,
 }
 
 /* Every local particle is in the subtree of its own top leaf, exactly once.*/
-static std::vector<int> check_local_particles(const NODE * Nodes, const int64_t numnodes, const DomainDecomp * ddecomp)
+static std::vector<int> check_local_particles(const auto * Nodes, const int64_t numnodes, const DomainDecomp * ddecomp)
 {
     const int ThisTask = this_task();
     std::vector<int> pfather(PartManager->NumPart, -1);
@@ -311,7 +307,7 @@ BOOST_AUTO_TEST_CASE(test_toptree_mpi)
     TestTopTree tree(&ddecomp, PartManager->BoxSize);
     BOOST_TEST(tree.get_numnodes() == ddecomp.NTopNodes);
     check_toptree(tree.nodes(), &ddecomp, false);
-    check_toptree_consistent(tree.nodes(), &ddecomp, false, false);
+    check_toptree_consistent(tree.nodes(), &ddecomp, false);
     check_walk(tree.nodes(), tree.get_numnodes(), &ddecomp);
     teardown_particles(&ddecomp);
 }
@@ -323,10 +319,10 @@ BOOST_AUTO_TEST_CASE(test_forcetree_moments_mpi)
     const int NTopLeaves = ddecomp.NTopLeaves;
 
     TestTreeMoments tb(*PartManager, &ddecomp, NULL, false, "");
-    const NODE * Nodes = tb.nodes();
+    const auto * Nodes = tb.nodes();
     BOOST_TEST(tb.get_numparticles() == PartManager->NumPart);
     check_toptree(Nodes, &ddecomp, true);
-    check_toptree_consistent(Nodes, &ddecomp, true, false);
+    check_toptree_consistent(Nodes, &ddecomp, false);
     check_walk(Nodes, tb.get_numnodes(), &ddecomp);
     check_local_particles(Nodes, tb.get_numnodes(), &ddecomp);
 
@@ -344,16 +340,16 @@ BOOST_AUTO_TEST_CASE(test_forcetree_moments_mpi)
     MPI_Allreduce(MPI_IN_PLACE, leafcofm.data(), 3*NTopLeaves, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     MPI_Allreduce(MPI_IN_PLACE, &totmass, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
-    BOOST_TEST(fabs(Nodes[0].mom.mass - totmass) < 1e-9 * totmass);
+    BOOST_TEST(fabs(Nodes[0].mass - totmass) < 1e-9 * totmass);
     /* Each leaf, local or pseudo, has the global moments of its particles*/
     int nbadmass = 0, nbadcofm = 0;
     for(int l = 0; l < NTopLeaves; l++) {
-        const NODE * nop = &Nodes[ddecomp.TopLeaves[l].treenode];
-        if(fabs(nop->mom.mass - leafmass[l]) > 1e-9 * totmass)
+        const auto * nop = &Nodes[ddecomp.TopLeaves[l].treenode];
+        if(fabs(nop->mass - leafmass[l]) > 1e-9 * totmass)
             nbadmass++;
         for(int k = 0; k < 3; k++) {
             const double expected = leafmass[l] > 0 ? leafcofm[3*l+k] / leafmass[l] : nop->center[k];
-            if(fabs(nop->mom.cofm[k] - expected) > 1e-8 * PartManager->BoxSize)
+            if(fabs(nop->cofm[k] - expected) > 1e-8 * PartManager->BoxSize)
                 nbadcofm++;
         }
     }
@@ -361,19 +357,19 @@ BOOST_AUTO_TEST_CASE(test_forcetree_moments_mpi)
     BOOST_TEST(nbadcofm == 0);
     /* Internal top-level nodes sum their children*/
     for(int no = 0; no < ddecomp.NTopNodes; no++) {
-        const NODE * nop = &Nodes[no];
-        if(!nop->f.InternalTopLevel)
+        const auto * nop = &Nodes[no];
+        if(!nop->InternalTopLevel)
             continue;
         double mass = 0;
         for(int j = 0; j < 8; j++)
-            mass += Nodes[nop->s.suns[j]].mom.mass;
-        BOOST_TEST(fabs(nop->mom.mass - mass) < 1e-9 * totmass);
+            mass += Nodes[nop->s.suns[j]].mass;
+        BOOST_TEST(fabs(nop->mass - mass) < 1e-9 * totmass);
     }
     teardown_particles(&ddecomp);
 }
 
 /* Largest amount a particle peeks out of a node.*/
-static double peek(const particle_data& p, const NODE * node)
+static double peek(const particle_data& p, const auto * node)
 {
     double hmax = 0;
     for(int j = 0; j < 3; j++)
@@ -407,9 +403,8 @@ static double do_hmax_test(DomainDecomp * ddecomp, const bool active)
     }
     tb.force_tree_calc_hmax(ddecomp);
     BOOST_TEST(tb.hmax_computed_flag);
-    const NODE * Nodes = tb.nodes();
+    const auto * Nodes = tb.nodes();
     check_toptree(Nodes, ddecomp, true);
-    check_toptree_consistent(Nodes, ddecomp, false, true);
     check_walk(Nodes, tb.get_numnodes(), ddecomp);
     std::vector<int> pfather = check_local_particles(Nodes, tb.get_numnodes(), ddecomp);
 
@@ -421,7 +416,7 @@ static double do_hmax_test(DomainDecomp * ddecomp, const bool active)
         if(tb.get_father_particle(i) != pfather[i])
             nbadfather++;
         for(int no = tb.get_father_particle(i); no >= 0; no = tb.get_father_node(no))
-            if(!inside(p.Pos, &Nodes[no]) || peek(p, &Nodes[no]) > Nodes[no].mom.hmax + 1e-5)
+            if(!inside(p.Pos, &Nodes[no]) || peek(p, &Nodes[no]) > Nodes[no].hmax + 1e-5)
                 nbadhmax++;
         leafpeek[p.TopLeaf] = DMAX(leafpeek[p.TopLeaf], peek(p, &Nodes[ddecomp->TopLeaves[p.TopLeaf].treenode]));
     }
@@ -431,10 +426,10 @@ static double do_hmax_test(DomainDecomp * ddecomp, const bool active)
     MPI_Allreduce(MPI_IN_PLACE, leafpeek.data(), NTopLeaves, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
     int nbadleaf = 0;
     for(int l = 0; l < NTopLeaves; l++)
-        if(leafpeek[l] > Nodes[ddecomp->TopLeaves[l].treenode].mom.hmax + 1e-5)
+        if(leafpeek[l] > Nodes[ddecomp->TopLeaves[l].treenode].hmax + 1e-5)
             nbadleaf++;
     BOOST_TEST(nbadleaf == 0);
-    const double roothmax = Nodes[0].mom.hmax;
+    const double roothmax = Nodes[0].hmax;
     message(0, "Root hmax (active = %d): %g\n", active, roothmax);
     BOOST_TEST(roothmax > 0);
     return roothmax;
