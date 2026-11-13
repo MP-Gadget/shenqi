@@ -12,6 +12,7 @@
 #include <boost/random/uniform_real_distribution.hpp>
 
 #include <libgadget/forcetree2.h>
+#include <libgadget/forcetree.h>
 #include <libgadget/partmanager.h>
 #include <libgadget/slotsmanager.h>
 #include <libgadget/domain.h>
@@ -109,7 +110,7 @@ static void teardown_particles(DomainDecomp * ddecomp)
 /* Check the top tree structure and that it mirrors the domain decomposition.
  * Nodes is a tree whose first NTopNodes nodes are the top tree.
  * DependsOnLocalMass is set when moments (or hmax) are computed, so is only checked if updated is set.*/
-static void check_toptree(const auto * Nodes, const DomainDecomp * ddecomp, const bool updated)
+static void check_toptree(const auto * Nodes, const int * TopLeafNodes, const DomainDecomp * ddecomp, const bool updated)
 {
     const int ThisTask = this_task();
     const int NTopNodes = ddecomp->NTopNodes;
@@ -123,7 +124,7 @@ static void check_toptree(const auto * Nodes, const DomainDecomp * ddecomp, cons
     /* Every leaf has its own top-level leaf node, which points back to it*/
     std::vector<int> leafof(NTopNodes, -1);
     for(int l = 0; l < ddecomp->NTopLeaves; l++) {
-        const int no = ddecomp->TopLeaves[l].treenode;
+        const int no = TopLeafNodes[l];
         BOOST_TEST_REQUIRE(no >= 0);
         BOOST_TEST_REQUIRE(no < NTopNodes);
         BOOST_TEST(leafof[no] == -1);
@@ -182,7 +183,7 @@ static void check_toptree(const auto * Nodes, const DomainDecomp * ddecomp, cons
     for(int i = 0; i < PartManager->NumPart; i++) {
         const int l = PartManager->Base[i].TopLeaf;
         BOOST_TEST_REQUIRE(ddecomp->TopLeaves[l].Task == ThisTask);
-        if(!inside(PartManager->Base[i].Pos, &Nodes[ddecomp->TopLeaves[l].treenode]))
+        if(!inside(PartManager->Base[i].Pos, &Nodes[TopLeafNodes[l]]))
             nbad++;
     }
     BOOST_TEST(nbad == 0);
@@ -275,13 +276,13 @@ static void walk_local(const auto * Nodes, const int64_t numnodes, const int no,
 }
 
 /* Every local particle is in the subtree of its own top leaf, exactly once.*/
-static std::vector<int> check_local_particles(const auto * Nodes, const int64_t numnodes, const DomainDecomp * ddecomp)
+static std::vector<int> check_local_particles(const auto * Nodes, const int * TopLeafNodes, const int64_t numnodes, const DomainDecomp * ddecomp)
 {
     const int ThisTask = this_task();
     std::vector<int> pfather(PartManager->NumPart, -1);
     std::vector<int> leafofp(PartManager->NumPart, -1);
     for(int l = ddecomp->Tasks[ThisTask].StartLeaf; l < ddecomp->Tasks[ThisTask].EndLeaf; l++) {
-        const int no = ddecomp->TopLeaves[l].treenode;
+        const int no = TopLeafNodes[l];
         std::vector<int> before = pfather;
         walk_local(Nodes, numnodes, no, pfather);
         for(int i = 0; i < PartManager->NumPart; i++)
@@ -319,7 +320,7 @@ BOOST_AUTO_TEST_CASE(test_toptree_mpi)
 
     TestTopTree tree(&ddecomp, PartManager->BoxSize);
     BOOST_TEST(tree.get_numnodes() == ddecomp.NTopNodes);
-    check_toptree(tree.get_nodes(), &ddecomp, false);
+    check_toptree(tree.get_nodes(), tree.get_topleaf_nodes(), &ddecomp, false);
     check_toptree_consistent(tree.get_nodes(), &ddecomp);
     check_walk(tree.get_nodes(), tree.get_numnodes(), &ddecomp);
     teardown_particles(&ddecomp);
@@ -333,11 +334,12 @@ BOOST_AUTO_TEST_CASE(test_forcetree_moments_mpi)
 
     TestTreeMoments tb(*PartManager, &ddecomp, NULL, false, "");
     const auto * Nodes = tb.get_nodes();
+    const int * const TopLeafNodes = tb.get_topleaf_nodes();
     BOOST_TEST(tb.get_numparticles() == PartManager->NumPart);
-    check_toptree(Nodes, &ddecomp, true);
+    check_toptree(Nodes, tb.get_topleaf_nodes(), &ddecomp, true);
     check_toptree_consistent(Nodes, &ddecomp);
     check_walk(Nodes, tb.get_numnodes(), &ddecomp);
-    check_local_particles(Nodes, tb.get_numnodes(), &ddecomp);
+    check_local_particles(Nodes, tb.get_topleaf_nodes(), tb.get_numnodes(), &ddecomp);
 
     /* Global mass and mass-weighted position in each top leaf*/
     std::vector<double> leafmass(NTopLeaves, 0), leafcofm(3*NTopLeaves, 0);
@@ -357,7 +359,7 @@ BOOST_AUTO_TEST_CASE(test_forcetree_moments_mpi)
     /* Each leaf, local or pseudo, has the global moments of its particles*/
     int nbadmass = 0, nbadcofm = 0;
     for(int l = 0; l < NTopLeaves; l++) {
-        const auto * nop = &Nodes[ddecomp.TopLeaves[l].treenode];
+        const auto * nop = &Nodes[TopLeafNodes[l]];
         if(fabs(nop->mass - leafmass[l]) > 1e-9 * totmass)
             nbadmass++;
         for(int k = 0; k < 3; k++) {
@@ -417,10 +419,11 @@ static double do_hmax_test(DomainDecomp * ddecomp, const bool active)
     tb.force_tree_calc_hmax(ddecomp);
     BOOST_TEST(tb.hmax_computed_flag);
     const auto * Nodes = tb.get_nodes();
-    check_toptree(Nodes, ddecomp, true);
+    const int * const TopLeafNodes = tb.get_topleaf_nodes();
+    check_toptree(Nodes, tb.get_topleaf_nodes(), ddecomp, true);
     check_toptree_consistent(Nodes, ddecomp);
     check_walk(Nodes, tb.get_numnodes(), ddecomp);
-    std::vector<int> pfather = check_local_particles(Nodes, tb.get_numnodes(), ddecomp);
+    std::vector<int> pfather = check_local_particles(Nodes, tb.get_topleaf_nodes(), tb.get_numnodes(), ddecomp);
 
     /* hmax of every ancestor of a local particle, up to the root, covers that particle*/
     int nbadfather = 0, nbadhmax = 0;
@@ -432,7 +435,7 @@ static double do_hmax_test(DomainDecomp * ddecomp, const bool active)
         for(int no = tb.get_father_particle(i); no >= 0; no = tb.get_father_node(no))
             if(!inside(p.Pos, &Nodes[no]) || peek(p, &Nodes[no]) > Nodes[no].hmax + 1e-5)
                 nbadhmax++;
-        leafpeek[p.TopLeaf] = DMAX(leafpeek[p.TopLeaf], peek(p, &Nodes[ddecomp->TopLeaves[p.TopLeaf].treenode]));
+        leafpeek[p.TopLeaf] = DMAX(leafpeek[p.TopLeaf], peek(p, &Nodes[TopLeafNodes[p.TopLeaf]]));
     }
     BOOST_TEST(nbadfather == 0);
     BOOST_TEST(nbadhmax == 0);
@@ -440,7 +443,7 @@ static double do_hmax_test(DomainDecomp * ddecomp, const bool active)
     MPI_Allreduce(MPI_IN_PLACE, leafpeek.data(), NTopLeaves, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
     int nbadleaf = 0;
     for(int l = 0; l < NTopLeaves; l++)
-        if(leafpeek[l] > Nodes[ddecomp->TopLeaves[l].treenode].hmax + 1e-5)
+        if(leafpeek[l] > Nodes[TopLeafNodes[l]].hmax + 1e-5)
             nbadleaf++;
     BOOST_TEST(nbadleaf == 0);
     const double roothmax = Nodes[0].hmax;
@@ -457,5 +460,48 @@ BOOST_AUTO_TEST_CASE(test_forcetree_hmax_mpi)
     const double active = do_hmax_test(&ddecomp, true);
     /* Same particles and smoothing lengths, so both routes should agree*/
     BOOST_TEST(fabs(active - inactive) < 1e-6);
+    teardown_particles(&ddecomp);
+}
+
+/* Trees which number their nodes differently may be alive at the same time:
+ * each tree stores the node index of each top leaf itself, so building a second
+ * tree must not change where the first tree's top leaves are.*/
+BOOST_AUTO_TEST_CASE(test_forcetree_coexist_mpi)
+{
+    DomainDecomp ddecomp;
+    setup_particles(32*32*32, &ddecomp);
+    const int NTopLeaves = ddecomp.NTopLeaves;
+
+    TestTreeMoments tb(*PartManager, &ddecomp, NULL, false, "");
+    const std::vector<int> before(tb.get_topleaf_nodes(), tb.get_topleaf_nodes() + NTopLeaves);
+
+    /* An old-style tree, whose nodes are numbered from firstnode, built while the first tree is alive.*/
+    init_forcetree_params(0.9);
+    ForceTree oldtree = {0};
+    force_tree_rebuild_mask(&oldtree, &ddecomp, ALLMASK, "");
+    /* And another new tree*/
+    ForceTreeSimple simple(*PartManager, &ddecomp, ALLMASK, "");
+
+    int nchanged = 0, nbadold = 0, nbadsimple = 0;
+    for(int l = 0; l < NTopLeaves; l++) {
+        if(tb.get_topleaf_nodes()[l] != before[l])
+            nchanged++;
+        /* The top trees are built identically, so differ only by the offset of the first node.*/
+        if(oldtree.TopLeafNodes[l] != before[l] + oldtree.firstnode)
+            nbadold++;
+        if(simple.get_topleaf_nodes()[l] != before[l])
+            nbadsimple++;
+    }
+    BOOST_TEST(nchanged == 0);
+    BOOST_TEST(nbadold == 0);
+    BOOST_TEST(nbadsimple == 0);
+    /* The first tree is still valid*/
+    check_toptree(tb.get_nodes(), tb.get_topleaf_nodes(), &ddecomp, true);
+    check_local_particles(tb.get_nodes(), tb.get_topleaf_nodes(), tb.get_numnodes(), &ddecomp);
+    /* The old tree can still exchange its moments using its own top leaf nodes.*/
+    force_tree_calc_moments(&oldtree, &ddecomp);
+    BOOST_TEST(fabs(oldtree.Nodes[oldtree.firstnode].mom.mass - tb.get_nodes()[0].mass) < 1e-9 * tb.get_nodes()[0].mass);
+
+    force_tree_free(&oldtree);
     teardown_particles(&ddecomp);
 }

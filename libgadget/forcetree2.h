@@ -247,6 +247,10 @@ protected:
     struct topleaf_data * TopLeaves = NULL;
     /*Number of TopLeaves*/
     int NTopLeaves = 0;
+    /* Node index in this tree of each top leaf: length NTopLeaves. Owned by the tree, so that
+     * several trees (which may number their nodes differently) can be alive at once.
+     * In managed memory as the toptree walk reads it on the GPU.*/
+    int * TopLeafNodes = NULL;
     /* Index of current task*/
     int ThisTask;
 
@@ -289,7 +293,7 @@ protected:
                         endrun(5, "Invalid topnode: daughter %d sub %d > topnodes %d\n", curdaughter, sub, ddecomp->NTopNodes);
                     const struct topnode_data curtopnode = ddecomp->TopNodes[curdaughter + sub];
                     if(curtopnode.Daughter == -1) {
-                        TopLeaves[curtopnode.Leaf].treenode = numnodes;
+                        TopLeafNodes[curtopnode.Leaf] = numnodes;
                         /* We set the first child as a pointer to the topleaf, essentially constructing the pseudoparticles early.
                         * We do not set nocc, so this first child will be over-written on local nodes when we construct the full tree.*/
                         Nodes[numnodes].s.suns[0] = curtopnode.Leaf;
@@ -325,8 +329,10 @@ public:
 
     /* Read-only access for the tree walks. The node array is in managed memory, so it may be passed to the GPU.*/
     const NodeType * get_nodes() const { return Nodes; }
-    /* The TopLeaves are shared with the domain decomposition: TopLeaves[i].treenode is the node index of top leaf i in the most recently built tree.*/
+    /* The TopLeaves are shared with the domain decomposition.*/
     const topleaf_data * get_topleaves() const { return TopLeaves; }
+    /* get_topleaf_nodes()[i] is the node index of top leaf i in this tree.*/
+    const int * get_topleaf_nodes() const { return TopLeafNodes; }
     int get_ntopleaves() const { return NTopLeaves; }
 
     double BoxSize;
@@ -334,6 +340,7 @@ public:
     /* A toptree for domain exchange. This creates only the topnodes, which shadow elements of the domain decomposition.*/
     TopTree(DomainDecomp * ddecomp, const double i_BoxSize) : TopLeaves(ddecomp->TopLeaves), NTopLeaves(ddecomp->NTopLeaves), BoxSize(i_BoxSize)
     {
+        TopLeafNodes = mymanagedmalloc("TopLeafNodes", int, ddecomp->NTopLeaves);
         /* Allocate memory. Two extra for the first node and for a sentinel*/
         Nodes = mymanagedmalloc("Nodes_base", NodeType, ddecomp->NTopNodes+2);
         MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
@@ -342,7 +349,7 @@ public:
         /* Construct the root node*/
         new(&Nodes[numnodes]) NodeType(BoxSize);
         /* Set the treenode for this node*/
-        ddecomp->TopLeaves[0].treenode = numnodes;
+        TopLeafNodes[0] = numnodes;
         numnodes++;
         /* create a set of empty nodes corresponding to the top-level ddecomp
          * grid. We need to generate these nodes first to make sure that we have a
@@ -354,6 +361,7 @@ public:
     ~TopTree(void)
     {
         myfree(Nodes);
+        myfree(TopLeafNodes);
     }
 
     /* The tree owns its Nodes allocation, so copying would double free.*/
@@ -371,6 +379,7 @@ public:
 protected:
     using TopTree<NodeType>::Nodes;
     using TopTree<NodeType>::numnodes;
+    using TopTree<NodeType>::TopLeafNodes;
 
     /* Each processor allocates a number of nodes which is TreeAllocFactor times
        the maximum(!) number of particles.  Note: A typical local tree for N
@@ -619,7 +628,7 @@ public:
         int * topnodes = ta_malloc("topnodes", int, (EndLeaf - StartLeaf) * nthr);
         /* Topnodes for each thread. For tid 0, just use the real tree. Saves copying the tree back.*/
         for(int j = 0; j < EndLeaf - StartLeaf; j++)
-            topnodes[j] = ddecomp->TopLeaves[j + StartLeaf].treenode;
+            topnodes[j] = TopLeafNodes[j + StartLeaf];
         /* Other threads need a copy*/
         for(int t = 1; t < nthr; t++) {
             for(int j = 0; j < EndLeaf - StartLeaf; j++) {
@@ -697,7 +706,7 @@ public:
                     const int topleaf = Part[i].TopLeaf;
                     if(topleaf < StartLeaf || topleaf >= EndLeaf)
                         endrun(5, "Bad topleaf %d start %d end %d type %d ID %ld\n", topleaf, StartLeaf, EndLeaf, Part[i].Type, Part[i].ID);
-                    //int treenode = ddecomp->TopLeaves[topleaf].treenode;
+                    //int treenode = TopLeafNodes[topleaf];
                     cur = local_topnodes[topleaf - StartLeaf];
     #ifdef DEBUG
                     if(!Nodes[cur].inside_node(Part[i].Pos, 1e-7))
@@ -1018,7 +1027,7 @@ public:
     #pragma omp single nowait
         {
             for(int i = ddecomp->Tasks[ThisTask].StartLeaf; i < ddecomp->Tasks[ThisTask].EndLeaf; i ++) {
-                const int no = ddecomp->TopLeaves[i].treenode;
+                const int no = TopLeafNodes[i];
                 /* Set local mass dependence*/
                 Nodes[no].DependsOnLocalMass = 1;
                 /* Nodes containing other nodes: the overwhelmingly likely case.*/
@@ -1096,8 +1105,8 @@ public:
                 const int leaf = current->s.suns[0];
                 if(leaf < 0 || leaf >= this->NTopLeaves)
                     endrun(5, "Pseudo Node %d has next node %d not a topleaf (ntop %d) sibling %d father %d\n", no, leaf, this->NTopLeaves, current->sibling, current->father);
-                if(this->TopLeaves[leaf].treenode != no)
-                    endrun(5, "Pseudo Node %d has topleaf %d with treenode %d != node\n", no, leaf, this->TopLeaves[leaf].treenode);
+                if(TopLeafNodes[leaf] != no)
+                    endrun(5, "Pseudo Node %d has topleaf %d with treenode %d != node\n", no, leaf, TopLeafNodes[leaf]);
                 if(this->TopLeaves[leaf].Task == this->ThisTask)
                     endrun(5, "Pseudo Node %d has topleaf %d on local task %d\n", no, leaf, this->ThisTask);
             }
@@ -1282,7 +1291,7 @@ private:
 
         #pragma omp parallel for
         for(int i = ddecomp->Tasks[ThisTask].StartLeaf; i < ddecomp->Tasks[ThisTask].EndLeaf; i ++) {
-            int no = ddecomp->TopLeaves[i].treenode;
+            int no = TopLeafNodes[i];
             if(ddecomp->TopLeaves[i].Task != ThisTask)
                 endrun(131231231, "TopLeaf %d Task table is corrupted: task is %d\n", i, ddecomp->TopLeaves[i].Task);
             /* read out the hmax from the local base cells */
@@ -1314,7 +1323,7 @@ private:
                 continue; /* bypass ThisTask since it is already up to date */
             #pragma omp parallel for
             for(int i = ddecomp->Tasks[ta].StartLeaf; i < ddecomp->Tasks[ta].EndLeaf; i ++) {
-                const int no = ddecomp->TopLeaves[i].treenode;
+                const int no = TopLeafNodes[i];
                 Nodes[no].hmax = TopLeafMoments[i];
             }
         }
@@ -1453,7 +1462,7 @@ private:
 
         #pragma omp parallel for
         for(int i = ddecomp->Tasks[ThisTask].StartLeaf; i < ddecomp->Tasks[ThisTask].EndLeaf; i ++) {
-            int no = ddecomp->TopLeaves[i].treenode;
+            int no = TopLeafNodes[i];
             if(ddecomp->TopLeaves[i].Task != ThisTask)
                 endrun(131231231, "TopLeaf %d Task table is corrupted: task is %d\n", i, ddecomp->TopLeaves[i].Task);
             /* read out the multipole moments from the local base cells */
@@ -1488,7 +1497,7 @@ private:
                 continue; /* bypass ThisTask since it is already up to date */
             #pragma omp parallel for
             for(int i = ddecomp->Tasks[ta].StartLeaf; i < ddecomp->Tasks[ta].EndLeaf; i ++) {
-                const int no = ddecomp->TopLeaves[i].treenode;
+                const int no = TopLeafNodes[i];
                 Nodes[no].cofm[0] = TopLeafMoments[i].s[0];
                 Nodes[no].cofm[1] = TopLeafMoments[i].s[1];
                 Nodes[no].cofm[2] = TopLeafMoments[i].s[2];

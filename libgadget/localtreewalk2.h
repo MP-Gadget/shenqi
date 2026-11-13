@@ -199,8 +199,8 @@ public:
     using node_type = NodeType;
 
     /* Constructor from treewalk */
-    MYCUDAFN TopTreeWalk(const NodeType * const i_Node, const topleaf_data * const i_TopLeaves, const int i_NTopLeaves):
-    Nodes(i_Node), TopLeaves(i_TopLeaves), NTopLeaves(i_NTopLeaves), lasttask(0), nodelistindex(0)
+    MYCUDAFN TopTreeWalk(const NodeType * const i_Node, const topleaf_data * const i_TopLeaves, const int * const i_TopLeafNodes, const int i_NTopLeaves):
+    Nodes(i_Node), TopLeaves(i_TopLeaves), TopLeafNodes(i_TopLeafNodes), NTopLeaves(i_NTopLeaves), lasttask(0), nodelistindex(0)
     { }
 
     /* Wrapper of the regular particle visit with some extra cleanup of the particle export table for the toptree walk
@@ -287,7 +287,7 @@ protected:
                 endrun(1, "Current nodelist %ld entry (%d) not empty!\n", nodelistindex, DataIndexTable[nexp-1].NodeList[nodelistindex]);
     #endif
             if(nodelistindex < NODELISTLENGTH) {
-                DataIndexTable[nexp-1].NodeList[nodelistindex] = topleaf->treenode;
+                DataIndexTable[nexp-1].NodeList[nodelistindex] = TopLeafNodes[no];
                 nodelistindex++;
                 return nexp;
             }
@@ -298,7 +298,7 @@ protected:
         }
         DataIndexTable[nexp].Task = task;
         DataIndexTable[nexp].Index = target;
-        DataIndexTable[nexp].NodeList[0] = topleaf->treenode;
+        DataIndexTable[nexp].NodeList[0] = TopLeafNodes[no];
         for(int i = 1; i < NODELISTLENGTH; i++)
             DataIndexTable[nexp].NodeList[i] = -1;
         nodelistindex = 1;
@@ -327,6 +327,8 @@ protected:
     /* A pointer to the force tree structure to walk.*/
     const NodeType * const Nodes;
     const topleaf_data * const TopLeaves;
+    /* Node index in the walked tree of each top leaf.*/
+    const int * const TopLeafNodes;
     const int NTopLeaves;
     int lasttask;
     /* Index to use in the current node list*/

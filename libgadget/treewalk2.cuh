@@ -35,6 +35,7 @@ __global__ void count_toptree_exports(
     particle_data * const parts,
     const typename LocalTopTreeWalkType::node_type * const Nodes,
     const topleaf_data * const TopLeaves,
+    const int * const TopLeafNodes,
     const int NTopLeaves,
     const int * const WorkSet,
     const int64_t WorkSetSize,
@@ -47,7 +48,7 @@ __global__ void count_toptree_exports(
     if (tid >= WorkSetSize)
         return;
 
-    LocalTopTreeWalkType lv(Nodes, TopLeaves, NTopLeaves);
+    LocalTopTreeWalkType lv(Nodes, TopLeaves, TopLeafNodes, NTopLeaves);
     const int i = WorkSet ? WorkSet[tid] : tid;
     /* Toptree never uses node list */
     QueryType input(parts[i], NULL, *priv);
@@ -62,6 +63,7 @@ void do_toptree_exports(
     particle_data * const parts,
     const typename LocalTopTreeWalkType::node_type * const Nodes,
     const topleaf_data * const TopLeaves,
+    const int * const TopLeafNodes,
     const int NTopLeaves,
     const int WorkSetStart,
     const int * const WorkSet,
@@ -78,7 +80,7 @@ void do_toptree_exports(
     if (tid >= WorkSetSize)
         return;
 
-    LocalTopTreeWalkType lv(Nodes, TopLeaves, NTopLeaves);
+    LocalTopTreeWalkType lv(Nodes, TopLeaves, TopLeafNodes, NTopLeaves);
 
     int64_t nexport = exportcounts[tid] - exportoffset;
     data_index * currentexport = ExportTable;
@@ -253,7 +255,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
          * TODO Avoid counting exports we haven't sent yet multiple times, save exportcounts.
          */
         count_toptree_exports<QueryType, LocalTopTreeWalkType, ParamType>
-        <<<blocks, threadsPerBlock>>>(parts, tree->get_nodes(), tree->get_topleaves(), tree->get_ntopleaves(), WorkSet, WorkSetSize, &priv, exportcounts);
+        <<<blocks, threadsPerBlock>>>(parts, tree->get_nodes(), tree->get_topleaves(), tree->get_topleaf_nodes(), tree->get_ntopleaves(), WorkSet, WorkSetSize, &priv, exportcounts);
 
         /*  inclusive_scan is a partial sum:
          * it counts the total number of particle exports before and including the current point, so we know which
@@ -315,7 +317,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         /* Now we run toptree_visit again with the export offsets to make the export table.
          * Likely most particles have zero exports, so this will be somewhat faster than the first run. */
         do_toptree_exports<QueryType, LocalTopTreeWalkType, ParamType>
-         <<<blocks, threadsPerBlock>>>(particles, tree->get_nodes(), tree->get_topleaves(), tree->get_ntopleaves(),
+         <<<blocks, threadsPerBlock>>>(particles, tree->get_nodes(), tree->get_topleaves(), tree->get_topleaf_nodes(), tree->get_ntopleaves(),
              WorkSetStart, WorkSet, curSize, &priv, exportcounts, exportoffset, exportlist->ExportTable);
 
         cudaError_t status = cudaDeviceSynchronize();

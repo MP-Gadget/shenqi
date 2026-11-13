@@ -289,9 +289,11 @@ public:
     topleaf_data * TopLeaves;
     topnode_data * TopNodes;
     struct NODE * Nodes;
+    /* Node index of each top leaf in the tree*/
+    const int * TopLeafNodes;
     bool dmtree;
     DomainMaintainExchangePlan(DomainDecomp* ddecomp, ForceTree * tree) : ExchangePlan(ddecomp->DomainComm), NTopLeaves(ddecomp->NTopLeaves),
-    TopLeaves(ddecomp->TopLeaves), TopNodes(ddecomp->TopNodes), Nodes(tree->Nodes), dmtree(blackhole_dynfric_treemask() & DMMASK)
+    TopLeaves(ddecomp->TopLeaves), TopNodes(ddecomp->TopNodes), Nodes(tree->Nodes), TopLeafNodes(tree->TopLeafNodes), dmtree(blackhole_dynfric_treemask() & DMMASK)
     { }
 
     bool need_new_topleaf(const particle_data& pp) const {
@@ -330,7 +332,7 @@ private:
         if(topleaf >= NTopLeaves || topleaf < 0)
             return 0;
         /* Find treenode corresponding to this topleaf*/
-        const struct NODE& node = Nodes[TopLeaves[topleaf].treenode];
+        const struct NODE& node = Nodes[TopLeafNodes[topleaf]];
 
         /*One can also use a loop, but the compiler unrolls it only at -O3,
         *so this is a little faster*/

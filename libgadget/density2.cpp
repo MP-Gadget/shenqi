@@ -157,8 +157,7 @@ set_init_hsml(ForceTreeMoments * tree, const double MeanGasSeparation, struct pa
     const double DesNumNgb = GetNumNgb(GetDensityKernelType());
     particle_data * const parts = PartManager->Base;
     const auto * const Nodes = tree->get_nodes();
-    /* TopLeaves[].treenode refers to the most recently built tree, which must be this one.*/
-    const auto * const TopLeaves = tree->get_topleaves();
+    const int * const TopLeafNodes = tree->get_topleaf_nodes();
     int64_t i;
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i++)
@@ -176,7 +175,7 @@ set_init_hsml(ForceTreeMoments * tree, const double MeanGasSeparation, struct pa
          * Mass decreases monotonically down the tree, so if the top leaf is light enough
          * climb towards the root, and otherwise descend below it by position. */
         const double DesMass = 10 * DesNumNgb * parts[i].Mass;
-        int no = TopLeaves[parts[i].TopLeaf].treenode;
+        int no = TopLeafNodes[parts[i].TopLeaf];
         if(Nodes[no].mass < DesMass) {
             /* Climb while the father is also light enough.*/
             while(Nodes[no].father >= 0 && Nodes[Nodes[no].father].mass < DesMass)

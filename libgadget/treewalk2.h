@@ -607,7 +607,7 @@ private:
         /* Count all entries. */
         #pragma omp parallel
         {
-            LocalTopTreeWalkType lv(tree->get_nodes(), tree->get_topleaves(), tree->get_ntopleaves());
+            LocalTopTreeWalkType lv(tree->get_nodes(), tree->get_topleaves(), tree->get_topleaf_nodes(), tree->get_ntopleaves());
             #pragma omp for schedule(static)
             for(int k = 0 ; k < WorkSetSize; k++) {
                 const int i = WorkSet ? WorkSet[k] : k;
@@ -658,7 +658,7 @@ private:
 
     #pragma omp parallel
         {
-            LocalTopTreeWalkType lv(tree->get_nodes(), tree->get_topleaves(), tree->get_ntopleaves());
+            LocalTopTreeWalkType lv(tree->get_nodes(), tree->get_topleaves(), tree->get_topleaf_nodes(), tree->get_ntopleaves());
 
             #pragma omp for
             for(int k = 0; k < curSize; k++) {
