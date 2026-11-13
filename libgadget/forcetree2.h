@@ -1108,18 +1108,16 @@ public:
                 no = current->s.suns[0];
                 continue;
             }
-            no = current->sibling;
-        }
-        /* Every node should have a valid father: collect those that do not.*/
-        for(no = 0; no < numnodes; no++)
-        {
-            if(!node_is_node(Nodes[no].father) && Nodes[no].father >= 0) {
-                auto *current = &Nodes[no];
-                message(1, "Danger! no %d has father %d, next %d sib %d, (ptype = %d) len %g center (%g %g %g) TL %d DLM %d ITL %d nocc %d suns %d %d %d %d\n", no, current->father, current->s.suns[0], current->sibling, current->ChildType,
+            /* Every node should have a valid father: collect those that do not.*/
+            if(!node_is_node(current->father) && current->father != -1) {
+                message(1, "Danger! no %d has father %d past numnodes %ld, next %d sib %d, (ptype = %d) len %g center (%g %g %g) TL %d DLM %d ITL %d nocc %d suns %d %d %d %d\n", no, current->father, numnodes, current->s.suns[0], current->sibling, current->ChildType,
                     current->len, current->center[0], current->center[1], current->center[2],
                     current->TopLevel, current->DependsOnLocalMass, current->InternalTopLevel, current->s.noccupied,
                     current->s.suns[0], current->s.suns[1], current->s.suns[2], current->s.suns[3]);
             }
+
+            no = current->sibling;
+
         }
         walltime_measure("/Tree/Build/Validate");
     }
