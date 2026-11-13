@@ -45,7 +45,7 @@
 
 /* Find stellar density, returning the total SPH Volume weights for each particle.
  * From stellar_density2.cpp, only used here*/
-void stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * MassReturn, const ForceTree * const tree, const int SPHWeighting, const double MaxNgbDeviation);
+void stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * MassReturn, const ForceTreeHmax * const tree, const int SPHWeighting, const double MaxNgbDeviation);
 
 static struct metal_return_params
 {
@@ -474,7 +474,7 @@ metal_return_priv_free(struct MetalReturnPriv * priv)
 
 /*! This function is the driver routine for the calculation of metal return. */
 void
-metal_return(const ActiveParticles * act, ForceTree * gasTree, Cosmology * CP, const double atime, const double AvgGasMass)
+metal_return(const ActiveParticles * act, ForceTree * gasTree, ForceTreeHmax * gasTree2, Cosmology * CP, const double atime, const double AvgGasMass)
 {
     /* Do nothing if no stars yet*/
     int64_t totstar;
@@ -506,7 +506,7 @@ metal_return(const ActiveParticles * act, ForceTree * gasTree, Cosmology * CP, c
         endrun(5, "metal_return called with bad tree allocated %d mask %d\n", gasTree->tree_allocated_flag, gasTree->mask);
 
     /* Compute total number of weights around each star for actively returning stars*/
-    stellar_density(act, priv->StarVolumeSPH, priv->MassReturn, gasTree, MetalParams.SPHWeighting, MetalParams.MaxNgbDeviation);
+    stellar_density(act, priv->StarVolumeSPH, priv->MassReturn, gasTree2, MetalParams.SPHWeighting, MetalParams.MaxNgbDeviation);
 
     /* Do the metal return*/
     TreeWalk tw[1] = {{0}};

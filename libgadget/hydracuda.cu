@@ -6,17 +6,17 @@
 #include "hydratree2.hpp"
 #include "treewalk2.cuh"
 
-class HydroTreeWalkGPUCubic: public TreeWalkGPU<HydroTreeWalkGPUCubic, HydroQuery, HydroResult, HydroLocalTreeWalk<CubicDensityKernel>, HydroTopTreeWalk, HydroPriv, HydroOutput> {
+class HydroTreeWalkGPUCubic: public TreeWalkGPU<HydroTreeWalkGPUCubic, HydroQuery, HydroResult, HydroLocalTreeWalk<CubicDensityKernel>, HydroTopTreeWalk, HydroPriv, HydroOutput, ForceTreeHmax> {
     public:
     using TreeWalkGPU::TreeWalkGPU;
 };
 
-class HydroTreeWalkGPUQuartic: public TreeWalkGPU<HydroTreeWalkGPUQuartic, HydroQuery, HydroResult, HydroLocalTreeWalk<QuarticDensityKernel>, HydroTopTreeWalk, HydroPriv, HydroOutput> {
+class HydroTreeWalkGPUQuartic: public TreeWalkGPU<HydroTreeWalkGPUQuartic, HydroQuery, HydroResult, HydroLocalTreeWalk<QuarticDensityKernel>, HydroTopTreeWalk, HydroPriv, HydroOutput, ForceTreeHmax> {
     public:
     using TreeWalkGPU::TreeWalkGPU;
 };
 
-class HydroTreeWalkGPUQuintic: public TreeWalkGPU<HydroTreeWalkGPUQuintic, HydroQuery, HydroResult, HydroLocalTreeWalk<QuinticDensityKernel>, HydroTopTreeWalk, HydroPriv, HydroOutput> {
+class HydroTreeWalkGPUQuintic: public TreeWalkGPU<HydroTreeWalkGPUQuintic, HydroQuery, HydroResult, HydroLocalTreeWalk<QuinticDensityKernel>, HydroTopTreeWalk, HydroPriv, HydroOutput, ForceTreeHmax> {
     public:
     using TreeWalkGPU::TreeWalkGPU;
 };
@@ -25,7 +25,7 @@ class HydroTreeWalkGPUQuintic: public TreeWalkGPU<HydroTreeWalkGPUQuintic, Hydro
 /*! CUDA treewalk.
  */
 void
-hydro_force_cuda(const ActiveParticles * act, const ForceTree * tree, HydroPriv * priv, HydroOutput * output, enum DensityKernelType DensityKernelType)
+hydro_force_cuda(const ActiveParticles * act, const ForceTreeHmax * tree, HydroPriv * priv, HydroOutput * output, enum DensityKernelType DensityKernelType)
 {
     switch(DensityKernelType) {
         case DENSITY_KERNEL_CUBIC_SPLINE:

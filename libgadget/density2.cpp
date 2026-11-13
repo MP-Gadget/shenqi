@@ -67,17 +67,17 @@ GetDensityKernelType(void)
     return DensityParams.DensityKernelType;
 }
 
-class DensityTreeWalkCubic: public TreeWalk<DensityTreeWalkCubic, DensityQuery, DensityResult, DensityLocalTreeWalk<CubicDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
+class DensityTreeWalkCubic: public TreeWalk<DensityTreeWalkCubic, DensityQuery, DensityResult, DensityLocalTreeWalk<CubicDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput, ForceTreeHmax> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class DensityTreeWalkQuartic: public TreeWalk<DensityTreeWalkQuartic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuarticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
+class DensityTreeWalkQuartic: public TreeWalk<DensityTreeWalkQuartic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuarticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput, ForceTreeHmax> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class DensityTreeWalkQuintic: public TreeWalk<DensityTreeWalkQuintic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuinticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
+class DensityTreeWalkQuintic: public TreeWalk<DensityTreeWalkQuintic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuinticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput, ForceTreeHmax> {
     public:
     using TreeWalk::TreeWalk;
 };
@@ -103,7 +103,7 @@ class DensityTreeWalkQuintic: public TreeWalk<DensityTreeWalkQuintic, DensityQue
  * neighbours.)
  */
 void
-density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, TimeBinMgr * timebinmgr, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTree * const tree, bool UseGPU)
+density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, TimeBinMgr * timebinmgr, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTreeHmax * const tree, bool UseGPU)
 {
     /* This ensures these classes are in managed memory and so accessible on the device. */
     DensityPriv * priv = mymanagedmalloc("DensityPriv", DensityPriv, 1);
@@ -152,14 +152,13 @@ density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Blac
 
 /* Set the initial smoothing length for gas and BH*/
 MYCUDAFN void
-set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSeparation, struct part_manager_type * const PartManager)
+set_init_hsml(ForceTreeMoments * tree, const double MeanGasSeparation, struct part_manager_type * const PartManager)
 {
-    /* Need moments because we use them to set Hsml*/
-    force_tree_calc_moments(tree, ddecomp);
-    if(!tree->Father)
-        endrun(5, "tree Father array not allocated at initial hsml!\n");
     const double DesNumNgb = GetNumNgb(GetDensityKernelType());
     particle_data * const parts = PartManager->Base;
+    const auto * const Nodes = tree->get_nodes();
+    /* TopLeaves[].treenode refers to the most recently built tree, which must be this one.*/
+    const auto * const TopLeaves = tree->get_topleaves();
     int64_t i;
     #pragma omp parallel for
     for(i = 0; i < PartManager->NumPart; i++)
@@ -170,35 +169,60 @@ set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSepa
 
         if(parts[i].IsGarbage)
             continue;
-        int no = i;
+        /* Walk down from the root until we find a node containing this particle
+         * with less mass than the desired neighbour mass.
+         * If we reach a node containing particles first, use it.
+         * In the top-level tree the particle was placed by the domain decomposition
+         * (its TopLeaf), not by position, so follow the path from the root to the
+         * particle's top leaf. Below the top leaf the particle was placed by position. */
+        const double DesMass = 10 * DesNumNgb * parts[i].Mass;
+        const int topleafnode = TopLeaves[parts[i].TopLeaf].treenode;
+        /* Path from the top leaf up to the root: the top tree is at most BITS_PER_DIMENSION deep. */
+        int path[BITS_PER_DIMENSION + 2];
+        int depth = 0;
+        for(int t = topleafnode; t >= 0; t = Nodes[t].father) {
+            if(depth >= BITS_PER_DIMENSION + 2)
+                endrun(5, "Top tree too deep at particle %ld top leaf node %d\n", i, topleafnode);
+            path[depth++] = t;
+        }
+        /* path[depth-1] is the root. Descend the top tree towards the top leaf.*/
+        int no = path[--depth];
+        while(depth > 0 && Nodes[no].mass >= DesMass)
+            no = path[--depth];
 
-        do {
-            int p = force_get_father(no, tree);
-
-            if(p < tree->firstnode)
-                break;
-
-            /* Check that we didn't somehow get a bad set of nodes*/
-            if(p > tree->numnodes + tree->firstnode)
-                endrun(5, "Bad init father: i=%ld, mass = %g type %d hsml %g no %d len %g father %d, numnodes %ld firstnode %ld\n",
-                    i, parts[i].Mass, parts[i].Type, parts[i].Hsml, no, tree->Nodes[no].len, p, tree->numnodes, tree->firstnode);
-            no = p;
-        } while(10 * DesNumNgb * parts[i].Mass > tree->Nodes[no].mom.mass);
+        /* If we reached the top leaf and it is still too heavy, continue below it by position.*/
+        if(depth == 0) {
+            while(Nodes[no].mass >= DesMass && Nodes[no].ChildType == NODE_NODE_TYPE) {
+                /* Go down a level: the first child is s.suns[0], and the children are linked
+                 * by sibling, with the last child's sibling being the parent's sibling.
+                 * Find the child containing the particle.*/
+                int child = -1;
+                for(int c = Nodes[no].s.suns[0]; c >= 0 && c != Nodes[no].sibling; c = Nodes[c].sibling) {
+                    if(Nodes[c].inside_node(parts[i].Pos, 0)) {
+                        child = c;
+                        break;
+                    }
+                }
+                /* Should not happen, as the particle is in the tree, but this is only
+                 * an initial guess, so use the current node.*/
+                if(child < 0)
+                    break;
+                no = child;
+            }
+        }
 
         /* Validate the tree node contents*/
-        if(tree->Nodes[no].len > tree->BoxSize || tree->Nodes[no].mom.mass < parts[i].Mass)
+        if(Nodes[no].len > tree->BoxSize || Nodes[no].mass < parts[i].Mass)
             endrun(5, "Bad tree moments: i=%ld, mass = %g type %d hsml %g no %d len %g treemass %g\n",
-                    i, parts[i].Mass, parts[i].Type, parts[i].Hsml, no, tree->Nodes[no].len, tree->Nodes[no].mom.mass);
+                    i, parts[i].Mass, parts[i].Type, parts[i].Hsml, no, Nodes[no].len, Nodes[no].mass);
         parts[i].Hsml = MeanGasSeparation;
-        if(no >= tree->firstnode) {
-            double testhsml = tree->Nodes[no].len * pow(3.0 / (4 * M_PI) * DesNumNgb * parts[i].Mass / tree->Nodes[no].mom.mass, 1.0 / 3);
-            /* recover from a poor initial guess */
-            if (testhsml < 500. * MeanGasSeparation)
-                parts[i].Hsml = testhsml;
-        }
+        const double testhsml = Nodes[no].len * pow(3.0 / (4 * M_PI) * DesNumNgb * parts[i].Mass / Nodes[no].mass, 1.0 / 3);
+        /* recover from a poor initial guess */
+        if (testhsml < 500. * MeanGasSeparation)
+            parts[i].Hsml = testhsml;
 
         if(parts[i].Hsml <= 0)
             endrun(5, "Bad hsml guess: i=%ld, mass = %g type %d hsml %g no %d len %g treemass %g\n",
-                    i, parts[i].Mass, parts[i].Type, parts[i].Hsml, no, tree->Nodes[no].len, tree->Nodes[no].mom.mass);
+                    i, parts[i].Mass, parts[i].Type, parts[i].Hsml, no, Nodes[no].len, Nodes[no].mass);
     }
 }

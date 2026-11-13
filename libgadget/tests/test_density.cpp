@@ -2,6 +2,7 @@
 #define BOOST_TEST_MODULE density
 #include "booststub.h"
 
+#include <optional>
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_real_distribution.hpp>
 
@@ -139,10 +140,11 @@ static void do_density_test(struct density_testdata * data, const int64_t ngloba
 
     ActiveParticles act = init_empty_active_particles(PartManager);
 
-    ForceTree tree = {0};
-    /* Finds fathers for each gas and BH particle, so need BH*/
-    force_tree_rebuild_mask(&tree, &ddecomp, GASMASK+BHMASK, "");
-    set_init_hsml(&tree, &ddecomp, PartManager->BoxSize, PartManager);
+    {
+        /* The initial hsml guess uses the tree moments. This test has only gas and BH particles.*/
+        ForceTreeMoments momtree(*PartManager, &ddecomp, nullptr, false, "");
+        set_init_hsml(&momtree, PartManager->BoxSize, PartManager);
+    }
     /*Time doing the density finding*/
     double start, end;
     start = MPI_Wtime();
@@ -160,9 +162,11 @@ static void do_density_test(struct density_testdata * data, const int64_t ngloba
     struct UnitSystem units = get_unitsystem(3.085678e21, 1.989e43, 1e5);
     init_cosmology(&CP,0.01, units);
 
-    /* Rebuild without moments to check it works*/
-    force_tree_rebuild_mask(&tree, &ddecomp, GASMASK, "");
-    density(&act, 1, 0, 0, kick, &data->timebinmgr, &CP, &(data->sph_pred.EntVarPred), NULL, &tree);
+    /* Rebuild without moments to check it works.
+     * std::optional so the tree can be freed before the checks.*/
+    std::optional<ForceTreeHmax> tree;
+    tree.emplace(*PartManager, &ddecomp, GASMASK, "");
+    density(&act, 1, 0, 0, kick, &data->timebinmgr, &CP, &(data->sph_pred.EntVarPred), NULL, &*tree);
     end = MPI_Wtime();
     double ms = (end - start)*1000;
     message(0, "Found densities in %.3g ms\n", ms);
@@ -188,7 +192,7 @@ static void do_density_test(struct density_testdata * data, const int64_t ngloba
 
     start = MPI_Wtime();
     /*Find the density*/
-    density(&act, 1, 0, 0, kick, &data->timebinmgr, &CP, &(data->sph_pred.EntVarPred), NULL, &tree);
+    density(&act, 1, 0, 0, kick, &data->timebinmgr, &CP, &(data->sph_pred.EntVarPred), NULL, &*tree);
     end = MPI_Wtime();
     slots_free_sph_pred_data(&data->sph_pred);
 
@@ -197,7 +201,7 @@ static void do_density_test(struct density_testdata * data, const int64_t ngloba
     double diff = 0;
     double DesNumNgb = GetNumNgb(GetDensityKernelType());
     /* Free tree before checks so that we still recover if checks fail*/
-    force_tree_free(&tree);
+    tree.reset();
 
     for(i=0; i<PartManager->NumPart; i++) {
         BOOST_TEST(fabs(Hsml[i]/PartManager->Base[i].Hsml-1) < data->dp.MaxNumNgbDeviation / DesNumNgb);

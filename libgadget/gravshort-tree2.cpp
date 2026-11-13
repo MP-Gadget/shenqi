@@ -121,7 +121,7 @@ set_gravshort_tree_params(ParameterSet * ps)
     MPI_Bcast(&TreeParams, sizeof(struct gravshort_tree_params), MPI_BYTE, 0, MPI_COMM_WORLD);
 }
 
-class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreeParams, GravTreeOutput> {
+class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreeParams, GravTreeOutput, ForceTreeMoments> {
     public:
     using TreeWalk::TreeWalk;
 };
@@ -138,7 +138,7 @@ class GravTreeWalk : public TreeWalk <GravTreeWalk, GravTreeQuery, GravTreeResul
  * only true on PM steps where all particles are active.
  */
 void
-grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool UseGPU)
+grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTreeMoments * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool UseGPU)
 {
     GravShortTable gravtab(TreeParams.ShortRangeForceWindowType, pm->Asmth);
     GravTreeParams * priv = mymanagedmalloc("GravTreeParams", GravTreeParams, 1);

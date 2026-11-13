@@ -54,17 +54,17 @@ int DensityIndependentSphOn(void)
 }
 
 
-class HydroTreeWalkCubic: public TreeWalk<HydroTreeWalkCubic, HydroQuery, HydroResult, HydroLocalTreeWalk<CubicDensityKernel>, HydroTopTreeWalk, HydroPriv, HydroOutput> {
+class HydroTreeWalkCubic: public TreeWalk<HydroTreeWalkCubic, HydroQuery, HydroResult, HydroLocalTreeWalk<CubicDensityKernel>, HydroTopTreeWalk, HydroPriv, HydroOutput, ForceTreeHmax> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class HydroTreeWalkQuartic: public TreeWalk<HydroTreeWalkQuartic, HydroQuery, HydroResult, HydroLocalTreeWalk<QuarticDensityKernel>, HydroTopTreeWalk, HydroPriv, HydroOutput> {
+class HydroTreeWalkQuartic: public TreeWalk<HydroTreeWalkQuartic, HydroQuery, HydroResult, HydroLocalTreeWalk<QuarticDensityKernel>, HydroTopTreeWalk, HydroPriv, HydroOutput, ForceTreeHmax> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class HydroTreeWalkQuintic: public TreeWalk<HydroTreeWalkQuintic, HydroQuery, HydroResult, HydroLocalTreeWalk<QuinticDensityKernel>, HydroTopTreeWalk, HydroPriv, HydroOutput> {
+class HydroTreeWalkQuintic: public TreeWalk<HydroTreeWalkQuintic, HydroQuery, HydroResult, HydroLocalTreeWalk<QuinticDensityKernel>, HydroTopTreeWalk, HydroPriv, HydroOutput, ForceTreeHmax> {
     public:
     using TreeWalk::TreeWalk;
 };
@@ -74,7 +74,7 @@ class HydroTreeWalkQuintic: public TreeWalk<HydroTreeWalkQuintic, HydroQuery, Hy
  *  particles .
  */
 void
-hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPred, DriftKickTimes& times, TimeBinMgr * timebinmgr, Cosmology * CP, const ForceTree * const tree, bool UseGPU)
+hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPred, DriftKickTimes& times, TimeBinMgr * timebinmgr, Cosmology * CP, const ForceTreeHmax * const tree, bool UseGPU)
 {
     if(!tree->hmax_computed_flag)
         endrun(5, "Hydro called before hmax computed\n");

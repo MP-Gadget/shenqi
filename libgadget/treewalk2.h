@@ -5,8 +5,9 @@
 #include <string>
 #include <omp.h>
 #include <cmath>
+#include <type_traits>
 #include "localtreewalk2.h"
-#include "forcetree.h"
+#include "forcetree2.h"
 #include "mpi.h"
 #include "walltime.h"
 #include "utils/mymalloc.h"
@@ -200,11 +201,17 @@ public:
  *   2. Set tree, ev_label, type, and element sizes in the constructor
  *   3. Call treewalk_run() to execute the tree walk
  */
-template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType>
+template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType, typename ForceTreeType>
 class TreeWalk {
+    /* The tree and both walks must agree on the node type. The walks are constructed from tree->get_nodes(),
+     * so a mismatch would fail to compile anyway, but these asserts make the error message clear.*/
+    static_assert(std::is_same_v<typename LocalTreeWalkType::node_type, typename ForceTreeType::node_type>,
+                  "LocalTreeWalkType walks a different node type from the tree (e.g. a gravity walk on an hmax tree)");
+    static_assert(std::is_same_v<typename LocalTopTreeWalkType::node_type, typename ForceTreeType::node_type>,
+                  "LocalTopTreeWalkType walks a different node type from the tree");
 public:
     /* A pointer to the force tree structure to walk.*/
-    const ForceTree * const tree;
+    const ForceTreeType * const tree;
 
     /* name of the evaluator (used in printing messages) */
     const char * const ev_label;
@@ -238,7 +245,7 @@ public:
     /**
      * Constructor - initializes all members to safe defaults.
      */
-    TreeWalk(const char * const i_ev_label, const ForceTree * const i_tree, const ParamType& i_priv, OutputType * i_out):
+    TreeWalk(const char * const i_ev_label, const ForceTreeType * const i_tree, const ParamType& i_priv, OutputType * i_out):
         tree(i_tree), ev_label(i_ev_label),
         priv(i_priv), output(i_out),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0), timecommsumm(0),
@@ -477,7 +484,7 @@ public:
 
         /* This function does treewalk_run in a loop, allocating a queue to allow some particles to be redone.
     * This loop is used primarily in density estimation.*/
-    void do_hsml_loop(int * queue, int64_t queuesize, const bool update_hsml, particle_data * parts, MPI_Comm comm)
+    void do_hsml_loop(int * queue, int64_t queuesize, particle_data * parts, MPI_Comm comm)
     {
         /* Build the first queue */
         double tstart = second();
@@ -517,10 +524,10 @@ public:
                 /* If we are done repeating, update the hmax in the parent node,
                  * Only do this when gas particles are in the tree, since we only need
                  * it for a symmetric treewalk and that is just hydro and BH mergers.
-                 * Do it only for types in the tree.*/
-                else if constexpr(LocalTreeWalkType::tree_mask & GASMASK)
-                    if(update_hsml && (LocalTreeWalkType::tree_mask & (1<<parts[p_i].Type)))
-                        update_tree_hmax_father(tree, p_i, parts[p_i].Pos, parts[p_i].Hsml);
+                 * Do it only for types in the tree, and only for trees which store hmax.*/
+                else if constexpr((LocalTreeWalkType::tree_mask & GASMASK) && std::is_same_v<typename ForceTreeType::node_type, HmaxNODE>)
+                    if(LocalTreeWalkType::tree_mask & (1<<parts[p_i].Type))
+                        tree->update_tree_hmax_father(p_i, parts[p_i].Pos, parts[p_i].Hsml);
             }
             ReDoQueue = mymanagedmalloc("ReDoQueue", int, size);
             /* Compact the redo queue to remove done items with todo = -1*/
@@ -534,8 +541,8 @@ public:
             myfree(CurQueue);
             size = end - ReDoQueue;
 
-            /* We can stop if we are not updating hsml or if we are done.*/
-            if(!update_hsml || !MPIU_Any(size > 0, comm)) {
+            /* We can stop if we are done.*/
+            if(!MPIU_Any(size > 0, comm)) {
                 myfree(ReDoQueue);
                 break;
             }
@@ -580,10 +587,10 @@ private:
             #pragma omp for schedule(dynamic, chnksz) nowait
             for(k = 0; k < WorkSetSize; k++) {
                 const int i = WorkSet ? WorkSet[k] : k;
-                /* Primary never uses node list */
-                QueryType input(parts[i], NULL, tree->firstnode, priv);
+                /* Primary never uses node list. */
+                QueryType input(parts[i], NULL, priv);
                 ResultType result(input);
-                LocalTreeWalkType lv(tree->Nodes, input);
+                LocalTreeWalkType lv(tree->get_nodes(), input);
                 int64_t ninteractions = lv.template visit<TREEWALK_PRIMARY>(input, &result, priv, parts);
                 result.template reduce<TREEWALK_PRIMARY>(i, output, parts);
                 if(maxNinteractions < ninteractions)
@@ -600,12 +607,12 @@ private:
         /* Count all entries. */
         #pragma omp parallel
         {
-            LocalTopTreeWalkType lv(tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->lastnode);
+            LocalTopTreeWalkType lv(tree->get_nodes(), tree->get_topleaves(), tree->get_ntopleaves());
             #pragma omp for schedule(static)
             for(int k = 0 ; k < WorkSetSize; k++) {
                 const int i = WorkSet ? WorkSet[k] : k;
                 /* Toptree never uses node list */
-                QueryType input(parts[i], NULL, tree->firstnode, priv);
+                QueryType input(parts[i], NULL, priv);
                 /* Note index is into the WorkSet*/
                 exportcounts[k] = lv.template toptree_visit<TOPTREE_COUNT>(i, input, priv, NULL, 0);
             }
@@ -651,7 +658,7 @@ private:
 
     #pragma omp parallel
         {
-            LocalTopTreeWalkType lv(tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->lastnode);
+            LocalTopTreeWalkType lv(tree->get_nodes(), tree->get_topleaves(), tree->get_ntopleaves());
 
             #pragma omp for
             for(int k = 0; k < curSize; k++) {
@@ -666,7 +673,7 @@ private:
                     continue;
                 const int i = WorkSet ? WorkSet[k+WorkSetStart] : k + WorkSetStart;
                 /* Toptree never uses node list */
-                QueryType input(parts[i], NULL, tree->firstnode, priv);
+                QueryType input(parts[i], NULL, priv);
                 /* Indexing into the WorkSet, not the particle.*/
                 lv.template toptree_visit<TOPTREE_EXPORT>(i, input, priv, currentexport, nexport);
             }
@@ -690,7 +697,7 @@ private:
         for(int64_t j = 0; j < nimports_task; j++) {
             QueryType * input = &(imports[j]);
             ResultType * resoutput = new (&results[j]) ResultType(*input);
-            LocalTreeWalkType lv(tree->Nodes, *input);
+            LocalTreeWalkType lv(tree->get_nodes(), *input);
             lv.template visit<TREEWALK_GHOSTS>(*input, resoutput, priv, parts);
         }
     }
@@ -761,7 +768,7 @@ private:
             const int64_t bufpos = real_send_count[task] + counts->Export_offset[task];
             real_send_count[task]++;
             /* Initialize the query in this memory */
-            new(&export_queries[bufpos]) QueryType(parts[place], exportlist->ExportTable[k].NodeList, -1, priv);
+            new(&export_queries[bufpos]) QueryType(parts[place], exportlist->ExportTable[k].NodeList, priv);
         }
     #ifdef DEBUG
     /* Checks!*/

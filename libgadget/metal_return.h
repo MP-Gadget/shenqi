@@ -2,6 +2,7 @@
 #define METAL_RETURN_H
 
 #include "forcetree.h"
+#include "forcetree2.h"
 #include "timestep.h"
 #include "utils/paramset.h"
 #include "utils/interp.hpp"
@@ -41,7 +42,7 @@ struct MetalReturnPriv {
  * Exposed for testing.*/
 double atime_to_myr(Cosmology *CP, double atime1, double atime2);
 
-void metal_return(const ActiveParticles * act, ForceTree * gasTree, Cosmology * CP, const double atime, const double AvgGasMass);
+void metal_return(const ActiveParticles * act, ForceTree * gasTree, ForceTreeHmax * gasTree2, Cosmology * CP, const double atime, const double AvgGasMass);
 
 void set_metal_return_params(ParameterSet * ps);
 

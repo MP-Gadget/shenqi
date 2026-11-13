@@ -400,7 +400,7 @@ void get_mean_separation(double * MeanSeparation, const double BoxSize, const in
  * Initialization of the entropy variable is a little trickier in this version of SPH,
  * since we need to make sure it 'talks to' the density appropriately */
 static void
-setup_density_indep_entropy(const ActiveParticles * act, ForceTree * Tree, Cosmology * CP, struct sph_pred_data * sph_pred, double u_init, double a3, int BlackHoleOn, const inttime_t Ti_Current, TimeBinMgr * timebinmgr)
+setup_density_indep_entropy(const ActiveParticles * act, ForceTreeHmax * Tree, Cosmology * CP, struct sph_pred_data * sph_pred, double u_init, double a3, int BlackHoleOn, const inttime_t Ti_Current, TimeBinMgr * timebinmgr)
 {
     int j;
     int stop = 0;
@@ -477,11 +477,11 @@ setup_smoothinglengths(int RestartSnapNum, DomainDecomp * ddecomp, Cosmology * C
     if(tot_sph + tot_bh == 0)
         return;
 
-    ForceTree Tree = {0};
-    /* Finds fathers for each gas and BH particle, so need BH*/
-    force_tree_rebuild_mask(&Tree, ddecomp, GASMASK+BHMASK, "");
-    /* Set the initial smoothing length for gas and DM, compute tree moments.*/
-    set_init_hsml(&Tree, ddecomp, MeanGasSeparation, PartManager);
+    {
+        ForceTreeMoments Tree(*PartManager, ddecomp, NULL, GASMASK+BHMASK, "");
+        /* Set the initial smoothing length for gas and DM, compute tree moments.*/
+        set_init_hsml(&Tree, MeanGasSeparation, PartManager);
+    }
 
     /* for clean IC with U input only, we need to iterate to find entropy */
     double u_init = (1.0 / GAMMA_MINUS1) * (BOLTZMANN / PROTONMASS) * InitParams.InitGasTemp;
@@ -505,11 +505,12 @@ setup_smoothinglengths(int RestartSnapNum, DomainDecomp * ddecomp, Cosmology * C
     DriftKickTimes times = init_driftkicktime(Ti_Current);
     /*At the first time step all particles should be active*/
     ActiveParticles act = init_empty_active_particles(PartManager);
-    density(&act, 1, 0, BlackHoleOn, times, timebinmgr, CP, &(sph_pred.EntVarPred), NULL, &Tree);
+    ForceTreeHmax Treehmax(*PartManager, ddecomp, GASMASK+BHMASK, "");
+    density(&act, 1, 0, BlackHoleOn, times, timebinmgr, CP, &(sph_pred.EntVarPred), NULL, &Treehmax);
     slots_free_sph_pred_data(&sph_pred);
 
     if(DensityIndependentSphOn()) {
-        setup_density_indep_entropy(&act, &Tree, CP, &sph_pred, u_init, a3, BlackHoleOn, Ti_Current, timebinmgr);
+        setup_density_indep_entropy(&act, &Treehmax, CP, &sph_pred, u_init, a3, BlackHoleOn, Ti_Current, timebinmgr);
     }
     else {
         /*Initialize to initial energy*/
@@ -517,5 +518,4 @@ setup_smoothinglengths(int RestartSnapNum, DomainDecomp * ddecomp, Cosmology * C
         for(i = 0; i < SlotsManager->info[0].size; i++)
             SphP[i].Entropy = GAMMA_MINUS1 * u_init / pow(SphP[i].Density / a3 , GAMMA_MINUS1);
     }
-    force_tree_free(&Tree);
 }
