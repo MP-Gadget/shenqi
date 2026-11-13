@@ -492,8 +492,8 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
                 /* Calculate moments to propagate new hmax up the tree. */
                 gasTree->force_tree_calc_hmax(ddecomp);
                 walltime_measure("/SPH/HmaxUpdate");
-                int64_t totnumparticles = gasTree->get_numparticles();
-                MPI_Reduce(MPI_IN_PLACE, &totnumparticles, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
+                int64_t totnumparticles, numparticles = gasTree->get_numparticles();
+                MPI_Reduce(&numparticles, &totnumparticles, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
                 message(0, "Root hmax: %lg Tree Mean IPS: %lg\n", gasTree->get_nodes()[0].hmax, gasTree->BoxSize / cbrt(totnumparticles));
 
                 /***** hydro forces *****/
@@ -680,6 +680,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             /**** radiative cooling and star formation *****/
             if(All.CoolingOn)
                 cooling_and_starformation(&Act, atime, timebinmgr.get_dloga_for_bin(times.mintimebin, times.Ti_Current), &timebinmgr, &bhtree, GravAccel, ddecomp, &All.CP, GradRho_mag, &rnd, fds.FdSfr);
+            force_tree_free(&bhtree);
         }
         /* We don't need this timestep's tree anymore.*/
         delete gasTree;

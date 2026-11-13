@@ -499,8 +499,10 @@ winds_find_vel_disp(const ActiveParticles * act, const double Time, const double
     /* If this queue is empty, nothing to do for winds.*/
     MPI_Allreduce(&NumVDisp, &totvdisp, 1, MPI_INT64, MPI_SUM, ddecomp->DomainComm);
 
-    if(totvdisp == 0 && totbh == 0)
+    if(totvdisp == 0 && totbh == 0) {
+        myfree(ActiveVDisp);
         return;
+    }
 
     ForceTreeSimple tree(*PartManager, ddecomp, DMMASK, "");
 
