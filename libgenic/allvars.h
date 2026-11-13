@@ -1,6 +1,7 @@
 #ifndef _GENIC_ALLVARS_H
 #define _GENIC_ALLVARS_H
 
+#include <cstdint>
 #include "power.h"
 #include <string>
 #include <libgadget/utils/unitsystem.h>
@@ -20,7 +21,7 @@ struct genic_config {
     int Nmesh;
     double BoxSize;
     int ProduceGas;
-    int Seed;
+    int64_t Seed;
     int UnitaryAmplitude;
     int InvertPhase;
     int PrePosGridCenter;

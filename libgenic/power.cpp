@@ -202,7 +202,7 @@ void PowerSpectrum::parse_transfer(int i, double k, const std::vector<double>& v
     out_tab->logD[DELTA_NU][i] = 0;
     /* The DE fluid moves the neutrinos up one*/
     for(j=0; j < nnu; j++)
-        out_tab->logD[DELTA_NU][i] = -1*transfers[4+j+defld] * omega_nu_single(Onu, InitTime, j);
+        out_tab->logD[DELTA_NU][i] += -1*transfers[4+j+defld] * omega_nu_single(Onu, InitTime, j);
     const double onu = get_omega_nu(Onu, InitTime);
     /*Should be weighted by omega_nu*/
     if(onu > 0)
@@ -212,7 +212,7 @@ void PowerSpectrum::parse_transfer(int i, double k, const std::vector<double>& v
     out_tab->logD[VEL_CDM][i] = transfers[8+nnu + defld] * 0.5;
     out_tab->logD[VEL_NU][i] = 0;
     for(j=0; j < nnu; j++)
-        out_tab->logD[VEL_NU][i] = transfers[13 + nnu + defld * 2 + j] * omega_nu_single(Onu, InitTime, j);
+        out_tab->logD[VEL_NU][i] += transfers[14 + nnu + defld * 2 + j] * omega_nu_single(Onu, InitTime, j);
     /*Should be weighted by omega_nu*/
     if(onu > 0)
         out_tab->logD[VEL_NU][i] /= onu;

@@ -98,6 +98,30 @@ setup_particles(int NumPart, double BoxSize)
     return 0;
 }
 
+/* Runs fof_update_root_for_test(i, r) on a copy of Head and compares with expect. */
+static void
+check_update_root(std::vector<int> Head, const std::vector<int>& expect, int i, int r)
+{
+    BOOST_REQUIRE(Head.size() == expect.size());
+    fof_update_root_for_test(i, r, Head.data());
+    BOOST_TEST_INFO("update_root(" << i << ", " << r << ")");
+    BOOST_TEST(Head == expect, tt::per_element());
+}
+
+/* update_root, the path compression after fofp_merge links two roots. */
+BOOST_AUTO_TEST_CASE(test_fof_update_root)
+{
+    /* (a) stale root: h1 = 1 was since linked below 0; the old code wrote {0, 1, 1} */
+    check_update_root({0, 0, 1}, {0, 0, 1}, 1, 1);
+    /* (b) i == r, the root of its own tree: unchanged */
+    check_update_root({0, 1, 1, 2}, {0, 1, 1, 2}, 1, 1);
+    check_update_root({0}, {0}, 0, 0);
+    /* (c) chain compression: the whole path points to 0, Head[0] untouched */
+    check_update_root({0, 0, 1, 2, 3}, {0, 0, 0, 0, 0}, 4, 0);
+    /* (d) node 3's parent 1 is already below r = 2: the writes stop after node 3 */
+    check_update_root({0, 0, 1, 1, 3}, {0, 0, 1, 2, 2}, 4, 2);
+}
+
 /* All particles are in a single wrapped diagonal line with inter-particle
  * spacings much smaller than the linking length, so they form one group
  * containing every particle in the box.*/
