@@ -169,29 +169,21 @@ set_init_hsml(ForceTreeMoments * tree, const double MeanGasSeparation, struct pa
 
         if(parts[i].IsGarbage)
             continue;
-        /* Walk down from the root until we find a node containing this particle
-         * with less mass than the desired neighbour mass.
-         * If we reach a node containing particles first, use it.
+        /* Find the largest node enclosing this particle with less mass
+         * than the desired neighbour mass.
          * In the top-level tree the particle was placed by the domain decomposition
-         * (its TopLeaf), not by position, so follow the path from the root to the
-         * particle's top leaf. Below the top leaf the particle was placed by position. */
+         * (its TopLeaf), not by position, so start from the particle's top leaf.
+         * Mass decreases monotonically down the tree, so if the top leaf is light enough
+         * climb towards the root, and otherwise descend below it by position. */
         const double DesMass = 10 * DesNumNgb * parts[i].Mass;
-        const int topleafnode = TopLeaves[parts[i].TopLeaf].treenode;
-        /* Path from the top leaf up to the root: the top tree is at most BITS_PER_DIMENSION deep. */
-        int path[BITS_PER_DIMENSION + 2];
-        int depth = 0;
-        for(int t = topleafnode; t >= 0; t = Nodes[t].father) {
-            if(depth >= BITS_PER_DIMENSION + 2)
-                endrun(5, "Top tree too deep at particle %ld top leaf node %d\n", i, topleafnode);
-            path[depth++] = t;
+        int no = TopLeaves[parts[i].TopLeaf].treenode;
+        if(Nodes[no].mass < DesMass) {
+            /* Climb while the father is also light enough.*/
+            while(Nodes[no].father >= 0 && Nodes[Nodes[no].father].mass < DesMass)
+                no = Nodes[no].father;
         }
-        /* path[depth-1] is the root. Descend the top tree towards the top leaf.*/
-        int no = path[--depth];
-        while(depth > 0 && Nodes[no].mass >= DesMass)
-            no = path[--depth];
-
-        /* If we reached the top leaf and it is still too heavy, continue below it by position.*/
-        if(depth == 0) {
+        else {
+            /* Descend until the node is light enough or contains particles.*/
             while(Nodes[no].mass >= DesMass && Nodes[no].ChildType == NODE_NODE_TYPE) {
                 /* Go down a level: the first child is s.suns[0], and the children are linked
                  * by sibling, with the last child's sibling being the parent's sibling.
@@ -203,18 +195,12 @@ set_init_hsml(ForceTreeMoments * tree, const double MeanGasSeparation, struct pa
                         break;
                     }
                 }
-                /* Should not happen, as the particle is in the tree, but this is only
-                 * an initial guess, so use the current node.*/
+                /* Should not happen, as the tree covers the box. */
                 if(child < 0)
                     break;
                 no = child;
             }
         }
-
-        /* Validate the tree node contents*/
-        if(Nodes[no].len > tree->BoxSize || Nodes[no].mass < parts[i].Mass)
-            endrun(5, "Bad tree moments: i=%ld, mass = %g type %d hsml %g no %d len %g treemass %g\n",
-                    i, parts[i].Mass, parts[i].Type, parts[i].Hsml, no, Nodes[no].len, Nodes[no].mass);
         parts[i].Hsml = MeanGasSeparation;
         const double testhsml = Nodes[no].len * pow(3.0 / (4 * M_PI) * DesNumNgb * parts[i].Mass / Nodes[no].mass, 1.0 / 3);
         /* recover from a poor initial guess */
