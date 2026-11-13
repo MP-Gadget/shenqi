@@ -1334,6 +1334,25 @@ public:
     /* Flags that the tree contains all particles*/
     bool full_particle_tree_flag;
 
+    /* Build a tree structure using all particles, with a type mask, and compute moments. This constructor is used to set the initial smoothing lengths in init.cpp.*/
+    ForceTreeMoments(part_manager_type& PartManager, DomainDecomp * ddecomp, int mask, const std::string EmergencyOutputDir = ""):
+    ForceTree2(PartManager, ddecomp, mask), full_particle_tree_flag(mask == ALLMASK)
+    {
+        ActiveParticles myact = init_empty_active_particles(&PartManager);
+        ForceTree_internal(PartManager, ddecomp, &myact, EmergencyOutputDir);
+        walltime_measure("/Tree/Build/Nodes");
+        /* Compute moments of the force tree, recursively.*/
+        force_update_node_parallel(ddecomp);
+        /* Exchange the pseudo-data*/
+        force_exchange_pseudodata(ddecomp);
+        #pragma omp parallel
+        #pragma omp single nowait
+        {
+            force_treeupdate_pseudos(0, 1);
+        }
+        walltime_measure("/Tree/Build/Moments");
+    }
+
     /* Build a tree structure using the particles in act and compute moments.
      * If act is NULL, or has no ActiveParticle list, all particles are used and full_particle_tree_flag is set
      * (even if passive neutrinos are excluded).*/

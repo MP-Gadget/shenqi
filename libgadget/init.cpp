@@ -476,10 +476,9 @@ setup_smoothinglengths(int RestartSnapNum, DomainDecomp * ddecomp, Cosmology * C
     /* Do nothing if we are a pure DM run*/
     if(tot_sph + tot_bh == 0)
         return;
-
     {
-        ForceTreeMoments Tree(*PartManager, ddecomp, NULL, GASMASK+BHMASK, "");
-        /* Set the initial smoothing length for gas and DM, compute tree moments.*/
+        /* Set the initial smoothing length from gas, compute tree moments.*/
+        ForceTreeMoments Tree(*PartManager, ddecomp, GASMASK);
         set_init_hsml(&Tree, MeanGasSeparation, PartManager);
     }
 
