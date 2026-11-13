@@ -338,7 +338,7 @@ public:
     double BoxSize;
 
     /* A toptree for domain exchange. This creates only the topnodes, which shadow elements of the domain decomposition.*/
-    TopTree(DomainDecomp * ddecomp, const double i_BoxSize) : TopLeaves(ddecomp->TopLeaves), NTopLeaves(ddecomp->NTopLeaves), BoxSize(i_BoxSize)
+    TopTree(const DomainDecomp * ddecomp, const double i_BoxSize) : TopLeaves(ddecomp->TopLeaves), NTopLeaves(ddecomp->NTopLeaves), BoxSize(i_BoxSize)
     {
         TopLeafNodes = mymanagedmalloc("TopLeafNodes", int, ddecomp->NTopLeaves);
         /* Allocate memory. Two extra for the first node and for a sentinel*/

@@ -10,7 +10,7 @@
 #include <execution>
 
 #include "domain.h"
-#include "forcetree.h"
+#include "forcetree2.h"
 #include "timestep.h"
 #include "exchange.hpp"
 #include "slotsmanager.h"
@@ -285,15 +285,10 @@ void domain_decompose_full(DomainDecomp * ddecomp, MPI_Comm DomainComm)
 class DomainMaintainExchangePlan: public ExchangePlan<DomainMaintainExchangePlan>
 {
 public:
-    int NTopLeaves;
-    topleaf_data * TopLeaves;
-    topnode_data * TopNodes;
-    struct NODE * Nodes;
-    /* Node index of each top leaf in the tree*/
-    const int * TopLeafNodes;
+    TopTree<BaseNode> * tree;
     bool dmtree;
-    DomainMaintainExchangePlan(DomainDecomp* ddecomp, ForceTree * tree) : ExchangePlan(ddecomp->DomainComm), NTopLeaves(ddecomp->NTopLeaves),
-    TopLeaves(ddecomp->TopLeaves), TopNodes(ddecomp->TopNodes), Nodes(tree->Nodes), TopLeafNodes(tree->TopLeafNodes), dmtree(blackhole_dynfric_treemask() & DMMASK)
+    DomainMaintainExchangePlan(DomainDecomp* ddecomp, TopTree<BaseNode> * i_tree) :
+    ExchangePlan(ddecomp->DomainComm), tree(i_tree), dmtree(blackhole_dynfric_treemask() & DMMASK)
     { }
 
     bool need_new_topleaf(const particle_data& pp) const {
@@ -315,9 +310,9 @@ public:
         if(!dmtree && pp.Type == 1 && !is_timebin_active(pp.TimeBinGravity, pp.Ti_drift))
             return -1;
         int topleaf = pp.TopLeaf;
-        if(topleaf < 0 || topleaf >= NTopLeaves)
+        if(topleaf < 0 || topleaf >= tree->get_ntopleaves())
             return -1;
-        return TopLeaves[topleaf].Task;
+        return tree->get_topleaves()[topleaf].Task;
     }
 
 private:
@@ -329,10 +324,10 @@ private:
         * This is usually fine: if the index of the target top leaf happens to be the
         * same as the target task we just have nothing to do. But make sure we don't have a bad index,
         * just in case. Usually we should have at least one topleaf per task so this should never happen. */
-        if(topleaf >= NTopLeaves || topleaf < 0)
+        if(topleaf >= tree->get_ntopleaves() || topleaf < 0)
             return 0;
-        /* Find treenode corresponding to this topleaf*/
-        const struct NODE& node = Nodes[TopLeafNodes[topleaf]];
+        /* Find node corresponding to the topleaf for this particle*/
+        const BaseNode& node = tree->get_nodes()[tree->get_topleaf_nodes()[topleaf]];
 
         /*One can also use a loop, but the compiler unrolls it only at -O3,
         *so this is a little faster*/
@@ -350,7 +345,7 @@ int domain_maintain(DomainDecomp * ddecomp, struct DriftData * drift, double ddr
 {
     message(0, "Attempting a domain exchange\n");
 
-    ForceTree tree = force_tree_top_build(ddecomp, 1);
+    TopTree<BaseNode> tree(ddecomp, PartManager->BoxSize);
     DomainMaintainExchangePlan plan(ddecomp, &tree);
     /* flag the particles that need to be exported */
     /* Find drift factor*/
@@ -371,7 +366,6 @@ int domain_maintain(DomainDecomp * ddecomp, struct DriftData * drift, double ddr
     walltime_measure("/Domain/drift");
     /* Try a domain exchange.*/
     int exchange_status = plan.domain_exchange(PartManager, SlotsManager, 10000, ddecomp->DomainComm);
-    force_tree_free(&tree);
     return exchange_status;
 }
 
