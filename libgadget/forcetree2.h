@@ -61,7 +61,7 @@ public:
 };
 
 
-struct NodeChild
+struct NodeChild2
 {
     /*!< pointers to daughter nodes or daughter particles. */
     int suns[NMAXCHILD];
@@ -72,10 +72,10 @@ struct NodeChild
 
 /* Common part of a tree node. This is used directly as the node type of ForceTreeSimple,
  * and as a protected base of the node types for the other trees (MomentNODE, HmaxNODE),
- * so that an array of derived nodes cannot be implicitly converted to a NODE pointer,
+ * so that an array of derived nodes cannot be implicitly converted to a BaseNode pointer,
  * which would index it with the wrong stride.
  * The derived classes re-export the members with using declarations.*/
-class NODE
+class BaseNode
 {
 public:
     int sibling;		/*!< this gives the next node in the walk in case the current node can be used */
@@ -89,7 +89,7 @@ public:
      * for each leaf node, and we are losing 30% of the memory per node, so the total lost is 5%.
      * Any attempt to get it back by using a separate allocation means we lost the ability to resize
      * the Nodes array and that is always worse.*/
-    struct NodeChild s;
+    struct NodeChild2 s;
     bool TopLevel;
     bool InternalTopLevel;
     bool DependsOnLocalMass;
@@ -124,7 +124,7 @@ public:
     }
 
     /* Initialise the root node.*/
-    NODE(double BoxSize) : sibling(-1), father(-1), len(BoxSize*1.001),
+    BaseNode(double BoxSize) : sibling(-1), father(-1), len(BoxSize*1.001),
     TopLevel(true), InternalTopLevel(false), DependsOnLocalMass(false), ChildType(PARTICLE_NODE_TYPE)
     {
         for(int i = 0; i < 3; i++)
@@ -136,7 +136,7 @@ public:
 
     /* Initialise an internal node. The parent is assumed to be locked, and
      * we have assured that nothing else will change the node while we are here.*/
-    NODE(NODE *parent, int subnode) : sibling(-10), father(-10), len(0.5 * parent->len),
+    BaseNode(BaseNode *parent, int subnode) : sibling(-10), father(-10), len(0.5 * parent->len),
     TopLevel(false), InternalTopLevel(false), DependsOnLocalMass(false), ChildType(PARTICLE_NODE_TYPE)
     {
         for(int j = 0; j < 3; j++) {
@@ -151,34 +151,34 @@ public:
     }
 };
 
-class MomentNODE: protected NODE
+class MomentNODE: protected BaseNode
 {
 public:
-    /* Re-export the common node members (see the comment on NODE)*/
-    using NODE::sibling;
-    using NODE::father;
-    using NODE::len;
-    using NODE::center;
-    using NODE::s;
-    using NODE::TopLevel;
-    using NODE::InternalTopLevel;
-    using NODE::DependsOnLocalMass;
-    using NODE::ChildType;
-    using NODE::get_subnode;
-    using NODE::inside_node;
+    /* Re-export the common node members (see the comment on BaseNode)*/
+    using BaseNode::sibling;
+    using BaseNode::father;
+    using BaseNode::len;
+    using BaseNode::center;
+    using BaseNode::s;
+    using BaseNode::TopLevel;
+    using BaseNode::InternalTopLevel;
+    using BaseNode::DependsOnLocalMass;
+    using BaseNode::ChildType;
+    using BaseNode::get_subnode;
+    using BaseNode::inside_node;
 
     MyFloat cofm[3];		/*!< center of mass of node */
     MyFloat mass;		/*!< mass of node */
 
     /* Initialise the root node.*/
-    MomentNODE(double BoxSize) : NODE(BoxSize), mass(0)
+    MomentNODE(double BoxSize) : BaseNode(BoxSize), mass(0)
     {
         memset(&(cofm),0,3*sizeof(MyFloat));
     }
 
     /* Initialise an internal node. The parent is assumed to be locked, and
      * we have assured that nothing else will change the node while we are here.*/
-    MomentNODE(MomentNODE *parent, int subnode) : NODE(parent, subnode), mass(0)
+    MomentNODE(MomentNODE *parent, int subnode) : BaseNode(parent, subnode), mass(0)
     {
         memset(&(cofm),0,3*sizeof(MyFloat));
     }
@@ -202,28 +202,28 @@ public:
     }
 };
 
-class HmaxNODE: protected NODE
+class HmaxNODE: protected BaseNode
 {
 public:
-    /* Re-export the common node members (see the comment on NODE)*/
-    using NODE::sibling;
-    using NODE::father;
-    using NODE::len;
-    using NODE::center;
-    using NODE::s;
-    using NODE::TopLevel;
-    using NODE::InternalTopLevel;
-    using NODE::DependsOnLocalMass;
-    using NODE::ChildType;
-    using NODE::get_subnode;
-    using NODE::inside_node;
+    /* Re-export the common node members (see the comment on BaseNode)*/
+    using BaseNode::sibling;
+    using BaseNode::father;
+    using BaseNode::len;
+    using BaseNode::center;
+    using BaseNode::s;
+    using BaseNode::TopLevel;
+    using BaseNode::InternalTopLevel;
+    using BaseNode::DependsOnLocalMass;
+    using BaseNode::ChildType;
+    using BaseNode::get_subnode;
+    using BaseNode::inside_node;
 
     MyFloat hmax;          /*!< maximum amount by which Pos + Hsml of all gas particles in the node exceeds len for this node. */
 
-    HmaxNODE(double BoxSize) : NODE(BoxSize), hmax(0) {}
+    HmaxNODE(double BoxSize) : BaseNode(BoxSize), hmax(0) {}
     /* Initialise an internal node. The parent is assumed to be locked, and
      * we have assured that nothing else will change the node while we are here.*/
-    HmaxNODE(HmaxNODE *parent, int subnode) : NODE(parent, subnode), hmax(0) { }
+    HmaxNODE(HmaxNODE *parent, int subnode) : BaseNode(parent, subnode), hmax(0) { }
 
     /* Set the center of mass of the current node*/
     void force_update_particle_node(void)
@@ -364,7 +364,10 @@ public:
 
 /*Structure containing the Node pointer, and various Tree metadata.
  * This stores the oct-tree structure.*/
-template <typename DerivedTree, typename NodeType> class ForceTree : public TopTree<NodeType> {
+template <typename DerivedTree, typename NodeType> class ForceTree2 : public TopTree<NodeType> {
+public:
+    /* Types which are included have their bits set to 1*/
+    int mask = ALLMASK;
 protected:
     using TopTree<NodeType>::Nodes;
     using TopTree<NodeType>::numnodes;
@@ -374,8 +377,6 @@ protected:
        particles needs usually about ~0.65*N nodes.
        If the allocated memory is not sufficient, this parameter will be increased.*/
     double TreeAllocFactor = 0.9;
-    /* Types which are included have their bits set to 1*/
-    int mask = ALLMASK;
     /* Number of particles stored in this tree*/
     int64_t NumParticles;
     int64_t MaxPart;
@@ -388,7 +389,7 @@ protected:
     /* Constructor for derived classes: sets up the toptree and the mask, but
      * does not build the local tree. The derived class is responsible for
      * calling ForceTree_internal itself.*/
-    ForceTree(part_manager_type& PartManager, DomainDecomp * ddecomp, const int i_mask):
+    ForceTree2(part_manager_type& PartManager, DomainDecomp * ddecomp, const int i_mask):
     TopTree<NodeType>(ddecomp, PartManager.BoxSize), mask(i_mask), MaxPart(PartManager.MaxPart)
     {  }
 
@@ -471,7 +472,7 @@ public:
     * Mask is a bitfield, specified as 1 for each type that should be included. Use ALLMASK for all particle types.
     * This is much faster than _full: because the particles are sorted by type the merge step is much faster than
     * with all particle types, and of course the tree is smaller.*/
-    ForceTree(part_manager_type& PartManager, DomainDecomp * ddecomp, const int i_mask, const std::string EmergencyOutputDir):
+    ForceTree2(part_manager_type& PartManager, DomainDecomp * ddecomp, const int i_mask, const std::string EmergencyOutputDir):
     TopTree<NodeType>(ddecomp, PartManager.BoxSize), mask(i_mask), MaxPart(PartManager.MaxPart)
     {
         message(0, "Tree construction for types: %d.\n", mask);
@@ -485,6 +486,8 @@ public:
     {
         return (no >= 0) && (no < numnodes);
     }
+
+    int64_t get_numparticles() const { return NumParticles; }
 
     /* Add a particle to a node in a known empty location.
      * Parent is assumed to be locked.*/
@@ -961,7 +964,7 @@ public:
                 nleft->s = nright->s;
                 nleft->ChildType = NODE_NODE_TYPE;
                 /* Reset children to the new parent:
-                * this assumes nright is a NODE NODE*/
+                * this assumes nright has node children (NODE_NODE_TYPE)*/
                 for(i = 0; i < 8; i++) {
                     int child = nleft->s.suns[i];
                     Nodes[child].father = this_left;
@@ -1124,12 +1127,12 @@ public:
 };
 
 
-class ForceTreeSimple : public ForceTree<ForceTreeSimple, NODE>  {
-    using ForceTree::ForceTree;
+class ForceTreeSimple : public ForceTree2<ForceTreeSimple, BaseNode>  {
+    using ForceTree2::ForceTree2;
 };
 
 /* ForceTree variant which contains hmax.*/
-class ForceTreeHmax : public ForceTree<ForceTreeHmax, HmaxNODE> {
+class ForceTreeHmax : public ForceTree2<ForceTreeHmax, HmaxNODE> {
 public:
     /* Flags that hmax has been computed for this tree*/
     bool hmax_computed_flag = false;
@@ -1154,7 +1157,7 @@ public:
     /* Build a tree structure using all particles, compute moments and allocate a father array.
      * This is the fattest tree constructor, allows moments and walking up and down.*/
     ForceTreeHmax(part_manager_type& PartManager, DomainDecomp * ddecomp, int i_mask, const std::string EmergencyOutputDir):
-    ForceTree(PartManager, ddecomp, i_mask)
+    ForceTree2(PartManager, ddecomp, i_mask)
     {
         /* Allocate the Father array before building: modify_internal_node
          * fills it in as each particle is attached to a node.*/
@@ -1177,9 +1180,12 @@ public:
     ForceTreeHmax(const ForceTreeHmax&) = delete;
     ForceTreeHmax& operator=(const ForceTreeHmax&) = delete;
 
-    /* Update the hmax in the parent node of the particle p_i*/
+    /* Update the hmax in the parent node of the particle p_i.
+     * This is const because it does not change the tree structure: it only
+     * raises the hmax of one node with an atomic compare-exchange, so it may be
+     * called by a treewalk which holds a const pointer to the tree.*/
     void
-    update_tree_hmax_father(const int p_i, const double Pos[3], const double Hsml)
+    update_tree_hmax_father(const int p_i, const double Pos[3], const double Hsml) const
     {
         if(!Father)
             endrun(4, "Father not allocated in tree_hmax_father\n");
@@ -1227,7 +1233,7 @@ public:
      * Parent is assumed to be locked.*/
     void modify_internal_node(int parent, int subnode, int p_toplace)
     {
-        ForceTree::modify_internal_node(parent, subnode, p_toplace);
+        ForceTree2::modify_internal_node(parent, subnode, p_toplace);
         Father[p_toplace] = parent;
 
         const auto& part = Part[p_toplace];
@@ -1323,7 +1329,7 @@ private:
  * it points to another node. For nodes which have type PARTICLE_NODE_TYPE
  * if points to a particle. For nodes which have type PSEUDO_NODE_TYPE
  * it points to a pseudo particle on another processor.*/
-class ForceTreeMoments : public ForceTree <ForceTreeMoments, MomentNODE> {
+class ForceTreeMoments : public ForceTree2 <ForceTreeMoments, MomentNODE> {
 public:
     /* Flags that the tree contains all particles*/
     bool full_particle_tree_flag;
@@ -1331,8 +1337,8 @@ public:
     /* Build a tree structure using the particles in act and compute moments.
      * If act is NULL, or has no ActiveParticle list, all particles are used and full_particle_tree_flag is set
      * (even if passive neutrinos are excluded).*/
-    ForceTreeMoments(part_manager_type& PartManager, DomainDecomp * ddecomp, ActiveParticles * act, bool HybridNuTracer, const std::string EmergencyOutputDir):
-    ForceTree(PartManager, ddecomp, ALLMASK), full_particle_tree_flag(act == NULL || act->ActiveParticle == NULL)
+    ForceTreeMoments(part_manager_type& PartManager, DomainDecomp * ddecomp, const ActiveParticles * const act, bool HybridNuTracer, const std::string EmergencyOutputDir = ""):
+    ForceTree2(PartManager, ddecomp, ALLMASK), full_particle_tree_flag(act == NULL || act->ActiveParticle == NULL)
     {
         /* Build for all particles by default, but skip neutrinos if they are passive.*/
         if(HybridNuTracer)
@@ -1363,7 +1369,7 @@ public:
     void
     modify_internal_node(int parent, int subnode, int p_toplace)
     {
-        ForceTree::modify_internal_node(parent, subnode, p_toplace);
+        ForceTree2::modify_internal_node(parent, subnode, p_toplace);
         const struct particle_data& part = Part[p_toplace];
         auto& pnode = Nodes[parent];
         pnode.mass += (part.Mass);
