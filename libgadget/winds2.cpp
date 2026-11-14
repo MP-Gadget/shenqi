@@ -211,8 +211,9 @@ class WindWeightLocalTreeWalk: public LocalNgbTreeWalk<WindWeightLocalTreeWalk, 
         double dist[3];
         double r2 = this->get_distance(input, particle, priv.BoxSize, dist);
 
-        /* Check we are within the density kernel*/
-        if(r2 <= 0 || !(r2 < input.Hsml * input.Hsml))
+        /* Check we are within the density kernel: note that r == 0 is explicitly
+         * allowed so that the parent gas particle can still get kicked.*/
+        if(r2 >= input.Hsml * input.Hsml)
             return;
 
         /* skip earlier wind particles, which receive
@@ -375,7 +376,7 @@ class WindKickLocalTreeWalk: public LocalNgbTreeWalk<WindKickLocalTreeWalk, Wind
         double r2 = this->get_distance(input, particle, priv.BoxSize, dist);
 
         /* Check we are within the density kernel*/
-        if(r2 <= 0 || !(r2 < input.Hsml * input.Hsml))
+        if(r2 >= input.Hsml * input.Hsml))
             return;
 
         /* skip earlier wind particles */
