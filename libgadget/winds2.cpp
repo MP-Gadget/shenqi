@@ -126,27 +126,28 @@ class WindWeightPriv : public ParamTypeBase {
 class WindWeightQuery : public TreeWalkQueryBase<WindWeightPriv> {
     public:
     double Hsml;
-    MYCUDAFN WindWeightQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const WindWeightPriv& priv):
-    TreeWalkQueryBase<WindWeightPriv>(particle, i_NodeList, firstnode, priv), Hsml(particle.Hsml)
+    MYCUDAFN WindWeightQuery(const particle_data& particle, const int * const i_NodeList, const WindWeightPriv& priv):
+    TreeWalkQueryBase<WindWeightPriv>(particle, i_NodeList, priv), Hsml(particle.Hsml)
     {}
 };
 
 class WindWeightOutput {
     public:
     int64_t winddata_sz;
-    int * nvisited;
+    /* Total weight of the gas around each star, indexed by the star slot.*/
     double * TotalWeight;
     WindWeightOutput(slots_manager_type * SlotsManager) {
         /* Subgrid winds come from gas, regular wind from stars: size array accordingly.*/
         winddata_sz = SlotsManager->info[4].size;
         if(HAS(wind_params.WindModel, WIND_SUBGRID))
             winddata_sz = SlotsManager->info[0].size;
-        TotalWeight = (double * ) mymalloc("WindWeight", winddata_sz * sizeof(double));
+        TotalWeight = mymalloc("WindWeight", double, winddata_sz);
         memset(TotalWeight, 0, winddata_sz * sizeof(double));
-        nvisited = (int * ) mymalloc("nvisited", winddata_sz * sizeof(int));
+        nvisited = mymalloc("nvisited", int, winddata_sz);
         memset(nvisited, 0, winddata_sz * sizeof(int));
     }
 
+    /* Total number of gas particles visited on this rank, by stars from any rank.*/
     int64_t get_tot_visited()
     {
         int64_t tot_nvisited = 0;
@@ -200,13 +201,17 @@ class WindWeightResult : public TreeWalkResultBase<WindWeightQuery, WindWeightOu
 
 /* this evaluator walks the tree and sums the total mass of surrounding gas
  * particles as described in VS08. */
-class WindWeightLocalTreeWalk: public LocalNgbTreeWalk<WindWeightLocalTreeWalk, WindWeightQuery, WindWeightResult, WindWeightPriv, NGB_TREEFIND_ASYMMETRIC, GASMASK>
+class WindWeightLocalTreeWalk: public LocalNgbTreeWalk<WindWeightLocalTreeWalk, WindWeightQuery, WindWeightResult, WindWeightPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC, GASMASK>
 {
     public:
-    MYCUDAFN WindWeightLocalTreeWalk(const NODE * const Nodes, const WindWeightQuery& input):
-    LocalNgbTreeWalk<WindWeightLocalTreeWalk, WindWeightQuery, WindWeightResult, WindWeightPriv, NGB_TREEFIND_ASYMMETRIC, GASMASK>(Nodes, input) {}
+    /* Counter on the rank doing the visiting, private to this thread.*/
+    int64_t * const nvisited_local;
 
-    MYCUDAFN void ngbiter(WindWeightQuery& input, const particle_data& particle, WindWeightResult * output, const WindWeightPriv& priv)
+    WindWeightLocalTreeWalk(const HmaxNODE * const Nodes, const WindWeightQuery& input, int64_t * const i_nvisited_local):
+    LocalNgbTreeWalk<WindWeightLocalTreeWalk, WindWeightQuery, WindWeightResult, WindWeightPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC, GASMASK>(Nodes, input),
+    nvisited_local(i_nvisited_local) {}
+
+    void ngbiter(WindWeightQuery& input, const particle_data& particle, WindWeightResult * output, const WindWeightPriv& priv)
     {
         double dist[3];
         double r2 = this->get_distance(input, particle, priv.BoxSize, dist);
@@ -224,8 +229,10 @@ class WindWeightLocalTreeWalk: public LocalNgbTreeWalk<WindWeightLocalTreeWalk, 
         //double wk = density_kernel_wk(&kernel, r);
         double wk = 1.0;
         output->TotalWeight += wk * particle.Mass;
-        /* Sum up all particles visited on this processor*/
+        /* Count for the star, which is returned to the rank owning the star.*/
         output->nvisited++;
+        /* Sum up all particles visited on this processor*/
+        (*nvisited_local)++;
         /*
         message(1, "ThisTask = %d %ld ngb=%d NGB=%d TotalWeight=%g V2sum=%g V1sum=%g %g %g\n",
         ThisTask, I->ID, numngb, O->Ngb, O->TotalWeight, O->V2sum,
@@ -234,9 +241,9 @@ class WindWeightLocalTreeWalk: public LocalNgbTreeWalk<WindWeightLocalTreeWalk, 
     }
 };
 
-class WindWeightTopTreeWalk: public TopTreeWalk<WindWeightQuery, WindWeightPriv, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
+class WindWeightTopTreeWalk: public TopTreeWalk<WindWeightQuery, WindWeightPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
-class WindWeightTreeWalk: public TreeWalk<WindWeightTreeWalk, WindWeightQuery, WindWeightResult, WindWeightLocalTreeWalk, WindWeightTopTreeWalk, WindWeightPriv, WindWeightOutput> {
+class WindWeightTreeWalk: public TreeWalk<WindWeightTreeWalk, WindWeightQuery, WindWeightResult, WindWeightLocalTreeWalk, WindWeightTopTreeWalk, WindWeightPriv, WindWeightOutput, ForceTreeHmax> {
     public:
     using TreeWalk::TreeWalk;
 };
@@ -247,13 +254,12 @@ get_wind_params(double * vel, double * windeff, double * utherm, const double vd
 class WindKickPriv : public ParamTypeBase {
     public:
     double * TotalWeight;
-    int * nvisited;
     double Time;
     RandTable * rnd;
     sph_particle_data * SphParts;
     star_particle_data * StarParts;
     WindKickPriv(const double BoxSize, const double i_Time, WindWeightOutput& output, RandTable * i_rnd, slots_manager_type& SlotsManager):
-    ParamTypeBase(BoxSize), TotalWeight(output.TotalWeight), nvisited(output.nvisited),Time(i_Time), rnd(i_rnd), SphParts(SlotsManager.sph_slot()), StarParts(SlotsManager.star_slot())
+    ParamTypeBase(BoxSize), TotalWeight(output.TotalWeight), Time(i_Time), rnd(i_rnd), SphParts(SlotsManager.sph_slot()), StarParts(SlotsManager.star_slot())
     {
 
     }
@@ -266,10 +272,9 @@ class WindKickQuery : public TreeWalkQueryBase<WindKickPriv> {
     double Hsml;
     double Vdisp;
     double TotalWeight;
-    int nvisited;
-    MYCUDAFN WindKickQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const WindKickPriv& priv):
-    TreeWalkQueryBase<WindKickPriv>(particle, i_NodeList, firstnode, priv), ID(particle.ID), Mass(particle.Mass), Hsml(particle.Hsml),
-    TotalWeight(priv.TotalWeight[particle.PI]), nvisited(priv.nvisited[particle.PI])
+    WindKickQuery(const particle_data& particle, const int * const i_NodeList, const WindKickPriv& priv):
+    TreeWalkQueryBase<WindKickPriv>(particle, i_NodeList, priv), ID(particle.ID), Mass(particle.Mass), Hsml(particle.Hsml),
+    TotalWeight(priv.TotalWeight[particle.PI])
     {
         if(particle.Type != 4)
             endrun(5, "Particle has type %d not a star, id %ld mass %g\n", particle.Type, particle.ID, particle.Mass);
@@ -281,10 +286,11 @@ class WindKickQuery : public TreeWalkQueryBase<WindKickPriv> {
  * to a gas particle from a newly formed star.
  * We add a queue of these and resolve them
  * after the treewalk. Note this star may
- * be on another processor.*/
+ * be on another processor: the kick is always stored
+ * on the processor which owns the gas particle.*/
 struct StarKick
 {
-    /* Index of the kicked particle*/
+    /* The kicked particle. A pointer into the particle table of this rank.*/
     particle_data * particle;
     /* Distance to the star. The closest star does the kick.*/
     double StarDistance;
@@ -315,17 +321,21 @@ struct StarKick
     }
 };
 
+/* The output of the kick treewalk is a queue of kicks to the gas particles on this rank.
+ * It is stored on the rank doing the visiting (the one owning the gas particle) and
+ * filled directly from ngbiter. Nothing is returned to the rank owning the star.*/
 class WindKickOutput {
     public:
     int64_t maxkicks;
     int64_t nkicks;
     struct StarKick * kicks;
+    /* nvisited is the number of gas particles visited on this rank by the weight treewalk.*/
     WindKickOutput(const int64_t nvisited) : maxkicks(nvisited+2), nkicks(0) {
         /* Some particles may be kicked by multiple stars on the same timestep.
         * To ensure this happens only once and does not depend on the order in
         * which the loops are executed, particles are kicked by the nearest new star.
         * This struct stores all such possible kicks, and we sort it out after the treewalk.*/
-        kicks = (struct StarKick * ) mymalloc("StarKicks", (maxkicks+1) * sizeof(struct StarKick));
+        kicks = mymalloc("StarKicks", struct StarKick, maxkicks+1);
         /* Explicitly initialise so we are safe to do a reduce even if there are no kicks.*/
         kicks[0].StarKickVelocity = 0;
     }
@@ -419,9 +429,9 @@ class WindKickLocalTreeWalk: public LocalNgbTreeWalk<WindKickLocalTreeWalk, Wind
     }
 };
 
-class WindKickTopTreeWalk: public TopTreeWalk<WindKickQuery, WindKickPriv, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
+class WindKickTopTreeWalk: public TopTreeWalk<WindKickQuery, WindKickPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
-class WindKickTreeWalk: public TreeWalk<WindKickTreeWalk, WindKickQuery, WindKickResult, WindKickLocalTreeWalk, WindKickTopTreeWalk, WindKickPriv, WindKickOutput> {
+class WindKickTreeWalk: public TreeWalk<WindKickTreeWalk, WindKickQuery, WindKickResult, WindKickLocalTreeWalk, WindKickTopTreeWalk, WindKickPriv, WindKickOutput, ForceTreeHmax> {
     public:
     using TreeWalk::TreeWalk;
 };
@@ -498,9 +508,11 @@ wind_do_kick(particle_data& particle, double vel, double therm, double atime, co
     }
 }
 
-/*Do a treewalk for the wind model. This only changes newly created star particles.*/
+/*Do a treewalk for the wind model. This only changes newly created star particles.
+ * The tree must contain the gas particles. It may have been built before the stars formed:
+ * the treewalk skips particles which are no longer gas.*/
 void
-winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time, RandTable * rnd, ForceTree * tree, DomainDecomp * ddecomp)
+winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time, RandTable * rnd, const ForceTreeHmax * const tree, DomainDecomp * ddecomp)
 {
     /*The subgrid model does nothing here*/
     if(HAS(wind_params.WindModel, WIND_SUBGRID))
@@ -509,14 +521,8 @@ winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time,
     if(!MPIU_Any(NumNewStars > 0, MPI_COMM_WORLD))
         return;
 
-    /* Flags that we need to free the tree to preserve memory order*/
-    bool tree_alloc_in_wind = false;
-    if(!tree->tree_allocated_flag) {
-        message(0, "Building tree in wind\n");
-        tree_alloc_in_wind = true;
-        force_tree_rebuild_mask(tree, ddecomp, GASMASK, NULL);
-        walltime_measure("/Cooling/Build");
-    }
+    if(!tree)
+        endrun(5, "New stars were formed, but there is no gas tree for the wind model.\n");
 
     WindWeightPriv priv(PartManager->BoxSize, *SlotsManager);
 
@@ -527,6 +533,7 @@ winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time,
     tw.run(NewStars, NumNewStars, PartManager->Base, ddecomp->DomainComm);
 
     WindKickPriv privkick(PartManager->BoxSize, Time, output, rnd, *SlotsManager);
+    /* The kick queue is on the rank which owns the gas, so size it by the gas particles visited on this rank.*/
     WindKickOutput outputkick(output.get_tot_visited());
     output.print_visited(NumNewStars);
 
@@ -563,8 +570,6 @@ winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time,
     MPI_Reduce(&outputkick.kicks[0].StarKickVelocity, &maxvel, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
     message(0, "Made %ld gas wind, discarded %ld kicks from %ld stars. Vel %g\n", tot_applied, tot_kicks - tot_applied, tot_newstars, maxvel);
 
-    if(tree_alloc_in_wind)
-        force_tree_free(tree);
     walltime_measure("/Cooling/Wind");
 }
 
