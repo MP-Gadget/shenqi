@@ -679,7 +679,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             }
             /**** radiative cooling and star formation *****/
             if(All.CoolingOn)
-                cooling_and_starformation(&Act, atime, timebinmgr.get_dloga_for_bin(times.mintimebin, times.Ti_Current), &timebinmgr, &bhtree, GravAccel, ddecomp, &All.CP, GradRho_mag, &rnd, fds.FdSfr);
+                cooling_and_starformation(&Act, atime, timebinmgr.get_dloga_for_bin(times.mintimebin, times.Ti_Current), &timebinmgr, gasTree, GravAccel, ddecomp, &All.CP, GradRho_mag, &rnd, fds.FdSfr);
             force_tree_free(&bhtree);
         }
         /* We don't need this timestep's tree anymore.*/

@@ -7,7 +7,6 @@
 #include <algorithm>
 #include "treewalk2.h"
 #include "localtreewalk2.h"
-#include "forcetree2.h"
 #include "winds.h"
 #include "physconst.h"
 #include "slotsmanager.h"
@@ -513,9 +512,11 @@ wind_do_kick(particle_data& particle, double vel, double therm, double atime, co
     }
 }
 
-/*Do a treewalk for the wind model. This only changes newly created star particles.*/
+/*Do a treewalk for the wind model. This only changes newly created star particles.
+ * The tree must contain the gas particles. It may have been built before the stars formed:
+ * the treewalk skips particles which are no longer gas.*/
 void
-winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time, RandTable * rnd, ForceTree * oldtree, DomainDecomp * ddecomp)
+winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time, RandTable * rnd, const ForceTreeHmax * const tree, DomainDecomp * ddecomp)
 {
     /*The subgrid model does nothing here*/
     if(HAS(wind_params.WindModel, WIND_SUBGRID))
@@ -524,12 +525,8 @@ winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time,
     if(!MPIU_Any(NumNewStars > 0, MPI_COMM_WORLD))
         return;
 
-    /* The treewalk2 library needs one of the new force trees, so build
-     * a gas tree here. The old tree passed to this function is not used.*/
-    message(0, "Building tree in wind\n");
-    const ForceTreeHmax gastree(*PartManager, ddecomp, GASMASK, "");
-    const ForceTreeHmax * const tree = &gastree;
-    walltime_measure("/Cooling/Build");
+    if(!tree)
+        endrun(5, "New stars were formed, but there is no gas tree for the wind model.\n");
 
     WindWeightPriv priv(PartManager->BoxSize, *SlotsManager);
 
