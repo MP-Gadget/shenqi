@@ -1,7 +1,7 @@
 #ifndef WINDS_H
 #define WINDS_H
 
-#include "forcetree.h"
+#include "forcetree2.h"
 #include "utils/paramset.h"
 #include "utils/system.h"
 #include "types.h"
@@ -34,7 +34,7 @@ double winds_get_dens_thresh(void);
 void winds_evolve(int i, double a3inv, double hubble, TimeBinMgr * timebinmgr);
 
 /*do the treewalk for the wind model*/
-void winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time, RandTable * rnd, ForceTree * tree, DomainDecomp * ddecomp);
+void winds_and_feedback(int * NewStars, const int64_t NumNewStars, const double Time, RandTable * rnd, const ForceTreeHmax * const tree, DomainDecomp * ddecomp);
 
 /*Make a wind particle at the site of recent star formation.*/
 int winds_make_after_sf(int i, double sm, double vdisp, double atime, const RandTable * const rnd);
