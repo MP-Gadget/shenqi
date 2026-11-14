@@ -1,7 +1,7 @@
 #ifndef _COOLING_QSO_LIGHTUP_H
 #define _COOLING_QSO_LIGHTUP_H
 
-#include "forcetree.h"
+#include "forcetree2.h"
 #include "fof.h"
 #include "utils/paramset.h"
 
@@ -11,7 +11,7 @@ void set_qso_lightup_params(ParameterSet * ps);
 void init_qso_lightup(const std::string& reion_hist_file);
 
 /* Starts reionization by selecting the first halo and flagging all particles in the first HeIII bubble*/
-void do_heiii_reionization(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmology * CP, RandTable * rnd, double uu_in_cgs, FILE * FdHelium);
+void do_heiii_reionization(double atime, FOFGroups * fof, const ForceTreeHmax * const gasTree, Cosmology * CP, RandTable * rnd, double uu_in_cgs, FILE * FdHelium);
 
 /* Get the long mean free path photon heating that applies to not-yet-ionized particles*/
 double get_long_mean_free_path_heating(double redshift);
