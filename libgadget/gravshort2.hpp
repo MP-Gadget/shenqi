@@ -13,7 +13,7 @@
 #include "utils/mymalloc.h"
 #include "localtreewalk2.h"
 
-#include "forcetree.h"
+#include "forcetree2.h"
 #include "partmanager.h"
 #include "gravity.h"
 
@@ -123,8 +123,8 @@ class GravTreeOutput
  class GravTreeQuery : public TreeWalkQueryBase<GravTreeParams> {
     public:
     MyFloat OldAcc;
-    MYCUDAFN GravTreeQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const GravTreeParams& priv) :
-    TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), OldAcc(grav_get_abs_accel(particle, priv.G)) {}
+    MYCUDAFN GravTreeQuery(const particle_data& particle, const int * const i_NodeList, const GravTreeParams& priv) :
+    TreeWalkQueryBase(particle, i_NodeList, priv), OldAcc(grav_get_abs_accel(particle, priv.G)) {}
  };
 
 class GravTreeResult : public TreeWalkResultBase<GravTreeQuery, GravTreeOutput> {
@@ -194,23 +194,20 @@ shall_we_open_node(const double len, const double mass, const double r2, const d
 
 class GravLocalTreeWalk {
     public:
+    /* The gravity walk needs mass moments. TreeWalk checks this matches the tree.*/
+    using node_type = MomentNODE;
     /* A pointer to the force tree structure to walk.*/
-    const struct NODE * const Nodes;
+    const MomentNODE * const Nodes;
 
-    MYCUDAFN GravLocalTreeWalk(const NODE * const Node, const GravTreeQuery& input):
+    MYCUDAFN GravLocalTreeWalk(const MomentNODE * const Node, const GravTreeQuery& input):
     Nodes(Node) {}
 
-    static void validate_tree(const ForceTree * const tree)
+    static void validate_tree(const ForceTreeMoments * const tree)
     {
-        if(!force_tree_allocated(tree))
-            endrun(0, "Tree has been freed before this treewalk.\n");
         /* Check whether the tree contains the particles we are looking for*/
         int mask = GASMASK + DMMASK + STARMASK + BHMASK; // Neutrinos may be absent.
         if((tree->mask & mask) != mask)
             endrun(5, "Gravity treewalk needs all particle types but tree mask is %d\n", tree->mask);
-
-        if(!tree->moments_computed_flag)
-            endrun(2, "Gravtree called before tree moments computed!\n");
     }
 
     /*! In the TreePM algorithm, the tree is walked only locally around the
@@ -252,16 +249,16 @@ class GravLocalTreeWalk {
             while(no >= 0)
             {
                 /* The tree always walks internal nodes*/
-                const struct NODE * const nop = &Nodes[no];
+                const auto * const nop = &Nodes[no];
 
                 if constexpr(mode == TREEWALK_GHOSTS) {
-                    if(nop->f.TopLevel && no != startno)  /* we reached a top-level node again, which means that we are done with the branch */
+                    if(nop->TopLevel && no != startno)  /* we reached a top-level node again, which means that we are done with the branch */
                         break;
                 }
 
                 double dx[3];
                 for(int i = 0; i < 3; i++)
-                    dx[i] = NEAREST(nop->mom.cofm[i] - input.Pos[i], priv.BoxSize);
+                    dx[i] = NEAREST(nop->cofm[i] - input.Pos[i], priv.BoxSize);
                 const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
 
                 /* Discard this node, move to sibling*/
@@ -273,21 +270,21 @@ class GravLocalTreeWalk {
                 }
 
                 /* This node accelerates the particle directly, and is not opened.*/
-                const int open_node = shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, input.Pos, priv.BoxSize, aold, priv.TreeUseBH, priv.BHOpeningAngle2);
+                const int open_node = shall_we_open_node(nop->len, nop->mass, r2, nop->center, input.Pos, priv.BoxSize, aold, priv.TreeUseBH, priv.BHOpeningAngle2);
 
                 if(!open_node)
                 {
                     /* ok, node can be used */
                     no = nop->sibling;
                     /* Compute the acceleration and apply it to the output structure*/
-                    apply_accn(output, dx, r2, nop->mom.mass, cellsize, priv.gravtab, priv.ForceSoftening);
+                    apply_accn(output, dx, r2, nop->mass, cellsize, priv.gravtab, priv.ForceSoftening);
                     ninteractions++;
                     continue;
                 }
 
                 /* Now we have a cell that needs to be opened.
                 * If it contains particles we can add them directly here */
-                if(nop->f.ChildType == PARTICLE_NODE_TYPE)
+                if(nop->ChildType == PARTICLE_NODE_TYPE)
                 {
                     /* Loop over child particles*/
                     for(int i = 0; i < nop->s.noccupied; i++) {
@@ -302,7 +299,7 @@ class GravLocalTreeWalk {
                     no = nop->sibling;
                     continue;
                 }
-                else if (nop->f.ChildType == PSEUDO_NODE_TYPE)
+                else if (nop->ChildType == PSEUDO_NODE_TYPE)
                 {
                     // This should never happen in TREEWALK_GHOSTS mode! But we cannot endrun from the GPU.
                     #ifndef __CUDACC__
@@ -359,7 +356,7 @@ class GravLocalTreeWalk {
 };
 
 /* Note the NgbIter class is never used for the GravTree, so the final template argument has no effect. */
-class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TREEFIND_ASYMMETRIC> {
+class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, MomentNODE, NGB_TREEFIND_ASYMMETRIC> {
     using TopTreeWalk::TopTreeWalk;
     public:
     /*! Find exports. The tricky part of this routine is that tree nodes that would normally be discarded without opening must not be exported.
@@ -383,17 +380,17 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
         while(no >= 0)
         {
             /* The tree always walks internal nodes*/
-            const NODE * const nop = &Nodes[no];
+            const auto * const nop = &Nodes[no];
 
             double dx[3];
             for(int i = 0; i < 3; i++)
-                dx[i] = NEAREST(nop->mom.cofm[i] - inpos[i], priv.BoxSize);
+                dx[i] = NEAREST(nop->cofm[i] - inpos[i], priv.BoxSize);
             const double r2 = dx[0] * dx[0] + dx[1] * dx[1] + dx[2] * dx[2];
 
             /* Discard this node, move to sibling*/
             if (shall_we_discard_node(nop->len, r2, nop->center, inpos, priv.BoxSize, rcut, rcut2) ||
             /* This node accelerates the particle directly, and is not opened, move to sibling.*/
-            !shall_we_open_node(nop->len, nop->mom.mass, r2, nop->center, inpos, priv.BoxSize, aold, priv.TreeUseBH, priv.BHOpeningAngle2) )
+            !shall_we_open_node(nop->len, nop->mass, r2, nop->center, inpos, priv.BoxSize, aold, priv.TreeUseBH, priv.BHOpeningAngle2) )
             {
                 no = nop->sibling;
                 /* Don't add this node*/
@@ -401,7 +398,7 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
             }
 
             /* A pseudo particle that would normally be opened should now be exported. */
-            if(nop->f.ChildType == PSEUDO_NODE_TYPE) {
+            if(nop->ChildType == PSEUDO_NODE_TYPE) {
                 /* Export the pseudo particle*/
                 if constexpr(mode == TOPTREE_COUNT) {
                     NThisParticleExport = export_count(nop->s.suns[0], NThisParticleExport);
@@ -419,7 +416,7 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, NGB_TR
             /* Only walk toptree nodes here, move to sibling if we found a toptree leaf.
              * This is a local toptree leaf, which would normally be opened.
              */
-            if((nop->f.TopLevel && !nop->f.InternalTopLevel))
+            if((nop->TopLevel && !nop->InternalTopLevel))
             {
                 no = nop->sibling;
                 continue;

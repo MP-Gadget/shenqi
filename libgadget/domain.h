@@ -20,7 +20,6 @@ struct topnode_data
 struct topleaf_data {
     int Task;
     int topnode; /* used during domain_decompose for balancing the decomposition */
-    int treenode; /* used during life span of the tree for looking up in the tree Nodes */
 };
 
 struct task_data {

@@ -1,6 +1,5 @@
 #include <math.h>
 #include <omp.h>
-#include "metal_return.h"
 #include "treewalk2.h"
 #include "density2.h"
 #include "densitykernel.hpp"
@@ -65,7 +64,7 @@ class StellarDensityOutput {
     particle_data * parts;
     bool verbose = false;
 
-    StellarDensityOutput(MyFloat * StarVolumeSPH_i, const ForceTree * const tree, const int * WorkSet, const int64_t WorkSetSize, particle_data * const parts_i, slots_manager_type * slotsmanager):
+    StellarDensityOutput(MyFloat * StarVolumeSPH_i, const ForceTreeHmax * const tree, const int * WorkSet, const int64_t WorkSetSize, particle_data * const parts_i, slots_manager_type * slotsmanager):
     StarVolumeSPH(StarVolumeSPH_i), parts(parts_i)
     {
         typedef MyFloat NumNgbArray[NHSML];
@@ -86,8 +85,26 @@ class StellarDensityOutput {
             /* If somehow Hsml has become zero through underflow, use something non-zero
              * to make sure we converge. */
             if(parts[p].Hsml == 0) {
-                const int fat = force_get_father(p, tree);
-                parts[p].Hsml = tree->Nodes[fat].len;
+                /* Stars are not in the gas tree, so they have no father. Instead
+                 * use the size of the smallest node containing the star's position.
+                 * Empty children are removed from the tree, so stop if no child contains it.*/
+                const auto * const Nodes = tree->get_nodes();
+                int no = 0;
+                while(Nodes[no].ChildType == NODE_NODE_TYPE) {
+                    /* Go down a level: the first child is s.suns[0], and the children are linked
+                     * by sibling, with the last child's sibling being the parent's sibling.*/
+                    int child = -1;
+                    for(int c = Nodes[no].s.suns[0]; c >= 0 && c != Nodes[no].sibling; c = Nodes[c].sibling) {
+                        if(Nodes[c].inside_node(parts[p].Pos, 0)) {
+                            child = c;
+                            break;
+                        }
+                    }
+                    if(child < 0)
+                        break;
+                    no = child;
+                }
+                parts[p].Hsml = Nodes[no].len;
                 if(parts[p].Hsml == 0)
                     parts[p].Hsml = tree->BoxSize / pow(PartManager->NumPart, 1./3)/4.;
             }
@@ -162,8 +179,8 @@ class StellarDensityQuery : public TreeWalkQueryBase<StellarDensityPriv>
     MyFloat Hsml;
     MyFloat HsmlEval[NHSML];
 
-    MYCUDAFN StellarDensityQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const StellarDensityPriv& priv):
-    TreeWalkQueryBase<StellarDensityPriv>(particle, i_NodeList, firstnode, priv)
+    MYCUDAFN StellarDensityQuery(const particle_data& particle, const int * const i_NodeList, const StellarDensityPriv& priv):
+    TreeWalkQueryBase<StellarDensityPriv>(particle, i_NodeList, priv)
     {
         const int pi = particle.PI;
         for(int i = 0; i < NHSML; i++)
@@ -204,11 +221,11 @@ class StellarDensityResult : public TreeWalkResultBase<StellarDensityQuery, Stel
 };
 
 template <typename DensityKernel>
-class StellarDensityLocalTreeWalk: public LocalNgbTreeWalk<StellarDensityLocalTreeWalk<DensityKernel>, StellarDensityQuery, StellarDensityResult, StellarDensityPriv, NGB_TREEFIND_ASYMMETRIC, GASMASK>
+class StellarDensityLocalTreeWalk: public LocalNgbTreeWalk<StellarDensityLocalTreeWalk<DensityKernel>, StellarDensityQuery, StellarDensityResult, StellarDensityPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC, GASMASK>
 {
     public:
-    MYCUDAFN StellarDensityLocalTreeWalk(const NODE * const Nodes, const StellarDensityQuery& input):
-    LocalNgbTreeWalk<StellarDensityLocalTreeWalk<DensityKernel>, StellarDensityQuery, StellarDensityResult, StellarDensityPriv, NGB_TREEFIND_ASYMMETRIC, GASMASK>(Nodes, input)
+    MYCUDAFN StellarDensityLocalTreeWalk(const HmaxNODE * const Nodes, const StellarDensityQuery& input):
+    LocalNgbTreeWalk<StellarDensityLocalTreeWalk<DensityKernel>, StellarDensityQuery, StellarDensityResult, StellarDensityPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC, GASMASK>(Nodes, input)
     { }
 
     /*! This function computes the number of neighbours and the SPH volume
@@ -251,19 +268,19 @@ class StellarDensityLocalTreeWalk: public LocalNgbTreeWalk<StellarDensityLocalTr
     }
 };
 
-class StellarDensityTopTreeWalk: public TopTreeWalk<StellarDensityQuery, StellarDensityPriv, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
+class StellarDensityTopTreeWalk: public TopTreeWalk<StellarDensityQuery, StellarDensityPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
-class StellarDensityTreeWalkCubic: public TreeWalk<StellarDensityTreeWalkCubic, StellarDensityQuery, StellarDensityResult, StellarDensityLocalTreeWalk<CubicDensityKernel>, StellarDensityTopTreeWalk, StellarDensityPriv, StellarDensityOutput> {
+class StellarDensityTreeWalkCubic: public TreeWalk<StellarDensityTreeWalkCubic, StellarDensityQuery, StellarDensityResult, StellarDensityLocalTreeWalk<CubicDensityKernel>, StellarDensityTopTreeWalk, StellarDensityPriv, StellarDensityOutput, ForceTreeHmax> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class StellarDensityTreeWalkQuartic: public TreeWalk<StellarDensityTreeWalkQuartic, StellarDensityQuery, StellarDensityResult, StellarDensityLocalTreeWalk<QuarticDensityKernel>, StellarDensityTopTreeWalk, StellarDensityPriv, StellarDensityOutput> {
+class StellarDensityTreeWalkQuartic: public TreeWalk<StellarDensityTreeWalkQuartic, StellarDensityQuery, StellarDensityResult, StellarDensityLocalTreeWalk<QuarticDensityKernel>, StellarDensityTopTreeWalk, StellarDensityPriv, StellarDensityOutput, ForceTreeHmax> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class StellarDensityTreeWalkQuintic: public TreeWalk<StellarDensityTreeWalkQuintic, StellarDensityQuery, StellarDensityResult, StellarDensityLocalTreeWalk<QuinticDensityKernel>, StellarDensityTopTreeWalk, StellarDensityPriv, StellarDensityOutput> {
+class StellarDensityTreeWalkQuintic: public TreeWalk<StellarDensityTreeWalkQuintic, StellarDensityQuery, StellarDensityResult, StellarDensityLocalTreeWalk<QuinticDensityKernel>, StellarDensityTopTreeWalk, StellarDensityPriv, StellarDensityOutput, ForceTreeHmax> {
     public:
     using TreeWalk::TreeWalk;
 };
@@ -309,7 +326,7 @@ build_stellar_density_queue(int ** WorkSet, int * active_set, const int64_t size
 }
 
 void
-stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * MassReturn, const ForceTree * const tree, const int SPHWeighting, const double MaxNgbDeviation)
+stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * MassReturn, const ForceTreeHmax * const tree, const int SPHWeighting, const double MaxNgbDeviation)
 {
     int * StarQueue = NULL;
     const int64_t NumQueue = build_stellar_density_queue(&StarQueue, act->ActiveParticle, act->NumActiveParticle, MassReturn);
@@ -321,20 +338,20 @@ stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * 
         case DENSITY_KERNEL_CUBIC_SPLINE:
             {
                 StellarDensityTreeWalkCubic tw("STELLAR_DENSITY", tree, priv, &output);
-                tw.do_hsml_loop(StarQueue, NumQueue, true, PartManager->Base, MPI_COMM_WORLD);
+                tw.do_hsml_loop(StarQueue, NumQueue, PartManager->Base, MPI_COMM_WORLD);
                 tw.print_stats("/SPH/Metals/Density", MPI_COMM_WORLD);
             }
             break;
         case DENSITY_KERNEL_QUARTIC_SPLINE:
             {
                 StellarDensityTreeWalkQuartic tw("STELLAR_DENSITY", tree, priv, &output);
-                tw.do_hsml_loop(StarQueue, NumQueue, true, PartManager->Base, MPI_COMM_WORLD);
+                tw.do_hsml_loop(StarQueue, NumQueue, PartManager->Base, MPI_COMM_WORLD);
                 tw.print_stats("/SPH/Metals/Density", MPI_COMM_WORLD);
             }
             break;
         default: //DENSITY_KERNEL_QUINTIC_SPLINE
             StellarDensityTreeWalkQuintic tw("STELLAR_DENSITY", tree, priv, &output);
-            tw.do_hsml_loop(StarQueue, NumQueue, true, PartManager->Base, MPI_COMM_WORLD);
+            tw.do_hsml_loop(StarQueue, NumQueue, PartManager->Base, MPI_COMM_WORLD);
             tw.print_stats("/SPH/Metals/Density", MPI_COMM_WORLD);
     }
     myfree(StarQueue);

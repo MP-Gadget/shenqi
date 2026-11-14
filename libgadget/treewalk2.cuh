@@ -33,11 +33,10 @@ template <typename QueryType, typename LocalTopTreeWalkType, typename ParamType>
 __global__ void count_toptree_exports(
     // The memory here should be allocated cudaManagedMalloc
     particle_data * const parts,
-    const NODE * const Nodes,
+    const typename LocalTopTreeWalkType::node_type * const Nodes,
     const topleaf_data * const TopLeaves,
+    const int * const TopLeafNodes,
     const int NTopLeaves,
-    const int firstnode,
-    const int lastnode,
     const int * const WorkSet,
     const int64_t WorkSetSize,
     // by reference so the destructor does not run,
@@ -49,10 +48,10 @@ __global__ void count_toptree_exports(
     if (tid >= WorkSetSize)
         return;
 
-    LocalTopTreeWalkType lv(Nodes, TopLeaves, NTopLeaves, lastnode);
+    LocalTopTreeWalkType lv(Nodes, TopLeaves, TopLeafNodes, NTopLeaves);
     const int i = WorkSet ? WorkSet[tid] : tid;
     /* Toptree never uses node list */
-    QueryType input(parts[i], NULL, firstnode, *priv);
+    QueryType input(parts[i], NULL, *priv);
     const int rt = lv.template toptree_visit<TOPTREE_COUNT>(i, input, *priv, NULL, 0);
     exportcounts[tid] = rt;
 }
@@ -62,11 +61,10 @@ __global__
 void do_toptree_exports(
     // The memory here should be allocated cudaManagedMalloc
     particle_data * const parts,
-    const NODE * const Nodes,
+    const typename LocalTopTreeWalkType::node_type * const Nodes,
     const topleaf_data * const TopLeaves,
+    const int * const TopLeafNodes,
     const int NTopLeaves,
-    const int firstnode,
-    const int lastnode,
     const int WorkSetStart,
     const int * const WorkSet,
     const int64_t WorkSetSize,
@@ -82,7 +80,7 @@ void do_toptree_exports(
     if (tid >= WorkSetSize)
         return;
 
-    LocalTopTreeWalkType lv(Nodes, TopLeaves, NTopLeaves, lastnode);
+    LocalTopTreeWalkType lv(Nodes, TopLeaves, TopLeafNodes, NTopLeaves);
 
     int64_t nexport = exportcounts[tid] - exportoffset;
     data_index * currentexport = ExportTable;
@@ -95,7 +93,7 @@ void do_toptree_exports(
         return;
     const int i = WorkSet ? WorkSet[tid+WorkSetStart] : tid + WorkSetStart;
     /* Toptree never uses node list */
-    QueryType input(parts[i], NULL, firstnode, *priv);
+    QueryType input(parts[i], NULL, *priv);
     /* This will save exports to the memory in ExportTable[exportoffsets[tid-1]].
      * We ignore return as it is the same as exportcounts. BunchSize is large as we arranged never to overflow.*/
     lv.template toptree_visit<TOPTREE_EXPORT>(i, input, *priv, currentexport, nexport);
@@ -106,8 +104,7 @@ __global__
 void treewalk_primary_kernel(
     // The memory here should be allocated cudaManagedMalloc
     particle_data * const parts,
-    const NODE * const Nodes,
-    const int firstnode,
+    const typename LocalTreeWalkType::node_type * const Nodes,
     const int * const WorkSet,
     const int64_t WorkSetSize,
     // by reference so the destructor does not run,
@@ -123,7 +120,7 @@ void treewalk_primary_kernel(
         return;
 
     const int64_t i = WorkSet ? (int64_t) WorkSet[tid] : tid;
-    QueryType input(parts[i], NULL, firstnode, *priv);
+    QueryType input(parts[i], NULL, *priv);
     ResultType result(input);
     LocalTreeWalkType lv(Nodes, input);
     unsigned int ninteractions = lv.template visit<TREEWALK_PRIMARY>(input, &result, *priv, parts);
@@ -138,7 +135,7 @@ __global__
 void treewalk_secondary_kernel(
     // The memory here should be allocated cudaManagedMalloc
     particle_data * const parts,
-    const NODE * const Nodes,
+    const typename LocalTreeWalkType::node_type * const Nodes,
     ResultType * results,
     QueryType * imports,
     const int64_t WorkSetSize,
@@ -172,8 +169,8 @@ void treewalk_postprocess_kernel(
     output->postprocess(p_i, parts, priv);
 }
 
-template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType>
-class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType>
+template <typename DerivedType, typename QueryType, typename ResultType, typename LocalTreeWalkType, typename LocalTopTreeWalkType, typename ParamType, typename OutputType, typename ForceTreeType>
+class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType, ForceTreeType>
 {
     private:
     unsigned int * d_maxNinteractions = nullptr;
@@ -188,7 +185,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
     }
 
     public:
-    using Base = TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType>;
+    using Base = TreeWalk<DerivedType, QueryType, ResultType, LocalTreeWalkType, LocalTopTreeWalkType, ParamType, OutputType, ForceTreeType>;
     using Base::TreeWalk;
     using Base::maxNinteractions;
     using Base::minNinteractions;
@@ -258,7 +255,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
          * TODO Avoid counting exports we haven't sent yet multiple times, save exportcounts.
          */
         count_toptree_exports<QueryType, LocalTopTreeWalkType, ParamType>
-        <<<blocks, threadsPerBlock>>>(parts, tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->firstnode, tree->lastnode, WorkSet, WorkSetSize, &priv, exportcounts);
+        <<<blocks, threadsPerBlock>>>(parts, tree->get_nodes(), tree->get_topleaves(), tree->get_topleaf_nodes(), tree->get_ntopleaves(), WorkSet, WorkSetSize, &priv, exportcounts);
 
         /*  inclusive_scan is a partial sum:
          * it counts the total number of particle exports before and including the current point, so we know which
@@ -320,7 +317,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         /* Now we run toptree_visit again with the export offsets to make the export table.
          * Likely most particles have zero exports, so this will be somewhat faster than the first run. */
         do_toptree_exports<QueryType, LocalTopTreeWalkType, ParamType>
-         <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, tree->TopLeaves, tree->NTopLeaves, tree->firstnode, tree->lastnode,
+         <<<blocks, threadsPerBlock>>>(particles, tree->get_nodes(), tree->get_topleaves(), tree->get_topleaf_nodes(), tree->get_ntopleaves(),
              WorkSetStart, WorkSet, curSize, &priv, exportcounts, exportoffset, exportlist->ExportTable);
 
         cudaError_t status = cudaDeviceSynchronize();
@@ -347,7 +344,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
          * WorkSet, counters (device)
          * priv and output should be heap-allocated as placement-new pointers in managed memory */
         treewalk_primary_kernel<QueryType, ResultType, LocalTreeWalkType, ParamType, OutputType>
-        <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, tree->firstnode, WorkSet, WorkSetSize, &priv, output, d_maxNinteractions, d_minNinteractions);
+        <<<blocks, threadsPerBlock>>>(particles, tree->get_nodes(), WorkSet, WorkSetSize, &priv, output, d_maxNinteractions, d_minNinteractions);
         cudaError_t status = cudaDeviceSynchronize();
         if (status != cudaSuccess)
             endrun(5, "ev_primary kernel failed: %s\n", cudaGetErrorString(status));
@@ -373,7 +370,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         /* All arrays need to be managed malloc or device:
          * priv and output should be heap-allocated as placement-new pointers in managed memory */
         treewalk_secondary_kernel<QueryType, ResultType, LocalTreeWalkType, ParamType, OutputType>
-        <<<blocks, threadsPerBlock>>>(particles, tree->Nodes, results, imports, WorkSetSize, &priv);
+        <<<blocks, threadsPerBlock>>>(particles, tree->get_nodes(), results, imports, WorkSetSize, &priv);
         cudaError_t status = cudaDeviceSynchronize();
         if (status != cudaSuccess)
             endrun(5, "ev_secondary kernel failed: %s\n", cudaGetErrorString(status));

@@ -292,11 +292,8 @@ void
 grav_short_tree_build_tree(const ActiveParticles * subact, PetaPM * pm, DomainDecomp * ddecomp, MyFloat (* AccelStore)[3], inttime_t Ti_Current, const double rho0, int HybridNuGrav, const std::string EmergencyOutputDir, bool UseGPU)
 {
     /* Tree with only particle timesteps below this value*/
-    ForceTree Tree = {0};
-    /* No Father array here*/
-    force_tree_active_moments(&Tree, ddecomp, subact, HybridNuGrav, 0, EmergencyOutputDir);
+    ForceTreeMoments Tree(*PartManager, ddecomp, subact, HybridNuGrav, EmergencyOutputDir);
     grav_short_tree(subact, pm, &Tree, AccelStore, rho0, Ti_Current, UseGPU);
-    force_tree_free(&Tree);
 }
 
 

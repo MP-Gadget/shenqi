@@ -87,8 +87,8 @@ class BHDynFricQuery : public TreeWalkQueryBase<BHDynFricPriv>
     public:
     MyFloat Hsml;
 
-    MYCUDAFN BHDynFricQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const BHDynFricPriv& priv):
-    TreeWalkQueryBase<BHDynFricPriv>(particle, i_NodeList, firstnode, priv), Hsml(particle.Hsml) {}
+    MYCUDAFN BHDynFricQuery(const particle_data& particle, const int * const i_NodeList, const BHDynFricPriv& priv):
+    TreeWalkQueryBase<BHDynFricPriv>(particle, i_NodeList, priv), Hsml(particle.Hsml) {}
 };
 
 class BHReposResult : public TreeWalkResultBase<BHDynFricQuery, BHDynFricOutput> {
@@ -142,13 +142,13 @@ class BHDynFricResult : public BHReposResult {
 
 /* We want all particles here*/
 template <typename DensityKernel>
-class BHReposLocalTreeWalk: public LocalNgbTreeWalk<BHReposLocalTreeWalk<DensityKernel>, BHDynFricQuery, BHReposResult, BHDynFricPriv, NGB_TREEFIND_ASYMMETRIC, ALLMASK>
+class BHReposLocalTreeWalk: public LocalNgbTreeWalk<BHReposLocalTreeWalk<DensityKernel>, BHDynFricQuery, BHReposResult, BHDynFricPriv, BaseNode, NGB_TREEFIND_ASYMMETRIC, ALLMASK>
 {
     public:
     DensityKernel dynfric_kernel;
 
-    MYCUDAFN BHReposLocalTreeWalk(const NODE * const Nodes, const BHDynFricQuery& input):
-    LocalNgbTreeWalk<BHReposLocalTreeWalk<DensityKernel>, BHDynFricQuery, BHReposResult, BHDynFricPriv, NGB_TREEFIND_ASYMMETRIC, ALLMASK>(Nodes, input), dynfric_kernel(input.Hsml)
+    MYCUDAFN BHReposLocalTreeWalk(const BaseNode * const Nodes, const BHDynFricQuery& input):
+    LocalNgbTreeWalk<BHReposLocalTreeWalk<DensityKernel>, BHDynFricQuery, BHReposResult, BHDynFricPriv, BaseNode, NGB_TREEFIND_ASYMMETRIC, ALLMASK>(Nodes, input), dynfric_kernel(input.Hsml)
     { }
 
     /*! This function is the 'core' of the SPH force computation. A target
@@ -175,13 +175,13 @@ class BHReposLocalTreeWalk: public LocalNgbTreeWalk<BHReposLocalTreeWalk<Density
 };
 
 template <typename DensityKernel, int treemask>
-class BHDynFricLocalTreeWalk: public LocalNgbTreeWalk<BHDynFricLocalTreeWalk<DensityKernel, treemask>, BHDynFricQuery, BHDynFricResult, BHDynFricPriv, NGB_TREEFIND_ASYMMETRIC, treemask>
+class BHDynFricLocalTreeWalk: public LocalNgbTreeWalk<BHDynFricLocalTreeWalk<DensityKernel, treemask>, BHDynFricQuery, BHDynFricResult, BHDynFricPriv, BaseNode, NGB_TREEFIND_ASYMMETRIC, treemask>
 {
     public:
     DensityKernel dynfric_kernel;
 
-    MYCUDAFN BHDynFricLocalTreeWalk(const NODE * const Nodes, const BHDynFricQuery& input):
-    LocalNgbTreeWalk<BHDynFricLocalTreeWalk<DensityKernel, treemask>, BHDynFricQuery, BHDynFricResult, BHDynFricPriv, NGB_TREEFIND_ASYMMETRIC, treemask>(Nodes, input), dynfric_kernel(input.Hsml)
+    MYCUDAFN BHDynFricLocalTreeWalk(const BaseNode * const Nodes, const BHDynFricQuery& input):
+    LocalNgbTreeWalk<BHDynFricLocalTreeWalk<DensityKernel, treemask>, BHDynFricQuery, BHDynFricResult, BHDynFricPriv, BaseNode, NGB_TREEFIND_ASYMMETRIC, treemask>(Nodes, input), dynfric_kernel(input.Hsml)
     { }
 
     /*! This function is the 'core' of the SPH force computation. A target
@@ -224,19 +224,19 @@ class BHDynFricLocalTreeWalk: public LocalNgbTreeWalk<BHDynFricLocalTreeWalk<Den
     }
 };
 
-class BHDynFricTopTreeWalk: public TopTreeWalk<BHDynFricQuery, BHDynFricPriv, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
+class BHDynFricTopTreeWalk: public TopTreeWalk<BHDynFricQuery, BHDynFricPriv, BaseNode, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
-class BHReposTreeWalkCubic: public TreeWalk<BHReposTreeWalkCubic, BHDynFricQuery, BHReposResult, BHReposLocalTreeWalk<CubicDensityKernel>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput> {
+class BHReposTreeWalkCubic: public TreeWalk<BHReposTreeWalkCubic, BHDynFricQuery, BHReposResult, BHReposLocalTreeWalk<CubicDensityKernel>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput, ForceTreeSimple> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class BHReposTreeWalkQuartic: public TreeWalk<BHReposTreeWalkQuartic, BHDynFricQuery, BHReposResult, BHReposLocalTreeWalk<QuarticDensityKernel>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput> {
+class BHReposTreeWalkQuartic: public TreeWalk<BHReposTreeWalkQuartic, BHDynFricQuery, BHReposResult, BHReposLocalTreeWalk<QuarticDensityKernel>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput, ForceTreeSimple> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class BHReposTreeWalkQuintic: public TreeWalk<BHReposTreeWalkQuintic, BHDynFricQuery, BHReposResult, BHReposLocalTreeWalk<QuinticDensityKernel>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput> {
+class BHReposTreeWalkQuintic: public TreeWalk<BHReposTreeWalkQuintic, BHDynFricQuery, BHReposResult, BHReposLocalTreeWalk<QuinticDensityKernel>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput, ForceTreeSimple> {
     public:
     using TreeWalk::TreeWalk;
 };
@@ -263,32 +263,32 @@ blackhole_dynfric_treemask(void)
  *  if(blackhole_dynfric_params.BH_DynFrictionMethod > 1)
     treemask += DMMASK;
 */
-class BHDynFricTreeWalkCubic: public TreeWalk<BHDynFricTreeWalkCubic, BHDynFricQuery, BHDynFricResult, BHDynFricLocalTreeWalk<CubicDensityKernel, STARMASK + BHMASK>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput> {
+class BHDynFricTreeWalkCubic: public TreeWalk<BHDynFricTreeWalkCubic, BHDynFricQuery, BHDynFricResult, BHDynFricLocalTreeWalk<CubicDensityKernel, STARMASK + BHMASK>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput, ForceTreeSimple> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class BHDynFricTreeWalkCubicDM: public TreeWalk<BHDynFricTreeWalkCubicDM, BHDynFricQuery, BHDynFricResult, BHDynFricLocalTreeWalk<CubicDensityKernel, STARMASK + BHMASK + DMMASK>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput> {
+class BHDynFricTreeWalkCubicDM: public TreeWalk<BHDynFricTreeWalkCubicDM, BHDynFricQuery, BHDynFricResult, BHDynFricLocalTreeWalk<CubicDensityKernel, STARMASK + BHMASK + DMMASK>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput, ForceTreeSimple> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class BHDynFricTreeWalkQuartic: public TreeWalk<BHDynFricTreeWalkQuartic, BHDynFricQuery, BHDynFricResult, BHDynFricLocalTreeWalk<QuarticDensityKernel, STARMASK + BHMASK>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput> {
+class BHDynFricTreeWalkQuartic: public TreeWalk<BHDynFricTreeWalkQuartic, BHDynFricQuery, BHDynFricResult, BHDynFricLocalTreeWalk<QuarticDensityKernel, STARMASK + BHMASK>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput, ForceTreeSimple> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class BHDynFricTreeWalkQuarticDM: public TreeWalk<BHDynFricTreeWalkQuarticDM, BHDynFricQuery, BHDynFricResult, BHDynFricLocalTreeWalk<QuarticDensityKernel, STARMASK + BHMASK + DMMASK>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput> {
+class BHDynFricTreeWalkQuarticDM: public TreeWalk<BHDynFricTreeWalkQuarticDM, BHDynFricQuery, BHDynFricResult, BHDynFricLocalTreeWalk<QuarticDensityKernel, STARMASK + BHMASK + DMMASK>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput, ForceTreeSimple> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class BHDynFricTreeWalkQuintic: public TreeWalk<BHDynFricTreeWalkQuintic, BHDynFricQuery, BHDynFricResult, BHDynFricLocalTreeWalk<QuinticDensityKernel, STARMASK + BHMASK>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput> {
+class BHDynFricTreeWalkQuintic: public TreeWalk<BHDynFricTreeWalkQuintic, BHDynFricQuery, BHDynFricResult, BHDynFricLocalTreeWalk<QuinticDensityKernel, STARMASK + BHMASK>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput, ForceTreeSimple> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class BHDynFricTreeWalkQuinticDM: public TreeWalk<BHDynFricTreeWalkQuinticDM, BHDynFricQuery, BHDynFricResult, BHDynFricLocalTreeWalk<QuinticDensityKernel, STARMASK + BHMASK + DMMASK>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput> {
+class BHDynFricTreeWalkQuinticDM: public TreeWalk<BHDynFricTreeWalkQuinticDM, BHDynFricQuery, BHDynFricResult, BHDynFricLocalTreeWalk<QuinticDensityKernel, STARMASK + BHMASK + DMMASK>, BHDynFricTopTreeWalk, BHDynFricPriv, BHDynFricOutput, ForceTreeSimple> {
     public:
     using TreeWalk::TreeWalk;
 };
@@ -314,9 +314,7 @@ void
 blackhole_minpot(int * ActiveBlackHoles, const int64_t NumActiveBlackHoles, DomainDecomp * ddecomp, BHDynFricPriv& priv, MPI_Comm comm)
 {
     /* Repositioning uses all particles: in practice it will usually be stars, gas or BH.*/
-    ForceTree tree[1] = {0};
-    message(0, "Building tree with all particles for repositioning\n");
-    force_tree_rebuild_mask(tree, ddecomp, ALLMASK, "");
+    ForceTreeSimple tree(*PartManager, ddecomp, ALLMASK, "");
     walltime_measure("/BH/BuildRepos");
 
     blackhole_init_potential(ActiveBlackHoles, NumActiveBlackHoles, Part);
@@ -326,21 +324,20 @@ blackhole_minpot(int * ActiveBlackHoles, const int64_t NumActiveBlackHoles, Doma
     switch(GetDensityKernelType()) {
         case DENSITY_KERNEL_CUBIC_SPLINE:
             {
-                BHReposTreeWalkCubic tw("BH_REPOS", tree, priv, &output);
+                BHReposTreeWalkCubic tw("BH_REPOS", &tree, priv, &output);
                 tw.run(ActiveBlackHoles, NumActiveBlackHoles, PartManager->Base, comm);
             }
             break;
         case DENSITY_KERNEL_QUARTIC_SPLINE:
             {
-                BHReposTreeWalkQuartic tw("BH_REPOS", tree, priv, &output);
+                BHReposTreeWalkQuartic tw("BH_REPOS", &tree, priv, &output);
                 tw.run(ActiveBlackHoles, NumActiveBlackHoles, PartManager->Base, comm);
             }
             break;
         default: //DENSITY_KERNEL_QUINTIC_SPLINE
-            BHReposTreeWalkQuintic tw("BH_REPOS", tree, priv, &output);
+            BHReposTreeWalkQuintic tw("BH_REPOS", &tree, priv, &output);
             tw.run(ActiveBlackHoles, NumActiveBlackHoles, PartManager->Base, comm);
     }
-    force_tree_free(tree);
     walltime_measure("/BH/Repos");
 }
 
@@ -400,11 +397,10 @@ blackhole_dynfric(int * ActiveBlackHoles, int64_t NumActiveBlackHoles, DomainDec
 
     /* dynamical friction uses: stars, DM if BH_DynFrictionMethod > 1 gas if BH_DynFrictionMethod  == 3.
      * The DM in dynamic friction and accretion doesn't really do anything, so could perhaps be removed from the treebuild later.*/
-    ForceTree tree[1] = {0};
+
     int treemask = blackhole_dynfric_treemask();
     message(0, "Building dynamic friction tree with types %d\n", treemask);
-
-    force_tree_rebuild_mask(tree, ddecomp, treemask, "");
+    ForceTreeSimple tree(*PartManager, ddecomp, treemask, "");
     walltime_measure("/BH/BuildDF");
 
     BHDynFricOutput output(blackhole_dynfric_params.BlackHoleRepositionEnabled, SlotsManager);
@@ -413,11 +409,11 @@ blackhole_dynfric(int * ActiveBlackHoles, int64_t NumActiveBlackHoles, DomainDec
         case DENSITY_KERNEL_CUBIC_SPLINE:
             {
                 if(blackhole_dynfric_params.BH_DynFrictionMethod > 1) {
-                    BHDynFricTreeWalkCubicDM tw("BH_DYNFRIC_DM", tree, priv, &output);
+                    BHDynFricTreeWalkCubicDM tw("BH_DYNFRIC_DM", &tree, priv, &output);
                     tw.run_on_queue(DynFricActive, ndynfricactive, PartManager->Base, comm);
                 }
                 else {
-                    BHDynFricTreeWalkCubic tw("BH_DYNFRIC", tree, priv, &output);
+                    BHDynFricTreeWalkCubic tw("BH_DYNFRIC", &tree, priv, &output);
                     tw.run_on_queue(DynFricActive, ndynfricactive, PartManager->Base, comm);
                 }
             }
@@ -425,26 +421,25 @@ blackhole_dynfric(int * ActiveBlackHoles, int64_t NumActiveBlackHoles, DomainDec
         case DENSITY_KERNEL_QUARTIC_SPLINE:
             {
                 if(blackhole_dynfric_params.BH_DynFrictionMethod > 1) {
-                    BHDynFricTreeWalkQuarticDM tw("BH_DYNFRIC_DM", tree, priv, &output);
+                    BHDynFricTreeWalkQuarticDM tw("BH_DYNFRIC_DM", &tree, priv, &output);
                     tw.run_on_queue(DynFricActive, ndynfricactive, PartManager->Base, comm);
                 }
                 else {
-                    BHDynFricTreeWalkQuartic tw("BH_DYNFRIC", tree, priv, &output);
+                    BHDynFricTreeWalkQuartic tw("BH_DYNFRIC", &tree, priv, &output);
                     tw.run_on_queue(DynFricActive, ndynfricactive, PartManager->Base, comm);
                 }
             }
             break;
         default: //DENSITY_KERNEL_QUINTIC_SPLINE
             if(blackhole_dynfric_params.BH_DynFrictionMethod > 1) {
-                BHDynFricTreeWalkQuinticDM tw("BH_DYNFRIC_DM", tree, priv, &output);
+                BHDynFricTreeWalkQuinticDM tw("BH_DYNFRIC_DM", &tree, priv, &output);
                 tw.run_on_queue(DynFricActive, ndynfricactive, PartManager->Base, comm);
             }
             else {
-                BHDynFricTreeWalkQuintic tw("BH_DYNFRIC", tree, priv, &output);
+                BHDynFricTreeWalkQuintic tw("BH_DYNFRIC", &tree, priv, &output);
                 tw.run_on_queue(DynFricActive, ndynfricactive, PartManager->Base, comm);
             }
     }
-    force_tree_free(tree);
     myfree(DynFricActive);
 
     size_t totalzerodf;

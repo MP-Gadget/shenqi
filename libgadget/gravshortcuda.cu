@@ -10,7 +10,7 @@
 
 #include "treewalk2.cuh"
 
-class GravTreeWalkGPU : public TreeWalkGPU <GravTreeWalkGPU, GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreeParams, GravTreeOutput> {
+class GravTreeWalkGPU : public TreeWalkGPU <GravTreeWalkGPU, GravTreeQuery, GravTreeResult, GravLocalTreeWalk, GravTopTreeWalk, GravTreeParams, GravTreeOutput, ForceTreeMoments> {
     public:
     using TreeWalkGPU::TreeWalkGPU;
 };
@@ -18,7 +18,7 @@ class GravTreeWalkGPU : public TreeWalkGPU <GravTreeWalkGPU, GravTreeQuery, Grav
 /*! CUDA treewalk.
  */
 void
-grav_short_tree_cuda(const ActiveParticles * act, ForceTree * tree, GravTreeParams * priv, GravTreeOutput * output, particle_data * const parts, const size_t MaxExportBufferBytes, MPI_Comm comm)
+grav_short_tree_cuda(const ActiveParticles * act, ForceTreeMoments * tree, GravTreeParams * priv, GravTreeOutput * output, particle_data * const parts, const size_t MaxExportBufferBytes, MPI_Comm comm)
 {
         GravTreeWalkGPU tw("GRAVTREE", tree, *priv, output);
         tw.MaxExportBufferBytes = MaxExportBufferBytes;
