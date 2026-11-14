@@ -10,7 +10,7 @@
 #include "physconst.h"
 #include "walltime.h"
 #include "slotsmanager.h"
-#include "treewalk.h"
+#include "treewalk2.h"
 #include "metal_return.h"
 #include "densitykernel.h"
 #include "density.h"
@@ -90,32 +90,6 @@ void setup_metal_table_interp(struct interps * interp)
         interp->snii_metals_interp[i] = {snii_metallicities, SNII_NMET, snii_masses,    SNII_NMASS,  snii_yield[i]};
 }
 
-#define METALS_GET_PRIV(tw) ((struct MetalReturnPriv*) ((tw)->priv))
-
-typedef struct {
-    TreeWalkQueryBase base;
-    MyFloat Metallicity;
-    MyFloat Mass;
-    MyFloat Hsml;
-    MyFloat StarVolumeSPH;
-    /* This is the metal/mass generated this timestep.*/
-    MyFloat MetalSpeciesGenerated[NMETALS];
-    MyFloat MassGenerated;
-    MyFloat MetalGenerated;
-} TreeWalkQueryMetals;
-
-typedef struct {
-    TreeWalkResultBase base;
-    /* This is the total mass returned to
-     * the surrounding gas particles, for mass conservation.*/
-    MyFloat MassReturn;
-} TreeWalkResultMetals;
-
-typedef struct {
-    TreeWalkNgbIterBase base;
-    DensityKernel kernel;
-} TreeWalkNgbIterMetals;
-
 /* Find stars returning enough metals to the gas.
  * This is a wrapper function to allow for
  * different private structs in different treewalks*/
@@ -130,29 +104,6 @@ metals_haswork(int i, MyFloat * MassReturn)
         return 0;
     return 1;
 }
-
-static int
-metal_return_haswork(int i, TreeWalk * tw)
-{
-    return metals_haswork(i, METALS_GET_PRIV(tw)->MassReturn);
-}
-
-static void
-metal_return_ngbiter(
-    TreeWalkQueryMetals * I,
-    TreeWalkResultMetals * O,
-    TreeWalkNgbIterMetals * iter,
-    LocalTreeWalk * lv
-   );
-
-static void
-metal_return_copy(int place, TreeWalkQueryMetals * input, TreeWalk * tw);
-
-static void
-metal_return_postprocess(int place, TreeWalk * tw);
-
-static void
-metal_return_reduce(const int place, TreeWalkResultMetals * remote, const enum TreeWalkReduceMode mode, TreeWalk * tw);
 
 /* The Chabrier IMF used for computing SnII and AGB yields.
  * See 1305.2913 eq 3. Note he writes 'log' where he means 'log10'.*/
@@ -472,9 +423,249 @@ metal_return_priv_free(struct MetalReturnPriv * priv)
     myfree(priv->StellarAges);
 }
 
+/* Inputs to the metal return treewalk, which are not changed by it.*/
+class MetalsPriv : public ParamTypeBase {
+    public:
+    /* Contains the mass return, ages and stellar volumes found before the treewalk, indexed by the star slot.*/
+    struct MetalReturnPriv * metals;
+    const star_particle_data * StarParts;
+    int SPHWeighting;
+    enum DensityKernelType KernelType;
+
+    MetalsPriv(const double BoxSize, struct MetalReturnPriv * const i_metals, slots_manager_type * slotsmanager):
+        ParamTypeBase(BoxSize), metals(i_metals), StarParts(slotsmanager->star_slot()),
+        SPHWeighting(MetalParams.SPHWeighting), KernelType(GetDensityKernelType())
+    {}
+};
+
+class MetalsQuery : public TreeWalkQueryBase<MetalsPriv>
+{
+    public:
+    MyFloat Metallicity;
+    MyFloat Mass;
+    MyFloat Hsml;
+    MyFloat StarVolumeSPH;
+    /* This is the metal/mass generated this timestep.*/
+    MyFloat MetalSpeciesGenerated[NMETALS];
+    MyFloat MassGenerated;
+    MyFloat MetalGenerated;
+
+    /* This constructor is unusually important:
+     * it computes the total amount of metals to be returned in this timestep.*/
+    MetalsQuery(const particle_data& particle, const int * const i_NodeList, const MetalsPriv& priv):
+    TreeWalkQueryBase<MetalsPriv>(particle, i_NodeList, priv), Mass(particle.Mass), Hsml(particle.Hsml)
+    {
+        const int pi = particle.PI;
+        const star_particle_data& star = priv.StarParts[pi];
+        struct MetalReturnPriv * const metals = priv.metals;
+        Metallicity = star.Metallicity;
+        StarVolumeSPH = metals->StarVolumeSPH[pi];
+        const double InitialMass = particle.Mass + star.TotalMassReturned;
+        const double dtmyrend = metals->StellarAges[pi];
+        const double dtmyrstart = star.LastEnrichmentMyr;
+        /* This is the total mass returned from this stellar population this timestep. Note this is already in the desired units.*/
+        MassGenerated = metals->MassReturn[pi];
+        /* This returns the total amount of metal produced this timestep, and also fills out MetalSpeciesGenerated, which is an
+         * element by element table of the metal produced by dying stars this timestep.*/
+        const double total_z_yield = metal_yield(dtmyrstart, dtmyrend, Metallicity, metals->hub, &metals->interp, MetalSpeciesGenerated, metals->imf_norm, metals->LowDyingMass[pi], metals->HighDyingMass[pi]);
+        /* The total metal returned is the metal ejected into the ISM this timestep. total_z_yield is given as a fraction of the initial SSP.*/
+        MetalGenerated = InitialMass * total_z_yield;
+        /* It should be positive! If it is not, this is some integration error
+         * in the yield table as we cannot destroy metal which is not present.*/
+        if(MetalGenerated < 0)
+            MetalGenerated = 0;
+        /* Similarly for all the other metal species*/
+        for(int i = 0; i < NMETALS; i++) {
+            MetalSpeciesGenerated[i] *= InitialMass;
+            if(MetalSpeciesGenerated[i] < 0)
+                MetalSpeciesGenerated[i] = 0;
+        }
+    }
+};
+
+class MetalsOutput {
+    public:
+    /* The mass actually returned to the gas by each star, indexed by the star slot.
+     * This may be less than the MassReturn used to make the query, as gas particles which are too heavy are skipped.
+     * It is a separate array because the queries for exported stars may be made after the primary treewalk has reduced.*/
+    MyFloat * MassReturned;
+    star_particle_data * StarParts;
+    /* The rest is the storage on the rank doing the visiting: the gas particles
+     * which receive the metals, and a lock for each of them.*/
+    particle_data * Parts;
+    sph_particle_data * SphParts;
+    struct SpinLocks * spin;
+    /* Maximum of the new gas mass*/
+    double MaxGasMass;
+
+    MetalsOutput(const double i_MaxGasMass, particle_data * const i_Parts, slots_manager_type * slotsmanager):
+        StarParts(slotsmanager->star_slot()), Parts(i_Parts), SphParts(slotsmanager->sph_slot()), MaxGasMass(i_MaxGasMass)
+    {
+        MassReturned = mymalloc("MassReturned", MyFloat, slotsmanager->info[4].size);
+        spin = init_spinlocks(slotsmanager->info[0].size);
+    }
+
+    ~MetalsOutput()
+    {
+        free_spinlocks(spin);
+        myfree(MassReturned);
+    }
+
+    /* Update the mass and enrichment variables for the star.
+     * Note that the stellar metallicity is not updated, as the
+     * metal-forming stars are now dead and their metals in the gas.*/
+    void
+    postprocess(const int place, particle_data * const parts, const MetalsPriv * priv)
+    {
+        const int pi = parts[place].PI;
+        /* Conserve mass returned*/
+        parts[place].Mass -= MassReturned[pi];
+        StarParts[pi].TotalMassReturned += MassReturned[pi];
+        /* Update the last enrichment time*/
+        StarParts[pi].LastEnrichmentMyr = priv->metals->StellarAges[pi];
+    }
+};
+
+class MetalsResult : public TreeWalkResultBase<MetalsQuery, MetalsOutput> {
+    public:
+    /* This is the total mass returned to
+     * the surrounding gas particles, for mass conservation.*/
+    MyFloat MassReturn = 0;
+
+    MetalsResult(const MetalsQuery& query):
+        TreeWalkResultBase<MetalsQuery, MetalsOutput>(query) {}
+
+    /* Store the amount of mass actually returned.*/
+    template<TreeWalkReduceMode mode>
+    void reduce(int place, const MetalsOutput * output, struct particle_data * const parts)
+    {
+        TREEWALK_REDUCE(output->MassReturned[parts[place].PI], MassReturn);
+    }
+};
+
+/*! For all gas particles within the density radius of this star,
+ * add a fraction of the total mass and metals generated,
+ * weighted by the SPH kernel distance from the star.
+ * This changes the gas particles, which are on the rank doing the visiting.
+ */
+class MetalsLocalTreeWalk: public LocalNgbTreeWalk<MetalsLocalTreeWalk, MetalsQuery, MetalsResult, MetalsPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC, GASMASK>
+{
+    public:
+    DensityKernel kernel;
+    /* The gas particles on the rank doing the visiting. Several stars may enrich
+     * the same gas particle at once, so each gas particle is locked while it is changed.*/
+    MetalsOutput * const visited;
+
+    MetalsLocalTreeWalk(const HmaxNODE * const Nodes, const MetalsQuery& input, const enum DensityKernelType KernelType, MetalsOutput * const i_visited):
+    LocalNgbTreeWalk<MetalsLocalTreeWalk, MetalsQuery, MetalsResult, MetalsPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC, GASMASK>(Nodes, input),
+    visited(i_visited)
+    {
+        density_kernel_init(&kernel, input.Hsml, KernelType);
+    }
+
+    void ngbiter(MetalsQuery& input, const particle_data& const_particle, MetalsResult * output, const MetalsPriv& priv)
+    {
+        double dist[3];
+        const double r2 = this->get_distance(input, const_particle, priv.BoxSize, dist);
+
+        if(!(r2 > 0 && r2 < kernel.HH))
+            return;
+
+        double wk = 1;
+        const double u = sqrt(r2) * kernel.Hinv;
+
+        if(priv.SPHWeighting)
+            wk = density_kernel_wk(&kernel, u);
+        double ThisMetals[NMETALS];
+        if(input.StarVolumeSPH == 0)
+            endrun(3, "StarVolumeSPH %g hsml %g\n", input.StarVolumeSPH, input.Hsml);
+
+        /* The particle is in the particle table of this rank, and we will change it.*/
+        const int other = &const_particle - visited->Parts;
+        particle_data& particle = visited->Parts[other];
+        const int pi = particle.PI;
+        sph_particle_data& sph = visited->SphParts[pi];
+
+        lock_spinlock(pi, visited->spin);
+        /* Volume of particle weighted by the SPH kernel*/
+        const double volume = particle.Mass / sph.Density;
+        const double returnfraction = wk * volume / input.StarVolumeSPH;
+        const double thismass = returnfraction * input.MassGenerated;
+        /* Ensure that the gas particles don't become overweight.
+         * If there are few gas particles around, the star clusters
+         * will hold onto their metals.*/
+        if(particle.Mass + thismass > visited->MaxGasMass) {
+            unlock_spinlock(pi, visited->spin);
+            return;
+        }
+        /* Add metals weighted by SPH kernel*/
+        for(int i = 0; i < NMETALS; i++)
+            ThisMetals[i] = returnfraction * input.MetalSpeciesGenerated[i];
+        const double thismetal = returnfraction * input.MetalGenerated;
+        /* Add the metals to the particle.*/
+        for(int i = 0; i < NMETALS; i++)
+            sph.Metals[i] = (sph.Metals[i] * particle.Mass + ThisMetals[i])/(particle.Mass + thismass);
+        /* Update total metallicity*/
+        sph.Metallicity = (sph.Metallicity * particle.Mass + thismetal)/(particle.Mass + thismass);
+        /* Update mass*/
+        const double massfrac = (particle.Mass + thismass) / particle.Mass;
+        particle.Mass *= massfrac;
+        /* Density also needs a correction so the volume fraction is unchanged.
+         * This ensures that volume = Mass/Density is unchanged for the next particle
+         * and thus the weighting still sums to unity.*/
+        sph.Density *= massfrac;
+        /* Keep track of how much was returned for conservation purposes*/
+        output->MassReturn += thismass;
+        const double newmass = particle.Mass;
+        unlock_spinlock(pi, visited->spin);
+        if(newmass <= 0)
+            endrun(3, "New mass %g new metal %g in particle %d id %ld from star mass %g metallicity %g\n",
+                   newmass, sph.Metallicity, other, particle.ID, input.Mass, input.Metallicity);
+    }
+};
+
+class MetalsTopTreeWalk: public TopTreeWalk<MetalsQuery, MetalsPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
+
+class MetalsTreeWalk: public TreeWalk<MetalsTreeWalk, MetalsQuery, MetalsResult, MetalsLocalTreeWalk, MetalsTopTreeWalk, MetalsPriv, MetalsOutput, ForceTreeHmax> {
+    public:
+    using TreeWalk::TreeWalk;
+
+    /* Give each local walk the gas particles of the rank doing the visiting, which it changes.*/
+    MetalsLocalTreeWalk make_local_walk(const MetalsQuery& input)
+    {
+        return MetalsLocalTreeWalk(tree->get_nodes(), input, priv.KernelType, output);
+    }
+};
+
+/* Run the treewalk which returns the metals to the gas.*/
+static void
+metal_return_treewalk(const ActiveParticles * act, const ForceTreeHmax * const tree, struct MetalReturnPriv * metals, MPI_Comm comm)
+{
+    particle_data * const parts = PartManager->Base;
+    /* Find the stars returning enough metals to the gas. This depends on the
+     * mass return computed above, so cannot be done by the treewalk haswork.*/
+    const int64_t nactive = act->NumActiveParticle;
+    int * MetalStars = mymalloc("MetalStars", int, nactive + 1);
+    int64_t NumMetalStars = 0;
+    for(int64_t i = 0; i < nactive; i++) {
+        const int p_i = act->ActiveParticle ? act->ActiveParticle[i] : (int) i;
+        if(parts[p_i].IsGarbage || parts[p_i].Swallowed)
+            continue;
+        if(metals_haswork(p_i, metals->MassReturn))
+            MetalStars[NumMetalStars++] = p_i;
+    }
+    {
+        MetalsPriv priv(PartManager->BoxSize, metals, SlotsManager);
+        MetalsOutput output(metals->MaxGasMass, parts, SlotsManager);
+        MetalsTreeWalk tw("METALS", tree, priv, &output);
+        tw.run(MetalStars, NumMetalStars, parts, comm);
+    }
+    myfree(MetalStars);
+}
+
 /*! This function is the driver routine for the calculation of metal return. */
 void
-metal_return(const ActiveParticles * act, ForceTree * gasTree, ForceTreeHmax * gasTree2, Cosmology * CP, const double atime, const double AvgGasMass)
+metal_return(const ActiveParticles * act, const ForceTreeHmax * const gasTree, Cosmology * CP, const double atime, const double AvgGasMass)
 {
     /* Do nothing if no stars yet*/
     int64_t totstar;
@@ -502,166 +693,17 @@ metal_return(const ActiveParticles * act, ForceTree * gasTree, ForceTreeHmax * g
         return;
     }
 
-    if(!gasTree->tree_allocated_flag || !(gasTree->mask & GASMASK))
-        endrun(5, "metal_return called with bad tree allocated %d mask %d\n", gasTree->tree_allocated_flag, gasTree->mask);
+    if(!gasTree || !(gasTree->mask & GASMASK))
+        endrun(5, "metal_return called with bad tree: mask %d\n", gasTree ? gasTree->mask : 0);
 
     /* Compute total number of weights around each star for actively returning stars*/
-    stellar_density(act, priv->StarVolumeSPH, priv->MassReturn, gasTree2, MetalParams.SPHWeighting, MetalParams.MaxNgbDeviation);
+    stellar_density(act, priv->StarVolumeSPH, priv->MassReturn, gasTree, MetalParams.SPHWeighting, MetalParams.MaxNgbDeviation);
 
     /* Do the metal return*/
-    TreeWalk tw[1] = {{0}};
-
-    tw->ev_label = "METALS";
-    tw->visit = (TreeWalkVisitFunction) treewalk_visit_ngbiter;
-    tw->ngbiter = (TreeWalkNgbIterFunction) metal_return_ngbiter;
-    tw->ngbiter_type_elsize = sizeof(TreeWalkNgbIterMetals);
-    tw->haswork = metal_return_haswork;
-    tw->fill = (TreeWalkFillQueryFunction) metal_return_copy;
-    tw->reduce = (TreeWalkReduceResultFunction) metal_return_reduce;
-    tw->postprocess = (TreeWalkProcessFunction) metal_return_postprocess;
-    tw->query_type_elsize = sizeof(TreeWalkQueryMetals);
-    tw->result_type_elsize = sizeof(TreeWalkResultMetals);
-    tw->tree = gasTree;
-    tw->priv = priv;
-
-    priv->spin = init_spinlocks(SlotsManager->info[0].size);
-    treewalk_run(tw, act->ActiveParticle, act->NumActiveParticle);
-    free_spinlocks(priv->spin);
+    metal_return_treewalk(act, gasTree, priv, MPI_COMM_WORLD);
 
     metal_return_priv_free(priv);
 
     /* collect some timing information */
     walltime_measure("/SPH/Metals/Yield");
-}
-
-/* This function is unusually important:
- * it computes the total amount of metals to be returned in this timestep.*/
-static void
-metal_return_copy(int place, TreeWalkQueryMetals * input, TreeWalk * tw)
-{
-    input->Metallicity = STARP(place).Metallicity;
-    input->Mass = Part[place].Mass;
-    input->Hsml = Part[place].Hsml;
-    int pi = Part[place].PI;
-    input->StarVolumeSPH = METALS_GET_PRIV(tw)->StarVolumeSPH[pi];
-    double InitialMass = Part[place].Mass + STARP(place).TotalMassReturned;
-    double dtmyrend = METALS_GET_PRIV(tw)->StellarAges[pi];
-    double dtmyrstart = STARP(place).LastEnrichmentMyr;
-    /* This is the total mass returned from this stellar population this timestep. Note this is already in the desired units.*/
-    input->MassGenerated = METALS_GET_PRIV(tw)->MassReturn[pi];
-    /* This returns the total amount of metal produced this timestep, and also fills out MetalSpeciesGenerated, which is an
-     * element by element table of the metal produced by dying stars this timestep.*/
-    double total_z_yield = metal_yield(dtmyrstart, dtmyrend, input->Metallicity, METALS_GET_PRIV(tw)->hub, &METALS_GET_PRIV(tw)->interp, input->MetalSpeciesGenerated, METALS_GET_PRIV(tw)->imf_norm, METALS_GET_PRIV(tw)->LowDyingMass[pi], METALS_GET_PRIV(tw)->HighDyingMass[pi]);
-    /* The total metal returned is the metal ejected into the ISM this timestep. total_z_yield is given as a fraction of the initial SSP.*/
-    input->MetalGenerated = InitialMass * total_z_yield;
-    //message(3, "Particle %d PI %d z %g massgen %g metallicity %g\n", pi, Part[pi].PI, total_z_yield, METALS_GET_PRIV(tw)->MassReturn[pi], STARP(place).Metallicity);
-    /* It should be positive! If it is not, this is some integration error
-     * in the yield table as we cannot destroy metal which is not present.*/
-    if(input->MetalGenerated < 0)
-        input->MetalGenerated = 0;
-    /* Similarly for all the other metal species*/
-    int i;
-    for(i = 0; i < NMETALS; i++) {
-        input->MetalSpeciesGenerated[i] *= InitialMass;
-        if(input->MetalSpeciesGenerated[i] < 0)
-            input->MetalSpeciesGenerated[i] = 0;
-    }
-}
-
-/* Update the mass return variable to contain the amount of mass actually returned.*/
-static void
-metal_return_reduce(int place, TreeWalkResultMetals * remote, enum TreeWalkReduceMode mode, TreeWalk * tw)
-{
-    TREEWALK_REDUCE(METALS_GET_PRIV(tw)->MassReturn[Part[place].PI], remote->MassReturn);
-}
-
-/* Update the mass and enrichment variables for the star.
- * Note that the stellar metallicity is not updated, as the
- * metal-forming stars are now dead and their metals in the gas.*/
-static void
-metal_return_postprocess(int place, TreeWalk * tw)
-{
-    /* Conserve mass returned*/
-    Part[place].Mass -= METALS_GET_PRIV(tw)->MassReturn[Part[place].PI];
-    STARP(place).TotalMassReturned += METALS_GET_PRIV(tw)->MassReturn[Part[place].PI];
-    /* Update the last enrichment time*/
-    STARP(place).LastEnrichmentMyr = METALS_GET_PRIV(tw)->StellarAges[Part[place].PI];
-}
-
-/*! For all gas particles within the density radius of this star,
- * add a fraction of the total mass and metals generated,
- * weighted by the SPH kernel distance from the star.
- */
-static void
-metal_return_ngbiter(
-    TreeWalkQueryMetals * I,
-    TreeWalkResultMetals * O,
-    TreeWalkNgbIterMetals * iter,
-    LocalTreeWalk * lv
-   )
-{
-    if(iter->base.other == -1) {
-        /* Only return metals to gas*/
-        iter->base.mask = GASMASK;
-        iter->base.Hsml = I->Hsml;
-        iter->base.symmetric = NGB_TREEFIND_ASYMMETRIC;
-        /* Initialise the mass lost by this star in this timestep*/
-        O->MassReturn = 0;
-        density_kernel_init(&iter->kernel, I->Hsml, GetDensityKernelType());
-        return;
-    }
-
-    const int other = iter->base.other;
-    const double r2 = iter->base.r2;
-    const double r = iter->base.r;
-
-    if(r2 > 0 && r2 < iter->kernel.HH)
-    {
-        double wk = 1;
-        const double u = r * iter->kernel.Hinv;
-
-        if(MetalParams.SPHWeighting)
-            wk = density_kernel_wk(&iter->kernel, u);
-        double ThisMetals[NMETALS];
-        if(I->StarVolumeSPH ==0)
-            endrun(3, "StarVolumeSPH %g hsml %g\n", I->StarVolumeSPH, I->Hsml);
-        double newmass;
-        int pi = Part[other].PI;
-        lock_spinlock(pi, METALS_GET_PRIV(lv->tw)->spin);
-        /* Volume of particle weighted by the SPH kernel*/
-        double volume = Part[other].Mass / SPHP(other).Density;
-        double returnfraction = wk * volume / I->StarVolumeSPH;
-        double thismass = returnfraction * I->MassGenerated;
-        /* Ensure that the gas particles don't become overweight.
-         * If there are few gas particles around, the star clusters
-         * will hold onto their metals.*/
-        if(Part[other].Mass + thismass > METALS_GET_PRIV(lv->tw)->MaxGasMass) {
-            unlock_spinlock(pi, METALS_GET_PRIV(lv->tw)->spin);
-            return;
-        }
-        /* Add metals weighted by SPH kernel*/
-        int i;
-        for(i = 0; i < NMETALS; i++)
-            ThisMetals[i] = returnfraction * I->MetalSpeciesGenerated[i];
-        double thismetal = returnfraction * I->MetalGenerated;
-        /* Add the metals to the particle.*/
-        for(i = 0; i < NMETALS; i++)
-            SPHP(other).Metals[i] = (SPHP(other).Metals[i] * Part[other].Mass + ThisMetals[i])/(Part[other].Mass + thismass);
-        /* Update total metallicity*/
-        SPHP(other).Metallicity = (SPHP(other).Metallicity * Part[other].Mass + thismetal)/(Part[other].Mass + thismass);
-        /* Update mass*/
-        double massfrac = (Part[other].Mass + thismass) / Part[other].Mass;
-        Part[other].Mass *= massfrac;
-        /* Density also needs a correction so the volume fraction is unchanged.
-         * This ensures that volume = Mass/Density is unchanged for the next particle
-         * and thus the weighting still sums to unity.*/
-        SPHP(other).Density *= massfrac;
-        /* Keep track of how much was returned for conservation purposes*/
-        O->MassReturn += thismass;
-        newmass = Part[other].Mass;
-        unlock_spinlock(pi, METALS_GET_PRIV(lv->tw)->spin);
-        if(newmass <= 0)
-            endrun(3, "New mass %g new metal %g in particle %d id %ld from star mass %g metallicity %g\n",
-                   newmass, SPHP(other).Metallicity, other, Part[other].ID, I->Mass, I->Metallicity);
-    }
 }
