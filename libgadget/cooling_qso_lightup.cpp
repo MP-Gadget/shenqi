@@ -36,7 +36,7 @@
 #include "physconst.h"
 #include "slotsmanager.h"
 #include "partmanager.h"
-#include "treewalk.h"
+#include "treewalk2.h"
 #include "walltime.h"
 #include "fof.h"
 #include "utils/endrun.h"
@@ -49,12 +49,6 @@
 
 boost::math::interpolators::makima<std::vector<double>> * HeIII_intp;
 boost::math::interpolators::makima<std::vector<double>> * LMFP_intp;
-
-typedef struct
-{
-    TreeWalkQueryBase base;
-    MyIDType ID;
-} TreeWalkQueryQSOLightup;
 
 /*Parameters for the quasar driven helium reionization model.*/
 struct qso_lightup_params
@@ -372,131 +366,176 @@ ionize_single_particle(int other, double a3inv, double uu_in_cgs)
     return 1;
 }
 
-struct QSOPriv {
-    FOFGroups * fof;
-    int64_t * N_ionized;
+/* Inputs to the helium reionization treewalk. There is only one quasar at a time,
+ * so the properties of the quasar are stored here and not taken from a particle.*/
+class QSOPriv : public ParamTypeBase {
+    public:
+    /* Position of the quasar: the center of mass of the host halo*/
+    double QSOPos[3];
+    /* Radius of the ionized bubble around the quasar*/
+    double Bubble;
     double a3inv;
     double uu_in_cgs;
-    RandTable * rnd;
+
+    QSOPriv(const double BoxSize, const double i_a3inv, const double i_uu_in_cgs):
+        ParamTypeBase(BoxSize), QSOPos{0,0,0}, Bubble(0), a3inv(i_a3inv), uu_in_cgs(i_uu_in_cgs)
+    {}
+
+    /* Set the quasar from a FOF halo*/
+    void set_quasar(const FOFGroups * const fof, const int group, const RandTable * const rnd)
+    {
+        for(int k = 0; k < 3; k++)
+            QSOPos[k] = fof->Group[group].CM[k];
+        /* Bubble size*/
+        Bubble = gaussian_rng(QSOLightupParams.mean_bubble, sqrt(QSOLightupParams.var_bubble), fof->Group[group].base.MinID, rnd);
+    }
 };
-#define QSO_GET_PRIV(tw) ((struct QSOPriv *) (tw->priv))
+
+/* The quasar is a FOF halo, not a particle, but the treewalk is built around particles
+ * walking the tree. The treewalk thus runs for a single stand-in particle (the first in the
+ * particle table), which is never changed, and this query replaces its position with that of the quasar.*/
+class QSOQuery : public TreeWalkQueryBase<QSOPriv>
+{
+    public:
+    /* The search radius, which is the bubble size: we do not care about the gas smoothing lengths.*/
+    MyFloat Hsml;
+
+    /* Whatever the stand-in particle is, it has work*/
+    static bool haswork(const particle_data& particle) { return true; }
+
+    QSOQuery(const particle_data& particle, const int * const i_NodeList, const QSOPriv& priv):
+    TreeWalkQueryBase<QSOPriv>(particle, i_NodeList, priv), Hsml(priv.Bubble)
+    {
+        for(int k = 0; k < 3; k++)
+            Pos[k] = priv.QSOPos[k];
+    }
+};
+
+/* The output of the treewalk is the ionization and heating of the gas particles in the bubble.
+ * These are on the rank doing the visiting, and nothing is returned to the quasar.*/
+class QSOOutput {
+    public:
+    particle_data * Parts;
+    /* Number of particles ionized by each thread*/
+    int64_t * N_ionized;
+    int nthreads;
+
+    QSOOutput(particle_data * const i_Parts): Parts(i_Parts), nthreads(omp_get_max_threads())
+    {
+        N_ionized = mymalloc("n_ionized", int64_t, nthreads);
+        memset(N_ionized, 0, sizeof(int64_t) * nthreads);
+    }
+
+    ~QSOOutput()
+    {
+        myfree(N_ionized);
+    }
+
+    /* Total number of particles on this rank which were ionized*/
+    int64_t tot_ionized() const
+    {
+        int64_t tot = 0;
+        for(int i = 0; i < nthreads; i++)
+            tot += N_ionized[i];
+        return tot;
+    }
+
+    void postprocess(const int i, particle_data * const parts, const QSOPriv * priv) {}
+};
+
+/* Empty: nothing is returned to the quasar.*/
+class QSOResult : public TreeWalkResultBase<QSOQuery, QSOOutput> {
+    public:
+    using TreeWalkResultBase::TreeWalkResultBase;
+};
 
 /**
  * Ionize and heat the particles
  */
-static void
-ionize_ngbiter(TreeWalkQueryQSOLightup * I,
-        TreeWalkResultBase * O,
-        TreeWalkNgbIterBase * iter,
-        LocalTreeWalk * lv)
+class QSOLocalTreeWalk: public LocalNgbTreeWalk<QSOLocalTreeWalk, QSOQuery, QSOResult, QSOPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC, GASMASK>
 {
+    public:
+    /* The particles of the rank doing the visiting, which this walk ionizes.*/
+    particle_data * const Parts;
+    /* Ionization counter for this thread*/
+    int64_t * const N_ionized;
 
-    if(iter->other == -1) {
-        /* Gas only ( 1 == 1 << 0, the bit for type 0)*/
-        iter->mask = GASMASK;
-        /* Bubble size*/
-        double bubble = gaussian_rng(QSOLightupParams.mean_bubble, sqrt(QSOLightupParams.var_bubble), I->ID, QSO_GET_PRIV(lv->tw)->rnd);
-        iter->Hsml = bubble;
-        /* Don't care about gas HSML */
-        iter->symmetric = NGB_TREEFIND_ASYMMETRIC;
-        return;
-    }
+    QSOLocalTreeWalk(const HmaxNODE * const Nodes, const QSOQuery& input, particle_data * const i_Parts, int64_t * const i_N_ionized):
+    LocalNgbTreeWalk<QSOLocalTreeWalk, QSOQuery, QSOResult, QSOPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC, GASMASK>(Nodes, input),
+    Parts(i_Parts), N_ionized(i_N_ionized) {}
 
-    int other = iter->other;
-
-    /* Only ionize gas*/
-    if(Part[other].Type != 0)
-        return;
-
-    int ionized = ionize_single_particle(other, QSO_GET_PRIV(lv->tw)->a3inv, QSO_GET_PRIV(lv->tw)->uu_in_cgs);
-
-    if(!ionized)
-        return;
-
-    int tid = omp_get_thread_num();
-    /* Add to the ionization counter for this thread*/
-    QSO_GET_PRIV(lv->tw)->N_ionized[tid] ++;
-}
-
-static void
-ionize_copy(int place, TreeWalkQueryQSOLightup * I, TreeWalk * tw)
-{
-    int k;
-    FOFGroups * fof = QSO_GET_PRIV(tw)->fof;
-    /* Strictly speaking this is inefficient:
-     * we are also copying the properties of the *particle*
-     * in place in treewalk.c. However, this does not matter unless
-     * there are more local groups than particles!*/
-    for(k = 0; k < 3; k++)
+    void ngbiter(QSOQuery& input, const particle_data& particle, QSOResult * output, const QSOPriv& priv)
     {
-        I->base.Pos[k] = fof->Group[place].CM[k];
+        double dist[3];
+        const double r2 = this->get_distance(input, particle, priv.BoxSize, dist);
+        /* Only particles inside the bubble*/
+        if(r2 > input.Hsml * input.Hsml)
+            return;
+
+        /* Only ionize gas*/
+        if(particle.Type != 0)
+            return;
+
+        /* The index of the particle in the particle table of this rank.*/
+        const int other = &particle - Parts;
+        if(!ionize_single_particle(other, priv.a3inv, priv.uu_in_cgs))
+            return;
+
+        /* Add to the ionization counter for this thread*/
+        (*N_ionized)++;
     }
-    I->ID = fof->Group[place].base.MinID;
-}
+};
+
+class QSOTopTreeWalk: public TopTreeWalk<QSOQuery, QSOPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
+
+class QSOTreeWalk: public TreeWalk<QSOTreeWalk, QSOQuery, QSOResult, QSOLocalTreeWalk, QSOTopTreeWalk, QSOPriv, QSOOutput, ForceTreeHmax> {
+    public:
+    using TreeWalk::TreeWalk;
+
+    /* Give each local walk the particles of the rank doing the visiting and the counter for its thread.*/
+    QSOLocalTreeWalk make_local_walk(const QSOQuery& input)
+    {
+        return QSOLocalTreeWalk(tree->get_nodes(), input, output->Parts, &output->N_ionized[omp_get_thread_num()]);
+    }
+};
 
 /* Find all particles within the radius of the HeIII bubble,
  * flag each particle as ionized and add instantaneous heating.
  * Returns the number of particles ionized
  */
 static int64_t
-ionize_all_part(int qso_ind, std::vector<int>& qso_cand, struct QSOPriv priv, ForceTree * tree)
+ionize_all_part(int qso_ind, std::vector<int>& qso_cand, QSOPriv& priv, const FOFGroups * const fof, const RandTable * const rnd, const ForceTreeHmax * const tree)
 {
-    /* This treewalk finds not yet ionized particles within the radius of the black hole, ionizes them and
+    /* This treewalk finds not yet ionized particles within the radius of the quasar, ionizes them and
      * adds an instantaneous heating to them. */
-    TreeWalk tw[1] = {{0}};
+    QSOOutput output(PartManager->Base);
+    QSOTreeWalk tw("HELIUM", tree, priv, &output);
 
-    tw->ev_label = "HELIUM";
-    /* This could select the black holes to be made quasars, but we do it below.*/
-    tw->haswork = NULL;
-    tw->tree = tree;
-
-    /* We set Hsml to a constant in ngbiter, so this
-     * searches a constant distance from the halo.*/
-    tw->visit = (TreeWalkVisitFunction) treewalk_visit_ngbiter;
-    tw->ngbiter_type_elsize = sizeof(TreeWalkNgbIterBase);
-    tw->ngbiter = (TreeWalkNgbIterFunction) ionize_ngbiter;
-
-    tw->fill = (TreeWalkFillQueryFunction) ionize_copy;
-    tw->reduce = NULL;
-    tw->postprocess = NULL;
-    tw->query_type_elsize = sizeof(TreeWalkQueryQSOLightup);
-    tw->result_type_elsize = sizeof(TreeWalkResultBase);
-
-    priv.N_ionized = ta_malloc("n_ionized", int64_t, omp_get_max_threads());
-    memset(priv.N_ionized, 0, sizeof(int64_t) * omp_get_max_threads());
-    tw->priv = &priv;
-
-    /* This runs only on one BH*/
-    if(qso_ind > 0)
-        treewalk_run(tw, &qso_cand[qso_ind], 1);
+    /* This runs only on one quasar, on the rank which hosts its halo. The other ranks run
+     * the treewalk with nothing to do, so that they evaluate the exported quasar.*/
+    if(qso_ind >= 0) {
+        priv.set_quasar(fof, qso_cand[qso_ind], rnd);
+        /* The stand-in particle: see QSOQuery.*/
+        int standin = 0;
+        tw.run(&standin, 1, PartManager->Base, MPI_COMM_WORLD);
+    }
     else
-        treewalk_run(tw, NULL, 0);
+        tw.run(NULL, 0, PartManager->Base, MPI_COMM_WORLD);
 
-    int64_t N_ionized = 0;
-    int i;
-    for(i = 0; i < omp_get_max_threads(); i++)
-        N_ionized += priv.N_ionized[i];
-
-    ta_free(priv.N_ionized);
-
-    return N_ionized;
+    return output.tot_ionized();
 }
 
 /* Sequentially turns on quasars.
  * Keeps adding new quasars until need_more_quasars() returns 0.
  */
 static void
-turn_on_quasars(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmology * CP, double uu_in_cgs, RandTable * rnd, FILE * FdHelium)
+turn_on_quasars(double atime, FOFGroups * fof, const ForceTreeHmax * const gasTree, Cosmology * CP, double uu_in_cgs, RandTable * rnd, FILE * FdHelium)
 {
     int64_t n_gas_tot=0, tot_n_ionized=0, ncand_tot=0;
     MPI_Allreduce(&SlotsManager->info[0].size, &n_gas_tot, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
     // Evaluate the interpolators
     double desired_ion_frac = (*HeIII_intp)(atime);
-    struct QSOPriv priv;
-    priv.fof = fof;
-    priv.uu_in_cgs = uu_in_cgs;
-    priv.a3inv = 1/pow(atime, 3);
-    priv.rnd = rnd;
+    QSOPriv priv(PartManager->BoxSize, 1/pow(atime, 3), uu_in_cgs);
 
     /* If the desired ionization fraction is above a threshold (by default 0.95)
      * ionize all particles*/
@@ -548,7 +587,7 @@ turn_on_quasars(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmology * 
             break;
         }
 
-        int64_t n_ionized = ionize_all_part(new_qso, qso_cand, priv, gasTree);
+        int64_t n_ionized = ionize_all_part(new_qso, qso_cand, priv, fof, rnd, gasTree);
         int64_t tot_qso_ionized = 0;
         /* Check that the ionization fraction changed*/
         MPI_Allreduce(&n_ionized, &tot_qso_ionized, 1, MPI_INT64, MPI_SUM, MPI_COMM_WORLD);
@@ -556,7 +595,7 @@ turn_on_quasars(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmology * 
         tot_n_ionized += tot_qso_ionized;
         /* Get the quasar position on rank 0*/
         double qso_pos[3] = {0};
-        if(new_qso > 0) {
+        if(new_qso >= 0) {
             int qplace = qso_cand[new_qso];
             int k;
             for(k = 0; k < 3; k++) {
@@ -597,7 +636,7 @@ turn_on_quasars(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmology * 
 
 /* Starts reionization by selecting the first halo and flagging all particles in the first HeIII bubble*/
 void
-do_heiii_reionization(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmology * CP, RandTable * rnd, double uu_in_cgs, FILE * FdHelium)
+do_heiii_reionization(double atime, FOFGroups * fof, const ForceTreeHmax * const gasTree, Cosmology * CP, RandTable * rnd, double uu_in_cgs, FILE * FdHelium)
 {
     if(!QSOLightupParams.QSOLightupOn)
         return;
@@ -608,8 +647,8 @@ do_heiii_reionization(double atime, FOFGroups * fof, ForceTree * gasTree, Cosmol
     if(atime > He_zz_final)
         return;
 
-    if(!gasTree->tree_allocated_flag || !(gasTree->mask & GASMASK))
-        endrun(5, "helium_reion called with bad tree allocated %d mask %d\n", gasTree->tree_allocated_flag, gasTree->mask);
+    if(!gasTree || !(gasTree->mask & GASMASK))
+        endrun(5, "helium_reion called with bad tree: mask %d\n", gasTree ? gasTree->mask : 0);
 
     walltime_measure("/Misc");
     //message(0, "HeII: Reionization initiated.\n");
