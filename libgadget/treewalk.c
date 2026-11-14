@@ -330,7 +330,7 @@ int treewalk_export_particle(LocalTreeWalk * lv, int no)
             if(lv->DataIndexTable[nexp-1].NodeList[lv->nodelistindex] != -1)
                 endrun(1, "Current nodelist %ld entry (%d) not empty!\n", lv->nodelistindex, lv->DataIndexTable[nexp-1].NodeList[lv->nodelistindex]);
 #endif
-            lv->DataIndexTable[nexp-1].NodeList[lv->nodelistindex] = tw->tree->TopLeaves[no - tw->tree->lastnode].treenode;
+            lv->DataIndexTable[nexp-1].NodeList[lv->nodelistindex] = tw->tree->TopLeafNodes[no - tw->tree->lastnode];
             lv->nodelistindex++;
             return 0;
         }
@@ -341,7 +341,7 @@ int treewalk_export_particle(LocalTreeWalk * lv, int no)
     }
     lv->DataIndexTable[nexp].Task = task;
     lv->DataIndexTable[nexp].Index = target;
-    lv->DataIndexTable[nexp].NodeList[0] = tw->tree->TopLeaves[no - tw->tree->lastnode].treenode;
+    lv->DataIndexTable[nexp].NodeList[0] = tw->tree->TopLeafNodes[no - tw->tree->lastnode];
     int i;
     for(i = 1; i < NODELISTLENGTH; i++)
         lv->DataIndexTable[nexp].NodeList[i] = -1;

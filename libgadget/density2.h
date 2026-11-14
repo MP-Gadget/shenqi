@@ -4,7 +4,7 @@
 #include "partmanager.h"
 #include "cosmology.h"
 #include "timestep.h"
-#include "forcetree.h"
+#include "forcetree2.h"
 #include "densitykernel.h"
 #include "physconst.h"
 
@@ -39,7 +39,7 @@ void set_densitypar(struct density_params dp);
  * it just computes densities.
  * If DoEgyDensity is true it also computes the entropy-weighted density for
  * pressure-entropy SPH. */
-void density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, TimeBinMgr * timebinmgr, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTree * const tree, bool UseGPU=false);
+void density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, TimeBinMgr * timebinmgr, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTreeHmax * const tree, bool UseGPU=false);
 
 /* Get the desired nuber of neighbours for the supplied kernel*/
 double GetNumNgb(enum DensityKernelType KernelType);
@@ -129,6 +129,6 @@ class KickFactorData
 };
 
 /* Set the initial smoothing length for gas and BH. Used on first timestep in init()*/
-void set_init_hsml(ForceTree * tree, DomainDecomp * ddecomp, const double MeanGasSeparation, struct part_manager_type * const PartManager);
+void set_init_hsml(ForceTreeMoments * tree, const double MeanGasSeparation, struct part_manager_type * const PartManager);
 
 #endif

@@ -50,7 +50,7 @@ static void
 force_treeupdate_pseudos(const int no, const int level, const ForceTree * const tree);
 
 static void
-force_create_node_for_topnode(int no, int topnode, struct NODE * Nodes, const DomainDecomp * ddecomp, const int bits, const int x, const int y, const int z, int *nextfree, const int lastnode);
+force_create_node_for_topnode(int no, int topnode, struct NODE * Nodes, int * TopLeafNodes, const DomainDecomp * ddecomp, const int bits, const int x, const int y, const int z, int *nextfree, const int lastnode);
 
 static void
 force_exchange_pseudodata(const ForceTree * const tree, const DomainDecomp * const ddecomp);
@@ -676,12 +676,12 @@ force_tree_create_topnodes(ForceTree * tree, DomainDecomp * ddecomp)
     nfreep->mom.hmax = 0;
     nnext++;
     /* Set the treenode for this node*/
-    ddecomp->TopLeaves[0].treenode = tree->firstnode;
+    tree->TopLeafNodes[0] = tree->firstnode;
     /* create a set of empty nodes corresponding to the top-level ddecomp
         * grid. We need to generate these nodes first to make sure that we have a
         * complete top-level tree which allows the easy insertion of the
         * pseudo-particles in the right place */
-    force_create_node_for_topnode(tree->firstnode, 0, tree->Nodes, ddecomp, 1, 0, 0, 0, &nnext, tree->lastnode);
+    force_create_node_for_topnode(tree->firstnode, 0, tree->Nodes, tree->TopLeafNodes, ddecomp, 1, 0, 0, 0, &nnext, tree->lastnode);
     return nnext;
 }
 
@@ -737,7 +737,7 @@ force_tree_create_nodes(ForceTree * tree, const ActiveParticles * act, int mask,
     int * topnodes = ta_malloc("topnodes", int, (EndLeaf - StartLeaf) * nthr);
     /* Topnodes for each thread. For tid 0, just use the real tree. Saves copying the tree back.*/
     for(j = 0; j < EndLeaf - StartLeaf; j++)
-        topnodes[j] = ddecomp->TopLeaves[j + StartLeaf].treenode;
+        topnodes[j] = tree->TopLeafNodes[j + StartLeaf];
     /* Other threads need a copy*/
     for(t = 1; t < nthr; t++) {
         for(j = 0; j < EndLeaf - StartLeaf; j++) {
@@ -818,7 +818,7 @@ force_tree_create_nodes(ForceTree * tree, const ActiveParticles * act, int mask,
                 const int topleaf = Part[i].TopLeaf;
                 if(topleaf < StartLeaf || topleaf >= EndLeaf)
                     endrun(5, "Bad topleaf %d start %d end %d type %d ID %ld\n", topleaf, StartLeaf, EndLeaf, Part[i].Type, Part[i].ID);
-                //int treenode = ddecomp->TopLeaves[topleaf].treenode;
+                //int treenode = tree->TopLeafNodes[topleaf];
                 cur = local_topnodes[topleaf - StartLeaf];
 #ifdef DEBUG
                 if(!inside_node(&tree->Nodes[cur], Part[i].Pos, 1e-7))
@@ -865,7 +865,7 @@ force_tree_create_nodes(ForceTree * tree, const ActiveParticles * act, int mask,
  *  level in the tree, even when the particle population is so sparse that
  *  some of these nodes are actually empty.
  */
-void force_create_node_for_topnode(int no, int topnode, struct NODE * Nodes, const DomainDecomp * ddecomp, const int bits, const int x, const int y, const int z, int *nextfree, const int lastnode)
+void force_create_node_for_topnode(int no, int topnode, struct NODE * Nodes, int * TopLeafNodes, const DomainDecomp * ddecomp, const int bits, const int x, const int y, const int z, int *nextfree, const int lastnode)
 {
     int i, j, k;
 
@@ -901,7 +901,7 @@ void force_create_node_for_topnode(int no, int topnode, struct NODE * Nodes, con
                 if(curtopnode.Daughter == -1) {
                     int ThisTask;
                     MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
-                    ddecomp->TopLeaves[curtopnode.Leaf].treenode = *nextfree;
+                    TopLeafNodes[curtopnode.Leaf] = *nextfree;
                     /* We set the first child as a pointer to the topleaf, essentially constructing the pseudoparticles early.
                      * We do not set nocc, so this first child will be over-written on local nodes when we construct the full tree.*/
                     Nodes[*nextfree].s.suns[0] = curtopnode.Leaf + lastnode;
@@ -926,7 +926,7 @@ void force_create_node_for_topnode(int no, int topnode, struct NODE * Nodes, con
             {
                 int sub = 7 & peano_hilbert_key((x << 1) + i, (y << 1) + j, (z << 1) + k, bits);
                 int count = i + 2 * j + 4 * k;
-                force_create_node_for_topnode(Nodes[no].s.suns[count], ddecomp->TopNodes[topnode].Daughter + sub, Nodes, ddecomp,
+                force_create_node_for_topnode(Nodes[no].s.suns[count], ddecomp->TopNodes[topnode].Daughter + sub, Nodes, TopLeafNodes, ddecomp,
                         bits + 1, 2 * x + i, 2 * y + j, 2 * z + k, nextfree, lastnode);
             }
 
@@ -1125,7 +1125,7 @@ void force_update_node_parallel(const ForceTree * const tree, const DomainDecomp
     {
         int i;
         for(i = ddecomp->Tasks[ThisTask].StartLeaf; i < ddecomp->Tasks[ThisTask].EndLeaf; i ++) {
-            const int no = ddecomp->TopLeaves[i].treenode;
+            const int no = tree->TopLeafNodes[i];
             /* Set local mass dependence*/
             tree->Nodes[no].f.DependsOnLocalMass = 1;
             /* Nodes containing other nodes: the overwhelmingly likely case.*/
@@ -1158,7 +1158,7 @@ static void force_exchange_pseudodata(const ForceTree * const tree, const Domain
 
     #pragma omp parallel for
     for(int i = ddecomp->Tasks[tree->ThisTask].StartLeaf; i < ddecomp->Tasks[tree->ThisTask].EndLeaf; i ++) {
-        int no = ddecomp->TopLeaves[i].treenode;
+        int no = tree->TopLeafNodes[i];
         if(ddecomp->TopLeaves[i].Task != tree->ThisTask)
             endrun(131231231, "TopLeaf %d Task table is corrupted: task is %d\n", i, ddecomp->TopLeaves[i].Task);
         /* read out the multipole moments from the local base cells */
@@ -1194,7 +1194,7 @@ static void force_exchange_pseudodata(const ForceTree * const tree, const Domain
             continue; /* bypass ThisTask since it is already up to date */
         #pragma omp parallel for
         for(int i = ddecomp->Tasks[ta].StartLeaf; i < ddecomp->Tasks[ta].EndLeaf; i ++) {
-            const int no = ddecomp->TopLeaves[i].treenode;
+            const int no = tree->TopLeafNodes[i];
             tree->Nodes[no].mom.cofm[0] = TopLeafMoments[i].s[0];
             tree->Nodes[no].mom.cofm[1] = TopLeafMoments[i].s[1];
             tree->Nodes[no].mom.cofm[2] = TopLeafMoments[i].s[2];
@@ -1369,6 +1369,9 @@ ForceTree force_treeallocate(const int64_t maxnodes, const int64_t maxpart, cons
 {
     ForceTree tb = {0};
 
+    /* Each tree stores the node index of each top leaf, so that trees with
+     * different node numbering may be alive at the same time.*/
+    tb.TopLeafNodes = mymanagedmalloc("TopLeafNodes", int, ddecomp->NTopLeaves);
     if(alloc_father) {
         tb.Father = mymalloc("Father", int, maxpart);
         tb.nfather = maxpart;
@@ -1402,6 +1405,7 @@ void force_tree_free(ForceTree * tree)
     myfree(tree->Nodes_base);
     if(tree->Father)
         myfree(tree->Father);
+    myfree(tree->TopLeafNodes);
     /* Zero everything, especially the allocation flag*/
     memset(tree, 0, sizeof(ForceTree));
     tree->tree_allocated_flag = 0;

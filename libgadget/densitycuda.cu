@@ -9,17 +9,17 @@
 #include "densitytree2.hpp"
 #include "treewalk2.cuh"
 
-class DensityTreeWalkGPUCubic: public TreeWalkGPU<DensityTreeWalkGPUCubic, DensityQuery, DensityResult, DensityLocalTreeWalk<CubicDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
+class DensityTreeWalkGPUCubic: public TreeWalkGPU<DensityTreeWalkGPUCubic, DensityQuery, DensityResult, DensityLocalTreeWalk<CubicDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput, ForceTreeHmax> {
     public:
     using TreeWalkGPU::TreeWalkGPU;
 };
 
-class DensityTreeWalkGPUQuartic: public TreeWalkGPU<DensityTreeWalkGPUQuartic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuarticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
+class DensityTreeWalkGPUQuartic: public TreeWalkGPU<DensityTreeWalkGPUQuartic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuarticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput, ForceTreeHmax> {
     public:
     using TreeWalkGPU::TreeWalkGPU;
 };
 
-class DensityTreeWalkGPUQuintic: public TreeWalkGPU<DensityTreeWalkGPUQuintic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuinticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput> {
+class DensityTreeWalkGPUQuintic: public TreeWalkGPU<DensityTreeWalkGPUQuintic, DensityQuery, DensityResult, DensityLocalTreeWalk<QuinticDensityKernel>, DensityTopTreeWalk, DensityPriv, DensityOutput, ForceTreeHmax> {
     public:
     using TreeWalkGPU::TreeWalkGPU;
 };
@@ -28,7 +28,7 @@ class DensityTreeWalkGPUQuintic: public TreeWalkGPU<DensityTreeWalkGPUQuintic, D
 /*! CUDA treewalk.
  */
 void
-density_cuda(const ActiveParticles * act, const ForceTree * tree, DensityPriv * priv, DensityOutput * output, particle_data * const parts, int update_hsml, enum DensityKernelType DensityKernelType, MPI_Comm comm)
+density_cuda(const ActiveParticles * act, const ForceTreeHmax * tree, DensityPriv * priv, DensityOutput * output, particle_data * const parts, int update_hsml, enum DensityKernelType DensityKernelType, MPI_Comm comm)
 {
     switch(DensityKernelType) {
         case DENSITY_KERNEL_CUBIC_SPLINE:

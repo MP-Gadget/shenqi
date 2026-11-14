@@ -1,12 +1,12 @@
 #ifndef HYDRA2_H
 #define HYDRA2_H
 
-#include "forcetree.h"
+#include "forcetree2.h"
 #include "timestep.h"
 #include "utils/paramset.h"
 
 /*Function to compute hydro accelerations and adiabatic entropy change*/
-void hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPred, DriftKickTimes& times,  TimeBinMgr * timebinmgr, Cosmology * CP, const ForceTree * const tree, bool UseGPU=false);
+void hydro_force(const ActiveParticles * act, const double atime, MyFloat * EntVarPred, DriftKickTimes& times,  TimeBinMgr * timebinmgr, Cosmology * CP, const ForceTreeHmax * const tree, bool UseGPU=false);
 
 struct hydro_params
 {

@@ -2,7 +2,6 @@
 #define BHDYNFRIC_H
 
 #include "utils/paramset.h"
-#include "forcetree.h"
 #include "density2.h"
 
 /* Do the dynamic friction treewalk if BH_DynFrictionMethod > 0.

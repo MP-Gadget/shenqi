@@ -70,8 +70,8 @@ class BHVelDispQuery : public TreeWalkQueryBase<BHVelDispPriv>
     public:
     MyFloat Hsml;
     MyFloat Vel[3];
-    MYCUDAFN BHVelDispQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const BHVelDispPriv& priv):
-    TreeWalkQueryBase<BHVelDispPriv>(particle, i_NodeList, firstnode, priv), Hsml(particle.Hsml)
+    MYCUDAFN BHVelDispQuery(const particle_data& particle, const int * const i_NodeList, const BHVelDispPriv& priv):
+    TreeWalkQueryBase<BHVelDispPriv>(particle, i_NodeList, priv), Hsml(particle.Hsml)
     {
             Vel[0] = particle.Vel[0];
             Vel[1] = particle.Vel[1];
@@ -108,13 +108,13 @@ class BHVelDispResult : public TreeWalkResultBase<BHVelDispQuery, BHVelDispOutpu
 };
 
 template <typename DensityKernel>
-class BHVelDispLocalTreeWalk: public LocalNgbTreeWalk<BHVelDispLocalTreeWalk<DensityKernel>, BHVelDispQuery, BHVelDispResult, BHVelDispPriv, NGB_TREEFIND_ASYMMETRIC, DMMASK>
+class BHVelDispLocalTreeWalk: public LocalNgbTreeWalk<BHVelDispLocalTreeWalk<DensityKernel>, BHVelDispQuery, BHVelDispResult, BHVelDispPriv, BaseNode, NGB_TREEFIND_ASYMMETRIC, DMMASK>
 {
     public:
     DensityKernel feedback_kernel;
 
-    MYCUDAFN BHVelDispLocalTreeWalk(const NODE * const Nodes, const BHVelDispQuery& input):
-    LocalNgbTreeWalk<BHVelDispLocalTreeWalk<DensityKernel>, BHVelDispQuery, BHVelDispResult, BHVelDispPriv, NGB_TREEFIND_ASYMMETRIC, DMMASK>(Nodes, input), feedback_kernel(input.Hsml)
+    MYCUDAFN BHVelDispLocalTreeWalk(const BaseNode * const Nodes, const BHVelDispQuery& input):
+    LocalNgbTreeWalk<BHVelDispLocalTreeWalk<DensityKernel>, BHVelDispQuery, BHVelDispResult, BHVelDispPriv, BaseNode, NGB_TREEFIND_ASYMMETRIC, DMMASK>(Nodes, input), feedback_kernel(input.Hsml)
     { }
 
     /*! This function is the 'core' of the SPH force computation. A target
@@ -144,31 +144,27 @@ class BHVelDispLocalTreeWalk: public LocalNgbTreeWalk<BHVelDispLocalTreeWalk<Den
     }
 };
 
-class BHVelDispTopTreeWalk: public TopTreeWalk<BHVelDispQuery, BHVelDispPriv, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
+class BHVelDispTopTreeWalk: public TopTreeWalk<BHVelDispQuery, BHVelDispPriv, BaseNode, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
-class BHVelDispTreeWalkCubic: public TreeWalk<BHVelDispTreeWalkCubic, BHVelDispQuery, BHVelDispResult, BHVelDispLocalTreeWalk<CubicDensityKernel>, BHVelDispTopTreeWalk, BHVelDispPriv, BHVelDispOutput> {
+class BHVelDispTreeWalkCubic: public TreeWalk<BHVelDispTreeWalkCubic, BHVelDispQuery, BHVelDispResult, BHVelDispLocalTreeWalk<CubicDensityKernel>, BHVelDispTopTreeWalk, BHVelDispPriv, BHVelDispOutput, ForceTreeSimple> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class BHVelDispTreeWalkQuartic: public TreeWalk<BHVelDispTreeWalkQuartic, BHVelDispQuery, BHVelDispResult, BHVelDispLocalTreeWalk<QuarticDensityKernel>, BHVelDispTopTreeWalk, BHVelDispPriv, BHVelDispOutput> {
+class BHVelDispTreeWalkQuartic: public TreeWalk<BHVelDispTreeWalkQuartic, BHVelDispQuery, BHVelDispResult, BHVelDispLocalTreeWalk<QuarticDensityKernel>, BHVelDispTopTreeWalk, BHVelDispPriv, BHVelDispOutput, ForceTreeSimple> {
     public:
     using TreeWalk::TreeWalk;
 };
 
-class BHVelDispTreeWalkQuintic: public TreeWalk<BHVelDispTreeWalkQuintic, BHVelDispQuery, BHVelDispResult, BHVelDispLocalTreeWalk<QuinticDensityKernel>, BHVelDispTopTreeWalk, BHVelDispPriv, BHVelDispOutput> {
+class BHVelDispTreeWalkQuintic: public TreeWalk<BHVelDispTreeWalkQuintic, BHVelDispQuery, BHVelDispResult, BHVelDispLocalTreeWalk<QuinticDensityKernel>, BHVelDispTopTreeWalk, BHVelDispPriv, BHVelDispOutput, ForceTreeSimple> {
     public:
     using TreeWalk::TreeWalk;
 };
 
 /* Compute the DM velocity dispersion for black holes*/
 static void
-blackhole_veldisp(const ActiveParticles * act, ForceTree * tree, KickFactorData& kf, MPI_Comm comm)
+blackhole_veldisp(const ActiveParticles * act, ForceTreeSimple * tree, KickFactorData& kf, MPI_Comm comm)
 {
-    /* This treewalk uses only DM */
-    if(!tree->tree_allocated_flag)
-        endrun(0, "DM Tree not allocated for veldisp\n");
-
     BHVelDispPriv priv(tree->BoxSize, kf);
 
     BHVelDispOutput output(SlotsManager);
@@ -329,8 +325,8 @@ class WindVDispQuery : public TreeWalkQueryBase<WindVDispPriv>{
     double Vel[3];
     double Hsml;
 
-    MYCUDAFN WindVDispQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const WindVDispPriv& priv):
-    TreeWalkQueryBase<WindVDispPriv>(particle, i_NodeList, firstnode, priv), Mass(particle.Mass)
+    MYCUDAFN WindVDispQuery(const particle_data& particle, const int * const i_NodeList, const WindVDispPriv& priv):
+    TreeWalkQueryBase<WindVDispPriv>(particle, i_NodeList, priv), Mass(particle.Mass)
     {
         for(int i=0; i<3; i++)
             Vel[i] = particle.Vel[i];
@@ -425,11 +421,11 @@ class WindVDispResult : public TreeWalkResultBase<WindVDispQuery, WindVDispOutpu
     }
 };
 
-class WindVDispLocalTreeWalk: public LocalNgbTreeWalk<WindVDispLocalTreeWalk, WindVDispQuery, WindVDispResult, WindVDispPriv, NGB_TREEFIND_ASYMMETRIC, DMMASK>
+class WindVDispLocalTreeWalk: public LocalNgbTreeWalk<WindVDispLocalTreeWalk, WindVDispQuery, WindVDispResult, WindVDispPriv, BaseNode, NGB_TREEFIND_ASYMMETRIC, DMMASK>
 {
     public:
-    MYCUDAFN WindVDispLocalTreeWalk(const NODE * const Nodes, const WindVDispQuery& input):
-    LocalNgbTreeWalk<WindVDispLocalTreeWalk, WindVDispQuery, WindVDispResult, WindVDispPriv, NGB_TREEFIND_ASYMMETRIC, DMMASK>(Nodes, input) {}
+    MYCUDAFN WindVDispLocalTreeWalk(const BaseNode * const Nodes, const WindVDispQuery& input):
+    LocalNgbTreeWalk<WindVDispLocalTreeWalk, WindVDispQuery, WindVDispResult, WindVDispPriv, BaseNode, NGB_TREEFIND_ASYMMETRIC, DMMASK>(Nodes, input) {}
 
     /*! This function is the 'core' of the SPH force computation. A target
      *  particle is specified which may either be local, or reside in the
@@ -480,9 +476,9 @@ class WindVDispLocalTreeWalk: public LocalNgbTreeWalk<WindVDispLocalTreeWalk, Wi
     }
 };
 
-class WindVDispTopTreeWalk: public TopTreeWalk<WindVDispQuery, WindVDispPriv, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
+class WindVDispTopTreeWalk: public TopTreeWalk<WindVDispQuery, WindVDispPriv, BaseNode, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
-class WindVDispTreeWalk: public TreeWalk<WindVDispTreeWalk, WindVDispQuery, WindVDispResult, WindVDispLocalTreeWalk, WindVDispTopTreeWalk, WindVDispPriv, WindVDispOutput> {
+class WindVDispTreeWalk: public TreeWalk<WindVDispTreeWalk, WindVDispQuery, WindVDispResult, WindVDispLocalTreeWalk, WindVDispTopTreeWalk, WindVDispPriv, WindVDispOutput, ForceTreeSimple> {
     public:
     using TreeWalk::TreeWalk;
 };
@@ -503,16 +499,18 @@ winds_find_vel_disp(const ActiveParticles * act, const double Time, const double
     /* If this queue is empty, nothing to do for winds.*/
     MPI_Allreduce(&NumVDisp, &totvdisp, 1, MPI_INT64, MPI_SUM, ddecomp->DomainComm);
 
-    ForceTree tree[1] = {{0}};
-    if(totvdisp > 0 || totbh > 0)
-        force_tree_rebuild_mask(tree, ddecomp, DMMASK, "");
+    if(totvdisp == 0 && totbh == 0) {
+        myfree(ActiveVDisp);
+        return;
+    }
+
+    ForceTreeSimple tree(*PartManager, ddecomp, DMMASK, "");
 
     /* Compute the black hole velocity dispersions if needed*/
     if(totbh)
-        blackhole_veldisp(act, tree, kf, ddecomp->DomainComm);
+        blackhole_veldisp(act, &tree, kf, ddecomp->DomainComm);
 
     if(totvdisp == 0) {
-        force_tree_free(tree);
         myfree(ActiveVDisp);
         return;
     }
@@ -520,9 +518,8 @@ winds_find_vel_disp(const ActiveParticles * act, const double Time, const double
     WindVDispPriv priv(PartManager->BoxSize, Time, hubble, kf, output.Left, output.Right, output.DMRadius);
     report_memory_usage("WIND_VDISP");
     /* Find densities*/
-    WindVDispTreeWalk tw("WIND_VDISP", tree, priv, &output);
-    tw.do_hsml_loop(ActiveVDisp, NumVDisp, true, PartManager->Base, ddecomp->DomainComm);
-    force_tree_free(tree);
+    WindVDispTreeWalk tw("WIND_VDISP", &tree, priv, &output);
+    tw.do_hsml_loop(ActiveVDisp, NumVDisp, PartManager->Base, ddecomp->DomainComm);
     myfree(ActiveVDisp);
     walltime_measure("/Cooling/VDisp");
 }

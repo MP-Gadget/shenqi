@@ -465,7 +465,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         if(sfr_need_to_compute_sph_grad_rho())
             GradRho_mag = mymalloc2("SPH_GradRho", MyFloat, SlotsManager->info[0].size);
 
-        ForceTree gasTree = {0};
+        ForceTreeHmax * gasTree = NULL;
         /* density() happens before gravity because it also initializes the predicted variables.
         * This ensures that prediction consistently uses the grav and hydro accel from the
         * timestep before this one, which matches Gadget-2/3. It was tested to make a small difference,
@@ -479,22 +479,22 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
              * However, hsml is the length that encloses NumNgb gas particles, so for density the tree needs only gas.
              * We add BHs so we can re-use the tree for mergers.
              * No moments (yet). We do need hmax for hydro, but we need to compute hsml first.*/
-            force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK | BHMASK, All.OutputDir);
+            gasTree = new ForceTreeHmax(*PartManager, ddecomp, GASMASK | BHMASK, All.OutputDir);
             walltime_measure("/SPH/Build");
 
             /*Predicted SPH data.*/
             struct sph_pred_data sph_predicted = {0};
             if(All.DensityOn)
-                density(&Act, 1, DensityIndependentSphOn(), All.BlackHoleOn, times, &timebinmgr, &All.CP, &(sph_predicted.EntVarPred), GradRho_mag, &gasTree, All.UseGPU);  /* computes density, and pressure */
+                density(&Act, 1, DensityIndependentSphOn(), All.BlackHoleOn, times, &timebinmgr, &All.CP, &(sph_predicted.EntVarPred), GradRho_mag, gasTree, All.UseGPU);  /* computes density, and pressure */
 
             /* adds hydrodynamical accelerations and computes du/dt  */
             if(All.HydroOn) {
                 /* Calculate moments to propagate new hmax up the tree. */
-                force_tree_calc_moments(&gasTree, ddecomp);
+                gasTree->force_tree_calc_hmax(ddecomp);
                 walltime_measure("/SPH/HmaxUpdate");
-                int64_t totnumparticles;
-                MPI_Reduce(&gasTree.NumParticles, &totnumparticles, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
-                message(0, "Root hmax: %lg Tree Mean IPS: %lg\n", gasTree.Nodes[gasTree.firstnode].mom.hmax, gasTree.BoxSize / cbrt(totnumparticles));
+                int64_t totnumparticles, numparticles = gasTree->get_numparticles();
+                MPI_Reduce(&numparticles, &totnumparticles, 1, MPI_INT64, MPI_SUM, 0, MPI_COMM_WORLD);
+                message(0, "Root hmax: %lg Tree Mean IPS: %lg\n", gasTree->get_nodes()[0].hmax, gasTree->BoxSize / cbrt(totnumparticles));
 
                 /***** hydro forces *****/
                 /* In Gadget-4 this is optionally split into two, with the pressure force
@@ -502,14 +502,15 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
                  * he has never encountered a simulation where this matters in practice, probably because
                  * it would only be important in very dissipative environments where the SPH noise is fairly large
                  * and there is no opportunity for errors to build up.*/
-                hydro_force(&Act, atime, sph_predicted.EntVarPred, times, &timebinmgr, &All.CP, &gasTree, All.UseGPU);
+                hydro_force(&Act, atime, sph_predicted.EntVarPred, times, &timebinmgr, &All.CP, gasTree, All.UseGPU);
             }
             /* Scratch data cannot be used checkpoint because FOF does an exchange.*/
             slots_free_sph_pred_data(&sph_predicted);
             /* Free this tree on a PM step for memory*/
-            if(is_PM)
-                force_tree_free(&gasTree);
-
+            if(is_PM) {
+                delete gasTree;
+                gasTree = NULL;
+            }
             /* Hydro half-kick after hydro force, as not done with the gravity.*/
             if(All.HierarchicalGravity)
                 apply_hydro_half_kick(&Act, &All.CP, &times, &timebinmgr, atime);
@@ -556,12 +557,10 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
                 hierarchical_gravity_accelerations(&Act, &pm, ddecomp, GravAccel, &times, &timebinmgr, HybridNuTracer, &All.CP, All.OutputDir, All.UseGPU);
             }
             else if(All.TreeGravOn && totgravactive) {
-                    ForceTree Tree = {0};
+                    ForceTreeMoments Tree(*PartManager, ddecomp, NULL, HybridNuTracer, All.OutputDir);
                     /* Do a short range pairwise only step if desired*/
                     const double rho0 = All.CP.Omega0 * 3 * All.CP.Hubble * All.CP.Hubble / (8 * M_PI * All.CP.GravInternal);
-                    force_tree_full(&Tree, ddecomp, HybridNuTracer, All.OutputDir);
                     grav_short_tree(&Act, &pm, &Tree, NULL, rho0, times.Ti_Current, All.UseGPU);
-                    force_tree_free(&Tree);
             }
         }
         message(0, "Forces computed.\n");
@@ -620,13 +619,16 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
          */
         if(GasEnabled)
         {
-            if(!gasTree.tree_allocated_flag)
-                force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK | BHMASK, All.OutputDir);
+            if(!gasTree)
+                gasTree = new ForceTreeHmax(*PartManager, ddecomp, GASMASK | BHMASK, All.OutputDir);
+
+            ForceTree bhtree = {0};
+            force_tree_rebuild_mask(&bhtree, ddecomp, GASMASK | BHMASK, All.OutputDir);
 
             /* Do this before sfr and bh so the gas hsml always contains DesNumNgb neighbours.*/
             if(All.MetalReturnOn) {
                 double AvgGasMass = All.CP.OmegaBaryon * 3 * All.CP.Hubble * All.CP.Hubble / (8 * M_PI * All.CP.GravInternal) * pow(PartManager->BoxSize, 3) / header->NTotalInit[0];
-                metal_return(&Act, &gasTree, &All.CP, atime, AvgGasMass);
+                metal_return(&Act, &bhtree, gasTree, &All.CP, atime, AvgGasMass);
             }
 
             /* this will find new black hole seed halos.
@@ -647,7 +649,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
 
                 if(during_helium_reionization(1/atime - 1)) {
                     /* Helium reionization by switching on quasar bubbles*/
-                    do_heiii_reionization(atime, &fof, &gasTree, &All.CP, &rnd, units.UnitInternalEnergy_in_cgs, fds.FdHelium);
+                    do_heiii_reionization(atime, &fof, &bhtree, &All.CP, &rnd, units.UnitInternalEnergy_in_cgs, fds.FdHelium);
                 }
 #ifdef EXCUR_REION
                 //excursion set reionisation
@@ -673,14 +675,16 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             if(All.BlackHoleOn) {
                 /*Get a new BH details file if the current one is too large.*/
                 rotate_bhdetails_file(&fds, All.OutputDir, RestartSnapNum);
-                blackhole(&Act, atime, &All.CP, &gasTree, ddecomp, &times, &timebinmgr, &rnd, units, fds.FdBlackHoles, fds.FdBlackholeDetails, &fds.TotalBHDetailsBytesWritten);
+                blackhole(&Act, atime, &All.CP, &bhtree, ddecomp, &times, &timebinmgr, &rnd, units, fds.FdBlackHoles, fds.FdBlackholeDetails, &fds.TotalBHDetailsBytesWritten);
             }
             /**** radiative cooling and star formation *****/
             if(All.CoolingOn)
-                cooling_and_starformation(&Act, atime, timebinmgr.get_dloga_for_bin(times.mintimebin, times.Ti_Current), &timebinmgr, &gasTree, GravAccel, ddecomp, &All.CP, GradRho_mag, &rnd, fds.FdSfr);
+                cooling_and_starformation(&Act, atime, timebinmgr.get_dloga_for_bin(times.mintimebin, times.Ti_Current), &timebinmgr, &bhtree, GravAccel, ddecomp, &All.CP, GradRho_mag, &rnd, fds.FdSfr);
+            force_tree_free(&bhtree);
         }
         /* We don't need this timestep's tree anymore.*/
-        force_tree_free(&gasTree);
+        delete gasTree;
+        gasTree = NULL;
 
         /* Compute the list of particles that cross a lightcone and write it to disc.
          * This should happen when kick and drift times are synchronised.*/
@@ -845,21 +849,18 @@ runfof(const int RestartSnapNum, const inttime_t Ti_Current, const struct header
         ActiveParticles Act = init_empty_active_particles(PartManager);
         MyFloat * GradRho = NULL;
         if(sfr_need_to_compute_sph_grad_rho()) {
-            ForceTree gasTree = {0};
+            ForceTreeHmax gasTree(*PartManager, ddecomp, GASMASK, All.OutputDir);
             GradRho = mymalloc2("SPH_GradRho", MyFloat, 3 * SlotsManager->info[0].size);
             /*Allocate the memory for predicted SPH data.*/
             struct sph_pred_data sph_predicted = {0};
-            force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK, All.OutputDir);
             /* computes GradRho with a treewalk. No hsml update as we are reading from a snapshot.*/
             density(&Act, 0, 0, All.BlackHoleOn, times, &timebinmgr, &All.CP, &(sph_predicted.EntVarPred), GradRho, &gasTree, All.UseGPU);
-            force_tree_free(&gasTree);
             slots_free_sph_pred_data(&sph_predicted);
         }
-        ForceTree Tree = {0};
         struct grav_accel_store gg = {0};
         /* Cooling is just for the star formation rate, so does not actually use the random table*/
         RandTable rnd = set_random_numbers(All.RandomSeed, RNDTABLE);
-        cooling_and_starformation(&Act, header->TimeSnapshot, 0, &timebinmgr, &Tree, gg, ddecomp, &All.CP, GradRho, &rnd, NULL);
+        cooling_and_starformation(&Act, header->TimeSnapshot, 0, &timebinmgr, NULL, gg, ddecomp, &All.CP, GradRho, &rnd, NULL);
         free_random_numbers(&rnd);
 
         if(GradRho)
