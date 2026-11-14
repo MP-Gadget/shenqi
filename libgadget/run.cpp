@@ -675,7 +675,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             if(All.BlackHoleOn) {
                 /*Get a new BH details file if the current one is too large.*/
                 rotate_bhdetails_file(&fds, All.OutputDir, RestartSnapNum);
-                blackhole(&Act, atime, &All.CP, &bhtree, gasTree, ddecomp, &times, &timebinmgr, &rnd, units, fds.FdBlackHoles, fds.FdBlackholeDetails, &fds.TotalBHDetailsBytesWritten);
+                blackhole(&Act, atime, &All.CP, gasTree, ddecomp, &times, &timebinmgr, &rnd, units, fds.FdBlackHoles, fds.FdBlackholeDetails, &fds.TotalBHDetailsBytesWritten);
             }
             /**** radiative cooling and star formation *****/
             if(All.CoolingOn)

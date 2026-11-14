@@ -67,13 +67,8 @@ struct BHPriv {
     double hubble;
     struct UnitSystem units;
     Cosmology * CP;
-    /* Counters*/
-    int64_t * N_sph_swallowed;
-    int64_t * N_BH_swallowed;
-    struct kick_factor_data * kf;
     RandTable * rnd;
 };
-#define BH_GET_PRIV(tw) ((struct BHPriv *) (tw->priv))
 
 /*Set the parameters of the star formation module*/
 void set_blackhole_params(ParameterSet * ps);
@@ -81,10 +76,9 @@ void set_blackhole_params(ParameterSet * ps);
 /* Does the black hole feedback and accretion.
  * TimeNextSeedingCheck is the time of the BH next seeding check.
  * It will be compared to the current time and updated after seeding takes place.
- * tree is a valid ForceTree, used for the feedback treewalk.
- * gasTree is a new-style tree containing gas and black holes, used for the accretion treewalk. Its hmax is updated if necessary.
+ * gasTree is a tree containing gas and black holes, used for the accretion and feedback treewalks. Its hmax is updated if necessary.
  */
-void blackhole(const ActiveParticles * act, double atime, Cosmology * CP, ForceTree * tree, ForceTreeHmax * gasTree, DomainDecomp * ddecomp, DriftKickTimes * times, TimeBinMgr * timebinmgr, RandTable * rnd, const struct UnitSystem units, FILE * FdBlackHoles, FILE * FdBlackholeDetails, size_t *bhdetailswritten);
+void blackhole(const ActiveParticles * act, double atime, Cosmology * CP, ForceTreeHmax * gasTree, DomainDecomp * ddecomp, DriftKickTimes * times, TimeBinMgr * timebinmgr, RandTable * rnd, const struct UnitSystem units, FILE * FdBlackHoles, FILE * FdBlackholeDetails, size_t *bhdetailswritten);
 
 /* Make a black hole from the particle at index. Random number generator used for the initial mass drawn from a power law.*/
 void blackhole_make_one(int index, const double atime, const RandTable * const rnd);
