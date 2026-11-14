@@ -253,6 +253,25 @@ public:
         maxNinteractions(0), minNinteractions(INT_MAX)
     {    }
 
+    /* Construct the object which walks the local tree for a single query.
+     * This is called once per query, from inside the OpenMP parallel region, on the rank
+     * which owns the tree being walked. For an exported query that is the remote rank doing
+     * the visiting, not the rank which owns the walking particle.
+     *
+     * Most treewalks send everything they compute back to the walking particle through the
+     * ResultType. Override this in the derived TreeWalk for a walk which instead needs to store
+     * information on the rank doing the visiting, for example because it modifies or records
+     * the particles it finds. The override should pass a pointer to that storage (usually a
+     * member of the OutputType) to the constructor of the LocalTreeWalkType, so that ngbiter can
+     * write to it. That storage is shared between threads: either hand each walk
+     * a per-thread slot (omp_get_thread_num() is valid here) or update it atomically.
+     *
+     * Only the CPU evaluators call this: the storage is host memory, so such a walk cannot run on the GPU.*/
+    LocalTreeWalkType make_local_walk(const QueryType& input)
+    {
+        return LocalTreeWalkType(tree->get_nodes(), input);
+    }
+
     /* Do the distributed tree walking. Warning: as this is a threaded treewalk,
      * it may call visit on particles more than once and in a noneterministic order.
      * Your module should behave correctly in this case!
@@ -590,7 +609,7 @@ private:
                 /* Primary never uses node list. */
                 QueryType input(parts[i], NULL, priv);
                 ResultType result(input);
-                LocalTreeWalkType lv(tree->get_nodes(), input);
+                LocalTreeWalkType lv = static_cast<DerivedType *>(this)->make_local_walk(input);
                 int64_t ninteractions = lv.template visit<TREEWALK_PRIMARY>(input, &result, priv, parts);
                 result.template reduce<TREEWALK_PRIMARY>(i, output, parts);
                 if(maxNinteractions < ninteractions)
@@ -697,7 +716,7 @@ private:
         for(int64_t j = 0; j < nimports_task; j++) {
             QueryType * input = &(imports[j]);
             ResultType * resoutput = new (&results[j]) ResultType(*input);
-            LocalTreeWalkType lv(tree->get_nodes(), *input);
+            LocalTreeWalkType lv = static_cast<DerivedType *>(this)->make_local_walk(*input);
             lv.template visit<TREEWALK_GHOSTS>(*input, resoutput, priv, parts);
         }
     }
