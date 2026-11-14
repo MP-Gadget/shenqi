@@ -489,6 +489,8 @@ class MetalsOutput {
      * This may be less than the MassReturn used to make the query, as gas particles which are too heavy are skipped.
      * It is a separate array because the queries for exported stars may be made after the primary treewalk has reduced.*/
     MyFloat * MassReturned;
+    /* The mass of metals actually returned to the gas by each star, indexed by the star slot.*/
+    MyFloat * MetalReturned;
     star_particle_data * StarParts;
     /* The rest is the storage on the rank doing the visiting: the gas particles
      * which receive the metals, and a lock for each of them.*/
@@ -502,12 +504,14 @@ class MetalsOutput {
         StarParts(slotsmanager->star_slot()), Parts(i_Parts), SphParts(slotsmanager->sph_slot()), MaxGasMass(i_MaxGasMass)
     {
         MassReturned = mymalloc("MassReturned", MyFloat, slotsmanager->info[4].size);
+        MetalReturned = mymalloc("MetalReturned", MyFloat, slotsmanager->info[4].size);
         spin = init_spinlocks(slotsmanager->info[0].size);
     }
 
     ~MetalsOutput()
     {
         free_spinlocks(spin);
+        myfree(MetalReturned);
         myfree(MassReturned);
     }
 
@@ -521,6 +525,8 @@ class MetalsOutput {
         /* Conserve mass returned*/
         parts[place].Mass -= MassReturned[pi];
         StarParts[pi].TotalMassReturned += MassReturned[pi];
+        /* Keep track of the metals which went into the gas*/
+        StarParts[pi].TotalMetalReturned += MetalReturned[pi];
         /* Update the last enrichment time*/
         StarParts[pi].LastEnrichmentMyr = priv->metals->StellarAges[pi];
     }
@@ -531,6 +537,8 @@ class MetalsResult : public TreeWalkResultBase<MetalsQuery, MetalsOutput> {
     /* This is the total mass returned to
      * the surrounding gas particles, for mass conservation.*/
     MyFloat MassReturn = 0;
+    /* This is the total mass of metals returned to the surrounding gas particles.*/
+    MyFloat MetalReturn = 0;
 
     MetalsResult(const MetalsQuery& query):
         TreeWalkResultBase<MetalsQuery, MetalsOutput>(query) {}
@@ -540,6 +548,7 @@ class MetalsResult : public TreeWalkResultBase<MetalsQuery, MetalsOutput> {
     void reduce(int place, const MetalsOutput * output, struct particle_data * const parts)
     {
         TREEWALK_REDUCE(output->MassReturned[parts[place].PI], MassReturn);
+        TREEWALK_REDUCE(output->MetalReturned[parts[place].PI], MetalReturn);
     }
 };
 
@@ -616,6 +625,7 @@ class MetalsLocalTreeWalk: public LocalNgbTreeWalk<MetalsLocalTreeWalk, MetalsQu
         sph.Density *= massfrac;
         /* Keep track of how much was returned for conservation purposes*/
         output->MassReturn += thismass;
+        output->MetalReturn += thismetal;
         const double newmass = particle.Mass;
         unlock_spinlock(pi, visited->spin);
         if(newmass <= 0)
