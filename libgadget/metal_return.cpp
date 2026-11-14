@@ -485,6 +485,8 @@ class MetalsResult : public TreeWalkResultBase<MetalsQuery> {
      * the surrounding gas particles, for mass conservation.
      * This may be less than the MassReturn used to make the query, as gas particles which are too heavy are skipped.*/
     MyFloat MassReturn = 0;
+    /* This is the total mass of metals actually returned to the surrounding gas particles.*/
+    MyFloat MetalReturn = 0;
 
     MetalsResult(const MetalsQuery& query):
         TreeWalkResultBase<MetalsQuery>(query) {}
@@ -493,6 +495,7 @@ class MetalsResult : public TreeWalkResultBase<MetalsQuery> {
     {
         static_cast<TreeWalkResultBase<MetalsQuery>&>(*this) += static_cast<const TreeWalkResultBase<MetalsQuery>&>(other);
         MassReturn += other.MassReturn;
+        MetalReturn += other.MetalReturn;
         return *this;
     }
 };
@@ -529,6 +532,8 @@ class MetalsOutput {
         /* Conserve mass returned*/
         parts[place].Mass -= result.MassReturn;
         StarParts[pi].TotalMassReturned += result.MassReturn;
+        /* Keep track of the metals which went into the gas*/
+        StarParts[pi].TotalMetalReturned += result.MetalReturn;
         /* Update the last enrichment time*/
         StarParts[pi].LastEnrichmentMyr = priv->metals->StellarAges[pi];
     }
@@ -607,6 +612,7 @@ class MetalsLocalTreeWalk: public LocalNgbTreeWalk<MetalsLocalTreeWalk, MetalsQu
         sph.Density *= massfrac;
         /* Keep track of how much was returned for conservation purposes*/
         output->MassReturn += thismass;
+        output->MetalReturn += thismetal;
         const double newmass = particle.Mass;
         unlock_spinlock(pi, visited->spin);
         if(newmass <= 0)
