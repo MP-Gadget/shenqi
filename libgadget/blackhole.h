@@ -1,7 +1,6 @@
 #ifndef __BLACKHOLE_H
 #define __BLACKHOLE_H
 #include "utils/paramset.h"
-#include "forcetree.h"
 #include "forcetree2.h"
 #include "density2.h"
 #include "timebinmgr.h"

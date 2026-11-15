@@ -12,7 +12,7 @@
 #include <libgadget/utils/mymalloc.h>
 #include <libgadget/density2.h>
 #include <libgadget/domain.h>
-#include <libgadget/forcetree.h>
+#include <libgadget/forcetree2.h>
 #include <libgadget/timestep.h>
 #include <libgadget/gravity.h>
 
@@ -52,7 +52,6 @@ static struct density_testdata setup_density(const int64_t nstar = 0)
     particle_alloc_memory(PartManager, BoxSize, maxpart);
     slots_reserve(1, atleast, SlotsManager);
     walltime_init(&CT);
-    init_forcetree_params(0.7);
     data.sph_pred.EntVarPred = NULL;
     /*Set up the domain decomposition parameters*/
     struct DomainParams dmp = {0};

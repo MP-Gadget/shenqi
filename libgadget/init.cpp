@@ -9,7 +9,7 @@
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
 
-#include "forcetree.h"
+#include "forcetree2.h"
 #include "density2.h"
 
 #include "petaio.h"

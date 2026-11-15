@@ -12,7 +12,7 @@
 #include <libgadget/fof.h>
 #include <libgadget/walltime.h>
 #include <libgadget/domain.h>
-#include <libgadget/forcetree.h>
+#include <libgadget/forcetree2.h>
 #include <libgadget/partmanager.h>
 
 static struct ClockTable CT;
@@ -24,7 +24,6 @@ static void setup_domain_params(void)
     dp.TopNodeAllocFactor = 1.;
     dp.SetAsideFactor = 1;
     set_domain_par(dp);
-    init_forcetree_params(0.7);
 }
 
 static void setup_slots(void)

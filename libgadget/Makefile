@@ -15,7 +15,6 @@ TESTED = cooling \
 	hci \
 	slotsmanager \
 	powerspectrum \
-	forcetree \
 	forcetree2 \
 	timebinmgr \
 	neutrinos_lra \
@@ -54,7 +53,7 @@ gravpm.cpp petapm.cpp winds2.cpp \
 stats.cpp drift.cpp checkpoint.cpp \
 slotsmanager.cpp domain.cpp timestep.cpp  plane.cpp \
 exchange.cpp sfr_eff.cpp runtests.cpp run.cpp metal_return.cpp stellar_density2.cpp \
-bhinfo.cpp blackhole.cpp bhaccretion2.cpp bhfeedback2.cpp bhdynfric.cpp forcetree.cpp \
+bhinfo.cpp blackhole.cpp bhaccretion2.cpp bhfeedback2.cpp bhdynfric.cpp \
 uvbg.cpp lenstools.cpp
 
 GADGET_CUDA_SRCS = gravshortcuda.cu densitycuda.cu hydracuda.cu
@@ -129,9 +128,6 @@ objs/test_densitykernel: tests/test_densitykernel.cpp densitykernel.hpp
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_fof: tests/test_fof.cpp libgadget.a libgadget-utils.a
-	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
-
-.objs/test_forcetree: tests/test_forcetree.cpp libgadget.a libgadget-utils.a
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_forcetree2: tests/test_forcetree2.cpp libgadget.a libgadget-utils.a
