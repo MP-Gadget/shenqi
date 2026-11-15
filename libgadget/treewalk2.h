@@ -610,7 +610,13 @@ private:
     void ev_visit(QueryType * queries, ResultType * results, const int64_t WorkSetSize, particle_data * const parts)
     {
         /* We must schedule dynamically so that we have reduced imbalance.
-        * We do not need to worry about the export buffer filling up.*/
+        * We do not need to worry about the export buffer filling up.
+        * Note the chunk size here has not been tuned: it was fixed at 100 when the
+        * primary and secondary walks were merged into this function. Previously the
+        * primary walk used a chunk of WorkSetSize / (4 * nthreads), clamped to [1, 100],
+        * and the secondary walk was scheduled statically. A fixed chunk of 100 means
+        * small work sets (fewer than about 100 * nthreads queries, such as small
+        * import chunks or deep timebins) are spread over only a few threads.*/
         #pragma omp parallel for schedule(dynamic, 100)
         for(int64_t k = 0; k < WorkSetSize; k++) {
             QueryType& input = queries[k];
