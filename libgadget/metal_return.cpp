@@ -13,7 +13,7 @@
 #include "treewalk2.h"
 #include "metal_return.h"
 #include "densitykernel.h"
-#include "density.h"
+#include "density2.h"
 #include "cosmology.h"
 #include "utils/spinlocks.h"
 #include "utils/mymalloc.h"

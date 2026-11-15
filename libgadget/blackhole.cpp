@@ -10,7 +10,7 @@
 #include "slotsmanager.h"
 #include "blackhole.h"
 #include "timestep.h"
-#include "density.h"
+#include "density2.h"
 #include "sfr_eff.h"
 #include "types.h"
 #include "winds.h"

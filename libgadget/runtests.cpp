@@ -3,15 +3,13 @@
 #include <optional>
 
 #include "partmanager.h"
-#include "forcetree.h"
+#include "forcetree2.h"
 #include "gravity.h"
-#include "gravity_old.h"
 #include "petaio.h"
 #include "domain.h"
 #include "run.h"
 #include "density2.h"
 #include "hydra2.h"
-#include "density.h"
 #include "utils/endrun.h"
 #include "utils/system.h"
 #include "utils/mymalloc.h"
@@ -258,11 +256,9 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
 
     gravpm_force(pm, ddecomp, CP, header->TimeSnapshot, header->UnitLength_in_cm, OutputDir.c_str(), header->TimeIC);
 
-    /* The pairwise force uses the old C-style tree; the new tree code uses ForceTreeMoments.
-     * std::optional so the tree can be rebuilt after the PM grid changes.*/
-    ForceTree Tree = {0};
-    force_tree_full(&Tree, ddecomp, 0, OutputDir.c_str());
+    /* std::optional so the tree can be rebuilt after the PM grid changes.*/
     std::optional<ForceTreeMoments> MomTree;
+    MomTree.emplace(*PartManager, ddecomp, nullptr, false, OutputDir);
 
     struct gravshort_tree_params origtreeacc = get_gravshort_treepar();
     /* Reset to normal tree */
@@ -270,38 +266,22 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
         origtreeacc.TreeUseBH = 0;
     struct gravshort_tree_params treeacc = origtreeacc;
     const double rho0 = CP->Omega0 * CP->RhoCrit;
-    set_gravshort_treepar_old(treeacc);
-    grav_short_pair(&Act, pm, &Tree, treeacc.Rcut, rho0);
-    force_tree_free(&Tree);
-    MomTree.emplace(*PartManager, ddecomp, nullptr, false, OutputDir);
 
-    copy_and_mean_accn(PairAccn);
-    std::string fname = OutputDir + "/PART-pairs-" + zpad(RestartSnapNum, 3);
-    petaio_save_snapshot(fname, &IOTable, 0, header->TimeSnapshot, CP);
-
+    /* The reference force is the tree force with zero error (which always opens).*/
     treeacc.ErrTolForceAcc = 0;
     treeacc.BHOpeningAngle = 0;
     set_gravshort_treepar(treeacc);
     grav_short_tree(&Act, pm, &*MomTree, NULL, rho0, times.Ti_Current);
 
-    /* This checks fully opened tree force against pair force*/
-    double meanerr, maxerr, meanangle, maxangle;
-    check_accns(&meanerr,&maxerr, &meanangle, &maxangle, PairAccn);
-    message(0, "Force error, open tree vs pairwise. max : %g mean: %g angle %g max angle %g forcetol: %g\n", maxerr, meanerr, meanangle, maxangle, treeacc.ErrTolForceAcc);
-
-    if(maxerr > 0.1)
-        endrun(2, "Fully open tree force does not agree with pairwise calculation! maxerr %g > 0.1!\n", maxerr);
-
-    fname = OutputDir + "/PART-tree-open-" + zpad(RestartSnapNum, 3);
+    std::string fname = OutputDir + "/PART-tree-open-" + zpad(RestartSnapNum, 3);
     petaio_save_snapshot(fname, &IOTable, 0, header->TimeSnapshot, CP);
 
-    /* This checks tree force against tree force with zero error (which always opens).*/
+    double meanerr, maxerr, meanangle, maxangle;
     copy_and_mean_accn(PairAccn);
 
     /* Check that we get the same answer if we fill up the exchange buffer*/
     treeacc.MaxExportBufferBytes = 2*1024*1024L;
     grav_short_tree(&Act, pm, &*MomTree, NULL, rho0, times.Ti_Current);
-    /* This checks fully opened tree force against pair force*/
     check_accns(&meanerr,&maxerr, &meanangle, &maxangle, PairAccn);
     message(0, "Force error, filling buffer vs not, open tree. max : %g mean: %g angle %g max angle %g forcetol: %g\n", maxerr, meanerr, meanangle, maxangle, treeacc.ErrTolForceAcc);
     if(maxerr > 1e-7)
@@ -366,7 +346,8 @@ run_gravity_test(int RestartSnapNum, Cosmology * CP, const double Asmth, const i
     domain_free(ddecomp);
 }
 
-/* Compute accelerations using two different routines, check they give the same answer. */
+/* Compute the gravity, density and hydro forces on the CPU and on the GPU, and check they give the same answer.
+ * Without the GPU this only runs the CPU code.*/
 void
 run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const double Asmth, const int Nmesh, const inttime_t Ti_Current, TimeBinMgr * timebinmgr, const std::string OutputDir, const struct header_data * header)
 {
@@ -394,16 +375,12 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
 
     gravpm_force(pm, ddecomp, CP, header->TimeSnapshot, header->UnitLength_in_cm, OutputDir.c_str(), header->TimeIC);
 
-    /* grav_short_tree_old uses the old C-style tree; grav_short_tree uses ForceTreeMoments.*/
-    ForceTree Tree = {0};
-    force_tree_full(&Tree, ddecomp, 0, OutputDir.c_str());
     std::optional<ForceTreeMoments> MomTree;
     MomTree.emplace(*PartManager, ddecomp, nullptr, false, OutputDir);
 
     struct gravshort_tree_params treeacc = get_gravshort_treepar();
     /* Use the BH tree on the first iteration for consistency */
     treeacc.TreeUseBH = 2;
-    /* Compare the new and old gravity tree. */
     set_gravshort_treepar(treeacc);
     const double rho0 = CP->Omega0 * CP->RhoCrit;
     grav_short_tree(&Act, pm, &*MomTree, NULL, rho0, times.Ti_Current, false);
@@ -414,25 +391,10 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     grav_short_tree(&Act, pm, &*MomTree, NULL, rho0, times.Ti_Current, false);
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
-    double newgrav = second() - start;
+    [[maybe_unused]] double newgrav = second() - start;
+    /* The CPU force is the reference for the GPU force.*/
     copy_and_mean_accn(PairAccn);
-    treeacc.TreeUseBH = 2;
-    set_gravshort_treepar_old(treeacc);
-    grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
-    #pragma omp barrier
-    MPI_Barrier(MPI_COMM_WORLD);
-    start = second();
-    grav_short_tree_old(&Act, pm, &Tree, NULL, rho0, times.Ti_Current);
-    #pragma omp barrier
-    MPI_Barrier(MPI_COMM_WORLD);
-    double oldgrav = second() - start;
-    /* This checks fully opened tree force against pair force*/
-    double meanerr, maxerr, meanangle, maxangle;
-    check_accns(&meanerr,&maxerr, &meanangle, &maxangle, PairAccn);
-    message(0, "Grav tree new vs old. max : %g mean: %g angle %g max angle %g forcetol: %g time: %g->%g\n", maxerr, meanerr, meanangle, maxangle, treeacc.ErrTolForceAcc, oldgrav, newgrav);
-
-    if(maxerr > 1e-5)
-        endrun(2, "New and old tree forces do not agree! maxerr %g!\n", maxerr);
+    [[maybe_unused]] double meanerr, maxerr, meanangle, maxangle;
 
 #ifdef USE_CUDA
     if(DoGPUTests) {
@@ -452,19 +414,15 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
             endrun(2, "CPU and GPU tree forces do not agree! maxerr %g\n", maxerr);
     }
 #endif
-    force_tree_free(&Tree);
     MomTree.reset();
     petapm_destroy(pm);
 
     myfree(PairAccn);
 
-    /* Check density code is the same.
-     * density_old uses the old C-style tree; density and hydro_force use ForceTreeHmax.*/
-    ForceTree gasTree = {0};
+    /* Check density code is the same. density and hydro_force use ForceTreeHmax.*/
     MyFloat * GradRho = mymalloc2("SPH_GradRho", MyFloat, 3 * SlotsManager->info[0].size);
     /*Allocate the memory for predicted SPH data.*/
     struct sph_pred_data sph_predicted = {0};
-    force_tree_rebuild_mask(&gasTree, ddecomp, GASMASK, OutputDir.c_str());
     ForceTreeHmax gasTreeHmax(*PartManager, ddecomp, GASMASK, OutputDir);
     /* computes GradRho with a treewalk. No hsml update as we are reading from a snapshot.*/
     #pragma omp barrier
@@ -473,33 +431,19 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
     density(&Act, 0, 1, 1, times, timebinmgr, CP, &(sph_predicted.EntVarPred), GradRho, &gasTreeHmax);
     #pragma omp barrier
     MPI_Barrier(MPI_COMM_WORLD);
-    double newdens = second() - start;
+    [[maybe_unused]] double newdens = second() - start;
+    /* Each call to density allocates the predicted SPH data again.*/
     slots_free_sph_pred_data(&sph_predicted);
-    sph_predicted.EntVarPred = NULL;
     double * Density = mymalloc2("Density", double, PartManager->NumPart);
     double * Hsml = mymalloc2("Hsml", double, PartManager->NumPart);
     double * EgyWtDensity = mymalloc2("EgyWtDensity", double, PartManager->NumPart);
+    /* The CPU density is the reference for the GPU density.*/
     copy_density(Density, Hsml, EgyWtDensity);
-
-    struct density_params dp = get_densitypar();
-    set_densitypar_old(dp);
-    #pragma omp barrier
-    MPI_Barrier(MPI_COMM_WORLD);
-    start = second();
-    density_old(&Act, 0, 1, 1, times, timebinmgr, CP, &sph_predicted, GradRho, &gasTree);
-    #pragma omp barrier
-    MPI_Barrier(MPI_COMM_WORLD);
-    double olddens = second() - start;
-
-    double meanhserr, maxhserr, meandserr, maxdserr, maxedgserr, meanedgserr;
-    check_density(&meanhserr, &maxhserr, &meandserr, &maxdserr, &meanedgserr, &maxedgserr, Density, Hsml, EgyWtDensity);
-    message(0, "Density %% err, new vs old tree. max : %g mean: %g hs %% err: max: %g mean: %g egywt: max %g mean %g time %g -> %g\n", maxdserr, meandserr, maxhserr, meanhserr, maxedgserr, meanedgserr, olddens, newdens);
-    if(maxerr > 1e-5)
-        endrun(2, "New and old densities do not agree! maxerr %g\n", maxerr);
 
 #ifdef USE_CUDA
     if(DoGPUTests) {
         /* Compare the CPU and GPU density. */
+        double meanhserr, maxhserr, meandserr, maxdserr, maxedgserr, meanedgserr;
         start = second();
         /* Final argument signals to use the GPU*/
         density(&Act, 0, 1, 1, times, timebinmgr, CP, &(sph_predicted.EntVarPred), GradRho, &gasTreeHmax, true);
@@ -551,7 +495,6 @@ run_consistency_test(int RestartSnapNum, bool DoGPUTests, Cosmology * CP, const 
 #endif
 
     slots_free_sph_pred_data(&sph_predicted);
-    force_tree_free(&gasTree);
     myfree(GradRho);
 
     std::string fname = OutputDir + "/PART-consistent-" + zpad(RestartSnapNum, 3);

@@ -42,8 +42,6 @@ include ../Makefile.version
 #
 
 GADGET_C_SRCS =  partmanager.c \
-	 density.c treewalk.c \
-	 gravshort-tree.c gravshort-pair.c \
 	 gravity.c \
 	 densitykernel.c
 
@@ -118,7 +116,7 @@ objs/test_densitykernel: tests/test_densitykernel.cpp densitykernel.hpp
 .objs/test_exchange: tests/test_exchange.cpp .objs/exchange.o libgadget.a libgadget-utils.a
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_density: tests/test_density.cpp .objs/density.o libgadget.a libgadget-utils.a
+.objs/test_density: tests/test_density.cpp .objs/density2.o libgadget.a libgadget-utils.a
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_metal_return: tests/test_metal_return.cpp .objs/metal_return.o libgadget.a libgadget-utils.a
