@@ -51,7 +51,7 @@ GADGET_CPP_SRCS = hydra2.cpp gravshort-tree2.cpp walltime.cpp \
 	density2.cpp veldisp2.cpp hci.cpp init.cpp powerspectrum.cpp \
 cooling.cpp cooling_rates.cpp cooling_uvfluc.cpp cooling_qso_lightup.cpp \
 cosmology.cpp neutrinos_lra.cpp omega_nu_single.cpp timebinmgr.cpp lightcone.cpp \
-fof.cpp fofpetaio.cpp petaio.cpp \
+fof.cpp fof2.cpp fofpetaio.cpp petaio.cpp \
 gravpm.cpp petapm.cpp winds2.cpp \
 stats.cpp drift.cpp checkpoint.cpp \
 slotsmanager.cpp domain.cpp timestep.cpp  plane.cpp \
