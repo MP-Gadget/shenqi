@@ -41,7 +41,6 @@ include ../Makefile.version
 #
 
 GADGET_C_SRCS =  partmanager.c \
-	 gravity.c \
 	 densitykernel.c
 
 GADGET_CPP_SRCS = hydra2.cpp gravshort-tree2.cpp walltime.cpp \
