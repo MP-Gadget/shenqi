@@ -12,7 +12,7 @@
 #include "slotsmanager.h"
 #include "treewalk2.h"
 #include "metal_return.h"
-#include "densitykernel.h"
+#include "densitykernel.hpp"
 #include "density2.h"
 #include "cosmology.h"
 #include "utils/spinlocks.h"
@@ -426,11 +426,10 @@ class MetalsPriv : public ParamTypeBase {
     struct MetalReturnPriv * metals;
     const star_particle_data * StarParts;
     int SPHWeighting;
-    enum DensityKernelType KernelType;
 
     MetalsPriv(const double BoxSize, struct MetalReturnPriv * const i_metals, slots_manager_type * slotsmanager):
         ParamTypeBase(BoxSize), metals(i_metals), StarParts(slotsmanager->star_slot()),
-        SPHWeighting(MetalParams.SPHWeighting), KernelType(GetDensityKernelType())
+        SPHWeighting(MetalParams.SPHWeighting)
     {}
 };
 
@@ -544,34 +543,33 @@ class MetalsOutput {
  * weighted by the SPH kernel distance from the star.
  * This changes the gas particles, which are on the rank doing the visiting.
  */
-class MetalsLocalTreeWalk: public LocalNgbTreeWalk<MetalsLocalTreeWalk, MetalsQuery, MetalsResult, MetalsPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC, GASMASK>
+template <typename KernelType>
+class MetalsLocalTreeWalk: public LocalNgbTreeWalk<MetalsLocalTreeWalk<KernelType>, MetalsQuery, MetalsResult, MetalsPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC, GASMASK>
 {
     public:
-    DensityKernel kernel;
+    KernelType kernel;
     /* The gas particles on the rank doing the visiting. Several stars may enrich
      * the same gas particle at once, so each gas particle is locked while it is changed.*/
     MetalsOutput * const visited;
 
-    MetalsLocalTreeWalk(const HmaxNODE * const Nodes, const MetalsQuery& input, const enum DensityKernelType KernelType, MetalsOutput * const i_visited):
-    LocalNgbTreeWalk<MetalsLocalTreeWalk, MetalsQuery, MetalsResult, MetalsPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC, GASMASK>(Nodes, input),
-    visited(i_visited)
-    {
-        density_kernel_init(&kernel, input.Hsml, KernelType);
-    }
+    MetalsLocalTreeWalk(const HmaxNODE * const Nodes, const MetalsQuery& input, MetalsOutput * const i_visited):
+    LocalNgbTreeWalk<MetalsLocalTreeWalk<KernelType>, MetalsQuery, MetalsResult, MetalsPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC, GASMASK>(Nodes, input),
+    kernel(input.Hsml), visited(i_visited)
+    {}
 
     void ngbiter(MetalsQuery& input, const particle_data& const_particle, MetalsResult * output, const MetalsPriv& priv)
     {
         double dist[3];
         const double r2 = this->get_distance(input, const_particle, priv.BoxSize, dist);
 
-        if(!(r2 > 0 && r2 < kernel.HH))
+        if(!(r2 > 0 && r2 < kernel.H * kernel.H))
             return;
 
         double wk = 1;
-        const double u = sqrt(r2) * kernel.Hinv;
+        const double u = sqrt(r2) / kernel.H;
 
         if(priv.SPHWeighting)
-            wk = density_kernel_wk(&kernel, u);
+            wk = kernel.wk(u);
         double ThisMetals[NMETALS];
         if(input.StarVolumeSPH == 0)
             endrun(3, "StarVolumeSPH %g hsml %g\n", input.StarVolumeSPH, input.Hsml);
@@ -623,14 +621,15 @@ class MetalsLocalTreeWalk: public LocalNgbTreeWalk<MetalsLocalTreeWalk, MetalsQu
 
 class MetalsTopTreeWalk: public TopTreeWalk<MetalsQuery, MetalsPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
-class MetalsTreeWalk: public TreeWalk<MetalsTreeWalk, MetalsQuery, MetalsResult, MetalsLocalTreeWalk, MetalsTopTreeWalk, MetalsPriv, MetalsOutput, ForceTreeHmax> {
+template <typename KernelType>
+class MetalsTreeWalk: public TreeWalk<MetalsTreeWalk<KernelType>, MetalsQuery, MetalsResult, MetalsLocalTreeWalk<KernelType>, MetalsTopTreeWalk, MetalsPriv, MetalsOutput, ForceTreeHmax> {
     public:
-    using TreeWalk::TreeWalk;
+    using MetalsTreeWalk::TreeWalk::TreeWalk;
 
     /* Give each local walk the gas particles of the rank doing the visiting, which it changes.*/
-    MetalsLocalTreeWalk make_local_walk(const MetalsQuery& input)
+    MetalsLocalTreeWalk<KernelType> make_local_walk(const MetalsQuery& input)
     {
-        return MetalsLocalTreeWalk(tree->get_nodes(), input, priv.KernelType, output);
+        return MetalsLocalTreeWalk<KernelType>(this->tree->get_nodes(), input, this->output);
     }
 };
 
@@ -654,8 +653,26 @@ metal_return_treewalk(const ActiveParticles * act, const ForceTreeHmax * const t
     {
         MetalsPriv priv(PartManager->BoxSize, metals, SlotsManager);
         MetalsOutput output(metals->MaxGasMass, parts, SlotsManager);
-        MetalsTreeWalk tw("METALS", tree, priv, &output);
-        tw.run(MetalStars, NumMetalStars, parts, comm);
+        /* The kernel is a compile-time parameter of the treewalk, so pick the walk for the kernel in use.*/
+        switch(GetDensityKernelType()) {
+            case DENSITY_KERNEL_CUBIC_SPLINE:
+                {
+                    MetalsTreeWalk<CubicDensityKernel> tw("METALS", tree, priv, &output);
+                    tw.run(MetalStars, NumMetalStars, parts, comm);
+                }
+                break;
+            case DENSITY_KERNEL_QUARTIC_SPLINE:
+                {
+                    MetalsTreeWalk<QuarticDensityKernel> tw("METALS", tree, priv, &output);
+                    tw.run(MetalStars, NumMetalStars, parts, comm);
+                }
+                break;
+            default: //DENSITY_KERNEL_QUINTIC_SPLINE
+                {
+                    MetalsTreeWalk<QuinticDensityKernel> tw("METALS", tree, priv, &output);
+                    tw.run(MetalStars, NumMetalStars, parts, comm);
+                }
+        }
     }
     myfree(MetalStars);
 }

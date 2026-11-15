@@ -7,7 +7,7 @@
 
 #include "physconst.h"
 #include "gravity.h"
-#include "densitykernel.h"
+#include "densitykernel.hpp"
 #include "treewalk2.h"
 #include "slotsmanager.h"
 #include "blackhole.h"
@@ -70,7 +70,6 @@ class BHAccretionPriv : public ParamTypeBase {
     bh_particle_data * BhParts;
     /* Parameters of the model*/
     struct BlackholeParams params;
-    enum DensityKernelType KernelType;
     /* Black holes closer than this may merge.*/
     double MergeDistance;
     bool RepositionEnabled;
@@ -78,7 +77,7 @@ class BHAccretionPriv : public ParamTypeBase {
     BHAccretionPriv(const double BoxSize, const double i_atime, const KickFactorData& i_kf, const RandTable * const i_rnd, slots_manager_type * slotsmanager):
         ParamTypeBase(BoxSize), atime(i_atime), kf(i_kf), rnd(i_rnd),
         SphParts(slotsmanager->sph_slot()), BhParts(slotsmanager->bh_slot()),
-        params(blackhole_params), KernelType(GetDensityKernelType()),
+        params(blackhole_params),
         /* We use 2 times the gravitational softening as the merging criterion.*/
         MergeDistance(2*FORCE_SOFTENING()/2.8), RepositionEnabled(BHGetRepositionEnabled() == 1)
     {}
@@ -288,20 +287,19 @@ class BHAccretionOutput {
 /* This treewalk marks all black holes and gas which can be swallowed with a SwallowID of a potential swallower,
  * and computes the kernel sums of the gas around the black hole.
  * The treewalk is symmetric, for the black hole mergers.*/
-class BHAccretionLocalTreeWalk: public LocalNgbTreeWalk<BHAccretionLocalTreeWalk, BHAccretionQuery, BHAccretionResult, BHAccretionPriv, HmaxNODE, NGB_TREEFIND_SYMMETRIC, GASMASK + BHMASK>
+template <typename KernelType>
+class BHAccretionLocalTreeWalk: public LocalNgbTreeWalk<BHAccretionLocalTreeWalk<KernelType>, BHAccretionQuery, BHAccretionResult, BHAccretionPriv, HmaxNODE, NGB_TREEFIND_SYMMETRIC, GASMASK + BHMASK>
 {
     public:
-    DensityKernel kernel;
+    KernelType kernel;
     /* The swallow markers for the particles on the rank doing the visiting. Shared between threads, so updated atomically.*/
     MyIDType * const SPH_SwallowID;
     MyIDType * const BH_SwallowID;
 
-    BHAccretionLocalTreeWalk(const HmaxNODE * const Nodes, const BHAccretionQuery& input, const enum DensityKernelType KernelType, MyIDType * const i_SPH_SwallowID, MyIDType * const i_BH_SwallowID):
-    LocalNgbTreeWalk<BHAccretionLocalTreeWalk, BHAccretionQuery, BHAccretionResult, BHAccretionPriv, HmaxNODE, NGB_TREEFIND_SYMMETRIC, GASMASK + BHMASK>(Nodes, input),
-    SPH_SwallowID(i_SPH_SwallowID), BH_SwallowID(i_BH_SwallowID)
-    {
-        density_kernel_init(&kernel, input.Hsml, KernelType);
-    }
+    BHAccretionLocalTreeWalk(const HmaxNODE * const Nodes, const BHAccretionQuery& input, MyIDType * const i_SPH_SwallowID, MyIDType * const i_BH_SwallowID):
+    LocalNgbTreeWalk<BHAccretionLocalTreeWalk<KernelType>, BHAccretionQuery, BHAccretionResult, BHAccretionPriv, HmaxNODE, NGB_TREEFIND_SYMMETRIC, GASMASK + BHMASK>(Nodes, input),
+    kernel(input.Hsml), SPH_SwallowID(i_SPH_SwallowID), BH_SwallowID(i_BH_SwallowID)
+    {}
 
     void ngbiter(BHAccretionQuery& input, const particle_data& particle, BHAccretionResult * output, const BHAccretionPriv& priv)
     {
@@ -382,11 +380,11 @@ class BHAccretionLocalTreeWalk: public LocalNgbTreeWalk<BHAccretionLocalTreeWalk
         }
 
         /* Everything else needs a gas particle inside the kernel of the black hole*/
-        if(particle.Type != 0 || !(r2 < kernel.HH))
+        if(particle.Type != 0 || !(r2 < kernel.H * kernel.H))
             return;
 
-        const double u = r * kernel.Hinv;
-        const double wk = density_kernel_wk(&kernel, u);
+        const double u = r / kernel.H;
+        const double wk = kernel.wk(u);
         const double mass_j = particle.Mass;
         const sph_particle_data& sph = priv.SphParts[particle.PI];
 
@@ -446,14 +444,15 @@ class BHAccretionLocalTreeWalk: public LocalNgbTreeWalk<BHAccretionLocalTreeWalk
 
 class BHAccretionTopTreeWalk: public TopTreeWalk<BHAccretionQuery, BHAccretionPriv, HmaxNODE, NGB_TREEFIND_SYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
-class BHAccretionTreeWalk: public TreeWalk<BHAccretionTreeWalk, BHAccretionQuery, BHAccretionResult, BHAccretionLocalTreeWalk, BHAccretionTopTreeWalk, BHAccretionPriv, BHAccretionOutput, ForceTreeHmax> {
+template <typename KernelType>
+class BHAccretionTreeWalk: public TreeWalk<BHAccretionTreeWalk<KernelType>, BHAccretionQuery, BHAccretionResult, BHAccretionLocalTreeWalk<KernelType>, BHAccretionTopTreeWalk, BHAccretionPriv, BHAccretionOutput, ForceTreeHmax> {
     public:
-    using TreeWalk::TreeWalk;
+    using BHAccretionTreeWalk::TreeWalk::TreeWalk;
 
     /* Give each local walk the swallow markers, which are stored on the rank doing the visiting.*/
-    BHAccretionLocalTreeWalk make_local_walk(const BHAccretionQuery& input)
+    BHAccretionLocalTreeWalk<KernelType> make_local_walk(const BHAccretionQuery& input)
     {
-        return BHAccretionLocalTreeWalk(tree->get_nodes(), input, priv.KernelType, output->SPH_SwallowID, output->BH_SwallowID);
+        return BHAccretionLocalTreeWalk<KernelType>(this->tree->get_nodes(), input, this->output->SPH_SwallowID, this->output->BH_SwallowID);
     }
 };
 
@@ -486,6 +485,24 @@ blackhole_accretion(int * ActiveBlackHoles, const int64_t NumActiveBlackHoles, F
 
     BHAccretionPriv priv(PartManager->BoxSize, bhpriv->atime, kf, bhpriv->rnd, SlotsManager);
     BHAccretionOutput output(bhpriv, timebinmgr, SlotsManager);
-    BHAccretionTreeWalk tw("BH_ACCRETION", tree, priv, &output);
-    tw.run(ActiveBlackHoles, NumActiveBlackHoles, PartManager->Base, comm);
+    /* The kernel is a compile-time parameter of the treewalk, so pick the walk for the kernel in use.*/
+    switch(GetDensityKernelType()) {
+        case DENSITY_KERNEL_CUBIC_SPLINE:
+            {
+                BHAccretionTreeWalk<CubicDensityKernel> tw("BH_ACCRETION", tree, priv, &output);
+                tw.run(ActiveBlackHoles, NumActiveBlackHoles, PartManager->Base, comm);
+            }
+            break;
+        case DENSITY_KERNEL_QUARTIC_SPLINE:
+            {
+                BHAccretionTreeWalk<QuarticDensityKernel> tw("BH_ACCRETION", tree, priv, &output);
+                tw.run(ActiveBlackHoles, NumActiveBlackHoles, PartManager->Base, comm);
+            }
+            break;
+        default: //DENSITY_KERNEL_QUINTIC_SPLINE
+            {
+                BHAccretionTreeWalk<QuinticDensityKernel> tw("BH_ACCRETION", tree, priv, &output);
+                tw.run(ActiveBlackHoles, NumActiveBlackHoles, PartManager->Base, comm);
+            }
+    }
 }

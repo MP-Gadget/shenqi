@@ -5,7 +5,7 @@
 #include <omp.h>
 
 #include "physconst.h"
-#include "densitykernel.h"
+#include "densitykernel.hpp"
 #include "treewalk2.h"
 #include "slotsmanager.h"
 #include "blackhole.h"
@@ -66,14 +66,13 @@ class BHFeedbackPriv : public ParamTypeBase {
     const bh_particle_data * BhParts;
     /* Parameters of the model*/
     struct BlackholeParams params;
-    enum DensityKernelType KernelType;
 
     BHFeedbackPriv(const double BoxSize, const struct BHPriv * const bhpriv, const KickFactorData& i_kf, TimeBinMgr * i_timebinmgr, slots_manager_type * slotsmanager):
         ParamTypeBase(BoxSize), atime(bhpriv->atime), a3inv(bhpriv->a3inv), hubble(bhpriv->hubble), kf(i_kf), timebinmgr(i_timebinmgr),
         units(bhpriv->units), rnd(bhpriv->rnd),
         SPH_SwallowID(bhpriv->SPH_SwallowID), BH_SwallowID(bhpriv->BH_SwallowID),
         BH_FeedbackWeightSum(bhpriv->BH_FeedbackWeightSum), KEflag(bhpriv->KEflag), BhParts(slotsmanager->bh_slot()),
-        params(blackhole_params), KernelType(GetDensityKernelType())
+        params(blackhole_params)
     {}
 };
 
@@ -251,10 +250,11 @@ class BHFeedbackOutput {
 /* Performs the black hole swallowing and mergers, and the feedback.
  * This treewalk changes the particles it finds: they are on the rank doing the visiting.
  * The treewalk is symmetric because the black hole mergers should be symmetric.*/
-class BHFeedbackLocalTreeWalk: public LocalNgbTreeWalk<BHFeedbackLocalTreeWalk, BHFeedbackQuery, BHFeedbackResult, BHFeedbackPriv, HmaxNODE, NGB_TREEFIND_SYMMETRIC, GASMASK + BHMASK>
+template <typename KernelType>
+class BHFeedbackLocalTreeWalk: public LocalNgbTreeWalk<BHFeedbackLocalTreeWalk<KernelType>, BHFeedbackQuery, BHFeedbackResult, BHFeedbackPriv, HmaxNODE, NGB_TREEFIND_SYMMETRIC, GASMASK + BHMASK>
 {
     public:
-    DensityKernel kernel;
+    KernelType kernel;
     /* The particles on the rank doing the visiting, which this walk may change.
      * A particle may be found by several threads at once, so shared quantities are updated atomically.*/
     BHFeedbackOutput * const visited;
@@ -262,12 +262,10 @@ class BHFeedbackLocalTreeWalk: public LocalNgbTreeWalk<BHFeedbackLocalTreeWalk, 
     int64_t * const N_sph_swallowed;
     int64_t * const N_BH_swallowed;
 
-    BHFeedbackLocalTreeWalk(const HmaxNODE * const Nodes, const BHFeedbackQuery& input, const enum DensityKernelType KernelType, BHFeedbackOutput * const i_visited, const int tid):
-    LocalNgbTreeWalk<BHFeedbackLocalTreeWalk, BHFeedbackQuery, BHFeedbackResult, BHFeedbackPriv, HmaxNODE, NGB_TREEFIND_SYMMETRIC, GASMASK + BHMASK>(Nodes, input),
-    visited(i_visited), N_sph_swallowed(&i_visited->N_sph_swallowed[tid]), N_BH_swallowed(&i_visited->N_BH_swallowed[tid])
-    {
-        density_kernel_init(&kernel, input.Hsml, KernelType);
-    }
+    BHFeedbackLocalTreeWalk(const HmaxNODE * const Nodes, const BHFeedbackQuery& input, BHFeedbackOutput * const i_visited, const int tid):
+    LocalNgbTreeWalk<BHFeedbackLocalTreeWalk<KernelType>, BHFeedbackQuery, BHFeedbackResult, BHFeedbackPriv, HmaxNODE, NGB_TREEFIND_SYMMETRIC, GASMASK + BHMASK>(Nodes, input),
+    kernel(input.Hsml), visited(i_visited), N_sph_swallowed(&i_visited->N_sph_swallowed[tid]), N_BH_swallowed(&i_visited->N_BH_swallowed[tid])
+    {}
 
     void ngbiter(BHFeedbackQuery& input, const particle_data& const_particle, BHFeedbackResult * output, const BHFeedbackPriv& priv)
     {
@@ -336,16 +334,16 @@ class BHFeedbackLocalTreeWalk: public LocalNgbTreeWalk<BHFeedbackLocalTreeWalk, 
         const MyIDType swallowid = priv.SPH_SwallowID[particle.PI];
 
         /* perform thermal or kinetic feedback into non-swallowed particles. */
-        if(swallowid == 0 && (r2 < kernel.HH))
+        if(swallowid == 0 && (r2 < kernel.H * kernel.H))
         {
             /* For accretion stability, set the BH timestep to the smallest gas timestep.
              * Ignore swallowed or wind gas particles.*/
             if (output->BH_minTimeBin > particle.TimeBinHydro)
                 output->BH_minTimeBin = particle.TimeBinHydro;
 
-            const double u = sqrt(r2) * kernel.Hinv;
+            const double u = sqrt(r2) / kernel.H;
             const double mass_j = particle.Mass;
-            const double wk = density_kernel_wk(&kernel, u);
+            const double wk = kernel.wk(u);
 
             /* thermal feedback */
             if(input.FeedbackWeightSum > 0 && input.FeedbackEnergy > 0 && input.FdbkChannel == 0 && particle.Mass > 0){
@@ -409,14 +407,15 @@ class BHFeedbackLocalTreeWalk: public LocalNgbTreeWalk<BHFeedbackLocalTreeWalk, 
 
 class BHFeedbackTopTreeWalk: public TopTreeWalk<BHFeedbackQuery, BHFeedbackPriv, HmaxNODE, NGB_TREEFIND_SYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
-class BHFeedbackTreeWalk: public TreeWalk<BHFeedbackTreeWalk, BHFeedbackQuery, BHFeedbackResult, BHFeedbackLocalTreeWalk, BHFeedbackTopTreeWalk, BHFeedbackPriv, BHFeedbackOutput, ForceTreeHmax> {
+template <typename KernelType>
+class BHFeedbackTreeWalk: public TreeWalk<BHFeedbackTreeWalk<KernelType>, BHFeedbackQuery, BHFeedbackResult, BHFeedbackLocalTreeWalk<KernelType>, BHFeedbackTopTreeWalk, BHFeedbackPriv, BHFeedbackOutput, ForceTreeHmax> {
     public:
-    using TreeWalk::TreeWalk;
+    using BHFeedbackTreeWalk::TreeWalk::TreeWalk;
 
     /* Give each local walk the particles of the rank doing the visiting, which it changes, and the counters for its thread.*/
-    BHFeedbackLocalTreeWalk make_local_walk(const BHFeedbackQuery& input)
+    BHFeedbackLocalTreeWalk<KernelType> make_local_walk(const BHFeedbackQuery& input)
     {
-        return BHFeedbackLocalTreeWalk(tree->get_nodes(), input, priv.KernelType, output, omp_get_thread_num());
+        return BHFeedbackLocalTreeWalk<KernelType>(this->tree->get_nodes(), input, this->output, omp_get_thread_num());
     }
 };
 
@@ -440,8 +439,26 @@ blackhole_feedback(int * ActiveBlackHoles, const int64_t NumActiveBlackHoles, co
     {
         BHFeedbackPriv priv(PartManager->BoxSize, bhpriv, kf, timebinmgr, SlotsManager);
         BHFeedbackOutput output(bhpriv, parts, SlotsManager);
-        BHFeedbackTreeWalk tw("BH_FEEDBACK", tree, priv, &output);
-        tw.run(FeedbackBlackHoles, NumFeedbackBlackHoles, parts, comm);
+        /* The kernel is a compile-time parameter of the treewalk, so pick the walk for the kernel in use.*/
+        switch(GetDensityKernelType()) {
+            case DENSITY_KERNEL_CUBIC_SPLINE:
+                {
+                    BHFeedbackTreeWalk<CubicDensityKernel> tw("BH_FEEDBACK", tree, priv, &output);
+                    tw.run(FeedbackBlackHoles, NumFeedbackBlackHoles, parts, comm);
+                }
+                break;
+            case DENSITY_KERNEL_QUARTIC_SPLINE:
+                {
+                    BHFeedbackTreeWalk<QuarticDensityKernel> tw("BH_FEEDBACK", tree, priv, &output);
+                    tw.run(FeedbackBlackHoles, NumFeedbackBlackHoles, parts, comm);
+                }
+                break;
+            default: //DENSITY_KERNEL_QUINTIC_SPLINE
+                {
+                    BHFeedbackTreeWalk<QuinticDensityKernel> tw("BH_FEEDBACK", tree, priv, &output);
+                    tw.run(FeedbackBlackHoles, NumFeedbackBlackHoles, parts, comm);
+                }
+        }
         N_sph_swallowed = output.tot_sph_swallowed();
         N_BH_swallowed = output.tot_BH_swallowed();
     }
