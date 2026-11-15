@@ -21,7 +21,6 @@
 
 #include "slotsmanager.h"
 #include "partmanager.h"
-#include "densitykernel.h"
 #include "utils/mymalloc.h"
 
 /*! \file fof.c
@@ -80,6 +79,19 @@ void set_fof_testpar(int FOFSaveParticles, double FOFHaloLinkingLength, int FOFH
 void fof_init(double DMMeanSeparation)
 {
     fof_params.FOFHaloComovingLinkingLength = fof_params.FOFHaloLinkingLength * DMMeanSeparation;
+}
+
+static void crossproduct(const double v1[3], const double v2[3], double out[3])
+{
+    static const int D2[3] = {1, 2, 0};
+    static const int D3[3] = {2, 0, 1};
+
+    for(int d1 = 0; d1 < 3; d1++)
+    {
+        const int d2 = D2[d1];
+        const int d3 = D3[d1];
+        out[d1] = (v1[d2] * v2[d3] -  v2[d2] * v1[d3]);
+    }
 }
 
 static double fof_periodic_wrap(double x, double BoxSize)

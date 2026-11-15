@@ -1,5 +1,5 @@
 #include <libgadget/gravity.h>
-#include <libgadget/densitykernel.h>
+#include <libgadget/densitykernel.hpp>
 #include <libgadget/timebinmgr.h>
 #include <libgadget/timestep.h>
 #include <libgadget/cooling_rates.h>

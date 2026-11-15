@@ -18,11 +18,12 @@ constexpr static double normcoeff = 2.0;
 
 #include "types.h"
 
-/*enum DensityKernelType {
+/* The kernel chosen at runtime. Each value corresponds to one of the kernel classes below.*/
+enum DensityKernelType {
     DENSITY_KERNEL_CUBIC_SPLINE = 1,
     DENSITY_KERNEL_QUINTIC_SPLINE = 2,
     DENSITY_KERNEL_QUARTIC_SPLINE = 4,
-};*/
+};
 
 /* support is 2 H / h (so it can be an integer), see Price 2011: arxiv 1012.1885*/
 template <typename DerivedKernel, int support> class DensityKrnl
@@ -80,7 +81,7 @@ protected:
  *
  * wk_xx is Price eq 6 , 7, 8, without sigma
  *
- * the function density_kernel_wk and _dwk takes u to maintain compatibility
+ * the wk and dwk methods take u to maintain compatibility
  * with volker's gadget.
  */
 constexpr double cbsigma[3] = {2 / 3., 10 / (7 * M_PI), 1 / M_PI};

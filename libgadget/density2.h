@@ -5,7 +5,7 @@
 #include "cosmology.h"
 #include "timestep.h"
 #include "forcetree2.h"
-#include "densitykernel.h"
+#include "densitykernel.hpp"
 #include "physconst.h"
 
 struct density_params

@@ -40,8 +40,7 @@ include ../Makefile.version
 # make V=1 to see the command line
 #
 
-GADGET_C_SRCS =  partmanager.c \
-	 densitykernel.c
+GADGET_C_SRCS =  partmanager.c
 
 GADGET_CPP_SRCS = hydra2.cpp gravshort-tree2.cpp walltime.cpp \
 	density2.cpp veldisp2.cpp hci.cpp init.cpp powerspectrum.cpp \
