@@ -2,7 +2,6 @@
 #include <libgadget/densitykernel.h>
 #include <libgadget/timebinmgr.h>
 #include <libgadget/timestep.h>
-#include <libgadget/treewalk.h>
 #include <libgadget/cooling_rates.h>
 #include <libgadget/winds.h>
 #include <libgadget/sfr_eff.h>
@@ -161,7 +160,7 @@ create_gadget_parameter_set()
     param_declare_double(ps, "GravitySoftening", OPTIONAL, 1./30., "Gravitational Softening. Units of mean separation of DM. ForceSoftening is 2.8 times this.");
     param_declare_int(ps, "GravitySofteningGas", OPTIONAL, 1, "Unused. Previously was for adaptive softening.");
 
-    param_declare_double(ps, "ImportBufferBoost", OPTIONAL, 2., "Memory factor to allow for there being more particles imported during treewlk than exported. Increase this if code crashes during treewalk with out of memory.");
+    param_declare_double(ps, "ImportBufferBoost", OPTIONAL, 2., "Unused: the import buffer boost of the treewalk is now fixed at 2. Kept so that old parameter files still load.");
     param_declare_double(ps, "PartAllocFactor", OPTIONAL, 1.5, "Over-allocation factor of particles. The load can be imbalanced to allow for the work to be more balanced.");
     param_declare_double(ps, "TopNodeAllocFactor", OPTIONAL, 0.5, "Initial TopNode allocation as a fraction of maximum particle number.");
     param_declare_double(ps, "SlotsIncreaseFactor", OPTIONAL, 0.01, "Percentage factor to increase slot allocation by when requested.");
@@ -379,7 +378,6 @@ void read_parameter_file(char *fname, int * ShowBacktrace)
     set_density_params(ps);
     set_hydro_params(ps);
     set_qso_lightup_params(ps);
-    set_treewalk_params(ps);
     set_gravshort_tree_params(ps);
     set_domain_params(ps);
     set_sfr_params(ps);

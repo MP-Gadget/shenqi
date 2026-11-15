@@ -10,7 +10,7 @@
 #include <libgadget/walltime.h>
 #include <libgadget/slotsmanager.h>
 #include <libgadget/utils/mymalloc.h>
-#include <libgadget/density.h>
+#include <libgadget/density2.h>
 #include <libgadget/domain.h>
 #include <libgadget/forcetree.h>
 #include <libgadget/timestep.h>

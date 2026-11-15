@@ -211,3 +211,11 @@ set_init_hsml(ForceTreeMoments * tree, const double MeanGasSeparation, struct pa
                     i, parts[i].Mass, parts[i].Type, parts[i].Hsml, no, Nodes[no].len, Nodes[no].mass);
     }
 }
+
+void
+slots_free_sph_pred_data(struct sph_pred_data * sph_scratch)
+{
+    if(sph_scratch->EntVarPred)
+        myfree(sph_scratch->EntVarPred);
+    sph_scratch->EntVarPred = NULL;
+}

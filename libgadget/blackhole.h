@@ -3,7 +3,7 @@
 #include "utils/paramset.h"
 #include "forcetree.h"
 #include "forcetree2.h"
-#include "density.h"
+#include "density2.h"
 #include "timebinmgr.h"
 #include "utils/system.h"
 

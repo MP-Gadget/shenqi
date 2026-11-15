@@ -41,6 +41,15 @@ void set_densitypar(struct density_params dp);
  * pressure-entropy SPH. */
 void density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, TimeBinMgr * timebinmgr, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTreeHmax * const tree, bool UseGPU=false);
 
+struct sph_pred_data
+{
+    /*!< Predicted entropy at current particle drift time for SPH computation*/
+    MyFloat * EntVarPred;
+};
+
+/* Free the predicted SPH data allocated by density().*/
+void slots_free_sph_pred_data(struct sph_pred_data * sph_pred);
+
 /* Get the desired nuber of neighbours for the supplied kernel*/
 double GetNumNgb(enum DensityKernelType KernelType);
 
