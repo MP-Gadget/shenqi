@@ -3,6 +3,7 @@
 #include "booststub.h"
 
 #include <time.h>
+#include <optional>
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_real_distribution.hpp>
 #include <omp.h>
@@ -216,8 +217,10 @@ static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int di
     init_cosmology(&CP, 0.01, units);
 
     gravpm_force(&pm, &ddecomp, &CP, 0.1, CM_PER_MPC/1000., ".", 0.01);
-    ForceTree Tree = {0};
-    force_tree_full(&Tree, &ddecomp, 1, "");
+    /* Full tree with moments, excluding passive neutrinos (HybridNuTracer = true).
+     * std::optional so the tree is freed before the domain.*/
+    std::optional<ForceTreeMoments> Tree;
+    Tree.emplace(*PartManager, &ddecomp, nullptr, true, "");
     const double rho0 = CP.Omega0 * 3 * CP.Hubble * CP.Hubble / (8 * M_PI * G);
 
     /* Barnes-Hut on first iteration*/
@@ -236,10 +239,10 @@ static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int di
 
     /* Twice so the opening angle is consistent*/
     ActiveParticles act = init_empty_active_particles(PartManager);
-    grav_short_tree(&act, &pm, &Tree, NULL, rho0, 0);
-    grav_short_tree(&act, &pm, &Tree, NULL, rho0, 0);
+    grav_short_tree(&act, &pm, &*Tree, NULL, rho0, 0);
+    grav_short_tree(&act, &pm, &*Tree, NULL, rho0, 0);
 
-    force_tree_free(&Tree);
+    Tree.reset();
     petapm_destroy(&pm);
     domain_free(&ddecomp);
     if(direct)

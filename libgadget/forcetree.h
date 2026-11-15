@@ -95,6 +95,8 @@ typedef struct ForceTree {
     struct topleaf_data * TopLeaves;
     /*Number of TopLeaves*/
     int NTopLeaves;
+    /* Node index of each top leaf in this tree. Owned by the tree: length NTopLeaves.*/
+    int * TopLeafNodes;
     /* Index of current task*/
     int ThisTask;
     /*!< this is a pointer used to access the nodes which is shifted such that Nodes[firstnode]

@@ -7,7 +7,7 @@
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
 #include "partmanager.h"
-#include "forcetree.h"
+#include "forcetree2.h"
 #include "petapm.h"
 #include "domain.h"
 #include "walltime.h"
@@ -16,8 +16,8 @@
 #include "cosmology.h"
 #include "neutrinos_lra.h"
 
-static int pm_mark_region_for_node(int startno, int rid, int * RegionInd, const ForceTree * tt);
-static void convert_node_to_region(PetaPM * pm, PetaPMRegion * r, struct NODE * Nodes);
+static int pm_mark_region_for_node(int startno, int rid, int * RegionInd, const MomentNODE * const Nodes);
+static void convert_node_to_region(PetaPM * pm, PetaPMRegion * r, const MomentNODE * const Nodes);
 
 static int hybrid_nu_gravpm_is_active(int i);
 static void potential_transfer(PetaPM * pm, int64_t k2, int kpos[3], petapm_complex * value);
@@ -92,9 +92,8 @@ gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, d
     }
 
     /* Tree freed in PM*/
-    ForceTree Tree = {0};
     /* We include neutrinos in this tree unconditionally, so all particles have a Region.*/
-    force_tree_full(&Tree, ddecomp, 0, PowerOutputDir);
+    ForceTreeMoments * Tree = new ForceTreeMoments(*PartManager, ddecomp, ALLMASK, PowerOutputDir);
 
     /* Set up parameters*/
     GravPM.Time = Time;
@@ -106,7 +105,7 @@ gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, d
      * Therefore the force transfer functions are based on the potential,
      * not the density.
      * */
-    petapm_force(pm, _prepare, &global_functions, functions, &pstruct, &Tree);
+    petapm_force(pm, _prepare, &global_functions, functions, &pstruct, Tree);
     powerspectrum_sum(pm->ps);
     /*Now save the power spectrum*/
     powerspectrum_save(pm->ps, PowerOutputDir, "powerspectrum", Time, GrowthFactor(CP, Time, 1.0));
@@ -130,36 +129,37 @@ static PetaPMRegion * _prepare(PetaPM * pm, PetaPMParticleStruct * pstruct, void
      * to exactly one region even though it may be covered by two)
      *
      * */
-    ForceTree * tree = (ForceTree *) userdata;
+    ForceTreeMoments * tree = (ForceTreeMoments *) userdata;
     /* In worst case, each topleave becomes a region: thus
      * NTopLeaves is sufficient */
-    PetaPMRegion * regions = mymalloc2("Regions", PetaPMRegion, tree->NTopLeaves);
+    PetaPMRegion * regions = mymalloc2("Regions", PetaPMRegion, tree->get_ntopleaves());
     pstruct->RegionInd = mymalloc2("RegionInd", int, PartManager->NumPart);
     int r = 0;
 
-    int no = tree->firstnode; /* start with the root */
+    const auto * const Nodes = tree->get_nodes();
+    int no = 0; /* start with the root */
     while(no >= 0) {
 
-        if(!(tree->Nodes[no].f.DependsOnLocalMass)) {
+        if(!(Nodes[no].DependsOnLocalMass)) {
             /* node doesn't contain particles on this process, do not open */
-            no = tree->Nodes[no].sibling;
+            no = Nodes[no].sibling;
             continue;
         }
         if(
             /* node is large */
-           (tree->Nodes[no].len <= pm->BoxSize / pm->Nmesh * 24)
+           (Nodes[no].len <= pm->BoxSize / pm->Nmesh * 24)
            ||
             /* node is a top leaf */
-            ( !tree->Nodes[no].f.InternalTopLevel && (tree->Nodes[no].f.TopLevel) )
+            ( !Nodes[no].InternalTopLevel && (Nodes[no].TopLevel) )
                 ) {
             regions[r].no = no;
             r ++;
             /* do not open */
-            no = tree->Nodes[no].sibling;
+            no = Nodes[no].sibling;
             continue;
         }
         /* open */
-        no = tree->Nodes[no].s.suns[0];
+        no = Nodes[no].s.suns[0];
     }
 
     *Nregions = r;
@@ -185,12 +185,12 @@ static PetaPMRegion * _prepare(PetaPM * pm, PetaPMParticleStruct * pstruct, void
     int64_t numpart = 0;
 #pragma omp parallel for reduction(+: numpart)
     for(r = 0; r < *Nregions; r++) {
-        regions[r].numpart = pm_mark_region_for_node(regions[r].no, r, pstruct->RegionInd, tree);
+        regions[r].numpart = pm_mark_region_for_node(regions[r].no, r, pstruct->RegionInd, Nodes);
         numpart += regions[r].numpart;
     }
     for(i = 0; i < PartManager->NumPart; i ++) {
         if(pstruct->RegionInd[i] == -1) {
-            message(1, "i = %ld father %d not assigned to a region\n", i, force_get_father(i, tree));
+            message(1, "Particle i = %ld id %ld not assigned to a region\n", i, Part[i].ID);
         }
     }
     /* All particles shall have been processed just once. Otherwise we die */
@@ -198,10 +198,11 @@ static PetaPMRegion * _prepare(PetaPM * pm, PetaPMParticleStruct * pstruct, void
         endrun(1, "Processed only %ld particles out of %ld\n", numpart, PartManager->NumPart);
     }
     for(r =0; r < *Nregions; r++) {
-        convert_node_to_region(pm, &regions[r], tree->Nodes);
+        convert_node_to_region(pm, &regions[r], Nodes);
     }
-    /*This is done to conserve memory during the PM step*/
-    if(force_tree_allocated(tree)) force_tree_free(tree);
+
+    delete tree;
+    tree = NULL;
 
     /*Allocate memory for a power spectrum*/
     powerspectrum_alloc(pm->ps, pm->Nmesh, omp_get_max_threads(), GravPM.CP->MassiveNuLinRespOn, pm->BoxSize*GravPM.UnitLength_in_cm);
@@ -210,31 +211,26 @@ static PetaPMRegion * _prepare(PetaPM * pm, PetaPMParticleStruct * pstruct, void
     return regions;
 }
 
-static int pm_mark_region_for_node(int startno, int rid, int * RegionInd, const ForceTree * tree) {
+static int pm_mark_region_for_node(int startno, int rid, int * RegionInd, const MomentNODE * const Nodes) {
     int numpart = 0;
     int no = startno;
-    int endno = tree->Nodes[startno].sibling;
+    int endno = Nodes[startno].sibling;
     while(no >= 0 && no != endno)
     {
-        struct NODE * nop = &tree->Nodes[no];
-        if(nop->f.ChildType == PARTICLE_NODE_TYPE) {
-            int i;
-            for(i = 0; i < nop->s.noccupied; i++) {
+        const auto * const nop = &Nodes[no];
+        if(nop->ChildType == PARTICLE_NODE_TYPE) {
+            for(int i = 0; i < nop->s.noccupied; i++) {
                 int p = nop->s.suns[i];
                 RegionInd[p] = rid;
 #ifdef DEBUG
                 /* Check for particles outside of the node. This should never happen,
                 * unless there is a bug in tree build, or the particles are being moved.*/
-                int k;
-                for(k = 0; k < 3; k ++) {
-                    double l = Part[p].Pos[k] - tree->Nodes[startno].center[k];
+                for(int k = 0; k < 3; k ++) {
+                    double l = Part[p].Pos[k] - Nodes[startno].center[k];
                     l = fabs(l * 2);
-                    if (l > tree->Nodes[startno].len) {
-                        if(l > tree->Nodes[startno].len * (1+ 1e-7))
-                        endrun(1, "enlarging node size from %g to %g, due to particle of type %d at %g %g %g id=%ld\n",
-                            tree->Nodes[startno].len, l, Part[p].Type, Part[p].Pos[0], Part[p].Pos[1], Part[p].Pos[2], Part[p].ID);
-                        tree->Nodes[startno].len = l;
-                    }
+                    if(l > Nodes[startno].len * (1+ 1e-7))
+                        endrun(1, "Particle too far from node: size from %g to %g, due to particle of type %d at %g %g %g id=%ld\n",
+                            Nodes[startno].len, l, Part[p].Type, Part[p].Pos[0], Part[p].Pos[1], Part[p].Pos[2], Part[p].ID);
                 }
 #endif
             }
@@ -245,18 +241,18 @@ static int pm_mark_region_for_node(int startno, int rid, int * RegionInd, const 
         /* Generally this function should be handed top leaves which do not contain pseudo particles.
          * However, sometimes it will receive an internal top node which can, if that top node is small enough.
          * In this case, just move to the sibling: no particles to mark here.*/
-        else if(nop->f.ChildType == PSEUDO_NODE_TYPE)
+        else if(nop->ChildType == PSEUDO_NODE_TYPE)
             no = nop->sibling;
-        else if(nop->f.ChildType == NODE_NODE_TYPE)
+        else if(nop->ChildType == NODE_NODE_TYPE)
             no = nop->s.suns[0];
         else
-            endrun(122, "Unrecognised Node type %d, memory corruption!\n", nop->f.ChildType);
+            endrun(122, "Unrecognised Node type %d, memory corruption!\n", nop->ChildType);
     }
     return numpart;
 }
 
 
-static void convert_node_to_region(PetaPM * pm, PetaPMRegion * r, struct NODE * Nodes) {
+static void convert_node_to_region(PetaPM * pm, PetaPMRegion * r, const MomentNODE * const Nodes) {
     int k;
     double cellsize = pm->BoxSize / pm->Nmesh;
     int no = r->no;

@@ -1,7 +1,7 @@
 #ifndef LONGRANGE_H
 #define LONGRANGE_H
 
-#include "forcetree.h"
+#include "forcetree2.h"
 #include "petapm.h"
 #include "powerspectrum.h"
 
@@ -86,7 +86,7 @@ struct gravshort_tree_params get_gravshort_treepar(void);
 void gravpm_force(PetaPM * pm, DomainDecomp * ddecomp, Cosmology * CP, double Time, double UnitLength_in_cm, const std::string& PowerOutputDir, double TimeIC);
 
 /* Compute the short range gravitational tree force. */
-void grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTree * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool UseGPU=false);
+void grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTreeMoments * tree, MyFloat (* AccelStore)[3], double rho0, inttime_t Ti_Current, bool UseGPU=false);
 
 /*Read the power spectrum, without changing the input value.*/
 void measure_power_spectrum(PetaPM * pm, int64_t k2, int kpos[3], petapm_complex *value);

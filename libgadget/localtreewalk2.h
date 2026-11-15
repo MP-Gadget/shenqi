@@ -32,7 +32,7 @@
 #include <omp.h>
 #include "domain.h"
 #include "utils/endrun.h"
-#include "forcetree.h"
+#include "forcetree2.h"
 #include "partmanager.h"
 #include "types.h"
 
@@ -100,10 +100,9 @@ template <typename ParamType=ParamTypeBase> class TreeWalkQueryBase
     /* Constructor:
     * particle_data: particle that is walking the tree.
     * i_NodeList: list of topnodes to start the treewalk from.
-    * firstnode is used only if i_NodeList is NULL, in practice this is for primary treewalks.
     * This should be subclassed: the new constructor was called 'fill' in treewalk v1. */
-    MYCUDAFN TreeWalkQueryBase(const particle_data& particle, const int * const i_NodeList, const int firstnode, const ParamType& priv) :
-    Pos{particle.Pos[0], particle.Pos[1], particle.Pos[2]}, NodeList{firstnode, -1, -1, -1} /* Nodelist is rootnode and terminate immediately */
+    MYCUDAFN TreeWalkQueryBase(const particle_data& particle, const int * const i_NodeList, const ParamType& priv) :
+    Pos{particle.Pos[0], particle.Pos[1], particle.Pos[2]}, NodeList{0, -1, -1, -1} /* Nodelist is rootnode and terminate immediately */
     #ifdef DEBUG
        , ID(particle.ID)
     #endif
@@ -151,17 +150,16 @@ class TreeWalkResultBase
 * Returns 1 if the node shall be opened;
 * Returns 0 if the node has no business with this query.
 */
-template <NgbTreeFindSymmetric symmetric>
+template <NgbTreeFindSymmetric symmetric, typename NodeType>
 MYCUDAFN int
-cull_node(const double * const Pos, const double BoxSize, const MyFloat Hsml, const struct NODE * const current)
+cull_node(const double * const Pos, const double BoxSize, const MyFloat Hsml, const NodeType * const current)
 {
-    double dist;
+    double dist = Hsml + 0.5 * current->len;
     if constexpr (symmetric == NGB_TREEFIND_SYMMETRIC) {
-        dist = fmax(current->mom.hmax, Hsml) + 0.5 * current->len;
-    } else {
-        dist = Hsml + 0.5 * current->len;
+        /* Note that hmax is only present for a NodeType == HmaxNODE.
+         * This will be a compile error if you accidentally use NGB_TREEFIND_SYMMETRIC with a MomentTree.*/
+        dist = fmax(current->hmax, Hsml) + 0.5 * current->len;
     }
-
     double r2 = 0;
     double dx = 0;
     /* do each direction */
@@ -193,13 +191,16 @@ struct data_index
 };
 
 /* Class that stores thread-local information and walks the toptree, finding exports, for a particle. */
-template <typename QueryType, typename ParamType, NgbTreeFindSymmetric symmetric>
+template <typename QueryType, typename ParamType, typename NodeType, NgbTreeFindSymmetric symmetric>
 class TopTreeWalk
 {
 public:
+    /* The type of tree node this walk visits. TreeWalk checks it matches the tree.*/
+    using node_type = NodeType;
+
     /* Constructor from treewalk */
-    MYCUDAFN TopTreeWalk(const NODE * const i_Node, const topleaf_data * const i_TopLeaves, const int i_NTopLeaves, const int i_lastnode):
-    Nodes(i_Node), TopLeaves(i_TopLeaves), NTopLeaves(i_NTopLeaves), lastnode(i_lastnode), lasttask(0), nodelistindex(0)
+    MYCUDAFN TopTreeWalk(const NodeType * const i_Node, const topleaf_data * const i_TopLeaves, const int * const i_TopLeafNodes, const int i_NTopLeaves):
+    Nodes(i_Node), TopLeaves(i_TopLeaves), TopLeafNodes(i_TopLeafNodes), NTopLeaves(i_NTopLeaves), lasttask(0), nodelistindex(0)
     { }
 
     /* Wrapper of the regular particle visit with some extra cleanup of the particle export table for the toptree walk
@@ -220,14 +221,14 @@ public:
 
         while(no >= 0)
         {
-            const NODE * const current = &Nodes[no];
+            const auto * const current = &Nodes[no];
             /* Cull the node */
             if(0 == cull_node<symmetric>(input.Pos, BoxSize, input.Hsml, current)) {
                 /* in case the node can be discarded */
                 no = current->sibling;
                 continue;
             }
-            if(current->f.ChildType == PSEUDO_NODE_TYPE) {
+            if(current->ChildType == PSEUDO_NODE_TYPE) {
                 /* Export the pseudo particle*/
                 if constexpr(mode == TOPTREE_COUNT)
                     NThisParticleExport = export_count(current->s.suns[0], NThisParticleExport);
@@ -242,7 +243,7 @@ public:
                 continue;
             }
             /* Only walk toptree nodes here*/
-            if(current->f.TopLevel && !current->f.InternalTopLevel) {
+            if(current->TopLevel && !current->InternalTopLevel) {
                 no = current->sibling;
                 continue;
             }
@@ -270,10 +271,10 @@ protected:
     {
         //message(1, "Export_particle: no %d target %d exports %ld %lu nodelist %ld\n", no, target, NThisParticleExport, Nexport, nodelistindex);
     #if defined DEBUG && not defined __CUDACC__
-        if(no - lastnode > NTopLeaves)
-            endrun(1, "Bad export leaf: no = %d lastnode %d ntop %d target %d\n", no, lastnode, NTopLeaves, target);
+        if(no < 0 || no >= NTopLeaves)
+            endrun(1, "Bad export leaf: no = %d ntop %d target %d\n", no, NTopLeaves, target);
     #endif
-        const topleaf_data * const topleaf = &TopLeaves[no - lastnode];
+        const auto * const topleaf = &TopLeaves[no];
         const int task = topleaf->Task;
         /* If the last export was to this task, we can perhaps just add this export to the existing NodeList. We can
          * be sure that all exports of this particle are contiguous.*/
@@ -286,7 +287,7 @@ protected:
                 endrun(1, "Current nodelist %ld entry (%d) not empty!\n", nodelistindex, DataIndexTable[nexp-1].NodeList[nodelistindex]);
     #endif
             if(nodelistindex < NODELISTLENGTH) {
-                DataIndexTable[nexp-1].NodeList[nodelistindex] = topleaf->treenode;
+                DataIndexTable[nexp-1].NodeList[nodelistindex] = TopLeafNodes[no];
                 nodelistindex++;
                 return nexp;
             }
@@ -297,7 +298,7 @@ protected:
         }
         DataIndexTable[nexp].Task = task;
         DataIndexTable[nexp].Index = target;
-        DataIndexTable[nexp].NodeList[0] = topleaf->treenode;
+        DataIndexTable[nexp].NodeList[0] = TopLeafNodes[no];
         for(int i = 1; i < NODELISTLENGTH; i++)
             DataIndexTable[nexp].NodeList[i] = -1;
         nodelistindex = 1;
@@ -310,7 +311,7 @@ protected:
     MYCUDAFN int64_t export_count(const int no, int64_t nexp)
     {
         //message(1, "Export_particle: no %d target %d exports %ld %lu nodelist %ld\n", no, target, NThisParticleExport, Nexport, nodelistindex);
-        const topleaf_data * const topleaf = &TopLeaves[no - lastnode];
+        const auto * const topleaf = &TopLeaves[no];
         const int task = topleaf->Task;
         /* If the last export was to this task, we can perhaps just add this export to the existing NodeList. We can
          * be sure that all exports of this particle are contiguous.*/
@@ -324,10 +325,11 @@ protected:
     }
 
     /* A pointer to the force tree structure to walk.*/
-    const NODE * const Nodes;
+    const NodeType * const Nodes;
     const topleaf_data * const TopLeaves;
+    /* Node index in the walked tree of each top leaf.*/
+    const int * const TopLeafNodes;
     const int NTopLeaves;
-    const int lastnode;
     int lasttask;
     /* Index to use in the current node list*/
     size_t nodelistindex;
@@ -336,23 +338,24 @@ protected:
 /* Class that stores thread-local information and walks the local tree for a particle.
  * No exports are made and this should not rely on any external memory, as it may occur on a GPU.
  */
-template <typename DerivedType, typename QueryType, typename ResultType, typename ParamType, NgbTreeFindSymmetric symmetric, int mask>
+template <typename DerivedType, typename QueryType, typename ResultType, typename ParamType, typename NodeType, NgbTreeFindSymmetric symmetric, int mask>
 class LocalNgbTreeWalk
 {
 public:
     static constexpr int tree_mask = mask;
+    /* The type of tree node this walk visits. TreeWalk checks it matches the tree.*/
+    using node_type = NodeType;
     /* A pointer to the tree nodes to walk.*/
-    const NODE * const Nodes;
+    const NodeType * const Nodes;
 
     /* Constructor from treewalk */
-    MYCUDAFN LocalNgbTreeWalk(const NODE * const Node, const QueryType& input):
+    MYCUDAFN LocalNgbTreeWalk(const NodeType * const Node, const QueryType& input):
      Nodes(Node)
      { }
 
-    static void validate_tree(const ForceTree * const tree)
+    template <typename TreeType>
+    static void validate_tree(const TreeType * const tree)
     {
-        if(!force_tree_allocated(tree))
-            endrun(0, "Tree has been freed before this treewalk.\n");
         /* Check whether the tree contains the particles we are looking for*/
         if((tree->mask & mask) != mask)
             endrun(5, "Treewalk for particles with mask %d but tree mask is only %d overlap %d.\n", mask, tree->mask, tree->mask & mask);
@@ -386,12 +389,12 @@ public:
 
              while(no >= 0)
              {
-                 const struct NODE * const current = &Nodes[no];
+                 const auto * const current = &Nodes[no];
                  /* When walking exported particles we start from the encompassing top-level node,
                  * so if we get back to a top-level node again we are done.*/
                  if constexpr(mode == TREEWALK_GHOSTS) {
                      /* The first node is always top-level*/
-                     if(current->f.TopLevel && no != input.NodeList[inode]) {
+                     if(current->TopLevel && no != input.NodeList[inode]) {
                          /* we reached a top-level node again, which means that we are done with the branch */
                          break;
                      }
@@ -404,7 +407,7 @@ public:
                      continue;
                 }
                 /* Node contains relevant particles, add them.*/
-                if(current->f.ChildType == PARTICLE_NODE_TYPE) {
+                if(current->ChildType == PARTICLE_NODE_TYPE) {
                     for (int i = 0; i < current->s.noccupied; i++) {
                         /* Now evaluate a particle for the list*/
                         const int other = current->s.suns[i];
@@ -423,7 +426,7 @@ public:
                     no = current->sibling;
                     continue;
                 }
-                else if(current->f.ChildType == PSEUDO_NODE_TYPE) {
+                else if(current->ChildType == PSEUDO_NODE_TYPE) {
                     /* pseudo particle: this has already been evaluated with the toptree.
                      * Move sideways.*/
                     no = current->sibling;
@@ -461,13 +464,13 @@ public:
 
 /* Variant of the local tree walk that uses an Ngblist.
  */
-template <typename DerivedType, typename QueryType, typename ResultType, typename ParamType, NgbTreeFindSymmetric symmetric, int mask>
-class LocalNgbListTreeWalk : public LocalNgbTreeWalk<DerivedType, QueryType, ResultType, ParamType, symmetric, mask>
+template <typename DerivedType, typename QueryType, typename ResultType, typename ParamType, typename NodeType, NgbTreeFindSymmetric symmetric, int mask>
+class LocalNgbListTreeWalk : public LocalNgbTreeWalk<DerivedType, QueryType, ResultType, ParamType, NodeType, symmetric, mask>
 {
 public:
     /* Constructor from treewalk */
-    MYCUDAFN LocalNgbListTreeWalk(const NODE * const Nodes, int * i_ngblist, const QueryType& input):
-    LocalNgbTreeWalk<DerivedType, QueryType, ResultType, ParamType, symmetric, mask>(Nodes, input), ngblist(i_ngblist)
+    MYCUDAFN LocalNgbListTreeWalk(const NodeType * const Nodes, int * i_ngblist, const QueryType& input):
+    LocalNgbTreeWalk<DerivedType, QueryType, ResultType, ParamType, NodeType, symmetric, mask>(Nodes, input), ngblist(i_ngblist)
     { }
     /**
      * Variant of ngbiter that uses an Ngblist: first it builds a list of
@@ -536,12 +539,12 @@ protected:
 
         while(no >= 0)
         {
-            struct NODE *current = &this->Nodes[no];
+            auto *current = &this->Nodes[no];
             /* When walking exported particles we start from the encompassing top-level node,
              * so if we get back to a top-level node again we are done.*/
             if constexpr(mode == TREEWALK_GHOSTS) {
                 /* The first node is always top-level*/
-                if(current->f.TopLevel && no != startnode) {
+                if(current->TopLevel && no != startnode) {
                     /* we reached a top-level node again, which means that we are done with the branch */
                     break;
                 }
@@ -554,9 +557,9 @@ protected:
             }
 
             /* Node contains relevant particles, add them.*/
-            if(current->f.ChildType == PARTICLE_NODE_TYPE) {
+            if(current->ChildType == PARTICLE_NODE_TYPE) {
                 int i;
-                int * suns = current->s.suns;
+                auto * suns = current->s.suns;
                 for (i = 0; i < current->s.noccupied; i++) {
                     ngblist[numcand++] = suns[i];
                 }
@@ -564,7 +567,7 @@ protected:
                 no = current->sibling;
                 continue;
             }
-            else if(current->f.ChildType == PSEUDO_NODE_TYPE) {
+            else if(current->ChildType == PSEUDO_NODE_TYPE) {
                 /* pseudo particle: this has already been evaluated with the toptree. Move sideways.*/
                 no = current->sibling;
                 continue;

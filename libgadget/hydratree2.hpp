@@ -162,8 +162,8 @@ class HydroQuery : public TreeWalkQueryBase<HydroPriv> {
     MyFloat F1;
     MyFloat SPH_DhsmlDensityFactor;
     int TimeBinHydro;
-    MYCUDAFN HydroQuery(const particle_data& particle, const int * const i_NodeList, const int firstnode, const HydroPriv& priv):
-    TreeWalkQueryBase(particle, i_NodeList, firstnode, priv), EgyRho(priv.SphParts[particle.PI].EgyWtDensity),
+    MYCUDAFN HydroQuery(const particle_data& particle, const int * const i_NodeList, const HydroPriv& priv):
+    TreeWalkQueryBase(particle, i_NodeList, priv), EgyRho(priv.SphParts[particle.PI].EgyWtDensity),
     Hsml(particle.Hsml), Mass(particle.Mass), Density(priv.SphParts[particle.PI].Density), SPH_DhsmlDensityFactor(priv.SphParts[particle.PI].DhsmlEgyDensityFactor), TimeBinHydro(particle.TimeBinHydro)
     {
         sph_particle_data& sphp_i = priv.SphParts[particle.PI];
@@ -229,14 +229,14 @@ class HydroResult: public TreeWalkResultBase<HydroQuery, HydroOutput> {
 
 /* This is a symmetric NGB treewalk for hydro forces. */
 template <typename DensityKernel>
-class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKernel>, HydroQuery, HydroResult, HydroPriv, NGB_TREEFIND_SYMMETRIC, GASMASK>
+class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKernel>, HydroQuery, HydroResult, HydroPriv, HmaxNODE, NGB_TREEFIND_SYMMETRIC, GASMASK>
 {
     public:
     double p_over_rho2_i;
     double soundspeed_i;
     DensityKernel kernel_i;
 
-    MYCUDAFN HydroLocalTreeWalk(const NODE * const Nodes, const HydroQuery& input): LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKernel>, HydroQuery, HydroResult, HydroPriv, NGB_TREEFIND_SYMMETRIC, GASMASK>(Nodes, input), kernel_i(input.Hsml)
+    MYCUDAFN HydroLocalTreeWalk(const HmaxNODE * const Nodes, const HydroQuery& input): LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKernel>, HydroQuery, HydroResult, HydroPriv, HmaxNODE, NGB_TREEFIND_SYMMETRIC, GASMASK>(Nodes, input), kernel_i(input.Hsml)
     {
         /* initialize variables before SPH loop is started.
          * Note that EgyRho is Density if DensityIndependentSphOn = 0 */
@@ -378,10 +378,10 @@ class HydroLocalTreeWalk: public LocalNgbTreeWalk<HydroLocalTreeWalk<DensityKern
     }
 };
 
-class HydroTopTreeWalk: public TopTreeWalk<HydroQuery, HydroPriv, NGB_TREEFIND_SYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
+class HydroTopTreeWalk: public TopTreeWalk<HydroQuery, HydroPriv, HmaxNODE, NGB_TREEFIND_SYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
 template <typename TreeWalkType>
-void do_hydro_walk(const ActiveParticles * act, const ForceTree * tree, HydroPriv * priv, HydroOutput * output)
+void do_hydro_walk(const ActiveParticles * act, const ForceTreeHmax * tree, HydroPriv * priv, HydroOutput * output)
 {
     TreeWalkType tw("HYDRO", tree, *priv, output);
     tw.run(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, MPI_COMM_WORLD);
@@ -389,7 +389,7 @@ void do_hydro_walk(const ActiveParticles * act, const ForceTree * tree, HydroPri
 }
 
 #ifdef USE_CUDA
-void hydro_force_cuda(const ActiveParticles * act, const ForceTree * tree, HydroPriv * priv, HydroOutput * output, enum DensityKernelType DensityKernelType);
+void hydro_force_cuda(const ActiveParticles * act, const ForceTreeHmax * tree, HydroPriv * priv, HydroOutput * output, enum DensityKernelType DensityKernelType);
 #endif
 
 #endif

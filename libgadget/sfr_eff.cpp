@@ -30,8 +30,6 @@
 #include "slotsmanager.h"
 #include "walltime.h"
 #include "winds.h"
-/*Only for the star slot reservation*/
-#include "forcetree.h"
 #include "domain.h"
 #include "utils/endrun.h"
 #include "utils/mymalloc.h"
@@ -163,7 +161,7 @@ void set_sfr_params(ParameterSet * ps)
     sfr_params.WindOn = param_get_int(ps, "WindOn");
     sfr_params.BoostSFDenseGas = param_get_int(ps, "BoostSFDenseGas");
     sfr_params.BoostSFOverDenseFactor = param_get_double(ps, "BoostSFOverDenseFactor");
- 
+
     sfr_params.FactorSN = param_get_double(ps, "FactorSN");
     sfr_params.FactorEVP = param_get_double(ps, "FactorEVP");
     sfr_params.TempSupernova = param_get_double(ps, "TempSupernova");
@@ -180,7 +178,7 @@ void set_sfr_params(ParameterSet * ps)
     sfr_params.QuickLymanAlphaProbability = param_get_double(ps, "QuickLymanAlphaProbability");
     sfr_params.QuickLymanAlphaTempThresh = param_get_double(ps, "QuickLymanAlphaTempThresh");
     sfr_params.HIReionTemp = param_get_double(ps, "HIReionTemp");
- 
+
     /* File names*/
     sfr_params.TreeCoolFile = param_get_string(ps, "TreeCoolFile");
     sfr_params.J21CoeffFile = param_get_string(ps, "J21CoeffFile");

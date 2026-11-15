@@ -357,7 +357,6 @@ BOOST_AUTO_TEST_CASE(test_rebuild_flat)
     /*Allocate tree*/
     /*Base pointer*/
     ForceTree tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1);
-    ddecomp.TopLeaves[0].treenode = tb.firstnode;
     /* So unused memory has Father < 0*/
     for(i = tb.firstnode; i < tb.lastnode; i++)
         tb.Nodes[i].father = -10;
@@ -391,7 +390,6 @@ BOOST_AUTO_TEST_CASE(test_rebuild_close)
     }
     PartManager->NumPart = numpart;
     ForceTree tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1);
-    ddecomp.TopLeaves[0].treenode = tb.firstnode;
     do_tree_test(numpart, tb, &ddecomp);
     force_tree_free(&tb);
     tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1);
@@ -440,7 +438,6 @@ BOOST_AUTO_TEST_CASE(test_rebuild_random)
     /*Allocate tree*/
     /*Base pointer*/
     ForceTree tb = force_treeallocate(0.7*numpart, numpart, &ddecomp, 1);
-    ddecomp.TopLeaves[0].treenode = tb.firstnode;
     BOOST_TEST(tb.Nodes);
     int i;
     for(i=0; i<2; i++) {
