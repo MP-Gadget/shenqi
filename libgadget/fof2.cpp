@@ -231,6 +231,10 @@ class FOFPrimaryOutput {
         spin = init_spinlocks(NumPart);
     }
 
+    /* This owns memory which is freed in the destructor, so it must not be copied.*/
+    FOFPrimaryOutput(const FOFPrimaryOutput&) = delete;
+    FOFPrimaryOutput& operator=(const FOFPrimaryOutput&) = delete;
+
     ~FOFPrimaryOutput()
     {
         free_spinlocks(spin);
@@ -457,6 +461,10 @@ class FOFSecondaryOutput {
         hsml = mymalloc("FOF_SECONDARY->hsml", float, NumPart);
         npleft = ta_malloc("NPLeft", int64_t, omp_get_max_threads());
     }
+
+    /* This owns memory which is freed in the destructor, so it must not be copied.*/
+    FOFSecondaryOutput(const FOFSecondaryOutput&) = delete;
+    FOFSecondaryOutput& operator=(const FOFSecondaryOutput&) = delete;
 
     ~FOFSecondaryOutput()
     {
