@@ -15,6 +15,7 @@ OPTIMIZE =  -fopenmp -O3 -g -Wall -ffast-math
 #Disable openmp locking. This means no threading.
 #OPT += -DNO_OPENMP_SPINLOCK
 #OPT += -DUSE_CUDA  #Enable GPU-specific CUDA code
+#OPT += -DUSE_CUDA_MPI  #Pass GPU memory directly to MPI in the treewalk. Needs USE_CUDA and a CUDA-aware MPI.
 #-----------
 #OPT += -DEXCUR_REION  # reionization with excursion set
 

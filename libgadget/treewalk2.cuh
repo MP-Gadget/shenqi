@@ -25,6 +25,62 @@
 #include <thrust/execution_policy.h>            // thrust::device
 #include <thrust/scan.h>            // thrust::exclusive_scan
 #include <thrust/find.h>            // thrust::find_if
+#include <thrust/device_vector.h>
+#include <thrust/gather.h>
+#include <thrust/sequence.h>
+#include <thrust/sort.h>
+#include <thrust/transform.h>
+#ifdef DEBUG
+#include <thrust/binary_search.h>   // thrust::upper_bound
+#include <thrust/iterator/counting_iterator.h>
+#include <vector>
+#endif
+
+/* USE_CUDA_MPI: pass GPU device memory directly to MPI for the treewalk exports and imports.
+ * This requires an MPI library built with CUDA support (a "CUDA-aware" MPI). With it:
+ * - the export queries are sent from device memory,
+ * - the import queries are received directly into device memory,
+ * - the import results are written by the secondary treewalk kernel into device memory and sent from there.
+ * None of this data then passes through host memory on this rank. The export table and
+ * the export results are still on the host, because the reduction of the results is done there.
+ * Device memory allocated here is not tracked by mymalloc, nor accounted for in compute_bunchsize.
+ *
+ * If the MPI library can report that it was built without CUDA support (currently only OpenMPI can),
+ * we fall back to host memory at run time. For other MPI libraries the flag is trusted, and passing
+ * a device pointer to an MPI which is not CUDA-aware will crash inside MPI.*/
+#ifdef USE_CUDA_MPI
+#if defined(OPEN_MPI) && OPEN_MPI
+#include <mpi-ext.h>                /* For MPIX_Query_cuda_support */
+#endif
+
+/* Returns true if we should pass device memory to MPI.*/
+static inline bool treewalk_cuda_mpi_enabled(void)
+{
+#if defined(OMPI_HAVE_MPI_EXT_CUDA) && OMPI_HAVE_MPI_EXT_CUDA
+    /* Check for CUDA-aware support (currently only in OpenMPI).*/
+    static const bool enabled = [] {
+        const bool cuda = MPIX_Query_cuda_support();
+        if(!cuda)
+            message(0, "MPIX_Query_cuda_support reports no CUDA support. Treewalk communication will use host memory.\n");
+        else
+            message(0, "MPI CUDA support is enabled. Treewalk will use device memory for communication.\n");
+        return cuda;
+    }();
+    return enabled;
+#else
+    /* We cannot check, so trust the build flag.*/
+    return true;
+#endif
+}
+#endif /* USE_CUDA_MPI */
+
+/* Extract the destination task from an entry in the export table.*/
+struct ExportTaskOf
+{
+    MYCUDAFN int operator()(const data_index& entry) const {
+        return entry.Task;
+    }
+};
 
 /* Each thread counts the number of exports needed for each particle.
  * counts are stored in the exportcounts argument.
@@ -144,6 +200,80 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
     using Base::priv;
     using Base::output;
     using Base::compute_bunchsize;
+
+#ifdef USE_CUDA_MPI
+    /* Allocate the data buffer of a CommBuffer in device memory, so that a CUDA-aware MPI
+     * moves it directly to or from the GPU. This is used for the export queries, the import queries
+     * and the import results, all of which are only read or written by GPU kernels.*/
+    void ev_alloc_commbuffer(CommBuffer * buf, const char * const name, const size_t bytes)
+    {
+        if(!treewalk_cuda_mpi_enabled()) {
+            Base::ev_alloc_commbuffer(buf, name, bytes);
+            return;
+        }
+        cudaError_t err = cudaMalloc(&buf->databuf, bytes);
+        if(err != cudaSuccess)
+            endrun(5, "Failed to allocate %lu bytes of device memory for %s: %s\n", bytes, name, cudaGetErrorString(err));
+        buf->devicemem = true;
+    }
+#endif
+    /* Transpose the export queries, on the device, from the order of the export table (ordered by particle)
+    * into export_queries, ordered by destination task. This is the device version of
+    * TreeWalk::ev_transpose_exports in treewalk2.h, and must produce a byte-identical buffer,
+    * because ev_reduce_export_result (on the host) recomputes the position of each result
+    * with the same counting loop as the CPU transpose.
+    *
+    * The CPU version scatters: it walks the export table in order and places export k at
+    *     bufpos(k) = Export_offset[task] + (number of earlier exports to the same task).
+    * Here we compute the inverse map, order[bufpos] = k, with a stable sort, and then gather.
+    * - Sorting by task in increasing order puts the block for task t after all the exports to lower
+    *   tasks, so it starts at sum_{s<t} Export_count[s], which is Export_offset[t] in ImpExpCounts.
+    * - The sort is stable and order starts as the identity, so within each task the exports stay
+    *   in increasing k, as with the per-task counter of the CPU version.
+    * With int keys thrust uses a radix sort, so this is O(Nexport).
+    *
+    * ExportTable, ExportQueries and export_queries must all be accessible on the device:
+    * the first two are managed memory, export_queries is the device send buffer.
+    * counts is on the host and is only used for the DEBUG check.
+    * The temporary vectors (and the sort scratch space) are plain device memory, not tracked by mymalloc.*/
+    void ev_transpose_exports(const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist, QueryType * const export_queries)
+    {
+        if(exportlist->Nexport == 0)
+            return;
+
+        /* tasks[k] is the destination task of export k: the sort key.*/
+        thrust::device_vector<int> tasks(exportlist->Nexport);
+        /* order[k] is the export table index: the sort value. int is enough because data_index::Index is also int.*/
+        thrust::device_vector<int> order(exportlist->Nexport);
+        thrust::transform(thrust::device, exportlist->ExportTable, exportlist->ExportTable + exportlist->Nexport, tasks.begin(), ExportTaskOf());
+        /* Start from the identity permutation, which is the order of the export table.*/
+        thrust::sequence(thrust::device, order.begin(), order.end());
+        /* After this, tasks is in increasing order and order[j] is the index in the export table
+        * of the j-th query to send, ie, the CPU version would place export order[j] at bufpos j.*/
+        thrust::stable_sort_by_key(thrust::device, tasks.begin(), tasks.end(), order.begin());
+    #ifdef DEBUG
+        /* This is the same check as the CPU version: the number of exports we placed
+        * for each task must match Export_count. Because tasks is now sorted, the exports to task t
+        * occupy [ends[t-1], ends[t]), where ends[t] is the index of the first entry > t.*/
+        std::vector<int64_t> ends(counts->NTask);
+        {
+            thrust::device_vector<int64_t> dends(counts->NTask);
+            thrust::upper_bound(thrust::device, tasks.begin(), tasks.end(),
+                                thrust::counting_iterator<int>(0), thrust::counting_iterator<int>(counts->NTask), dends.begin());
+            thrust::copy(dends.begin(), dends.end(), ends.begin());
+        }
+        for(int i = 0; i < counts->NTask; i++) {
+            const int64_t real_send_count = ends[i] - (i > 0 ? ends[i-1] : 0);
+            if(real_send_count != counts->Export_count[i])
+                endrun(6, "Inconsistent device export to task %d of %d: %ld expected %ld\n", i, counts->NTask, real_send_count, counts->Export_count[i]);
+        }
+        /* Any task numbers >= NTask would sort after all valid tasks and be missed by the loop above.*/
+        if(ends[counts->NTask-1] != (int64_t) exportlist->Nexport)
+            endrun(6, "Device export table has %ld entries with task >= NTask %d\n", (int64_t) exportlist->Nexport - ends[counts->NTask-1], counts->NTask);
+    #endif
+        /* export_queries[j] = ExportQueries[order[j]]: the queries are now grouped by task, starting at Export_offset[task].*/
+        thrust::gather(thrust::device, order.begin(), order.end(), exportlist->ExportQueries, export_queries);
+    }
 
     /* Build the queue by calling the haswork function on each particle in the active_set.
      * Arguments:
@@ -274,7 +404,19 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
          * and so the indices are off for the second one. */
         exportlist->Nexport -= exportoffset;
         exportlist->ExportTable = mymanagedmalloc("DataIndexTable", data_index, exportlist->Nexport);
-        exportlist->ExportQueries = mymanagedmalloc("ExportQueries", QueryType, exportlist->Nexport);
+#ifdef USE_CUDA_MPI
+        /* The export queries are written by the kernel below and transposed on the device,
+         * so they never need to be visible on the host.*/
+        if(treewalk_cuda_mpi_enabled()) {
+            /* Allocate plain device memory, which can be passed to a CUDA-aware MPI.*/
+            cudaError_t err = cudaMalloc(&exportlist->ExportQueries, exportlist->Nexport * sizeof(QueryType));
+            if(err != cudaSuccess)
+                endrun(5, "Failed to allocate %lu bytes of device memory for ExportQueries: %s\n", exportlist->Nexport * sizeof(QueryType), cudaGetErrorString(err));
+            exportlist->devicemem = true;
+        }
+        else
+#endif
+            exportlist->ExportQueries = mymanagedmalloc("ExportQueries", QueryType, exportlist->Nexport);
 
         if(BufferFull)
             message(1, "Tree export buffer full with %lu exports (%lu Mbytes). BunchSize %d. First particle %ld new start: %ld size %ld.\n",

@@ -18,6 +18,9 @@
 #include <execution>
 #include <algorithm>
 #include <numeric>
+#ifdef USE_CUDA
+#include <cuda_runtime.h>
+#endif
 
 #define MAXITER 400
 
@@ -28,10 +31,18 @@ template<typename QueryType> struct ExportMemory2 {
     /* Pointer to a particle export table.*/
     data_index * ExportTable = NULL;
     QueryType * ExportQueries = NULL;
+    /* If set, ExportQueries was not allocated by mymalloc (it is plain GPU device memory).*/
+    bool devicemem = false;
     ~ExportMemory2()
     {
-        if(ExportQueries)
-            myfree(ExportQueries);
+        if(ExportQueries) {
+#ifdef USE_CUDA
+            if(devicemem)
+                cudaFree(ExportQueries);
+            else
+#endif
+                myfree(ExportQueries);
+        }
         if(ExportTable)
             myfree(ExportTable);
     }
@@ -112,21 +123,37 @@ class CommBuffer
 {
     public:
     char * databuf;
+    /* If set, databuf was not allocated by mymalloc (it is plain GPU device memory,
+     * passed directly to a CUDA-aware MPI) and it should be freed with cudaFree.*/
+    bool devicemem;
     std::vector<int> rqst_task;
     /* Needs a C-style flat memory array */
     MPI_Request * rdata_all;
-    CommBuffer(): databuf(NULL), rdata_all(NULL) {}
+    CommBuffer(): databuf(NULL), devicemem(false), rdata_all(NULL) {}
     ~CommBuffer()
     {
         /* First wait until all comms are done */
         wait();
-        if(databuf) {
-            myfree(databuf);
-            databuf = NULL;
-        }
+        free_databuf();
         if(rdata_all)
             myfree(rdata_all);
     }
+
+    /* Free the data buffer. The caller must ensure that all communication using it is complete.*/
+    void free_databuf(void)
+    {
+        if(!databuf)
+            return;
+#ifdef USE_CUDA
+        if(devicemem)
+            cudaFree(databuf);
+        else
+#endif
+            myfree(databuf);
+        databuf = NULL;
+        devicemem = false;
+    }
+
     /* Get the number of active requests. */
     size_t nrequest(void) const
     {
@@ -369,8 +396,7 @@ public:
             ev_wait_secondary(&res_imports, &imports, &counts, parts);
             // report_memory_usage(ev_label);
             // Want to explicitly free the databuf early for this one so we free memory early.
-            myfree(imports.databuf);
-            imports.databuf = NULL;
+            imports.free_databuf();
             tend = second();
             timecomp2 += timediff(tstart, tend);
             /* Now clear the sent data buffer, waiting for the send to complete.
@@ -595,6 +621,37 @@ public:
         } while(1);
     };
 
+protected:
+    /* Allocate the data buffer of a CommBuffer.
+     * The GPU treewalk overrides this to allocate device memory when using a CUDA-aware MPI.*/
+    void ev_alloc_commbuffer(CommBuffer * buf, const char * const name, const size_t bytes)
+    {
+        buf->databuf = mymanagedmalloc(name, char, bytes);
+    }
+
+    /* Transpose the export query list from being ordered by particle to being ordered by task for export.
+     * Within each task the order of the export table is preserved: ev_reduce_export_result relies on this.
+     * The GPU treewalk overrides this to do the transpose on the device.*/
+    void ev_transpose_exports(const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist, QueryType * const export_queries)
+    {
+        int64_t * real_send_count = mymalloc("tmp_send_count", int64_t, counts->NTask);
+        memset(real_send_count, 0, sizeof(int64_t)*counts->NTask);
+        for(size_t k = 0; k < exportlist->Nexport; k++) {
+            const int task = exportlist->ExportTable[k].Task;
+            const int64_t bufpos = real_send_count[task] + counts->Export_offset[task];
+            real_send_count[task]++;
+            /* Copy the query to the export buffer. Note the index of the queries list is the same as the index of the ExportTable */
+            export_queries[bufpos] = exportlist->ExportQueries[k];
+        }
+    #ifdef DEBUG
+    /* Checks!*/
+        for(int i = 0; i < counts->NTask; i++)
+            if(real_send_count[i] != counts->Export_count[i])
+                endrun(6, "Inconsistent export to task %d of %d: %ld expected %ld\n", i, counts->NTask, real_send_count[i], counts->Export_count[i]);
+    #endif
+        myfree(real_send_count);
+    }
+
 private:
     /* Hook called once the queries have been built on the host.
      * Nothing to do on the CPU: the GPU treewalk overrides this to prefetch them to the device.*/
@@ -719,7 +776,7 @@ private:
 
     void ev_wait_secondary(CommBuffer * res_imports, CommBuffer * imports, ImpExpCounts<QueryType>* counts, struct particle_data * const parts)
     {
-        res_imports->databuf = mymanagedmalloc("ImportResult", char, counts->Nimport * sizeof(ResultType));
+        static_cast<DerivedType *>(this)->ev_alloc_commbuffer(res_imports, "ImportResult", counts->Nimport * sizeof(ResultType));
 
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(ResultType), MPI_BYTE, &type);
@@ -762,8 +819,8 @@ private:
     /* Builds the list of exported particles and async sends the export queries. */
     void ev_send_recv_export_import(const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist, CommBuffer * exports, CommBuffer * imports)
     {
-        exports->databuf = mymalloc("ExportQuery", char, counts->Nexport * sizeof(QueryType));
-        imports->databuf = mymanagedmalloc("ImportQuery", char, counts->Nimport * sizeof(QueryType));
+        static_cast<DerivedType *>(this)->ev_alloc_commbuffer(exports, "ExportQuery", counts->Nexport * sizeof(QueryType));
+        static_cast<DerivedType *>(this)->ev_alloc_commbuffer(imports, "ImportQuery", counts->Nimport * sizeof(QueryType));
 
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(QueryType), MPI_BYTE, &type);
@@ -773,23 +830,7 @@ private:
         imports->MPI_fill(counts->Import_count, counts->Import_offset, type, COMM_RECV, 101922, counts->comm);
 
         /* Transpose the export query list from being ordered by particle to being ordered by task for export*/
-        int64_t * real_send_count = mymalloc("tmp_send_count", int64_t, counts->NTask);
-        memset(real_send_count, 0, sizeof(int64_t)*counts->NTask);
-        QueryType * export_queries = reinterpret_cast<QueryType*>(exports->databuf);
-        for(size_t k = 0; k < exportlist->Nexport; k++) {
-            const int task = exportlist->ExportTable[k].Task;
-            const int64_t bufpos = real_send_count[task] + counts->Export_offset[task];
-            real_send_count[task]++;
-            /* Copy the query to the export buffer. Note the index of the queries list is the same as the index of the ExportTable */
-            export_queries[bufpos] = exportlist->ExportQueries[k];
-        }
-    #ifdef DEBUG
-    /* Checks!*/
-        for(int i = 0; i < counts->NTask; i++)
-            if(real_send_count[i] != counts->Export_count[i])
-                endrun(6, "Inconsistent export to task %d of %d: %ld expected %ld\n", i, counts->NTask, real_send_count[i], counts->Export_count[i]);
-    #endif
-        myfree(real_send_count);
+        static_cast<DerivedType *>(this)->ev_transpose_exports(counts, exportlist, reinterpret_cast<QueryType*>(exports->databuf));
         exports->MPI_fill(counts->Export_count, counts->Export_offset, type, COMM_SEND, 101922, counts->comm);
         MPI_Type_free(&type);
         return;
