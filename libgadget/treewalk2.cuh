@@ -212,6 +212,32 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         cudaFree(exportcounts);
     }
 
+    /* The queries are built on the host in managed memory. Ask the driver to migrate them
+     * to the device in bulk, instead of page by page as the first kernel faults on them.
+     * The prefetch is asynchronous: it is queued on the default stream, so the kernels
+     * launched afterwards on that stream run once it has finished.
+     * This is only a hint, so a failure is reported but is not fatal.*/
+    void ev_prefetch_queries(QueryType * queries, const int64_t WorkSetSize)
+    {
+        if(WorkSetSize == 0)
+            return;
+        int device = 0;
+        cudaError_t status = cudaGetDevice(&device);
+        if(status == cudaSuccess) {
+#if CUDART_VERSION >= 13000
+            /* CUDA 13 removed the legacy signature which took a device id.*/
+            struct cudaMemLocation location;
+            location.type = cudaMemLocationTypeDevice;
+            location.id = device;
+            status = cudaMemPrefetchAsync(queries, WorkSetSize * sizeof(QueryType), location, 0, 0);
+#else
+            status = cudaMemPrefetchAsync(queries, WorkSetSize * sizeof(QueryType), device, 0);
+#endif
+        }
+        if(status != cudaSuccess)
+            message(1, "Could not prefetch %ld queries to the device: %s\n", WorkSetSize, cudaGetErrorString(status));
+    }
+
     int64_t ev_toptree(const int64_t WorkSetStart, const int64_t WorkSetSize, int * exportcounts, ExportMemory2<QueryType> * const exportlist, QueryType * queries)
     {
         const int threadsPerBlock = 256;

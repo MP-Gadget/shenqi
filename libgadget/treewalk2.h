@@ -303,6 +303,8 @@ public:
                 /* Toptree never uses node list */
                 new(&queries[k]) QueryType(parts[i], NULL, priv);
         }
+        /* The queries are complete: on the GPU, start moving them to the device.*/
+        static_cast<DerivedType *>(this)->ev_prefetch_queries(queries, WorkSetSize);
         tend = second();
         timecomp3 += timediff(tstart, tend);
 
@@ -594,6 +596,12 @@ public:
     };
 
 private:
+    /* Hook called once the queries have been built on the host.
+     * Nothing to do on the CPU: the GPU treewalk overrides this to prefetch them to the device.*/
+    void ev_prefetch_queries(QueryType * queries, const int64_t WorkSetSize)
+    {
+    }
+
     void ev_free_exports(int * exportcounts)
     {
         myfree(exportcounts);
