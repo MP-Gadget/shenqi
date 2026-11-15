@@ -24,7 +24,7 @@
 #include "petapm.h"
 #include "timestep.h"
 #include "drift.h"
-#include "forcetree.h"
+#include "forcetree2.h"
 #include "blackhole.h"
 #include "hydra2.h"
 #include "sfr_eff.h"
@@ -253,8 +253,6 @@ begrun(const int RestartSnapNum, struct header_data * head)
     if(All.ExcursionSetReionOn)
         endrun(2,"You must turn on compile flag EXCUR_REION to run ExcursionSetReion!\n");
 #endif
-
-    init_forcetree_params(0.9);
 
     init_cooling_and_star_formation(All.CoolingOn, All.StarformationOn, &All.CP, head->MassTable[0], head->BoxSize, units);
 

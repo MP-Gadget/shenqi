@@ -436,7 +436,7 @@ class GravTopTreeWalk : public TopTreeWalk<GravTreeQuery, GravTreeParams, Moment
 
 #ifdef USE_CUDA
 void
-grav_short_tree_cuda(const ActiveParticles * act, ForceTree * tree, GravTreeParams * priv, GravTreeOutput * output, particle_data * const parts, const size_t MaxExportBufferBytes, MPI_Comm comm);
+grav_short_tree_cuda(const ActiveParticles * act, ForceTreeMoments * tree, GravTreeParams * priv, GravTreeOutput * output, particle_data * const parts, const size_t MaxExportBufferBytes, MPI_Comm comm);
 #endif
 
 #endif

@@ -2,7 +2,6 @@
 #define __SFR_H
 
 #include "forcetree2.h"
-#include "forcetree.h"
 #include "utils/paramset.h"
 #include "utils/system.h"
 #include "timestep.h"

@@ -12,7 +12,6 @@
 #include <boost/random/uniform_real_distribution.hpp>
 
 #include <libgadget/forcetree2.h>
-#include <libgadget/forcetree.h>
 #include <libgadget/partmanager.h>
 #include <libgadget/slotsmanager.h>
 #include <libgadget/domain.h>
@@ -463,7 +462,7 @@ BOOST_AUTO_TEST_CASE(test_forcetree_hmax_mpi)
     teardown_particles(&ddecomp);
 }
 
-/* Trees which number their nodes differently may be alive at the same time:
+/* More than one tree may be alive at the same time:
  * each tree stores the node index of each top leaf itself, so building a second
  * tree must not change where the first tree's top leaves are.*/
 BOOST_AUTO_TEST_CASE(test_forcetree_coexist_mpi)
@@ -475,33 +474,22 @@ BOOST_AUTO_TEST_CASE(test_forcetree_coexist_mpi)
     TestTreeMoments tb(*PartManager, &ddecomp, NULL, false, "");
     const std::vector<int> before(tb.get_topleaf_nodes(), tb.get_topleaf_nodes() + NTopLeaves);
 
-    /* An old-style tree, whose nodes are numbered from firstnode, built while the first tree is alive.*/
-    init_forcetree_params(0.9);
-    ForceTree oldtree = {0};
-    force_tree_rebuild_mask(&oldtree, &ddecomp, ALLMASK, "");
-    /* And another new tree*/
+    /* Another tree, built while the first tree is alive.*/
     ForceTreeSimple simple(*PartManager, &ddecomp, ALLMASK, "");
 
-    int nchanged = 0, nbadold = 0, nbadsimple = 0;
+    int nchanged = 0, nbadsimple = 0;
     for(int l = 0; l < NTopLeaves; l++) {
         if(tb.get_topleaf_nodes()[l] != before[l])
             nchanged++;
-        /* The top trees are built identically, so differ only by the offset of the first node.*/
-        if(oldtree.TopLeafNodes[l] != before[l] + oldtree.firstnode)
-            nbadold++;
+        /* The top trees are built identically.*/
         if(simple.get_topleaf_nodes()[l] != before[l])
             nbadsimple++;
     }
     BOOST_TEST(nchanged == 0);
-    BOOST_TEST(nbadold == 0);
     BOOST_TEST(nbadsimple == 0);
     /* The first tree is still valid*/
     check_toptree(tb.get_nodes(), tb.get_topleaf_nodes(), &ddecomp, true);
     check_local_particles(tb.get_nodes(), tb.get_topleaf_nodes(), tb.get_numnodes(), &ddecomp);
-    /* The old tree can still exchange its moments using its own top leaf nodes.*/
-    force_tree_calc_moments(&oldtree, &ddecomp);
-    BOOST_TEST(fabs(oldtree.Nodes[oldtree.firstnode].mom.mass - tb.get_nodes()[0].mass) < 1e-9 * tb.get_nodes()[0].mass);
 
-    force_tree_free(&oldtree);
     teardown_particles(&ddecomp);
 }

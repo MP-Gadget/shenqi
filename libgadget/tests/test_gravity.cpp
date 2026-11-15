@@ -14,7 +14,7 @@
 #include <libgadget/partmanager.h>
 #include <libgadget/walltime.h>
 #include <libgadget/domain.h>
-#include <libgadget/forcetree.h>
+#include <libgadget/forcetree2.h>
 #include <libgadget/gravity.h>
 #include <libgadget/petapm.h>
 #include <libgadget/timestep.h>
@@ -35,7 +35,6 @@ static void setup(void) {
     dp.SetAsideFactor = 1;
     set_domain_par(dp);
     petapm_module_init(omp_get_max_threads(), 0);
-    init_forcetree_params(0.7);
 }
 
 /* Accumulate the acceleration on the particle at ipos from a unit mass at jpos,
