@@ -329,6 +329,100 @@ BOOST_AUTO_TEST_CASE(test_density_random)
     myfree(PartManager->Base);
 }
 
+/* Find the gas densities twice from the same starting smoothing lengths: with the default
+ * export buffer, and with one small enough that it fills up many times when there is more
+ * than one rank. The size of the export buffer must not change the answer.
+ * With one rank there are no exports and this repeats the first walk.*/
+BOOST_AUTO_TEST_CASE(test_density_small_buffer)
+{
+    struct density_testdata data = setup_density();
+    const int numpart = 32*32*32;
+    /* The same clustered random distribution as do_random_test.*/
+    boost::random::mt19937 r = boost::random::mt19937(0);
+    boost::random::uniform_real_distribution<double> dist(0, 1);
+    double * gpos = mymalloc("globalpos", double, 3*numpart);
+    double * ghsml = mymalloc("globalhsml", double, numpart);
+    for(int i = 0; i < numpart; i++) {
+        ghsml[i] = PartManager->BoxSize/cbrt(numpart);
+        for(int j = 0; j < 3; j++) {
+            if(i < numpart/4)
+                gpos[3*i+j] = PartManager->BoxSize * dist(r);
+            else if(i < 3*numpart/4)
+                gpos[3*i+j] = PartManager->BoxSize/2 + PartManager->BoxSize/8 * exp(pow(dist(r)-0.5,2));
+            else
+                gpos[3*i+j] = PartManager->BoxSize*0.1 + PartManager->BoxSize/32 * exp(pow(dist(r)-0.5,2));
+        }
+    }
+    setup_density_particles(gpos, ghsml, numpart, 0);
+    myfree(ghsml);
+    myfree(gpos);
+
+    DomainDecomp ddecomp = {0};
+    domain_decompose_full(&ddecomp, MPI_COMM_WORLD);
+    ActiveParticles act = init_empty_active_particles(PartManager);
+    {
+        ForceTreeMoments momtree(*PartManager, &ddecomp, nullptr, false, "");
+        set_init_hsml(&momtree, PartManager->BoxSize, PartManager);
+    }
+    DriftKickTimes kick = {0};
+    Cosmology CP = {0};
+    CP.CMBTemperature = 2.7255;
+    CP.Omega0 = 0.3;
+    CP.OmegaLambda = 1- CP.Omega0;
+    CP.OmegaBaryon = 0.045;
+    CP.HubbleParam = 0.7;
+    CP.RadiationOn = 0;
+    CP.w0_fld = -1;
+    struct UnitSystem units = get_unitsystem(3.085678e21, 1.989e43, 1e5);
+    init_cosmology(&CP, 0.01, units);
+
+    const int64_t NumPart = PartManager->NumPart;
+    double * InitHsml = mymalloc("InitHsml", double, NumPart + 1);
+    double * RefHsml = mymalloc("RefHsml", double, NumPart + 1);
+    double * RefDensity = mymalloc("RefDensity", double, NumPart + 1);
+    for(int64_t i = 0; i < NumPart; i++)
+        InitHsml[i] = PartManager->Base[i].Hsml;
+
+    /* First with the default export buffer. A new tree each time,
+     * because the density walk updates hmax in the tree.*/
+    {
+        ForceTreeHmax tree(*PartManager, &ddecomp, GASMASK, "");
+        density(&act, 1, 0, 0, kick, &data.timebinmgr, &CP, &(data.sph_pred.EntVarPred), NULL, &tree);
+        slots_free_sph_pred_data(&data.sph_pred);
+    }
+    for(int64_t i = 0; i < NumPart; i++) {
+        RefHsml[i] = PartManager->Base[i].Hsml;
+        RefDensity[i] = SPHP(i).Density;
+        PartManager->Base[i].Hsml = InitHsml[i];
+    }
+    /* Then with a small export buffer: room for a few hundred queries.*/
+    {
+        ForceTreeHmax tree(*PartManager, &ddecomp, GASMASK, "");
+        density(&act, 1, 0, 0, kick, &data.timebinmgr, &CP, &(data.sph_pred.EntVarPred), NULL, &tree, false, 64 * 1024);
+        slots_free_sph_pred_data(&data.sph_pred);
+    }
+    double maxhsmldiff = 0, maxdensdiff = 0;
+    for(int64_t i = 0; i < NumPart; i++) {
+        const double hdiff = fabs(PartManager->Base[i].Hsml / RefHsml[i] - 1);
+        const double ddiff = fabs(SPHP(i).Density / RefDensity[i] - 1);
+        BOOST_TEST(hdiff < 1e-6);
+        BOOST_TEST(ddiff < 1e-6);
+        maxhsmldiff = std::max(maxhsmldiff, hdiff);
+        maxdensdiff = std::max(maxdensdiff, ddiff);
+    }
+    MPI_Allreduce(MPI_IN_PLACE, &maxhsmldiff, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+    MPI_Allreduce(MPI_IN_PLACE, &maxdensdiff, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+    message(0, "Density with small export buffer: max relative diff in Hsml %g in Density %g\n", maxhsmldiff, maxdensdiff);
+    check_densities(data.dp.MinGasHsmlFractional);
+
+    myfree(RefDensity);
+    myfree(RefHsml);
+    myfree(InitHsml);
+    domain_free(&ddecomp);
+    slots_free(SlotsManager);
+    myfree(PartManager->Base);
+}
+
 /* Set up a regular grid of gas with a coarser grid of stars offset from it.
  * Each rank keeps a contiguous slice of the gas, followed by a slice of the stars,
  * so that the particles are ordered by type as slots_setup_topology requires.

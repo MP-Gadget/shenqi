@@ -408,9 +408,9 @@ class DensityLocalTreeWalk: public LocalNgbTreeWalk<DensityLocalTreeWalk<Density
 class DensityTopTreeWalk: public TopTreeWalk<DensityQuery, DensityPriv, HmaxNODE, NGB_TREEFIND_ASYMMETRIC> { using TopTreeWalk::TopTreeWalk; };
 
 template <typename TreeWalkType>
-void do_density_walk(const ActiveParticles * act, const ForceTreeHmax * tree, DensityPriv * priv, DensityOutput * output, particle_data * const parts, int update_hsml, MPI_Comm comm)
+void do_density_walk(const ActiveParticles * act, const ForceTreeHmax * tree, DensityPriv * priv, DensityOutput * output, particle_data * const parts, int update_hsml, const size_t MaxExportBufferBytes, MPI_Comm comm)
 {
-    TreeWalkType tw("DENSITY", tree, *priv, output);
+    TreeWalkType tw("DENSITY", tree, *priv, output, MaxExportBufferBytes);
     /* Do the treewalk with looping for hsml*/
     if(update_hsml)
         tw.do_hsml_loop(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, comm);
@@ -421,7 +421,7 @@ void do_density_walk(const ActiveParticles * act, const ForceTreeHmax * tree, De
 }
 
 #ifdef USE_CUDA
-void density_cuda(const ActiveParticles * act, const ForceTreeHmax * tree, DensityPriv * priv, DensityOutput * output, particle_data * const parts, int update_hsml,  enum DensityKernelType DensityKernelType, MPI_Comm comm);
+void density_cuda(const ActiveParticles * act, const ForceTreeHmax * tree, DensityPriv * priv, DensityOutput * output, particle_data * const parts, int update_hsml,  enum DensityKernelType DensityKernelType, const size_t MaxExportBufferBytes, MPI_Comm comm);
 #endif
 
 #endif

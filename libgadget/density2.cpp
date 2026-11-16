@@ -103,7 +103,7 @@ class DensityTreeWalkQuintic: public TreeWalk<DensityTreeWalkQuintic, DensityQue
  * neighbours.)
  */
 void
-density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, TimeBinMgr * timebinmgr, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTreeHmax * const tree, bool UseGPU)
+density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, TimeBinMgr * timebinmgr, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTreeHmax * const tree, bool UseGPU, const size_t MaxExportBufferBytes)
 {
     /* This ensures these classes are in managed memory and so accessible on the device. */
     DensityPriv * priv = mymanagedmalloc("DensityPriv", DensityPriv, 1);
@@ -115,19 +115,19 @@ density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int Blac
 
 #ifdef USE_CUDA
     if(UseGPU) {
-        density_cuda(act, tree, priv, output, PartManager->Base, update_hsml, DensityParams.DensityKernelType, MPI_COMM_WORLD);
+        density_cuda(act, tree, priv, output, PartManager->Base, update_hsml, DensityParams.DensityKernelType, MaxExportBufferBytes, MPI_COMM_WORLD);
     } else
 #endif
     {
         switch(DensityParams.DensityKernelType) {
             case DENSITY_KERNEL_CUBIC_SPLINE:
-                do_density_walk<DensityTreeWalkCubic>(act, tree, priv, output, PartManager->Base, update_hsml, MPI_COMM_WORLD);
+                do_density_walk<DensityTreeWalkCubic>(act, tree, priv, output, PartManager->Base, update_hsml, MaxExportBufferBytes, MPI_COMM_WORLD);
                 break;
             case DENSITY_KERNEL_QUARTIC_SPLINE:
-                do_density_walk<DensityTreeWalkQuartic>(act, tree, priv, output, PartManager->Base, update_hsml, MPI_COMM_WORLD);
+                do_density_walk<DensityTreeWalkQuartic>(act, tree, priv, output, PartManager->Base, update_hsml, MaxExportBufferBytes, MPI_COMM_WORLD);
                 break;
             default: //DENSITY_KERNEL_QUINTIC_SPLINE
-                do_density_walk<DensityTreeWalkQuintic>(act, tree, priv, output, PartManager->Base, update_hsml, MPI_COMM_WORLD);
+                do_density_walk<DensityTreeWalkQuintic>(act, tree, priv, output, PartManager->Base, update_hsml, MaxExportBufferBytes, MPI_COMM_WORLD);
                 break;
         }
     }
