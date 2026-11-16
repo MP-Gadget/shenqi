@@ -129,12 +129,16 @@ static void find_means(double * meangrav, double * suppmean, double * suppaccns)
 
 /* This checks the force on each local particle using a direct summation
  * over the global particle set (of which every rank has a copy in gpos):
- * very slow, but accurate.
- * Periodic boundary conditions are included by mirroring the box.*/
+ * very slow, but accurate. All particles have unit mass.
+ * Periodic boundary conditions are included by mirroring the box.
+ * The mirrored boxes form a finite cube of mean density rhobar, which pulls each particle
+ * towards its centre of mass with an acceleration -(4 pi G rhobar/3)(x - x_cm).
+ * The periodic solution of the tree and PM forces removes the mean density and does not have this term,
+ * so it is subtracted here. It does not depend on the size of the cube, so it does not go away
+ * with more mirror boxes, but the rest of the force converges with only one mirror box on each side.*/
 static void force_direct(double * accn, const double * gpos, const int64_t nglobal)
 {
     memset(accn, 0, 3 * sizeof(double) * PartManager->NumPart);
-    /* Checked that increasing the number of mirror boxes has no visible effect on the computed force accuracy*/
     int repeat = 1;
     int64_t i;
     /* (slowly) compute gravitational force, accounting for periodicity by just inventing extra boxes on either side.*/
@@ -151,6 +155,16 @@ static void force_direct(double * accn, const double * gpos, const int64_t nglob
                         grav_force(PartManager->Base[i].Pos, gpos + 3*j, offset, accn + 3*i);
                 }
     }
+    /* Remove the pull of the uniform cube of mirror boxes, described above.*/
+    double cm[3] = {0};
+    for(int64_t j = 0; j < nglobal; j++)
+        for(int k = 0; k < 3; k++)
+            cm[k] += gpos[3*j+k] / nglobal;
+    const double rhobar = nglobal / pow(PartManager->BoxSize, 3);
+    #pragma omp parallel for
+    for(i = 0; i < PartManager->NumPart; i++)
+        for(int k = 0; k < 3; k++)
+            accn[3*i+k] += 4 * M_PI * G * rhobar / 3 * (PartManager->Base[i].Pos[k] - cm[k]);
 }
 
 static int check_against_force_direct(double ErrTolForceAcc, const double * gpos, const int64_t nglobal)
@@ -163,8 +177,8 @@ static int check_against_force_direct(double ErrTolForceAcc, const double * gpos
     myfree(accn);
     message(0, "Mean rel err is: %g max rel err is %g, meanacc %g mean grav force %g\n", meanerr, maxerr, meanacc, meanforce);
     /*Make some statements about the force error*/
-    BOOST_TEST(maxerr < 3*ErrTolForceAcc);
-    BOOST_TEST(meanerr < 0.8*ErrTolForceAcc);
+    BOOST_TEST(maxerr < ErrTolForceAcc);
+    BOOST_TEST(meanerr < 0.2*ErrTolForceAcc);
 
     return 0;
 }
