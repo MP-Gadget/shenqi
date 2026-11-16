@@ -314,7 +314,7 @@ build_stellar_density_queue(int ** WorkSet, int * active_set, const int64_t size
 }
 
 void
-stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * MassReturn, const ForceTreeHmax * const tree, const int SPHWeighting, const double MaxNgbDeviation)
+stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * MassReturn, const ForceTreeHmax * const tree, const int SPHWeighting, const double MaxNgbDeviation, const size_t MaxExportBufferBytes)
 {
     int * StarQueue = NULL;
     const int64_t NumQueue = build_stellar_density_queue(&StarQueue, act->ActiveParticle, act->NumActiveParticle, MassReturn);
@@ -325,20 +325,20 @@ stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * 
     switch(GetDensityKernelType()) {
         case DENSITY_KERNEL_CUBIC_SPLINE:
             {
-                StellarDensityTreeWalkCubic tw("STELLAR_DENSITY", tree, priv, &output);
+                StellarDensityTreeWalkCubic tw("STELLAR_DENSITY", tree, priv, &output, MaxExportBufferBytes);
                 tw.do_hsml_loop(StarQueue, NumQueue, PartManager->Base, MPI_COMM_WORLD);
                 tw.print_stats("/SPH/Metals/Density", MPI_COMM_WORLD);
             }
             break;
         case DENSITY_KERNEL_QUARTIC_SPLINE:
             {
-                StellarDensityTreeWalkQuartic tw("STELLAR_DENSITY", tree, priv, &output);
+                StellarDensityTreeWalkQuartic tw("STELLAR_DENSITY", tree, priv, &output, MaxExportBufferBytes);
                 tw.do_hsml_loop(StarQueue, NumQueue, PartManager->Base, MPI_COMM_WORLD);
                 tw.print_stats("/SPH/Metals/Density", MPI_COMM_WORLD);
             }
             break;
         default: //DENSITY_KERNEL_QUINTIC_SPLINE
-            StellarDensityTreeWalkQuintic tw("STELLAR_DENSITY", tree, priv, &output);
+            StellarDensityTreeWalkQuintic tw("STELLAR_DENSITY", tree, priv, &output, MaxExportBufferBytes);
             tw.do_hsml_loop(StarQueue, NumQueue, PartManager->Base, MPI_COMM_WORLD);
             tw.print_stats("/SPH/Metals/Density", MPI_COMM_WORLD);
     }
