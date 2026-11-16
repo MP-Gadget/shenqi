@@ -619,7 +619,11 @@ private:
         * import chunks or deep timebins) are spread over only a few threads.*/
         #pragma omp parallel for schedule(dynamic, 100)
         for(int64_t k = 0; k < WorkSetSize; k++) {
-            QueryType& input = queries[k];
+            /* Walk a copy of the query. Some walks reduce the search radius in the query as they find neighbours.
+             * The stored queries must not change, because ev_toptree walks them again if the export buffer
+             * fills up, and must find the same exports that ev_count_exports counted.
+             * NOTE: this is not done on the GPU.*/
+            QueryType input = queries[k];
             LocalTreeWalkType lv(tree->get_nodes(), input);
             results[k] = lv.template visit<mode>(input, priv, parts);
         }
