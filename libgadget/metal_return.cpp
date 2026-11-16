@@ -43,10 +43,6 @@
     #pragma error " Inconsistency in metal number between slots and metals"
 #endif
 
-/* Find stellar density, returning the total SPH Volume weights for each particle.
- * From stellar_density2.cpp, only used here*/
-void stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * MassReturn, const ForceTreeHmax * const tree, const int SPHWeighting, const double MaxNgbDeviation);
-
 static struct metal_return_params
 {
     double Sn1aN0;

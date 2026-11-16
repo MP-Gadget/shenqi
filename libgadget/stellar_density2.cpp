@@ -50,15 +50,65 @@ stellareffhsml(const int i, double left, double right, const double Hsml, const 
     return pow((1.*i+1)/(1.*NHSML+1) * (rvol - lvol) + lvol, 1./3);
 }
 
+class StellarDensityQuery : public TreeWalkQueryBase<StellarDensityPriv>
+{
+    public:
+    /* The search radius: the largest evaluation radius. Reduced during the
+     * walk once we know we have enough neighbours at a smaller radius. */
+    MyFloat Hsml;
+    MyFloat HsmlEval[NHSML];
+
+    MYCUDAFN StellarDensityQuery(const particle_data& particle, const int * const i_NodeList, const StellarDensityPriv& priv):
+    TreeWalkQueryBase<StellarDensityPriv>(particle, i_NodeList, priv)
+    {
+        const int pi = particle.PI;
+        for(int i = 0; i < NHSML; i++)
+            HsmlEval[i] = stellareffhsml(i, priv.Left[pi], priv.Right[pi], particle.Hsml, priv.BoxSize);
+        Hsml = HsmlEval[NHSML-1];
+    }
+
+    static MYCUDAFN bool haswork(const particle_data& particle) {
+        if(!TreeWalkQueryBase::haswork(particle))
+            return false;
+        /* Stars only. The mass return condition is checked when building the initial queue.*/
+        return particle.Type == 4;
+    }
+};
+
+class StellarDensityResult : public TreeWalkResultBase<StellarDensityQuery> {
+    public:
+    MyFloat VolumeSPH[NHSML] = {};
+    MyFloat Ngb[NHSML] = {};
+    int maxcmpte = NHSML;
+
+    MYCUDAFN StellarDensityResult(const StellarDensityQuery& query):
+        TreeWalkResultBase<StellarDensityQuery>(query) {}
+
+    MYCUDAFN StellarDensityResult& operator +=(const StellarDensityResult& other)
+    {
+        static_cast<TreeWalkResultBase<StellarDensityQuery>& >(*this) += static_cast<const TreeWalkResultBase<StellarDensityQuery>&>(other);
+
+        if(maxcmpte > other.maxcmpte) {
+            maxcmpte = other.maxcmpte;
+        }
+        for(int i = 0; i < maxcmpte; i++) {
+            Ngb[i] += other.Ngb[i];
+            VolumeSPH[i] += other.VolumeSPH[i];
+        }
+
+        return *this;
+    }
+
+    double GetNumNgb() const
+    {
+        return Ngb[0];
+    }
+};
+
 class StellarDensityOutput {
     public:
-    /* Current number of neighbours*/
-    MyFloat (*NumNgb)[NHSML];
-    MyFloat (*VolumeSPH)[NHSML];
     /* Lower and upper bounds on smoothing length*/
     MyFloat *Left, *Right;
-    /* Maximum index where NumNgb is valid. */
-    int * maxcmpte;
     /* The SPH volume weight for each star: the output of this treewalk.*/
     MyFloat * StarVolumeSPH;
     particle_data * parts;
@@ -67,13 +117,9 @@ class StellarDensityOutput {
     StellarDensityOutput(MyFloat * StarVolumeSPH_i, const ForceTreeHmax * const tree, const int * WorkSet, const int64_t WorkSetSize, particle_data * const parts_i, slots_manager_type * slotsmanager):
     StarVolumeSPH(StarVolumeSPH_i), parts(parts_i)
     {
-        typedef MyFloat NumNgbArray[NHSML];
         const int64_t nstar = slotsmanager->info[4].size;
         Left = mymalloc("DENS_PRIV->Left", MyFloat, nstar);
         Right = mymalloc("DENS_PRIV->Right", MyFloat, nstar);
-        NumNgb = mymalloc("DENS_PRIV->NumNgb", NumNgbArray, nstar);
-        VolumeSPH = mymalloc("DENS_PRIV->VolumeSPH", NumNgbArray, nstar);
-        maxcmpte = mymalloc("maxcmpte", int, nstar);
 
         /*Initialise the bounds for the active stars*/
         #pragma omp parallel for
@@ -113,38 +159,29 @@ class StellarDensityOutput {
 
     ~StellarDensityOutput()
     {
-        myfree(maxcmpte);
-        myfree(VolumeSPH);
-        myfree(NumNgb);
         myfree(Right);
         myfree(Left);
-    }
-
-    double GetNumNgb(const int i)
-    {
-        const int pi = parts[i].PI;
-        return NumNgb[pi][maxcmpte[pi]-1];
     }
 
     /* Narrow the Hsml bounds from the computed neighbour numbers and store the
      * SPH volume weight. Returns 1 if the star is done, 0 if it needs to be redone.*/
     int
-    postprocess(const int i, particle_data * const parts, const StellarDensityPriv * priv)
+    postprocess(const int i, StellarDensityResult& result, particle_data * const parts, const StellarDensityPriv * priv)
     {
         const int pi = parts[i].PI;
-        const int maxcmpt = maxcmpte[pi];
         double evalhsml[NHSML];
         evalhsml[0] = stellareffhsml(0, Left[pi], Right[pi], parts[i].Hsml, priv->BoxSize);
-        for(int j = 1; j < maxcmpt; j++)
+        for(int j = 1; j < result.maxcmpte; j++)
             evalhsml[j] = stellareffhsml(j, Left[pi], Right[pi], parts[i].Hsml, priv->BoxSize);
 
         int close = 0;
-        parts[i].Hsml = ngb_narrow_down(&Right[pi], &Left[pi], evalhsml, NumNgb[pi], maxcmpt, priv->DesNumNgb, &close, priv->BoxSize);
-        const double numngb = NumNgb[pi][close];
-
+        parts[i].Hsml = ngb_narrow_down(&Right[pi], &Left[pi], evalhsml, result.Ngb, result.maxcmpte, priv->DesNumNgb, &close, priv->BoxSize);
+        const double numngb = result.Ngb[close];
         /* Save the volume weight for the metal return*/
-        StarVolumeSPH[pi] = VolumeSPH[pi][close];
+        StarVolumeSPH[pi] = result.VolumeSPH[close];
 
+        /* Store the closet NumNgb so we can use it in do_hsml_loop*/
+        result.Ngb[0] = numngb;
         /* now check whether we had enough neighbours */
         if(numngb < (priv->DesNumNgb - priv->MaxNgbDeviation) ||
                 numngb > (priv->DesNumNgb + priv->MaxNgbDeviation))
@@ -168,55 +205,6 @@ class StellarDensityOutput {
         if(StarVolumeSPH[pi] == 0)
             endrun(3, "i = %d pi = %d StarVolumeSPH %g hsml %g\n", i, pi, StarVolumeSPH[pi], parts[i].Hsml);
         return 1;
-    }
-};
-
-class StellarDensityQuery : public TreeWalkQueryBase<StellarDensityPriv>
-{
-    public:
-    /* The search radius: the largest evaluation radius. Reduced during the
-     * walk once we know we have enough neighbours at a smaller radius. */
-    MyFloat Hsml;
-    MyFloat HsmlEval[NHSML];
-
-    MYCUDAFN StellarDensityQuery(const particle_data& particle, const int * const i_NodeList, const StellarDensityPriv& priv):
-    TreeWalkQueryBase<StellarDensityPriv>(particle, i_NodeList, priv)
-    {
-        const int pi = particle.PI;
-        for(int i = 0; i < NHSML; i++)
-            HsmlEval[i] = stellareffhsml(i, priv.Left[pi], priv.Right[pi], particle.Hsml, priv.BoxSize);
-        Hsml = HsmlEval[NHSML-1];
-    }
-
-    static MYCUDAFN bool haswork(const particle_data& particle) {
-        if(!TreeWalkQueryBase::haswork(particle))
-            return false;
-        /* Stars only. The mass return condition is checked when building the initial queue.*/
-        return particle.Type == 4;
-    }
-};
-
-class StellarDensityResult : public TreeWalkResultBase<StellarDensityQuery, StellarDensityOutput> {
-    public:
-    MyFloat VolumeSPH[NHSML] = {0};
-    MyFloat Ngb[NHSML] = {0};
-    int maxcmpte = NHSML;
-
-    MYCUDAFN StellarDensityResult(const StellarDensityQuery& query):
-        TreeWalkResultBase<StellarDensityQuery, StellarDensityOutput>(query) {}
-
-    template<TreeWalkReduceMode mode>
-    MYCUDAFN void reduce(int place, const StellarDensityOutput * output, struct particle_data * const parts)
-    {
-        const int pi = parts[place].PI;
-        if constexpr(mode == TREEWALK_PRIMARY)
-            output->maxcmpte[pi] = maxcmpte;
-        else if(output->maxcmpte[pi] > maxcmpte)
-            output->maxcmpte[pi] = maxcmpte;
-        for(int i = 0; i < maxcmpte; i++) {
-            TREEWALK_REDUCE(output->NumNgb[pi][i], Ngb[i]);
-            TREEWALK_REDUCE(output->VolumeSPH[pi][i], VolumeSPH[i]);
-        }
     }
 };
 
@@ -326,7 +314,7 @@ build_stellar_density_queue(int ** WorkSet, int * active_set, const int64_t size
 }
 
 void
-stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * MassReturn, const ForceTreeHmax * const tree, const int SPHWeighting, const double MaxNgbDeviation)
+stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * MassReturn, const ForceTreeHmax * const tree, const int SPHWeighting, const double MaxNgbDeviation, const size_t MaxExportBufferBytes)
 {
     int * StarQueue = NULL;
     const int64_t NumQueue = build_stellar_density_queue(&StarQueue, act->ActiveParticle, act->NumActiveParticle, MassReturn);
@@ -337,20 +325,20 @@ stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * 
     switch(GetDensityKernelType()) {
         case DENSITY_KERNEL_CUBIC_SPLINE:
             {
-                StellarDensityTreeWalkCubic tw("STELLAR_DENSITY", tree, priv, &output);
+                StellarDensityTreeWalkCubic tw("STELLAR_DENSITY", tree, priv, &output, MaxExportBufferBytes);
                 tw.do_hsml_loop(StarQueue, NumQueue, PartManager->Base, MPI_COMM_WORLD);
                 tw.print_stats("/SPH/Metals/Density", MPI_COMM_WORLD);
             }
             break;
         case DENSITY_KERNEL_QUARTIC_SPLINE:
             {
-                StellarDensityTreeWalkQuartic tw("STELLAR_DENSITY", tree, priv, &output);
+                StellarDensityTreeWalkQuartic tw("STELLAR_DENSITY", tree, priv, &output, MaxExportBufferBytes);
                 tw.do_hsml_loop(StarQueue, NumQueue, PartManager->Base, MPI_COMM_WORLD);
                 tw.print_stats("/SPH/Metals/Density", MPI_COMM_WORLD);
             }
             break;
         default: //DENSITY_KERNEL_QUINTIC_SPLINE
-            StellarDensityTreeWalkQuintic tw("STELLAR_DENSITY", tree, priv, &output);
+            StellarDensityTreeWalkQuintic tw("STELLAR_DENSITY", tree, priv, &output, MaxExportBufferBytes);
             tw.do_hsml_loop(StarQueue, NumQueue, PartManager->Base, MPI_COMM_WORLD);
             tw.print_stats("/SPH/Metals/Density", MPI_COMM_WORLD);
     }

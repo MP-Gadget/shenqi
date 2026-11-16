@@ -129,12 +129,16 @@ static void find_means(double * meangrav, double * suppmean, double * suppaccns)
 
 /* This checks the force on each local particle using a direct summation
  * over the global particle set (of which every rank has a copy in gpos):
- * very slow, but accurate.
- * Periodic boundary conditions are included by mirroring the box.*/
+ * very slow, but accurate. All particles have unit mass.
+ * Periodic boundary conditions are included by mirroring the box.
+ * The mirrored boxes form a finite cube of mean density rhobar, which pulls each particle
+ * towards its centre of mass with an acceleration -(4 pi G rhobar/3)(x - x_cm).
+ * The periodic solution of the tree and PM forces removes the mean density and does not have this term,
+ * so it is subtracted here. It does not depend on the size of the cube, so it does not go away
+ * with more mirror boxes, but the rest of the force converges with only one mirror box on each side.*/
 static void force_direct(double * accn, const double * gpos, const int64_t nglobal)
 {
     memset(accn, 0, 3 * sizeof(double) * PartManager->NumPart);
-    /* Checked that increasing the number of mirror boxes has no visible effect on the computed force accuracy*/
     int repeat = 1;
     int64_t i;
     /* (slowly) compute gravitational force, accounting for periodicity by just inventing extra boxes on either side.*/
@@ -151,6 +155,16 @@ static void force_direct(double * accn, const double * gpos, const int64_t nglob
                         grav_force(PartManager->Base[i].Pos, gpos + 3*j, offset, accn + 3*i);
                 }
     }
+    /* Remove the pull of the uniform cube of mirror boxes, described above.*/
+    double cm[3] = {0};
+    for(int64_t j = 0; j < nglobal; j++)
+        for(int k = 0; k < 3; k++)
+            cm[k] += gpos[3*j+k] / nglobal;
+    const double rhobar = nglobal / pow(PartManager->BoxSize, 3);
+    #pragma omp parallel for
+    for(i = 0; i < PartManager->NumPart; i++)
+        for(int k = 0; k < 3; k++)
+            accn[3*i+k] += 4 * M_PI * G * rhobar / 3 * (PartManager->Base[i].Pos[k] - cm[k]);
 }
 
 static int check_against_force_direct(double ErrTolForceAcc, const double * gpos, const int64_t nglobal)
@@ -163,8 +177,8 @@ static int check_against_force_direct(double ErrTolForceAcc, const double * gpos
     myfree(accn);
     message(0, "Mean rel err is: %g max rel err is %g, meanacc %g mean grav force %g\n", meanerr, maxerr, meanacc, meanforce);
     /*Make some statements about the force error*/
-    BOOST_TEST(maxerr < 3*ErrTolForceAcc);
-    BOOST_TEST(meanerr < 0.8*ErrTolForceAcc);
+    BOOST_TEST(maxerr < ErrTolForceAcc);
+    BOOST_TEST(meanerr < 0.2*ErrTolForceAcc);
 
     return 0;
 }
@@ -195,7 +209,8 @@ static void setup_particles(const double * gpos, const int64_t nglobal)
     }
 }
 
-static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int direct, const double * gpos, const int64_t nglobal)
+/* MaxExportBufferBytes is the maximum size of the treewalk export buffer.*/
+static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int direct, const double * gpos, const int64_t nglobal, const size_t MaxExportBufferBytes = 1024 * 1024 * 1024)
 {
     setup_particles(gpos, nglobal);
 
@@ -230,7 +245,7 @@ static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int di
     treeacc.Rcut = 7;
     treeacc.ErrTolForceAcc = ErrTolForceAcc;
     treeacc.FractionalGravitySoftening = 1./30.;
-    treeacc.MaxExportBufferBytes = 1024 * 1024 * 1024;
+    treeacc.MaxExportBufferBytes = MaxExportBufferBytes;
     treeacc.ShortRangeForceWindowType = SHORTRANGE_FORCE_WINDOW_TYPE_EXACT;
 
     set_gravshort_treepar(treeacc);
@@ -354,5 +369,58 @@ BOOST_AUTO_TEST_CASE(test_force_random)
     for(i=0; i<2; i++) {
         do_random_test(r, numpart);
     }
+    myfree(PartManager->Base);
+}
+
+/* Compute the forces on a random particle distribution twice: with a large export buffer, and with
+ * one small enough that it fills up many times when there is more than one rank.
+ * The size of the export buffer must not change the forces.
+ * With one rank there are no exports and this repeats the first computation.*/
+BOOST_AUTO_TEST_CASE(test_force_small_buffer)
+{
+    setup();
+    const int numpart = PartManager->NumPart;
+    particle_alloc_memory(PartManager, 8, numpart);
+    auto r = boost::random::mt19937(0);
+    boost::random::uniform_real_distribution<double> dist(0, 1);
+    /* The same clustered random distribution as do_random_test.
+     * Every rank draws the same sequence, so gpos is identical everywhere.*/
+    double * gpos = mymalloc("globalpos", double, 3*numpart);
+    for(int i = 0; i < numpart; i++) {
+        for(int j = 0; j < 3; j++) {
+            if(i < numpart/4)
+                gpos[3*i+j] = PartManager->BoxSize * dist(r);
+            else if(i < 3*numpart/4)
+                gpos[3*i+j] = PartManager->BoxSize/2 + PartManager->BoxSize/8 * exp(pow(dist(r)-0.5,2));
+            else
+                gpos[3*i+j] = PartManager->BoxSize*0.1 + PartManager->BoxSize/32 * exp(pow(dist(r)-0.5,2));
+        }
+    }
+    /* Reference forces, indexed by the global particle number, which is ID - 1:
+     * each rank fills in the particles it holds.*/
+    double * refaccn = mymalloc("refaccn", double, 3*numpart);
+    do_force_test(48, 1.5, 0.002, 0, gpos, numpart);
+    double meanforce = 0;
+    find_means(&meanforce, NULL, NULL);
+    for(int64_t i = 0; i < PartManager->NumPart; i++) {
+        const particle_data& part = PartManager->Base[i];
+        for(int k = 0; k < 3; k++)
+            refaccn[3*(part.ID-1)+k] = part.GravPM[k] + part.FullTreeGravAccel[k];
+    }
+    /* Now with a small export buffer: room for a few hundred queries. Check against the direct sum as well.*/
+    do_force_test(48, 1.5, 0.002, 1, gpos, numpart, 64 * 1024);
+    double maxdiff = 0;
+    for(int64_t i = 0; i < PartManager->NumPart; i++) {
+        const particle_data& part = PartManager->Base[i];
+        for(int k = 0; k < 3; k++) {
+            const double diff = fabs(part.GravPM[k] + part.FullTreeGravAccel[k] - refaccn[3*(part.ID-1)+k]) / meanforce;
+            BOOST_TEST(diff < 1e-6);
+            maxdiff = std::max(maxdiff, diff);
+        }
+    }
+    MPI_Allreduce(MPI_IN_PLACE, &maxdiff, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+    message(0, "Force with small export buffer: max diff relative to the mean force %g\n", maxdiff);
+    myfree(refaccn);
+    myfree(gpos);
     myfree(PartManager->Base);
 }

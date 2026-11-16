@@ -28,17 +28,17 @@ class DensityTreeWalkGPUQuintic: public TreeWalkGPU<DensityTreeWalkGPUQuintic, D
 /*! CUDA treewalk.
  */
 void
-density_cuda(const ActiveParticles * act, const ForceTreeHmax * tree, DensityPriv * priv, DensityOutput * output, particle_data * const parts, int update_hsml, enum DensityKernelType DensityKernelType, MPI_Comm comm)
+density_cuda(const ActiveParticles * act, const ForceTreeHmax * tree, DensityPriv * priv, DensityOutput * output, particle_data * const parts, int update_hsml, enum DensityKernelType DensityKernelType, const size_t MaxExportBufferBytes, MPI_Comm comm)
 {
     switch(DensityKernelType) {
         case DENSITY_KERNEL_CUBIC_SPLINE:
-            do_density_walk<DensityTreeWalkGPUCubic>(act, tree, priv, output, PartManager->Base, update_hsml, MPI_COMM_WORLD);
+            do_density_walk<DensityTreeWalkGPUCubic>(act, tree, priv, output, PartManager->Base, update_hsml, MaxExportBufferBytes, MPI_COMM_WORLD);
             break;
         case DENSITY_KERNEL_QUARTIC_SPLINE:
-            do_density_walk<DensityTreeWalkGPUQuartic>(act, tree, priv, output, PartManager->Base, update_hsml, MPI_COMM_WORLD);
+            do_density_walk<DensityTreeWalkGPUQuartic>(act, tree, priv, output, PartManager->Base, update_hsml, MaxExportBufferBytes, MPI_COMM_WORLD);
             break;
         default: //DENSITY_KERNEL_QUINTIC_SPLINE
-            do_density_walk<DensityTreeWalkGPUQuintic>(act, tree, priv, output, PartManager->Base, update_hsml, MPI_COMM_WORLD);
+            do_density_walk<DensityTreeWalkGPUQuintic>(act, tree, priv, output, PartManager->Base, update_hsml, MaxExportBufferBytes, MPI_COMM_WORLD);
             break;
     }
 }

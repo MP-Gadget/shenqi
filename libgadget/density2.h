@@ -38,8 +38,17 @@ void set_densitypar(struct density_params dp);
  * there are enough neighbours. If update_hsml is false (when initializing the EgyWtDensity)
  * it just computes densities.
  * If DoEgyDensity is true it also computes the entropy-weighted density for
- * pressure-entropy SPH. */
-void density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, TimeBinMgr * timebinmgr, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTreeHmax * const tree, bool UseGPU=false);
+ * pressure-entropy SPH.
+ * MaxExportBufferBytes limits the size of the treewalk export buffer, and defaults to the treewalk default.
+ * It is there so that the tests can make the export buffer fill up.*/
+void density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int BlackHoleOn, DriftKickTimes& times, TimeBinMgr * timebinmgr, Cosmology * CP, MyFloat ** EntVarPred, MyFloat * GradRho_mag, const ForceTreeHmax * const tree, bool UseGPU=false, const size_t MaxExportBufferBytes = 3584*1024*1024L);
+
+/* Find the stellar density, setting Hsml for each star with significant mass return this timestep
+ * and returning the total SPH volume weights of the gas around it in StarVolumeSPH.
+ * StarVolumeSPH and MassReturn are indexed by the star slot. Defined in stellar_density2.cpp.
+ * MaxExportBufferBytes limits the size of the treewalk export buffer, and defaults to the treewalk default.
+ * It is there so that the tests can make the export buffer fill up.*/
+void stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * MassReturn, const ForceTreeHmax * const tree, const int SPHWeighting, const double MaxNgbDeviation, const size_t MaxExportBufferBytes = 3584*1024*1024L);
 
 /* Get the desired nuber of neighbours for the supplied kernel*/
 double GetNumNgb(enum DensityKernelType KernelType);

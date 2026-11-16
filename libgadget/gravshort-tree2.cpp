@@ -154,8 +154,7 @@ grav_short_tree(const ActiveParticles * act, PetaPM * pm, ForceTreeMoments * tre
     } else
     #endif
     {
-        GravTreeWalk tw("GRAVTREE", tree, *priv, output);
-        tw.MaxExportBufferBytes = TreeParams.MaxExportBufferBytes;
+        GravTreeWalk tw("GRAVTREE", tree, *priv, output, TreeParams.MaxExportBufferBytes);
         tw.run_on_queue(act->ActiveParticle, act->NumActiveParticle, PartManager->Base, MPI_COMM_WORLD);
         tw.print_stats("/Tree", MPI_COMM_WORLD);
     }
