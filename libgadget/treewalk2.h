@@ -222,8 +222,8 @@ public:
      * which would free the underlying memory */
     const ParamType& priv;
     OutputType * output;
-    /* Maximum size of the export buffer */
-    size_t MaxExportBufferBytes = 3584*1024*1024L;
+    /* Maximum size of the export buffer, set in the constructor.*/
+    const size_t MaxExportBufferBytes;
     /* performance metrics */
     /* Wait for remotes to finish.*/
     double timewait1;
@@ -242,10 +242,12 @@ public:
     size_t NExportTargets;
     /**
      * Constructor - initializes all members to safe defaults.
+     * i_MaxExportBufferBytes is the maximum size in bytes of the buffer of exported queries:
+     * if a rank has more exports than fit, the treewalk exports them in several passes.
      */
-    TreeWalk(const char * const i_ev_label, const ForceTreeType * const i_tree, const ParamType& i_priv, OutputType * i_out):
+    TreeWalk(const char * const i_ev_label, const ForceTreeType * const i_tree, const ParamType& i_priv, OutputType * i_out, const size_t i_MaxExportBufferBytes = 3584*1024*1024L):
         tree(i_tree), ev_label(i_ev_label),
-        priv(i_priv), output(i_out),
+        priv(i_priv), output(i_out), MaxExportBufferBytes(i_MaxExportBufferBytes),
         timewait1(0), timecomp0(0), timecomp1(0), timecomp2(0), timecomp3(0),
         Nexport_sum(0), NExportTargets(0)
     {    }
