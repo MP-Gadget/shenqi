@@ -1032,8 +1032,9 @@ public:
                 Nodes[no].DependsOnLocalMass = 1;
                 /* Nodes containing other nodes: the overwhelmingly likely case.*/
                 if(Nodes[no].ChildType == NODE_NODE_TYPE) {
-                    #pragma omp task default(none) firstprivate(no)
-                    force_update_node_recursive(no, Nodes[no].sibling, 1);
+                    const int sib = Nodes[no].sibling;
+                    #pragma omp task default(none) firstprivate(no, sib)
+                    force_update_node_recursive(no, sib, 1);
                 }
                 else if(Nodes[no].ChildType == PARTICLE_NODE_TYPE)
                     Nodes[no].force_update_particle_node();
