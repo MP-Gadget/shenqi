@@ -20,7 +20,7 @@ lib/libbigfile-mpi.a: bigfile/src/bigfile-mpi.c
 
 # Enable the cufft backend in heffte when the code is built with CUDA.
 ifneq ($(findstring -DUSE_CUDA, $(OPT)),)
-    HEFFTE_CUDA = -DHeffte_ENABLE_CUDA=ON
+    HEFFTE_CUDA = -DHeffte_ENABLE_CUDA=ON -DCMAKE_CUDA_FLAGS="$(NVOPTIMIZE)"
 endif
 
 # heffte uses the system fftw3 (found via its cmake module: needs the
@@ -32,7 +32,7 @@ $(HEFFTELIBRARY): heffte/CMakeLists.txt
 	    -DCMAKE_BUILD_TYPE=Release \
 	    -DBUILD_SHARED_LIBS=OFF \
 	    -DCMAKE_CXX_COMPILER=$(MPICXXDEP) \
-	    -DCMAKE_CXX_FLAGS="-fopenmp -march=native" \
+	    -DCMAKE_CXX_FLAGS="$(OPTIMIZE)" \
 	    -DHeffte_ENABLE_FFTW=ON \
 	    -DHeffte_ENABLE_TESTING=OFF $(HEFFTE_CUDA)
 	cmake --build heffte/build -j 8
