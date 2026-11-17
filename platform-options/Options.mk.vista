@@ -1,22 +1,20 @@
 #These variables are set to useful defaults, but may be overriden if needed
 #MPICC=mpic++
-#This is a good optimized build default for nvc
-CUDA_LIBS=-L$(TACC_CUDA_LIB) -lcudart
+#Flags: NVMATH is needed for cufft.
+#We only need the link as it is used only through Heffte,
+CUDA_LIBS=-L$(TACC_CUDA_LIB) -lcudart -L$(TACC_NVMATH_LIB) -lcufft
 CUDA_INCL=-I$(TACC_CUDA_INC)
 
 BOOST_INCL=-I$(TACC_BOOST_INC)
 BOOST_LIBS=-L$(TACC_BOOST_LIB)
 
-NVMATH_INCL=-I$(TACC_NVMATH_INC)
-NVMATH_LIBS=-L$(TACC_NVMATH_LIB)
+#We need to explicitly tell nvcc where MPI is on this machine
+NVCC=nvcc
+NVOPTIMIZE =-O3 -g -arch=sm_90a -I$(TACC_MPI_DIR)/include # specify architecture according to you GPU model, sm_90a shall be used for Vista's H100
 
-CUFFTMP_INCL=-I/home1/apps/nvidia/Linux_aarch64/24.7/math_libs/include/cufftmp
-CUFFTMP_LIBS=-L/home1/apps/nvidia/Linux_aarch64/24.7/math_libs/lib64 -lcufftMp
-
-NVSHMEM_INCL=-I$(TACC_NVSHMEM_INC)
-NVSHMEM_LIBS=-L$(TACC_NVSHMEM_LIB) -lnvshmem_host
-
-OPTIMIZE =  -mp -O3 -g -Wall -fast -stdpar=multicore
+#This does OpenMP loops on cpu and STL containers on the GPU.
+#-Ofast is forbidden!
+OPTIMIZE = -O3 -fast -g -Wall -mp=multicore -stdpar=gpu -gpu=cc90
 #This is a good non-optimized default for debugging
 #OPTIMIZE =  -mp -O0 -g -Wall
 
@@ -24,6 +22,7 @@ OPTIMIZE =  -mp -O3 -g -Wall -fast -stdpar=multicore
 #OPT += -DDEBUG      # print a lot of debugging messages
 #Disable openmp locking. This means no threading.
 #OPT += -DNO_OPENMP_SPINLOCK
+OPT += -DUSE_CUDA  #Enable GPU-specific CUDA code
 
 #--------- CFITSIO (required only for saving potential plane files)
 # OPT += -DUSE_CFITSIO
