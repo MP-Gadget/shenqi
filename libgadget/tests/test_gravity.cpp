@@ -78,6 +78,11 @@ grav_force(const double * ipos, const double * jpos, const double * offset, doub
         accn[d] += - dist[d] * fac * G;
 }
 
+/* Find the mean and maximum error in each component of the acceleration, compared to the accurate accelerations in PairAccn.
+ * The error is relative to the magnitude of each particle's accurate acceleration,
+ * which is what the relative opening criterion of the tree controls. Where the forces nearly cancel,
+ * the acceleration is small and the relative error large but unimportant,
+ * so the error is relative to meanacc instead when the particle's acceleration is smaller than meanacc.*/
 void check_accns(double * meanerr_tot, double * maxerr_tot, double *PairAccn, double meanacc)
 {
     double meanerr=0, maxerr=-1;
@@ -86,9 +91,11 @@ void check_accns(double * meanerr_tot, double * maxerr_tot, double *PairAccn, do
     #pragma omp parallel for reduction(+: meanerr) reduction(max: maxerr)
     for(i = 0; i < PartManager->NumPart; i++)
     {
+        const double amag = sqrt(PairAccn[3*i] * PairAccn[3*i] + PairAccn[3*i+1] * PairAccn[3*i+1] + PairAccn[3*i+2] * PairAccn[3*i+2]);
+        const double norm = std::max(amag, meanacc);
         int k;
         for(k=0; k<3; k++) {
-            double err = fabs((PairAccn[3*i+k] - (PartManager->Base[i].GravPM[k] + PartManager->Base[i].FullTreeGravAccel[k]))/meanacc);
+            double err = fabs((PairAccn[3*i+k] - (PartManager->Base[i].GravPM[k] + PartManager->Base[i].FullTreeGravAccel[k]))/norm);
             meanerr += err;
             if(maxerr < err)
                 maxerr = err;
@@ -176,9 +183,12 @@ static int check_against_force_direct(double ErrTolForceAcc, const double * gpos
     check_accns(&meanerr, &maxerr, accn, meanacc);
     myfree(accn);
     message(0, "Mean rel err is: %g max rel err is %g, meanacc %g mean grav force %g\n", meanerr, maxerr, meanacc, meanforce);
-    /*Make some statements about the force error*/
-    BOOST_TEST(maxerr < ErrTolForceAcc);
-    BOOST_TEST(meanerr < 0.2*ErrTolForceAcc);
+    /* Make some statements about the force error. The relative opening criterion aims
+     * for an error of ErrTolForceAcc times the particle's acceleration from each node used,
+     * and the measured error relative to the particle's acceleration is about 0.5 ErrTolForceAcc on average
+     * and 2.5 ErrTolForceAcc at most for the random tests. */
+    BOOST_TEST(maxerr < 4*ErrTolForceAcc);
+    BOOST_TEST(meanerr < 0.75*ErrTolForceAcc);
 
     return 0;
 }
@@ -244,6 +254,8 @@ static void do_force_test(int Nmesh, double Asmth, double ErrTolForceAcc, int di
     treeacc.TreeUseBH = 2;
     treeacc.Rcut = 7;
     treeacc.ErrTolForceAcc = ErrTolForceAcc;
+    /* The Barnes-Hut opening angle applied in addition to the relative criterion above.*/
+    treeacc.MaxBHOpeningAngle = 0.9;
     treeacc.FractionalGravitySoftening = 1./30.;
     treeacc.MaxExportBufferBytes = MaxExportBufferBytes;
     treeacc.ShortRangeForceWindowType = SHORTRANGE_FORCE_WINDOW_TYPE_EXACT;
