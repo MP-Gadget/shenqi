@@ -5,7 +5,7 @@
 #include "cosmology.h"
 #include "timestep.h"
 #include "forcetree2.h"
-#include "densitykernel.h"
+#include "densitykernel.hpp"
 #include "physconst.h"
 
 struct density_params
@@ -49,6 +49,15 @@ void density(const ActiveParticles * act, int update_hsml, int DoEgyDensity, int
  * MaxExportBufferBytes limits the size of the treewalk export buffer, and defaults to the treewalk default.
  * It is there so that the tests can make the export buffer fill up.*/
 void stellar_density(const ActiveParticles * act, MyFloat * StarVolumeSPH, MyFloat * MassReturn, const ForceTreeHmax * const tree, const int SPHWeighting, const double MaxNgbDeviation, const size_t MaxExportBufferBytes = 3584*1024*1024L);
+
+struct sph_pred_data
+{
+    /*!< Predicted entropy at current particle drift time for SPH computation*/
+    MyFloat * EntVarPred;
+};
+
+/* Free the predicted SPH data allocated by density().*/
+void slots_free_sph_pred_data(struct sph_pred_data * sph_pred);
 
 /* Get the desired nuber of neighbours for the supplied kernel*/
 double GetNumNgb(enum DensityKernelType KernelType);

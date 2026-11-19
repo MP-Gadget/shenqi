@@ -19,7 +19,7 @@
 #include "treewalk2.h"
 #include "localtreewalk2.h"
 
-#include "forcetree.h"
+#include "forcetree2.h"
 #include "timestep.h"
 #include "walltime.h"
 #include "partmanager.h"

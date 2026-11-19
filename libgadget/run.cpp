@@ -24,7 +24,7 @@
 #include "petapm.h"
 #include "timestep.h"
 #include "drift.h"
-#include "forcetree.h"
+#include "forcetree2.h"
 #include "blackhole.h"
 #include "hydra2.h"
 #include "sfr_eff.h"
@@ -253,8 +253,6 @@ begrun(const int RestartSnapNum, struct header_data * head)
     if(All.ExcursionSetReionOn)
         endrun(2,"You must turn on compile flag EXCUR_REION to run ExcursionSetReion!\n");
 #endif
-
-    init_forcetree_params(0.9);
 
     init_cooling_and_star_formation(All.CoolingOn, All.StarformationOn, &All.CP, head->MassTable[0], head->BoxSize, units);
 
@@ -622,13 +620,10 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             if(!gasTree)
                 gasTree = new ForceTreeHmax(*PartManager, ddecomp, GASMASK | BHMASK, All.OutputDir);
 
-            ForceTree bhtree = {0};
-            force_tree_rebuild_mask(&bhtree, ddecomp, GASMASK | BHMASK, All.OutputDir);
-
             /* Do this before sfr and bh so the gas hsml always contains DesNumNgb neighbours.*/
             if(All.MetalReturnOn) {
                 double AvgGasMass = All.CP.OmegaBaryon * 3 * All.CP.Hubble * All.CP.Hubble / (8 * M_PI * All.CP.GravInternal) * pow(PartManager->BoxSize, 3) / header->NTotalInit[0];
-                metal_return(&Act, &bhtree, gasTree, &All.CP, atime, AvgGasMass);
+                metal_return(&Act, gasTree, &All.CP, atime, AvgGasMass);
             }
 
             /* this will find new black hole seed halos.
@@ -649,7 +644,7 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
 
                 if(during_helium_reionization(1/atime - 1)) {
                     /* Helium reionization by switching on quasar bubbles*/
-                    do_heiii_reionization(atime, &fof, &bhtree, &All.CP, &rnd, units.UnitInternalEnergy_in_cgs, fds.FdHelium);
+                    do_heiii_reionization(atime, &fof, gasTree, &All.CP, &rnd, units.UnitInternalEnergy_in_cgs, fds.FdHelium);
                 }
 #ifdef EXCUR_REION
                 //excursion set reionisation
@@ -675,12 +670,11 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
             if(All.BlackHoleOn) {
                 /*Get a new BH details file if the current one is too large.*/
                 rotate_bhdetails_file(&fds, All.OutputDir, RestartSnapNum);
-                blackhole(&Act, atime, &All.CP, &bhtree, ddecomp, &times, &timebinmgr, &rnd, units, fds.FdBlackHoles, fds.FdBlackholeDetails, &fds.TotalBHDetailsBytesWritten);
+                blackhole(&Act, atime, &All.CP, gasTree, ddecomp, &times, &timebinmgr, &rnd, units, fds.FdBlackHoles, fds.FdBlackholeDetails, &fds.TotalBHDetailsBytesWritten);
             }
             /**** radiative cooling and star formation *****/
             if(All.CoolingOn)
-                cooling_and_starformation(&Act, atime, timebinmgr.get_dloga_for_bin(times.mintimebin, times.Ti_Current), &timebinmgr, &bhtree, GravAccel, ddecomp, &All.CP, GradRho_mag, &rnd, fds.FdSfr);
-            force_tree_free(&bhtree);
+                cooling_and_starformation(&Act, atime, timebinmgr.get_dloga_for_bin(times.mintimebin, times.Ti_Current), &timebinmgr, gasTree, GravAccel, ddecomp, &All.CP, GradRho_mag, &rnd, fds.FdSfr);
         }
         /* We don't need this timestep's tree anymore.*/
         delete gasTree;

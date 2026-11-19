@@ -70,9 +70,6 @@ double FORCE_SOFTENING(void);
 /*Defined in gravpm.c*/
 void gravpm_init_periodic(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G);
 
-/* Apply the short-range window function, which includes the smoothing kernel.*/
-int grav_apply_short_range_window(double r, double * fac, double * pot, const double cellsize);
-
 /* Set up the module*/
 void set_gravshort_tree_params(ParameterSet * ps);
 /* Helpers for the tests*/

@@ -252,6 +252,25 @@ public:
         Nexport_sum(0), NExportTargets(0)
     {    }
 
+    /* Construct the object which walks the local tree for a single query.
+     * This is called once per query, from inside the OpenMP parallel region, on the rank
+     * which owns the tree being walked. For an exported query that is the remote rank doing
+     * the visiting, not the rank which owns the walking particle.
+     *
+     * Most treewalks send everything they compute back to the walking particle through the
+     * ResultType. Override this in the derived TreeWalk for a walk which instead needs to store
+     * information on the rank doing the visiting, for example because it modifies or records
+     * the particles it finds. The override should pass a pointer to that storage (usually a
+     * member of the OutputType) to the constructor of the LocalTreeWalkType, so that ngbiter can
+     * write to it. That storage is shared between threads: either hand each walk
+     * a per-thread slot (omp_get_thread_num() is valid here) or update it atomically.
+     *
+     * Only the CPU evaluators call this: the storage is host memory, so such a walk cannot run on the GPU.*/
+    LocalTreeWalkType make_local_walk(const QueryType& input)
+    {
+        return LocalTreeWalkType(tree->get_nodes(), input);
+    }
+
     /* Do the distributed tree walking. Warning: as this is a threaded treewalk,
      * it may call visit on particles more than once and in a noneterministic order.
      * Your module should behave correctly in this case!
@@ -626,7 +645,7 @@ private:
              * fills up, and must find the same exports that ev_count_exports counted.
              * NOTE: this is not done on the GPU.*/
             QueryType input = queries[k];
-            LocalTreeWalkType lv(tree->get_nodes(), input);
+            LocalTreeWalkType lv = static_cast<DerivedType *>(this)->make_local_walk(input);
             results[k] = lv.template visit<mode>(input, priv, parts);
         }
     }
@@ -833,6 +852,69 @@ private:
 };
 
 /* This function find the closest index in the multi-evaluation list of hsml and numNgb, update left and right bound, and return the new hsml */
-double ngb_narrow_down(double *right, double *left, const double *radius, const double *numNgb, int maxcmpt, int desnumngb, int *closeidx, double BoxSize);
+inline double
+ngb_narrow_down(double *right, double *left, const double *radius, const double *numNgb, int maxcmpt, int desnumngb, int *closeidx, double BoxSize)
+{
+    int j;
+    int close = 0;
+    double ngbdist = fabs(numNgb[0] - desnumngb);
+    for(j = 1; j < maxcmpt; j++){
+        double newdist = fabs(numNgb[j] - desnumngb);
+        if(newdist < ngbdist){
+            ngbdist = newdist;
+            close = j;
+        }
+    }
+    if(closeidx)
+        *closeidx = close;
+
+    for(j = 0; j < maxcmpt; j++){
+        if(numNgb[j] < desnumngb)
+            *left = radius[j];
+        if(numNgb[j] > desnumngb){
+            *right = radius[j];
+            break;
+        }
+    }
+
+    double hsml = radius[close];
+
+    if(*right > 0.99 * BoxSize){
+        double dngbdv = 0;
+        if(maxcmpt > 1 && (radius[maxcmpt-1]>radius[maxcmpt-2]))
+            dngbdv = (numNgb[maxcmpt-1]-numNgb[maxcmpt-2])/(pow(radius[maxcmpt-1],3) - pow(radius[maxcmpt-2],3));
+        /* Increase hsml by a maximum factor to avoid madness. We can be fairly aggressive about this factor.*/
+        double newhsml = 4 * hsml;
+        if(dngbdv > 0) {
+            double dngb = (desnumngb - numNgb[maxcmpt-1]);
+            double newvolume = pow(hsml,3) + dngb / dngbdv;
+            if(pow(newvolume, 1./3) < newhsml)
+                newhsml = pow(newvolume, 1./3);
+        }
+        hsml = newhsml;
+    }
+    if(hsml > *right)
+        hsml = *right;
+
+    if(*left == 0) {
+        /* Extrapolate using volume, ie locally constant density*/
+        double dngbdv = 0;
+        if(radius[1] > radius[0])
+            dngbdv = (numNgb[1] - numNgb[0]) / (pow(radius[1],3) - pow(radius[0],3));
+        /* Derivative is not defined for minimum, so use 0.*/
+        if(maxcmpt == 1 && radius[0] > 0)
+            dngbdv = numNgb[0] / pow(radius[0],3);
+
+        if(dngbdv > 0) {
+            double dngb = desnumngb - numNgb[0];
+            double newvolume = pow(hsml,3) + dngb / dngbdv;
+            hsml = pow(newvolume, 1./3);
+        }
+    }
+    if(hsml < *left)
+        hsml = *left;
+
+    return hsml;
+}
 
 #endif
