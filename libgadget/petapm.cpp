@@ -256,6 +256,21 @@ petapm_init(PetaPM * pm, double BoxSize, double Asmth, int Nmesh, double G, MPI_
     const heffte::box3d<> rbox = realboxes[pm->ThisTask2d[1] * np[0] + pm->ThisTask2d[0]];
     const heffte::box3d<> fbox = fourierboxes[pm->ThisTask2d[1] * np[0] + pm->ThisTask2d[0]];
 
+    /* HeFFTe stores per-rank box sizes, reshape message sizes and offsets as
+     * int, and the MPI counts are int, so a rank whose mesh has more than
+     * INT_MAX entries overflows and fails with an obscure std::length_error
+     * when the FFT workspace is allocated. Every rank has all the boxes, so
+     * they all see the same maximum and stop together. */
+    int64_t maxcount = 0;
+    for(size_t i = 0; i < realboxes.size(); i++) {
+        maxcount = std::max<int64_t>(maxcount, realboxes[i].count());
+        /* complex entries are two doubles */
+        maxcount = std::max<int64_t>(maxcount, 2 * (int64_t) fourierboxes[i].count());
+    }
+    if(maxcount > INT_MAX)
+        endrun(0, "PM mesh Nmesh = %d on %d x %d MPI ranks puts %ld FFT values on one rank, more than INT_MAX = %d that HeFFTe can index. Use at least %ld MPI ranks.\n",
+               Nmesh, np[0], np[1], maxcount, INT_MAX, (int64_t) np[0] * np[1] * (maxcount / INT_MAX + 1));
+
     int k;
     for(k = 0; k < 3; k ++) {
         pm->real_space_region.offset[k] = rbox.low[k];
