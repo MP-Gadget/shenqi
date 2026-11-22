@@ -375,7 +375,6 @@ public:
                 * This needs to be after the other end has called recv.*/
             tstart = second();
             res_exports.wait();
-            tend = second();
             /* Here the results array is summed and so ev_primary needs to be finished*/
             ev_reduce_export_result(results, &res_exports, &counts, &exportlist);
             tend = second();
