@@ -208,6 +208,17 @@ is_header(struct BlockHeader * header)
     return 0 == memcmp(header->magic, MAGIC, 8);
 }
 
+int
+allocator_is_managed(void * ptr)
+{
+    if(ptr == NULL)
+        return 0;
+    struct BlockHeader * header = (struct BlockHeader*) ((char *) ptr - ALIGNMENT);
+    if (!is_header(header))
+        endrun(1, "Not an allocated address: Header = %8p ptr = %8p\n", header, ptr);
+    return header->device == MANAGEDMEM;
+}
+
 size_t
 allocator_get_free_size(Allocator * alloc)
 {

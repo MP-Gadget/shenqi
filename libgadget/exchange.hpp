@@ -428,10 +428,24 @@ private:
     #ifdef DEBUG
         message(0, "Starting particle data exchange\n");
     #endif
+        /* The particle and slot tables may be in CUDA managed memory, whose pages migrate
+         * between host and GPU. Some MPI stacks (UCX over InfiniBand) fail when RDMA targets managed
+         * memory (eg: 'Local length error' on RDMA_READ), so in that case receive into a
+         * host buffer and copy into place afterwards. The send buffers are always host memory. */
+        const int bounce_part = allocator_is_managed(pman->Base);
+        struct particle_data * recvPart = pman->Base + pman->NumPart;
+        if(bounce_part)
+            recvPart = mymalloc2("recvPartBuf", struct particle_data, toGetSum.base);
+
         /* recv at the end */
         MPI_Alltoallv_sparse(partBuf, sendcounts, senddispls, MPI_TYPE_PARTICLE,
-                    pman->Base + pman->NumPart, recvcounts, recvdispls, MPI_TYPE_PARTICLE,
+                    recvPart, recvcounts, recvdispls, MPI_TYPE_PARTICLE,
                     Comm);
+
+        if(bounce_part) {
+            memcpy(pman->Base + pman->NumPart, recvPart, toGetSum.base * sizeof(struct particle_data));
+            myfree(recvPart);
+        }
 
         /* Do not need Particle buffer any more, make space for more slots*/
         myfree(partBuf);
@@ -458,11 +472,22 @@ private:
             message(0, "Starting exchange for slot %d\n", ptype);
     #endif
 
+            /* Bounce through host memory if the slots are managed: see above. */
+            const int bounce_slot = allocator_is_managed(ptr);
+            char * recvSlot = ptr + N_slots * elsize;
+            if(bounce_slot)
+                recvSlot = mymalloc2("recvSlotBuf", char, toGetSum.slots[ptype] * elsize);
+
             /* recv at the end */
             MPI_Alltoallv_sparse(slotBuf[ptype], sendcounts, senddispls, MPI_TYPE_SLOT[ptype],
-                        ptr + N_slots * elsize,
+                        recvSlot,
                         recvcounts, recvdispls, MPI_TYPE_SLOT[ptype],
                         Comm);
+
+            if(bounce_slot) {
+                memcpy(ptr + N_slots * elsize, recvSlot, toGetSum.slots[ptype] * elsize);
+                myfree(recvSlot);
+            }
         }
 
     #ifdef DEBUG

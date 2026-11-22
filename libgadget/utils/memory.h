@@ -70,6 +70,11 @@ allocator_realloc_int(Allocator * alloc, void * ptr, const size_t size, const ch
 void
 allocator_free(void * ptr);
 
+/* Returns 1 if ptr is the start of an allocation in CUDA managed memory, 0 otherwise.
+ * Allocations requested as managed when the GPU is disabled are host memory and return 0. */
+int
+allocator_is_managed(void * ptr);
+
 /* 0 for total */
 size_t
 allocator_get_used_size(Allocator * alloc, int dir);
