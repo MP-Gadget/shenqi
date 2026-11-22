@@ -402,7 +402,7 @@ protected:
     TopTree<NodeType>(ddecomp, PartManager.BoxSize), mask(i_mask), MaxPart(PartManager.MaxPart)
     {  }
 
-    void ForceTree_internal(part_manager_type& PartManager, DomainDecomp * ddecomp, ActiveParticles * act, const std::string EmergencyOutputDir)
+    void ForceTree_internal(part_manager_type& PartManager, DomainDecomp * ddecomp, const ActiveParticles * const act, const std::string& EmergencyOutputDir)
     {
         /* int64_t maxmaxnodes;
         MPI_Reduce(&maxnodes, &maxmaxnodes, 1, MPI_INT64, MPI_MAX,0, MPI_COMM_WORLD);
@@ -481,7 +481,7 @@ public:
     * Mask is a bitfield, specified as 1 for each type that should be included. Use ALLMASK for all particle types.
     * This is much faster than _full: because the particles are sorted by type the merge step is much faster than
     * with all particle types, and of course the tree is smaller.*/
-    ForceTree2(part_manager_type& PartManager, DomainDecomp * ddecomp, const int i_mask, const std::string EmergencyOutputDir):
+    ForceTree2(part_manager_type& PartManager, DomainDecomp * ddecomp, const int i_mask, const std::string& EmergencyOutputDir):
     TopTree<NodeType>(ddecomp, PartManager.BoxSize), mask(i_mask), MaxPart(PartManager.MaxPart)
     {
         message(0, "Tree construction for types: %d.\n", mask);
@@ -1164,7 +1164,7 @@ public:
 
     /* Build a tree structure using all particles, compute moments and allocate a father array.
      * This is the fattest tree constructor, allows moments and walking up and down.*/
-    ForceTreeHmax(part_manager_type& PartManager, DomainDecomp * ddecomp, int i_mask, const std::string EmergencyOutputDir):
+    ForceTreeHmax(part_manager_type& PartManager, DomainDecomp * ddecomp, int i_mask, const std::string& EmergencyOutputDir):
     ForceTree2(PartManager, ddecomp, i_mask)
     {
         /* Allocate the Father array before building: modify_internal_node
@@ -1338,16 +1338,10 @@ private:
  * if points to a particle. For nodes which have type PSEUDO_NODE_TYPE
  * it points to a pseudo particle on another processor.*/
 class ForceTreeMoments : public ForceTree2 <ForceTreeMoments, MomentNODE> {
-public:
-    /* Flags that the tree contains all particles*/
-    bool full_particle_tree_flag;
-
-    /* Build a tree structure using all particles, with a type mask, and compute moments. This constructor is used to set the initial smoothing lengths in init.cpp.*/
-    ForceTreeMoments(part_manager_type& PartManager, DomainDecomp * ddecomp, int mask, const std::string EmergencyOutputDir = ""):
-    ForceTree2(PartManager, ddecomp, mask), full_particle_tree_flag(mask == ALLMASK)
+protected:
+    void ForceTreeMoments_internal(part_manager_type& PartManager, DomainDecomp * ddecomp, const ActiveParticles * const myact, const std::string& EmergencyOutputDir)
     {
-        ActiveParticles myact = init_empty_active_particles(&PartManager);
-        ForceTree_internal(PartManager, ddecomp, &myact, EmergencyOutputDir);
+        ForceTree_internal(PartManager, ddecomp, myact, EmergencyOutputDir);
         walltime_measure("/Tree/Build/Nodes");
         /* Compute moments of the force tree, recursively.*/
         force_update_node_parallel(ddecomp);
@@ -1360,33 +1354,34 @@ public:
         }
         walltime_measure("/Tree/Build/Moments");
     }
+public:
+    /* Flags that the tree contains all particles*/
+    bool full_particle_tree_flag;
+
+    /* Build a tree structure using all particles, with a type mask, and compute moments. This constructor is used to set the initial smoothing lengths in init.cpp.*/
+    ForceTreeMoments(part_manager_type& PartManager, DomainDecomp * ddecomp, int mask, const std::string& EmergencyOutputDir = ""):
+    ForceTree2(PartManager, ddecomp, mask), full_particle_tree_flag(mask == ALLMASK)
+    {
+        ActiveParticles myact = init_empty_active_particles(&PartManager);
+        ForceTreeMoments_internal(PartManager, ddecomp, &myact, EmergencyOutputDir);
+    }
 
     /* Build a tree structure using the particles in act and compute moments.
      * If act is NULL, or has no ActiveParticle list, all particles are used and full_particle_tree_flag is set
      * (even if passive neutrinos are excluded).*/
-    ForceTreeMoments(part_manager_type& PartManager, DomainDecomp * ddecomp, const ActiveParticles * const act, bool HybridNuTracer, const std::string EmergencyOutputDir = ""):
+    ForceTreeMoments(part_manager_type& PartManager, DomainDecomp * ddecomp, const ActiveParticles * const act, bool HybridNuTracer, const std::string& EmergencyOutputDir = ""):
     ForceTree2(PartManager, ddecomp, ALLMASK), full_particle_tree_flag(act == NULL || act->ActiveParticle == NULL)
     {
         /* Build for all particles by default, but skip neutrinos if they are passive.*/
         if(HybridNuTracer)
             mask = GASMASK + DMMASK + STARMASK + BHMASK;
-        ActiveParticles myact;
-        if(!act)
-            myact = init_empty_active_particles(&PartManager);
-        else
-            myact = *act;
-        ForceTree_internal(PartManager, ddecomp, &myact, EmergencyOutputDir);
-        walltime_measure("/Tree/Build/Nodes");
-        /* Compute moments of the force tree, recursively.*/
-        force_update_node_parallel(ddecomp);
-        /* Exchange the pseudo-data*/
-        force_exchange_pseudodata(ddecomp);
-        #pragma omp parallel
-        #pragma omp single nowait
-        {
-            force_treeupdate_pseudos(0, 1);
+        const ActiveParticles * myact = act;
+        ActiveParticles empty;
+        if(!act) {
+            empty = init_empty_active_particles(&PartManager);
+            myact = &empty;
         }
-        walltime_measure("/Tree/Build/Moments");
+        ForceTreeMoments_internal(PartManager, ddecomp, myact, EmergencyOutputDir);
     }
 
     ~ForceTreeMoments(void){ }
