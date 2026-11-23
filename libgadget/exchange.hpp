@@ -428,27 +428,21 @@ private:
     #ifdef DEBUG
         message(0, "Starting particle data exchange\n");
     #endif
-        /* The particle and slot tables may be in CUDA managed memory, whose pages migrate
-         * between host and GPU. Some MPI stacks (UCX over InfiniBand) fail when RDMA targets managed
-         * memory (eg: 'Local length error' on RDMA_READ), so in that case receive into a
+        /* Receive into a buffer, instead of directly into the particle table. There is an MPI error.
+         * Local length error' on RDMA_READ, so in that case receive into a
          * host buffer and copy into place afterwards. The send buffers are always host memory. */
-        const int bounce_part = allocator_is_managed(pman->Base);
-        struct particle_data * recvPart = pman->Base + pman->NumPart;
-        if(bounce_part)
-            recvPart = mymalloc2("recvPartBuf", struct particle_data, toGetSum.base);
+        struct particle_data * recvPart = mymalloc2("recvPartBuf", struct particle_data, toGetSum.base);
 
         /* recv at the end */
         MPI_Alltoallv_sparse(partBuf, sendcounts, senddispls, MPI_TYPE_PARTICLE,
                     recvPart, recvcounts, recvdispls, MPI_TYPE_PARTICLE,
                     Comm);
 
-        if(bounce_part) {
-            memcpy(pman->Base + pman->NumPart, recvPart, toGetSum.base * sizeof(struct particle_data));
-            myfree(recvPart);
-        }
-
         /* Do not need Particle buffer any more, make space for more slots*/
         myfree(partBuf);
+
+        memcpy(pman->Base + pman->NumPart, recvPart, toGetSum.base * sizeof(struct particle_data));
+        myfree(recvPart);
 
         message(0, "Done particle data exchange\n");
 
