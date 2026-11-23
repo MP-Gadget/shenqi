@@ -199,7 +199,7 @@ void set_io_sfr_helper(TimeBinMgr * timebinmgr)
 
 /* cooling and star formation routine.*/
 void
-cooling_and_starformation(ActiveParticles * act, double Time, double dloga, TimeBinMgr * timebinmgr, ForceTree * tree, struct grav_accel_store GravAccel, DomainDecomp * ddecomp, Cosmology *CP, MyFloat * GradRho, RandTable * rnd, FILE * FdSfr)
+cooling_and_starformation(ActiveParticles * act, double Time, double dloga, TimeBinMgr * timebinmgr, const ForceTreeHmax * const tree, struct grav_accel_store GravAccel, DomainDecomp * ddecomp, Cosmology *CP, MyFloat * GradRho, RandTable * rnd, FILE * FdSfr)
 {
     globalTimeBinMgr = timebinmgr;
 
@@ -616,6 +616,7 @@ static int make_particle_star(int child, int parent, int placement, double Time)
     STARP(child).FormationTime = Time;
     STARP(child).LastEnrichmentMyr = 0;
     STARP(child).TotalMassReturned = 0;
+    STARP(child).TotalMetalReturned = 0;
     STARP(child).BirthDensity = oldslot.Density;
     STARP(child).VDisp = oldslot.VDisp;
     /*Copy metallicity*/

@@ -269,6 +269,7 @@ petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struc
 
     struct IOTable IOTable[1] = {};
     int missing_mass_from_header[6] = {0};
+    int missing_metal_returned = 0;
     /* Always try to read the metal tables.
      * This lets us turn it off for a short period and then re-enable it.
      * Note the metal fields are non-fatal so this does not break resuming without metals.*/
@@ -313,6 +314,8 @@ petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struc
             petaio_readout_buffer(&array, &ent, &conv, PartManager, SlotsManager);
         else if(ent.name == "Mass" && header->MassTable[ptype] > 0)
             missing_mass_from_header[ptype] = 1;
+        else if(ent.name == "TotalMetalReturned")
+            missing_metal_returned = 1;
         petaio_destroy_buffer(&array);
     }
     destroy_io_blocks(IOTable);
@@ -323,6 +326,15 @@ petaio_read_snapshot(int num, const std::string OutputDir, Cosmology * CP, struc
     }
     /* now we have IDs, set up the ID consistency between slots. */
     slots_setup_id(PartManager, SlotsManager);
+
+    /* Snapshots written before TotalMetalReturned was added do not contain it: count from zero.*/
+    if(missing_metal_returned) {
+        message(0, "No TotalMetalReturned in snapshot, setting it to zero.\n");
+        struct star_particle_data * const stars = SlotsManager->star_slot();
+        #pragma omp parallel for
+        for(i = 0; i < SlotsManager->info[4].size; i++)
+            stars[i].TotalMetalReturned = 0;
+    }
 
     if(!ic) {
         struct particle_data * parts = PartManager->Base;
@@ -774,6 +786,7 @@ SIMPLE_PROPERTY_TYPE_PI(StarFormationTime, 4, FormationTime, float, 1, struct st
 SIMPLE_PROPERTY_PI(BirthDensity, BirthDensity, float, 1, struct star_particle_data)
 SIMPLE_PROPERTY_TYPE_PI(Metallicity, 4, Metallicity, float, 1, struct star_particle_data)
 SIMPLE_PROPERTY_TYPE_PI(TotalMassReturned, 4, TotalMassReturned, float, 1, struct star_particle_data)
+SIMPLE_PROPERTY_PI(TotalMetalReturned, TotalMetalReturned, float, 1, struct star_particle_data)
 SIMPLE_PROPERTY_TYPE_PI(Metallicity, 0, Metallicity, float, 1, struct sph_particle_data)
 SIMPLE_PROPERTY_TYPE_PI(Metals, 4, Metals[0], float, NMETALS, struct star_particle_data)
 SIMPLE_PROPERTY_TYPE_PI(Metals, 0, Metals[0], float, NMETALS, struct sph_particle_data)
@@ -993,6 +1006,8 @@ void register_io_blocks(struct IOTable * IOTable, int WriteGroupID, int MetalRet
         IO_REG_TYPE(Metals,       "f4", NMETALS, 4, IOTable);
         IO_REG_TYPE(LastEnrichmentMyr, "f4", 1, 4, IOTable);
         IO_REG_TYPE(TotalMassReturned, "f4", 1, 4, IOTable);
+        /* Not present in older snapshots, where it is left at zero.*/
+        IO_REG_NONFATAL(TotalMetalReturned, "f4", 1, 4, IOTable);
         IO_REG_NONFATAL(SmoothingLength,  "f4", 1, 4, IOTable);
     }
     /* end SF */

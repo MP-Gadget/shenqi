@@ -15,7 +15,6 @@ TESTED = cooling \
 	hci \
 	slotsmanager \
 	powerspectrum \
-	forcetree \
 	forcetree2 \
 	timebinmgr \
 	neutrinos_lra \
@@ -41,22 +40,18 @@ include ../Makefile.version
 # make V=1 to see the command line
 #
 
-GADGET_C_SRCS =  partmanager.c \
-	 density.c treewalk.c \
-	 gravshort-tree.c gravshort-pair.c \
-	 gravity.c \
-	 densitykernel.c
+GADGET_C_SRCS =  partmanager.c
 
 GADGET_CPP_SRCS = hydra2.cpp gravshort-tree2.cpp walltime.cpp \
 	density2.cpp veldisp2.cpp hci.cpp init.cpp powerspectrum.cpp \
 cooling.cpp cooling_rates.cpp cooling_uvfluc.cpp cooling_qso_lightup.cpp \
 cosmology.cpp neutrinos_lra.cpp omega_nu_single.cpp timebinmgr.cpp lightcone.cpp \
-fof.cpp fofpetaio.cpp petaio.cpp \
-gravpm.cpp petapm.cpp \
+fof.cpp fof2.cpp fofpetaio.cpp petaio.cpp \
+gravpm.cpp petapm.cpp winds2.cpp \
 stats.cpp drift.cpp checkpoint.cpp \
-slotsmanager.cpp domain.cpp timestep.cpp  plane.cpp winds.cpp \
+slotsmanager.cpp domain.cpp timestep.cpp  plane.cpp \
 exchange.cpp sfr_eff.cpp runtests.cpp run.cpp metal_return.cpp stellar_density2.cpp \
-bhinfo.cpp blackhole.cpp bhdynfric.cpp forcetree.cpp \
+bhinfo.cpp blackhole.cpp bhaccretion2.cpp bhfeedback2.cpp bhdynfric.cpp \
 uvbg.cpp lenstools.cpp
 
 GADGET_CUDA_SRCS = gravshortcuda.cu densitycuda.cu hydracuda.cu
@@ -118,7 +113,7 @@ objs/test_densitykernel: tests/test_densitykernel.cpp densitykernel.hpp
 .objs/test_exchange: tests/test_exchange.cpp .objs/exchange.o libgadget.a libgadget-utils.a
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
-.objs/test_density: tests/test_density.cpp .objs/density.o libgadget.a libgadget-utils.a
+.objs/test_density: tests/test_density.cpp .objs/density2.o libgadget.a libgadget-utils.a
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_metal_return: tests/test_metal_return.cpp .objs/metal_return.o libgadget.a libgadget-utils.a
@@ -131,9 +126,6 @@ objs/test_densitykernel: tests/test_densitykernel.cpp densitykernel.hpp
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_fof: tests/test_fof.cpp libgadget.a libgadget-utils.a
-	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
-
-.objs/test_forcetree: tests/test_forcetree.cpp libgadget.a libgadget-utils.a
 	$(MPICXX) $(TCFLAGS) -I../tests/ $^ $(LIBS) -o $@
 
 .objs/test_forcetree2: tests/test_forcetree2.cpp libgadget.a libgadget-utils.a

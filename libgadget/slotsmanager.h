@@ -83,6 +83,9 @@ struct star_particle_data: public particle_data_ext
     MyFloat TotalMassReturned; /* The total mass returned from this star since formation.
                                   The initial mass of the SSP in this star is STARP.TotalMassReturned + P.Mass.
                                   It is stored like this to retain compatibility with older snapshots. */
+    MyFloat TotalMetalReturned; /* The total mass of metals returned to the gas by this star since formation.
+                                   This is the metal actually deposited in the gas: metal which could not be
+                                   returned because the gas particle would become too heavy is not included. */
     MyFloat Metallicity;        /*!< Total metallicity of star particle */
 #ifdef EXCUR_REION
     MyFloat EscapeFraction; /* Escape fraction stored for reionisation calculation */
