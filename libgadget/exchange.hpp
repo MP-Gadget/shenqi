@@ -212,7 +212,8 @@ private:
         memcpy(&toGetSum, &toGet[0], sizeof(toGetSum));
 
         int rank;
-        int64_t maxbasetogo=-1, maxbasetoget=-1;
+        /* The loop below starts at rank 1 because it builds prefix sums, so seed the maxima with rank 0. */
+        int64_t maxbasetogo = toGo[0].base, maxbasetoget = toGet[0].base;
         for(rank = 1; rank < NTask; rank ++) {
             /* Direct assignment breaks compilers like icc */
             memcpy(&toGoOffset[rank], &toGoSum, sizeof(toGoSum));
