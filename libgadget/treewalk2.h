@@ -69,7 +69,7 @@ template<typename QueryType> class ImpExpCounts
         /* Calculate the amount of data to send. */
         for(size_t k = 0; k < exports.Nexport; k++) {
 #ifdef DEBUG
-            if(exports.ExportTable[k].Task < 0 || exports.ExportTable[k].Task > NTask)
+            if(exports.ExportTable[k].Task < 0 || exports.ExportTable[k].Task >= NTask)
                 endrun(5, "export count at %lu of %lu is %d > NTask: %d\n", k, exports.Nexport, exports.ExportTable[k].Task, NTask);
 #endif
             Export_count[exports.ExportTable[k].Task]++;
