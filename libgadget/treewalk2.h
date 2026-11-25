@@ -371,7 +371,7 @@ public:
         tend = second();
         timecomp3 += timediff(tstart, tend);
 
-        const int BunchSize = compute_bunchsize();
+        const int BunchSize = static_cast<DerivedType *>(this)->compute_bunchsize();
         int64_t nmin, nmax, total;
         int NTask;
         MPI_Comm_size(comm, &NTask);
@@ -546,6 +546,11 @@ public:
         message(0, "%s: top: %g prim: %g sec: %g wait: %g postproc: %g\n", ev_label, timecomp0, timecomp1, timecomp2, timewait1, timecomp3);
     }
 
+    /* Memory allowance for imports, as a multiple of the exports. The number of imports is not limited by the bunch size:
+     * in principle it could be much larger than Nexport if the tree is very imbalanced and many processors
+     * all need to export to this one. In practice I have not seen this happen.*/
+    static constexpr double ImportBufferBoost = 2;
+
     /* 7/9/24: The code segfaults if the send/recv buffer is larger than 4GB in size.
         * Likely a 32-bit variable is overflowing but it is hard to debug. Easier to enforce a maximum buffer size.*/
     size_t compute_bunchsize(void)
@@ -557,7 +562,6 @@ public:
         /*This memory scales like the number of imports. In principle this could be much larger than Nexport
         * if the tree is very imbalanced and many processors all need to export to this one. In practice I have
         * not seen this happen, but provide a parameter to boost the memory for Nimport just in case.*/
-        const double ImportBufferBoost = 2;
         bytesperbuffer += ceil(ImportBufferBoost * (query_type_elsize + result_type_elsize));
         /*Use all free bytes for the tree buffer, as in exchange. Leave some free memory for array overhead.*/
         size_t freebytes = mymalloc_freebytes();
@@ -692,7 +696,6 @@ protected:
         std::vector<int64_t> tcount((size_t) omp_get_max_threads() * NTask, 0);
         const data_index * const ExportTable = exportlist->ExportTable;
         const QueryType * const ExportQueries = exportlist->ExportQueries;
-        int * const bufpos = export_bufpos_host.data();
         #pragma omp parallel
         {
             int64_t * const mycount = &tcount[(size_t) omp_get_thread_num() * NTask];
@@ -721,7 +724,7 @@ protected:
             #pragma omp for schedule(static)
             for(int64_t k = 0; k < Nexport; k++) {
                 const int64_t pos = mycount[ExportTable[k].Task]++;
-                bufpos[k] = pos;
+                export_bufpos_host[k] = pos;
                 /* Copy the query to the export buffer. Note the index of the queries list is the same as the index of the ExportTable */
                 export_queries[pos] = ExportQueries[k];
             }
@@ -732,6 +735,13 @@ private:
     /* Hook called once the queries have been built on the host.
      * Nothing to do on the CPU: the GPU treewalk overrides this to prefetch them to the device.*/
     void ev_prefetch_queries(QueryType * queries, const int64_t WorkSetSize)
+    {
+    }
+
+    /* Hook called after ev_toptree to count the exports to each task.
+     * Nothing to do on the CPU, where ImpExpCounts counts them from the export table.
+     * The GPU treewalk overrides this to count them on the device and store them in exportlist->Export_count.*/
+    void ev_count_export_tasks(ExportMemory2<QueryType> * const exportlist, MPI_Comm comm)
     {
     }
 
@@ -806,7 +816,7 @@ private:
         /* Note that the exportcount is built on the first iteration
          * and so the indices are off for the second one. */
         exportlist->Nexport = exportcounts[curSize-1] - exportoffset;
-        int BunchSize = compute_bunchsize() + exportoffset;
+        int BunchSize = static_cast<DerivedType *>(this)->compute_bunchsize() + exportoffset;
         Greater_than_BunchSize gtrbunch{BunchSize};
         auto iter = std::find_if(std::execution::par, exportcounts, exportcounts+curSize,gtrbunch);
         if(iter != exportcounts + curSize) {

@@ -19,6 +19,7 @@
 #include "utils/mymalloc.h"
 #include "treewalk2.h"
 
+#include <cstring>
 #include <cuda_runtime.h>           // For CUDA runtime API functions.
 #include <device_launch_parameters.h>  // To support device-related parameters.
 #include <thrust/copy.h>                        // thrust::copy_if
@@ -33,6 +34,8 @@
 #include <thrust/sequence.h>
 #include <thrust/sort.h>
 #include <thrust/transform.h>
+#include <algorithm>
+#include <vector>
 #ifdef DEBUG
 #include <thrust/binary_search.h>   // thrust::upper_bound
 #include <thrust/functional.h>        // thrust::plus
@@ -45,9 +48,10 @@
  * - the export queries are sent from device memory,
  * - the import queries are received directly into device memory,
  * - the import results are written by the secondary treewalk kernel into device memory and sent from there.
- * None of this data then passes through host memory on this rank. The export table and
- * the export results are still on the host, because the reduction of the results is done there.
- * Device memory allocated here is not tracked by mymalloc, nor accounted for in compute_bunchsize.
+ * - the export results are received directly into device memory and reduced there.
+ * None of this data then passes through host memory on this rank. The export table is in managed memory.
+ * Device memory allocated here is not tracked by mymalloc: TreeWalkGPU::compute_bunchsize instead
+ * sizes the export buffers from the free device memory reported by CUDA.
  *
  * If the MPI library can report that it was built without CUDA support (currently only OpenMPI can),
  * we fall back to host memory at run time. For other MPI libraries the flag is trusted, and passing
@@ -77,6 +81,24 @@ static inline bool treewalk_cuda_mpi_enabled(void)
 #endif
 }
 #endif /* USE_CUDA_MPI */
+
+/* Allocate bytes of plain device memory for name. If the device is full, fall back to managed memory,
+ * which the driver can page out to the host: slower, but the run continues. cudaFree frees either kind.
+ * CUDA-aware MPI libraries (e.g. via UCX) also accept managed memory.*/
+inline void * treewalk_device_malloc(const size_t bytes, const char * const name)
+{
+    void * ptr = NULL;
+    cudaError_t err = cudaMalloc(&ptr, bytes);
+    if(err == cudaErrorMemoryAllocation) {
+        /* Clear the error so later error checks do not report it.*/
+        cudaGetLastError();
+        message(1, "Device memory full when allocating %lu bytes for %s: using managed memory instead\n", bytes, name);
+        err = cudaMallocManaged(&ptr, bytes, cudaMemAttachGlobal);
+    }
+    if(err != cudaSuccess)
+        endrun(5, "Failed to allocate %lu bytes of device memory for %s: %s\n", bytes, name, cudaGetErrorString(err));
+    return ptr;
+}
 
 /* Extract the destination task from an entry in the export table.*/
 struct ExportTaskOf
@@ -259,7 +281,42 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
     using Base::tree;
     using Base::priv;
     using Base::output;
-    using Base::compute_bunchsize;
+
+    /* The number of exports that fit in memory. The export, import and result buffers are on the device
+     * (plain device memory with CUDA-aware MPI, otherwise managed memory written by kernels, which migrates there),
+     * so they must fit in device memory as well as in the host memory used by the base class calculation.
+     * Free device memory is read from CUDA, which (unlike mymalloc) sees every allocation on the device,
+     * including those of other ranks sharing it.*/
+    size_t compute_bunchsize()
+    {
+        const size_t hostbunch = Base::compute_bunchsize();
+        /* Wait for queued prefetches (of Queries and Results), so that their pages are counted as used.*/
+        cudaError_t status = cudaDeviceSynchronize();
+        size_t freedev = 0, totaldev = 0;
+        if(status == cudaSuccess)
+            status = cudaMemGetInfo(&freedev, &totaldev);
+        if(status != cudaSuccess) {
+            message(1, "Could not read free device memory (%s): sizing the export buffer from host memory\n", cudaGetErrorString(status));
+            cudaGetLastError();
+            return hostbunch;
+        }
+        const size_t q = sizeof(QueryType), r = sizeof(ResultType);
+        /* Per export: the export table (managed, written on the device), the export queries, the send buffer,
+         * the returned results, and the transpose temporaries: tasks, order and the radix sort double buffers of both
+         * (export_bufpos reuses tasks). The transpose temporaries are freed before the result buffers are allocated,
+         * so this overestimates the peak by up to 16 bytes per export.*/
+        size_t perexport = sizeof(data_index) + 2 * q + r + 4 * sizeof(int);
+        /* The imports, with the same allowance for imbalance as the host calculation.*/
+        perexport += ceil(Base::ImportBufferBoost * (q + r));
+        /* Leave slack for CUB scratch space, CUDA-aware MPI staging buffers and fragmentation.*/
+        const size_t reserve = std::max<size_t>(totaldev / 20, 512L * 1024 * 1024);
+        const size_t usable = freedev > reserve ? (freedev - reserve) / ranks_per_device : 0;
+        const size_t devbunch = usable / perexport;
+        if(devbunch < 20)
+            endrun(1231246, "Not enough free device memory to export particles: free %lu of %lu bytes, reserve %lu, %d ranks on this device, %lu bytes per export\n",
+                   freedev, totaldev, reserve, ranks_per_device, perexport);
+        return std::min(hostbunch, devbunch);
+    }
 
     /* Inverse of the export transpose, set by ev_transpose_exports and used and freed by ev_reduce_export_result:
      * export_bufpos[k] is the position of export k (in ExportTable order) in the send buffer,
@@ -276,9 +333,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
             Base::ev_alloc_commbuffer(buf, name, bytes);
             return;
         }
-        cudaError_t err = cudaMalloc(&buf->databuf, bytes);
-        if(err != cudaSuccess)
-            endrun(5, "Failed to allocate %lu bytes of device memory for %s: %s\n", bytes, name, cudaGetErrorString(err));
+        buf->databuf = (char *) treewalk_device_malloc(bytes, name);
         buf->devicemem = true;
     }
 #endif
@@ -418,11 +473,8 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
 
     int * ev_count_exports(QueryType * queries, const int64_t WorkSetSize)
     {
-        int * exportcounts;
         /* Allocate at least 1 element so cudaFree is always valid. */
-        cudaError_t err = cudaMalloc(&exportcounts, sizeof(int) * std::max(WorkSetSize, (int64_t)1));
-        if(err != cudaSuccess)
-            endrun(5, "Failed to allocate device memory for export counts: %s\n", cudaGetErrorString(err));
+        int * exportcounts = (int *) treewalk_device_malloc(sizeof(int) * std::max(WorkSetSize, (int64_t)1), "ExportCounts");
         if(WorkSetSize == 0)
             return exportcounts;
 
@@ -535,9 +587,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
          * so they never need to be visible on the host.*/
         if(treewalk_cuda_mpi_enabled()) {
             /* Allocate plain device memory, which can be passed to a CUDA-aware MPI.*/
-            cudaError_t err = cudaMalloc(&exportlist->ExportQueries, exportlist->Nexport * sizeof(QueryType));
-            if(err != cudaSuccess)
-                endrun(5, "Failed to allocate %lu bytes of device memory for ExportQueries: %s\n", exportlist->Nexport * sizeof(QueryType), cudaGetErrorString(err));
+            exportlist->ExportQueries = (QueryType *) treewalk_device_malloc(exportlist->Nexport * sizeof(QueryType), "ExportQueries");
             exportlist->devicemem = true;
         }
         else
