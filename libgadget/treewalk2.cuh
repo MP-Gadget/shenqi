@@ -448,30 +448,50 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         cudaFree(exportcounts);
     }
 
-    /* The queries are built on the host in managed memory. Ask the driver to migrate them
-     * to the device in bulk, instead of page by page as the first kernel faults on them.
+    /* Ask the driver to move the managed allocation [ptr, ptr+bytes) to this rank's device in bulk.
+     * - For pages already on the host (the queries, built there) this migrates them in one go,
+     *   instead of page by page as the first kernel faults on them.
+     * - For pages not yet touched (Results) this creates them directly in device memory,
+     *   so the first kernel write does not fault.
+     * If prefer_device is set, the device is also made the preferred location, so the pages stay there
+     * (a later host read migrates them back on x86, or reads them over NVLink-C2C on Grace Hopper).
      * The prefetch is asynchronous: it is queued on the default stream, so the kernels
      * launched afterwards on that stream run once it has finished.
      * This is only a hint, so a failure is reported but is not fatal.*/
-    void ev_prefetch_queries(QueryType * queries, const int64_t WorkSetSize)
+    static void ev_prefetch_to_device(void * ptr, const size_t bytes, const char * const name, const bool prefer_device)
     {
-        if(WorkSetSize == 0)
+        if(bytes == 0)
             return;
         int device = 0;
         cudaError_t status = cudaGetDevice(&device);
         if(status == cudaSuccess) {
 #if CUDART_VERSION >= 13000
-            /* CUDA 13 removed the legacy signature which took a device id.*/
+            /* CUDA 13 removed the legacy signatures which took a device id.*/
             struct cudaMemLocation location;
             location.type = cudaMemLocationTypeDevice;
             location.id = device;
-            status = cudaMemPrefetchAsync(queries, WorkSetSize * sizeof(QueryType), location, 0, 0);
+            if(prefer_device)
+                status = cudaMemAdvise(ptr, bytes, cudaMemAdviseSetPreferredLocation, location);
+            if(status == cudaSuccess)
+                status = cudaMemPrefetchAsync(ptr, bytes, location, 0, 0);
 #else
-            status = cudaMemPrefetchAsync(queries, WorkSetSize * sizeof(QueryType), device, 0);
+            if(prefer_device)
+                status = cudaMemAdvise(ptr, bytes, cudaMemAdviseSetPreferredLocation, device);
+            if(status == cudaSuccess)
+                status = cudaMemPrefetchAsync(ptr, bytes, device, 0);
 #endif
         }
-        if(status != cudaSuccess)
-            message(1, "Could not prefetch %ld queries to the device: %s\n", WorkSetSize, cudaGetErrorString(status));
+        if(status != cudaSuccess) {
+            message(1, "Could not prefetch %lu bytes of %s to the device: %s\n", bytes, name, cudaGetErrorString(status));
+            /* Clear the error, so it is not reported by a later, unrelated, error check.*/
+            cudaGetLastError();
+        }
+    }
+
+    /* The queries are built on the host in managed memory: migrate them to the device in bulk.*/
+    void ev_prefetch_queries(QueryType * queries, const int64_t WorkSetSize)
+    {
+        ev_prefetch_to_device(queries, WorkSetSize * sizeof(QueryType), "Queries", false);
     }
 
     int64_t ev_toptree(const int64_t WorkSetStart, const int64_t WorkSetSize, int * exportcounts, ExportMemory2<QueryType> * const exportlist, QueryType * queries)
