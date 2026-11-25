@@ -6,6 +6,7 @@
 #include <omp.h>
 #include <cmath>
 #include <type_traits>
+#include <vector>
 #include "localtreewalk2.h"
 #include "forcetree2.h"
 #include "mpi.h"
@@ -629,27 +630,67 @@ protected:
         buf->databuf = mymanagedmalloc(name, char, bytes);
     }
 
+    /* Inverse of the export transpose, set by ev_transpose_exports and used and freed by ev_reduce_export_result:
+     * export_bufpos_host[k] is the position of export k (in ExportTable order) in the send buffer,
+     * and so of its result in the buffer of returned results.
+     * The GPU treewalk has its own device copy, export_bufpos.*/
+    std::vector<int> export_bufpos_host;
+
     /* Transpose the export query list from being ordered by particle to being ordered by task for export.
      * Within each task the order of the export table is preserved: ev_reduce_export_result relies on this.
+     * Export k goes to bufpos(k) = Export_offset[task] + (number of earlier exports to the same task).
+     * This is done in parallel: each thread counts the exports to each task in a contiguous chunk of the export table,
+     * then the counts are turned into starting positions for each (task, thread) and each thread places its chunk.
+     * Both loops are schedule(static) with the same bounds in the same parallel region, so OpenMP assigns
+     * each thread the same chunk in both, and the chunks are in thread order. The result is identical to a serial loop.
+     * The bufpos of each export is saved in export_bufpos_host for ev_reduce_export_result.
      * The GPU treewalk overrides this to do the transpose on the device.*/
     void ev_transpose_exports(const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist, QueryType * const export_queries)
     {
-        int64_t * real_send_count = mymalloc("tmp_send_count", int64_t, counts->NTask);
-        memset(real_send_count, 0, sizeof(int64_t)*counts->NTask);
-        for(size_t k = 0; k < exportlist->Nexport; k++) {
-            const int task = exportlist->ExportTable[k].Task;
-            const int64_t bufpos = real_send_count[task] + counts->Export_offset[task];
-            real_send_count[task]++;
-            /* Copy the query to the export buffer. Note the index of the queries list is the same as the index of the ExportTable */
-            export_queries[bufpos] = exportlist->ExportQueries[k];
+        const int64_t Nexport = exportlist->Nexport;
+        const int NTask = counts->NTask;
+        export_bufpos_host.resize(Nexport);
+        if(Nexport == 0)
+            return;
+        /* tcount[thread * NTask + task]: first the number of exports in this thread's chunk to task,
+         * then the position in the send buffer of the next of them.*/
+        std::vector<int64_t> tcount((size_t) omp_get_max_threads() * NTask, 0);
+        const data_index * const ExportTable = exportlist->ExportTable;
+        const QueryType * const ExportQueries = exportlist->ExportQueries;
+        int * const bufpos = export_bufpos_host.data();
+        #pragma omp parallel
+        {
+            int64_t * const mycount = &tcount[(size_t) omp_get_thread_num() * NTask];
+            #pragma omp for schedule(static)
+            for(int64_t k = 0; k < Nexport; k++)
+                mycount[ExportTable[k].Task]++;
+            /* Implicit barrier: all counts are done. Convert to starting positions,
+             * ordered by task, then by thread (which is the order of the chunks in the export table).*/
+            #pragma omp single
+            {
+                const int nthreads = omp_get_num_threads();
+                for(int task = 0; task < NTask; task++) {
+                    int64_t off = counts->Export_offset[task];
+                    for(int th = 0; th < nthreads; th++) {
+                        const int64_t c = tcount[(size_t) th * NTask + task];
+                        tcount[(size_t) th * NTask + task] = off;
+                        off += c;
+                    }
+#ifdef DEBUG
+                    if(off - counts->Export_offset[task] != counts->Export_count[task])
+                        endrun(6, "Inconsistent export to task %d of %d: %ld expected %ld\n", task, NTask, off - counts->Export_offset[task], counts->Export_count[task]);
+#endif
+                }
+            }
+            /* Implicit barrier at the end of single.*/
+            #pragma omp for schedule(static)
+            for(int64_t k = 0; k < Nexport; k++) {
+                const int64_t pos = mycount[ExportTable[k].Task]++;
+                bufpos[k] = pos;
+                /* Copy the query to the export buffer. Note the index of the queries list is the same as the index of the ExportTable */
+                export_queries[pos] = ExportQueries[k];
+            }
         }
-    #ifdef DEBUG
-    /* Checks!*/
-        for(int i = 0; i < counts->NTask; i++)
-            if(real_send_count[i] != counts->Export_count[i])
-                endrun(6, "Inconsistent export to task %d of %d: %ld expected %ld\n", i, counts->NTask, real_send_count[i], counts->Export_count[i]);
-    #endif
-        myfree(real_send_count);
     }
 
 private:
@@ -852,21 +893,43 @@ private:
         return;
     }
 
+    /* Sum the returned export results into results, in parallel.
+     * ExportTable is ordered by Index (ev_toptree writes the exports of work set entry k at the inclusive
+     * scan exportcounts[k-1]), so the exports of one particle are a contiguous run. The first entry of each run sums
+     * the whole run, serially and in export table order. This means there are no write races and
+     * the additions are done in the same order as a serial loop over the export table.
+     * Uses (and then frees) export_bufpos_host from ev_transpose_exports for the same export list.*/
     void ev_reduce_export_result(ResultType * results, CommBuffer * exportbuf, const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist)
     {
-        std::vector<int> real_recv_count(counts->NTask, 0);
-        for(size_t k = 0; k < exportlist->Nexport; k++) {
+        const int64_t Nexport = exportlist->Nexport;
+        if((int64_t) export_bufpos_host.size() != Nexport)
+            endrun(8, "Export permutation has %lu entries, expected %ld\n", export_bufpos_host.size(), Nexport);
+        const ResultType * const recvbuf = reinterpret_cast<const ResultType *>(exportbuf->databuf);
+        const data_index * const ExportTable = exportlist->ExportTable;
+        const int * const bufpos = export_bufpos_host.data();
+        #pragma omp parallel for schedule(static)
+        for(int64_t k = 0; k < Nexport; k++) {
             /* Note this is the index into the WorkSet (and thus results and queries) and not the particle table*/
-            const int worksetplace = exportlist->ExportTable[k].Index;
-            const int task = exportlist->ExportTable[k].Task;
-            const int64_t bufpos = real_recv_count[task] + counts->Export_offset[task];
-            results[worksetplace] += ((ResultType *) exportbuf->databuf)[bufpos];
+            const int place = ExportTable[k].Index;
+            /* Not the start of a run: the thread with the start of the run does this entry.*/
+            if(k > 0 && ExportTable[k-1].Index == place)
+                continue;
 #ifdef DEBUG
-            if(results[worksetplace].ID != ((ResultType*)exportbuf->databuf)[bufpos].ID)
-                endrun(8, "Error in communication target %d from buf %ld: IDs mismatch %ld %ld\n", worksetplace, bufpos, results[worksetplace].ID, ((ResultType*)exportbuf->databuf)[bufpos].ID);
+            if(k > 0 && ExportTable[k-1].Index > place)
+                endrun(8, "Export table is not sorted by work set index at %ld: %d > %d\n", k, ExportTable[k-1].Index, place);
 #endif
-            real_recv_count[task]++;
+            ResultType res = results[place];
+            for(int64_t kk = k; kk < Nexport && ExportTable[kk].Index == place; kk++) {
+#ifdef DEBUG
+                if(res.ID != recvbuf[bufpos[kk]].ID)
+                    endrun(8, "Error in communication target %d from buf %d: IDs mismatch %ld %ld\n", place, bufpos[kk], res.ID, recvbuf[bufpos[kk]].ID);
+#endif
+                res += recvbuf[bufpos[kk]];
+            }
+            results[place] = res;
         }
+        /* Free the permutation: clear() would keep the capacity.*/
+        std::vector<int>().swap(export_bufpos_host);
     }
 
     /* Checks whether all tasks have finished iterating */
