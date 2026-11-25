@@ -7,8 +7,8 @@ MPICCDEP ?= mpicc
 MPICXXDEP ?= mpic++
 OPTIMIZE ?= -O2 -g -fopenmp -Wall
 COPTIMIZE1 = $(filter-out -std=gnu++20,$(OPTIMIZE))
-COPTIMIZE = $(filter-out -stdpar=gpu,$(COPTIMIZE1))
-COPTIMIZE = $(filter-out -stdpar=multicore,$(COPTIMIZE1))
+COPTIMIZE2 = $(filter-out -stdpar=gpu,$(COPTIMIZE1))
+COPTIMIZE = $(filter-out -stdpar=multicore,$(COPTIMIZE2))
 LIBRARIES=lib/libbigfile-mpi.a
 HEFFTELIBRARY=lib/libheffte.a
 depends: $(LIBRARIES) $(HEFFTELIBRARY)
