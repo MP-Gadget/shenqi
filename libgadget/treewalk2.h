@@ -404,7 +404,7 @@ public:
             tstart = second();
             res_exports.wait();
             /* Here the results array is summed and so ev_primary needs to be finished*/
-            ev_reduce_export_result(results, &res_exports, &counts, &exportlist);
+            static_cast<DerivedType *>(this)->ev_reduce_export_result(results, &res_exports, &counts, &exportlist);
             tend = second();
             timewait1 += timediff(tstart, tend);
             Nexportfull++;
@@ -842,7 +842,8 @@ private:
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(ResultType), MPI_BYTE, &type);
         MPI_Type_commit(&type);
-        exportbuf->databuf = mymalloc2("ExportResult", char, counts->Nexport * sizeof(ResultType));
+        /* Receives may be on device*/
+        static_cast<DerivedType *>(this)->ev_alloc_commbuffer(exportbuf, "ExportResult", counts->Nexport * sizeof(ResultType));
         /* Post the receives first so we can hit a zero-copy fastpath.*/
         exportbuf->MPI_fill(counts->Export_count, counts->Export_offset, type, COMM_RECV, 101923, counts->comm);
         // alloc_commbuffer(&res_imports, counts.NTask, 0);

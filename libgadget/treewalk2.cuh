@@ -26,13 +26,17 @@
 #include <thrust/scan.h>            // thrust::exclusive_scan
 #include <thrust/find.h>            // thrust::find_if
 #include <thrust/device_vector.h>
+#include <thrust/for_each.h>
 #include <thrust/gather.h>
+#include <thrust/iterator/counting_iterator.h>
+#include <thrust/scatter.h>
 #include <thrust/sequence.h>
 #include <thrust/sort.h>
 #include <thrust/transform.h>
 #ifdef DEBUG
 #include <thrust/binary_search.h>   // thrust::upper_bound
-#include <thrust/iterator/counting_iterator.h>
+#include <thrust/functional.h>        // thrust::plus
+#include <thrust/transform_reduce.h>
 #include <vector>
 #endif
 
@@ -81,6 +85,62 @@ struct ExportTaskOf
         return entry.Task;
     }
 };
+
+/* Sum the results returned for the exports of each particle into results.
+ * ExportTable is ordered by Index (do_toptree_exports writes the exports of work set entry tid at
+ * the inclusive scan exportcounts[tid-1]), so the exports of one particle are a contiguous run.
+ * The first entry of each run sums the whole run, serially and in export table order.
+ * This means there are no write races and the additions happen in the same order as the CPU loop
+ * in TreeWalk::ev_reduce_export_result.*/
+template <typename ResultType>
+struct ReduceExportRun
+{
+    ResultType * results;
+    const ResultType * recvbuf;
+    const data_index * ExportTable;
+    /* bufpos[k] is the position of the result for export k in recvbuf.*/
+    const int * bufpos;
+    size_t Nexport;
+
+    MYCUDAFN void operator()(const size_t k) const
+    {
+        const int place = ExportTable[k].Index;
+        /* Not the start of a run: the thread for the start of the run does this entry.*/
+        if(k > 0 && ExportTable[k-1].Index == place)
+            return;
+        ResultType res = results[place];
+        for(size_t kk = k; kk < Nexport && ExportTable[kk].Index == place; kk++)
+            res += recvbuf[bufpos[kk]];
+        results[place] = res;
+    }
+};
+
+#ifdef DEBUG
+/* Returns 1 if the result returned for export k is not for the particle it is reduced onto.
+ * TreeWalkResultBase::operator+= does not check this when compiled by nvcc.*/
+template <typename ResultType>
+struct ExportIDMismatch
+{
+    const ResultType * results;
+    const ResultType * recvbuf;
+    const data_index * ExportTable;
+    const int * bufpos;
+
+    MYCUDAFN int64_t operator()(const size_t k) const {
+        return results[ExportTable[k].Index].ID != recvbuf[bufpos[k]].ID;
+    }
+};
+
+/* Returns 1 if export k is before export k-1 in the work set: the reduction needs ExportTable sorted by Index.*/
+struct ExportIndexUnsorted
+{
+    const data_index * ExportTable;
+
+    MYCUDAFN int64_t operator()(const size_t k) const {
+        return k > 0 && ExportTable[k].Index < ExportTable[k-1].Index;
+    }
+};
+#endif
 
 /* Each thread counts the number of exports needed for each particle.
  * counts are stored in the exportcounts argument.
@@ -201,6 +261,11 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
     using Base::output;
     using Base::compute_bunchsize;
 
+    /* Inverse of the export transpose, set by ev_transpose_exports and used and freed by ev_reduce_export_result:
+     * export_bufpos[k] is the position of export k (in ExportTable order) in the send buffer,
+     * and so of its result in the buffer of returned results.*/
+    thrust::device_vector<int> export_bufpos;
+
 #ifdef USE_CUDA_MPI
     /* Allocate the data buffer of a CommBuffer in device memory, so that a CUDA-aware MPI
      * moves it directly to or from the GPU. This is used for the export queries, the import queries
@@ -219,9 +284,8 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
 #endif
     /* Transpose the export queries, on the device, from the order of the export table (ordered by particle)
     * into export_queries, ordered by destination task. This is the device version of
-    * TreeWalk::ev_transpose_exports in treewalk2.h, and must produce a byte-identical buffer,
-    * because ev_reduce_export_result (on the host) recomputes the position of each result
-    * with the same counting loop as the CPU transpose.
+    * TreeWalk::ev_transpose_exports in treewalk2.h, and must produce a byte-identical buffer.
+    * It also stores the inverse permutation in export_bufpos, for use by ev_reduce_export_result.
     *
     * The CPU version scatters: it walks the export table in order and places export k at
     *     bufpos(k) = Export_offset[task] + (number of earlier exports to the same task).
@@ -238,6 +302,8 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
     * The temporary vectors (and the sort scratch space) are plain device memory, not tracked by mymalloc.*/
     void ev_transpose_exports(const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist, QueryType * const export_queries)
     {
+        /* Free any stale permutation from an earlier round.*/
+        thrust::device_vector<int>().swap(export_bufpos);
         if(exportlist->Nexport == 0)
             return;
 
@@ -273,6 +339,46 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
     #endif
         /* export_queries[j] = ExportQueries[order[j]]: the queries are now grouped by task, starting at Export_offset[task].*/
         thrust::gather(thrust::device, order.begin(), order.end(), exportlist->ExportQueries, export_queries);
+        /* tasks is no longer needed, so reuse it for the inverse permutation:
+         * export_bufpos[k] is the position of export k in the send buffer, and so of its result in the
+         * buffer of returned results. This is the bufpos the CPU version computes with per-task counters.*/
+        thrust::scatter(thrust::device, thrust::counting_iterator<int>(0), thrust::counting_iterator<int>(exportlist->Nexport),
+                        order.begin(), tasks.begin());
+        export_bufpos.swap(tasks);
+    }
+
+    /* Device version of TreeWalk::ev_reduce_export_result: sum the returned export results into results.
+     * exportbuf->databuf may be plain device memory (CUDA-aware MPI) or managed memory;
+     * results and ExportTable are managed. Uses (and then frees) the export_bufpos permutation
+     * stored by ev_transpose_exports for the same export list.*/
+    void ev_reduce_export_result(ResultType * results, CommBuffer * exportbuf, const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist)
+    {
+        const size_t Nexport = exportlist->Nexport;
+        if(Nexport == 0)
+            return;
+        if(export_bufpos.size() != Nexport)
+            endrun(8, "Export permutation has %lu entries, expected %lu\n", export_bufpos.size(), Nexport);
+        const ResultType * recvbuf = reinterpret_cast<const ResultType *>(exportbuf->databuf);
+        const int * bufpos = thrust::raw_pointer_cast(export_bufpos.data());
+        const thrust::counting_iterator<size_t> first(0), last(Nexport);
+#ifdef DEBUG
+        const int64_t nunsorted = thrust::transform_reduce(thrust::device, first, last,
+            ExportIndexUnsorted{exportlist->ExportTable}, (int64_t) 0, thrust::plus<int64_t>());
+        if(nunsorted)
+            endrun(8, "Export table is not sorted by work set index at %ld places\n", nunsorted);
+        const int64_t nbad = thrust::transform_reduce(thrust::device, first, last,
+            ExportIDMismatch<ResultType>{results, recvbuf, exportlist->ExportTable, bufpos}, (int64_t) 0, thrust::plus<int64_t>());
+        if(nbad)
+            endrun(8, "Error in communication: %ld of %lu export results have mismatched IDs\n", nbad, Nexport);
+#endif
+        thrust::for_each(thrust::device, first, last,
+            ReduceExportRun<ResultType>{results, recvbuf, exportlist->ExportTable, bufpos, Nexport});
+        /* thrust::device is synchronous, but check for an asynchronous kernel error.*/
+        cudaError_t status = cudaDeviceSynchronize();
+        if (status != cudaSuccess)
+            endrun(5, "ev_reduce_export_result kernel failed: %s\n", cudaGetErrorString(status));
+        /* Free the permutation: clear() would keep the capacity.*/
+        thrust::device_vector<int>().swap(export_bufpos);
     }
 
     /* Build the queue by calling the haswork function on each particle in the active_set.
