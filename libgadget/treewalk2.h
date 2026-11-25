@@ -49,6 +49,41 @@ template<typename QueryType> struct ExportMemory2 {
     }
 };
 
+/* The memory allocation on the device and the host is a little complicated when USE_CUDA and USE_CUDA_MPI are enabled.
+ * Here are the main arrays and where they live.
+    Queries:
+    - allocated in managed memory
+    - prefetched to the device.
+    - Evaluated on the device using ev_toptree and ev_primary -> fill Results on device
+    Results:
+    - Allocated in managed memory
+    - Filled on the device.
+    - Exports are reduced into it on device.
+    - postprocess into P in managed memory on device.
+    - Migrates to host in do_hsml_loop
+
+    ExportQueries:
+    - Allocated on device
+    - Filled on device: sent to CUDA-aware MPI
+
+    ExportResults:
+    - Allocated on device
+    - Received from CUDA-aware MPI
+    - Reduced into results, still on device.
+
+    ImportQueries:
+    - Allocated on device: received from CUDA-aware MPI
+    - evaluated on device -> ImportResult.
+
+    ImportResult:
+    - Allocated on device.
+    - Filled from ImportQuery.
+    - Sent to CUDA-aware MPI.
+
+    If USE_CUDA_MPI is off, but USE_CUDA is enabled, the evaluations are the same,
+    but the Export/Import Queries and Export/Import Results are allocated in managed memory.
+    In this case there is an extra migration to the device after the MPI send/recv.
+*/
 /* This stores counts of the particles to be transferred.
  * It is book-keeping for the distributed part of the treewalk.
  * The constructor does an MPI_Alltoall, and thus is a synchronisation point.*/
