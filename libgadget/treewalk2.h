@@ -34,6 +34,9 @@ template<typename QueryType> struct ExportMemory2 {
     QueryType * ExportQueries = NULL;
     /* If set, ExportQueries was not allocated by mymalloc (it is plain GPU device memory).*/
     bool devicemem = false;
+    /* If not empty, the number of exports to each task, already counted (by the GPU treewalk, on the device),
+     * so that ImpExpCounts does not need to read ExportTable on the host.*/
+    std::vector<int64_t> Export_count;
     ~ExportMemory2()
     {
         if(ExportQueries) {
@@ -114,13 +117,21 @@ template<typename QueryType> class ImpExpCounts
 
         Nexport=0;
         /* Calculate the amount of data to send. */
-        for(size_t k = 0; k < exports.Nexport; k++) {
+        if(!exports.Export_count.empty()) {
+            /* Already counted on the device.*/
+            if((int64_t) exports.Export_count.size() != NTask)
+                endrun(5, "Precomputed export counts have %lu tasks, expected %d\n", exports.Export_count.size(), NTask);
+            memcpy(Export_count, exports.Export_count.data(), sizeof(int64_t) * NTask);
+        }
+        else {
+            for(size_t k = 0; k < exports.Nexport; k++) {
 #ifdef DEBUG
-            if(exports.ExportTable[k].Task < 0 || exports.ExportTable[k].Task >= NTask)
-                endrun(5, "export count at %lu of %lu is %d > NTask: %d\n", k, exports.Nexport, exports.ExportTable[k].Task, NTask);
+                if(exports.ExportTable[k].Task < 0 || exports.ExportTable[k].Task >= NTask)
+                    endrun(5, "export count at %lu of %lu is %d > NTask: %d\n", k, exports.Nexport, exports.ExportTable[k].Task, NTask);
 #endif
-            Export_count[exports.ExportTable[k].Task]++;
-	    }
+                Export_count[exports.ExportTable[k].Task]++;
+            }
+        }
         /* This is the export count*/
         Nexport  = exports.Nexport;
         /* Exchange the counts. Note this is synchronous so we need to ensure the toptree walk, which happens before this, is balanced.*/
@@ -405,6 +416,8 @@ public:
             /* First do the toptree and export particles for sending.*/
             WorkSetStart = static_cast<DerivedType *>(this)->ev_toptree(WorkSetStart, WorkSetSize, exportcounts, &exportlist, queries);
             /* All processes sync via alltoall.*/
+            /* On the GPU, count the exports to each task on the device, so ImpExpCounts does not read the export table on the host.*/
+            static_cast<DerivedType *>(this)->ev_count_export_tasks(&exportlist, comm);
             ImpExpCounts<QueryType> counts(comm, exportlist);
             NExportTargets = counts.NExportTargets;
             Nexport_sum += counts.Nexport;

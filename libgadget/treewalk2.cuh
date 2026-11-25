@@ -36,8 +36,8 @@
 #include <thrust/transform.h>
 #include <algorithm>
 #include <vector>
-#ifdef DEBUG
 #include <thrust/binary_search.h>   // thrust::upper_bound
+#ifdef DEBUG
 #include <thrust/functional.h>        // thrust::plus
 #include <thrust/transform_reduce.h>
 #include <vector>
@@ -302,8 +302,8 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         }
         const size_t q = sizeof(QueryType), r = sizeof(ResultType);
         /* Per export: the export table (managed, written on the device), the export queries, the send buffer,
-         * the returned results, and the transpose temporaries: tasks, order and the radix sort double buffers of both
-         * (export_bufpos reuses tasks). The transpose temporaries are freed before the result buffers are allocated,
+         * the returned results, and the sort by task: tasks, order and the radix sort double buffers of both
+         * (export_bufpos reuses tasks). The sort vectors are freed by the transpose, before the result buffers are allocated,
          * so this overestimates the peak by up to 16 bytes per export.*/
         size_t perexport = sizeof(data_index) + 2 * q + r + 4 * sizeof(int);
         /* The imports, with the same allowance for imbalance as the host calculation.*/
@@ -337,69 +337,97 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         buf->devicemem = true;
     }
 #endif
+    /* Export table sorted by destination task, set by ev_count_export_tasks and used (and freed) by ev_transpose_exports.
+     * export_order[j] is the export table index of the j-th query to send, and export_tasks[j] its task.*/
+    thrust::device_vector<int> export_tasks;
+    thrust::device_vector<int> export_order;
+
+    /* Count the exports to each task on the device, and store them in exportlist->Export_count for ImpExpCounts,
+     * so that the export table (written by the toptree kernel) is never read on the host.
+     *
+     * To do this we sort the export table by task, which is also the first step of the transpose:
+     * the CPU transpose scatters, walking the export table in order and placing export k at
+     *     bufpos(k) = Export_offset[task] + (number of earlier exports to the same task).
+     * Here we compute the inverse map, order[bufpos] = k, with a stable sort.
+     * - Sorting by task in increasing order puts the block for task t after all the exports to lower
+     *   tasks, so it starts at sum_{s<t} Export_count[s], which is Export_offset[t] in ImpExpCounts.
+     * - The sort is stable and order starts as the identity, so within each task the exports stay
+     *   in increasing k, as with the per-task counter of the CPU version.
+     * With int keys thrust uses a radix sort, so this is O(Nexport).
+     * Because the tasks are then sorted, the exports to task t occupy [ends[t-1], ends[t]),
+     * where ends[t] is the index of the first entry > t, which a vectorised binary search finds.
+     * Only these NTask counts are copied to the host.
+     * The vectors (and the sort scratch space) are plain device memory, not tracked by mymalloc.*/
+    void ev_count_export_tasks(ExportMemory2<QueryType> * const exportlist, MPI_Comm comm)
+    {
+        /* Free any stale sort from an earlier round.*/
+        thrust::device_vector<int>().swap(export_tasks);
+        thrust::device_vector<int>().swap(export_order);
+        const int64_t Nexport = exportlist->Nexport;
+        /* With no exports, ImpExpCounts counts (zero) exports on the host without touching the table.*/
+        if(Nexport == 0)
+            return;
+        int NTask;
+        MPI_Comm_size(comm, &NTask);
+
+        /* tasks[k] is the destination task of export k: the sort key.*/
+        export_tasks.resize(Nexport);
+        /* order[k] is the export table index: the sort value. int is enough because data_index::Index is also int.*/
+        export_order.resize(Nexport);
+        thrust::transform(thrust::device, exportlist->ExportTable, exportlist->ExportTable + Nexport, export_tasks.begin(), ExportTaskOf());
+        /* Start from the identity permutation, which is the order of the export table.*/
+        thrust::sequence(thrust::device, export_order.begin(), export_order.end());
+        /* After this, tasks is in increasing order and order[j] is the index in the export table
+        * of the j-th query to send, ie, the CPU version would place export order[j] at bufpos j.*/
+        thrust::stable_sort_by_key(thrust::device, export_tasks.begin(), export_tasks.end(), export_order.begin());
+
+        std::vector<int64_t> ends(NTask);
+        {
+            thrust::device_vector<int64_t> dends(NTask);
+            thrust::upper_bound(thrust::device, export_tasks.begin(), export_tasks.end(),
+                                thrust::counting_iterator<int>(0), thrust::counting_iterator<int>(NTask), dends.begin());
+            thrust::copy(dends.begin(), dends.end(), ends.begin());
+        }
+        /* Tasks outside [0, NTask) would be silently miscounted: task numbers >= NTask sort after all valid tasks
+         * and are missed by ends, negative ones are counted with task 0. These are cheap to check, so always do it.*/
+        const int firsttask = export_tasks.front();
+        if(firsttask < 0)
+            endrun(6, "Device export table has negative task %d\n", firsttask);
+        if(ends[NTask-1] != Nexport)
+            endrun(6, "Device export table has %ld entries with task >= NTask %d\n", Nexport - ends[NTask-1], NTask);
+        exportlist->Export_count.resize(NTask);
+        for(int i = 0; i < NTask; i++)
+            exportlist->Export_count[i] = ends[i] - (i > 0 ? ends[i-1] : 0);
+    }
+
     /* Transpose the export queries, on the device, from the order of the export table (ordered by particle)
     * into export_queries, ordered by destination task. This is the device version of
     * TreeWalk::ev_transpose_exports in treewalk2.h, and must produce a byte-identical buffer.
-    * It also stores the inverse permutation in export_bufpos, for use by ev_reduce_export_result.
+    * It uses the sort by task from ev_count_export_tasks, and stores the inverse permutation in export_bufpos,
+    * for use by ev_reduce_export_result.
     *
-    * The CPU version scatters: it walks the export table in order and places export k at
-    *     bufpos(k) = Export_offset[task] + (number of earlier exports to the same task).
-    * Here we compute the inverse map, order[bufpos] = k, with a stable sort, and then gather.
-    * - Sorting by task in increasing order puts the block for task t after all the exports to lower
-    *   tasks, so it starts at sum_{s<t} Export_count[s], which is Export_offset[t] in ImpExpCounts.
-    * - The sort is stable and order starts as the identity, so within each task the exports stay
-    *   in increasing k, as with the per-task counter of the CPU version.
-    * With int keys thrust uses a radix sort, so this is O(Nexport).
-    *
-    * ExportTable, ExportQueries and export_queries must all be accessible on the device:
-    * the first two are managed memory, export_queries is the device send buffer.
-    * counts is on the host and is only used for the DEBUG check.
-    * The temporary vectors (and the sort scratch space) are plain device memory, not tracked by mymalloc.*/
+    * ExportQueries and export_queries must be accessible on the device:
+    * the first is managed or device memory, export_queries is the device send buffer.
+    * counts is not needed: the export counts were computed from the same sort.*/
     void ev_transpose_exports(const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist, QueryType * const export_queries)
     {
         /* Free any stale permutation from an earlier round.*/
         thrust::device_vector<int>().swap(export_bufpos);
-        if(exportlist->Nexport == 0)
+        const int64_t Nexport = exportlist->Nexport;
+        if(Nexport == 0)
             return;
-
-        /* tasks[k] is the destination task of export k: the sort key.*/
-        thrust::device_vector<int> tasks(exportlist->Nexport);
-        /* order[k] is the export table index: the sort value. int is enough because data_index::Index is also int.*/
-        thrust::device_vector<int> order(exportlist->Nexport);
-        thrust::transform(thrust::device, exportlist->ExportTable, exportlist->ExportTable + exportlist->Nexport, tasks.begin(), ExportTaskOf());
-        /* Start from the identity permutation, which is the order of the export table.*/
-        thrust::sequence(thrust::device, order.begin(), order.end());
-        /* After this, tasks is in increasing order and order[j] is the index in the export table
-        * of the j-th query to send, ie, the CPU version would place export order[j] at bufpos j.*/
-        thrust::stable_sort_by_key(thrust::device, tasks.begin(), tasks.end(), order.begin());
-    #ifdef DEBUG
-        /* This is the same check as the CPU version: the number of exports we placed
-        * for each task must match Export_count. Because tasks is now sorted, the exports to task t
-        * occupy [ends[t-1], ends[t]), where ends[t] is the index of the first entry > t.*/
-        std::vector<int64_t> ends(counts->NTask);
-        {
-            thrust::device_vector<int64_t> dends(counts->NTask);
-            thrust::upper_bound(thrust::device, tasks.begin(), tasks.end(),
-                                thrust::counting_iterator<int>(0), thrust::counting_iterator<int>(counts->NTask), dends.begin());
-            thrust::copy(dends.begin(), dends.end(), ends.begin());
-        }
-        for(int i = 0; i < counts->NTask; i++) {
-            const int64_t real_send_count = ends[i] - (i > 0 ? ends[i-1] : 0);
-            if(real_send_count != counts->Export_count[i])
-                endrun(6, "Inconsistent device export to task %d of %d: %ld expected %ld\n", i, counts->NTask, real_send_count, counts->Export_count[i]);
-        }
-        /* Any task numbers >= NTask would sort after all valid tasks and be missed by the loop above.*/
-        if(ends[counts->NTask-1] != (int64_t) exportlist->Nexport)
-            endrun(6, "Device export table has %ld entries with task >= NTask %d\n", (int64_t) exportlist->Nexport - ends[counts->NTask-1], counts->NTask);
-    #endif
+        if((int64_t) export_order.size() != Nexport || (int64_t) export_tasks.size() != Nexport)
+            endrun(6, "Export sort has %lu entries, expected %ld: ev_count_export_tasks was not called\n", export_order.size(), Nexport);
         /* export_queries[j] = ExportQueries[order[j]]: the queries are now grouped by task, starting at Export_offset[task].*/
-        thrust::gather(thrust::device, order.begin(), order.end(), exportlist->ExportQueries, export_queries);
-        /* tasks is no longer needed, so reuse it for the inverse permutation:
+        thrust::gather(thrust::device, export_order.begin(), export_order.end(), exportlist->ExportQueries, export_queries);
+        /* The sorted tasks are no longer needed, so reuse them for the inverse permutation:
          * export_bufpos[k] is the position of export k in the send buffer, and so of its result in the
          * buffer of returned results. This is the bufpos the CPU version computes with per-task counters.*/
-        thrust::scatter(thrust::device, thrust::counting_iterator<int>(0), thrust::counting_iterator<int>(exportlist->Nexport),
-                        order.begin(), tasks.begin());
-        export_bufpos.swap(tasks);
+        thrust::scatter(thrust::device, thrust::counting_iterator<int>(0), thrust::counting_iterator<int>(Nexport),
+                        export_order.begin(), export_tasks.begin());
+        export_bufpos.swap(export_tasks);
+        thrust::device_vector<int>().swap(export_tasks);
+        thrust::device_vector<int>().swap(export_order);
     }
 
     /* Device version of TreeWalk::ev_reduce_export_result: sum the returned export results into results.
