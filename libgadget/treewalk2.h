@@ -688,56 +688,21 @@ protected:
     /* Transpose the export query list from being ordered by particle to being ordered by task for export.
      * Within each task the order of the export table is preserved: ev_reduce_export_result relies on this.
      * Export k goes to bufpos(k) = Export_offset[task] + (number of earlier exports to the same task).
-     * This is done in parallel: each thread counts the exports to each task in a contiguous chunk of the export table,
-     * then the counts are turned into starting positions for each (task, thread) and each thread places its chunk.
-     * Both loops are schedule(static) with the same bounds in the same parallel region, so OpenMP assigns
-     * each thread the same chunk in both, and the chunks are in thread order. The result is identical to a serial loop.
      * The bufpos of each export is saved in export_bufpos_host for ev_reduce_export_result.
      * The GPU treewalk overrides this to do the transpose on the device.*/
     void ev_transpose_exports(const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist, QueryType * const export_queries)
     {
-        const int64_t Nexport = exportlist->Nexport;
-        const int NTask = counts->NTask;
-        export_bufpos_host.resize(Nexport);
-        if(Nexport == 0)
+        export_bufpos_host.resize(exportlist->Nexport);
+        if(exportlist->Nexport == 0)
             return;
-        /* tcount[thread * NTask + task]: first the number of exports in this thread's chunk to task,
-         * then the position in the send buffer of the next of them.*/
-        std::vector<int64_t> tcount((size_t) omp_get_max_threads() * NTask, 0);
-        const data_index * const ExportTable = exportlist->ExportTable;
-        const QueryType * const ExportQueries = exportlist->ExportQueries;
-        #pragma omp parallel
-        {
-            int64_t * const mycount = &tcount[(size_t) omp_get_thread_num() * NTask];
-            #pragma omp for schedule(static)
-            for(int64_t k = 0; k < Nexport; k++)
-                mycount[ExportTable[k].Task]++;
-            /* Implicit barrier: all counts are done. Convert to starting positions,
-             * ordered by task, then by thread (which is the order of the chunks in the export table).*/
-            #pragma omp single
-            {
-                const int nthreads = omp_get_num_threads();
-                for(int task = 0; task < NTask; task++) {
-                    int64_t off = counts->Export_offset[task];
-                    for(int th = 0; th < nthreads; th++) {
-                        const int64_t c = tcount[(size_t) th * NTask + task];
-                        tcount[(size_t) th * NTask + task] = off;
-                        off += c;
-                    }
-#ifdef DEBUG
-                    if(off - counts->Export_offset[task] != counts->Export_count[task])
-                        endrun(6, "Inconsistent export to task %d of %d: %ld expected %ld\n", task, NTask, off - counts->Export_offset[task], counts->Export_count[task]);
-#endif
-                }
-            }
-            /* Implicit barrier at the end of single.*/
-            #pragma omp for schedule(static)
-            for(int64_t k = 0; k < Nexport; k++) {
-                const int64_t pos = mycount[ExportTable[k].Task]++;
-                export_bufpos_host[k] = pos;
-                /* Copy the query to the export buffer. Note the index of the queries list is the same as the index of the ExportTable */
-                export_queries[pos] = ExportQueries[k];
-            }
+        std::vector<int64_t> real_send_count(counts->NTask, 0);
+        for(size_t k = 0; k < exportlist->Nexport; k++) {
+            const int task = exportlist->ExportTable[k].Task;
+            const int64_t bufpos = real_send_count[task] + counts->Export_offset[task];
+            real_send_count[task]++;
+            export_bufpos_host[k] = bufpos;
+            /* Copy the query to the export buffer. Note the index of the queries list is the same as the index of the ExportTable */
+            export_queries[bufpos] = exportlist->ExportQueries[k];
         }
     }
 
