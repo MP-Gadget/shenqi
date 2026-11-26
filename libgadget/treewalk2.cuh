@@ -347,7 +347,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
      *
      * To do this we sort the export table by task, which is also the first step of the transpose:
      * the CPU transpose scatters, walking the export table in order and placing export k at
-     *     bufpos(k) = Export_offset[task] + (number of earlier exports to the same task).
+     *     bufpos(k) = Exportoffset[task] + (number of earlier exports to the same task).
      * Here we compute the inverse map, order[bufpos] = k, with a stable sort.
      * - Sorting by task in increasing order puts the block for task t after all the exports to lower
      *   tasks, so it starts at sum_{s<t} Export_count[s].
@@ -415,7 +415,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
             return;
         if((int64_t) export_order.size() != Nexport || (int64_t) export_tasks.size() != Nexport)
             endrun(6, "Export sort has %lu entries, expected %ld: ev_count_export_tasks was not called\n", export_order.size(), Nexport);
-        /* export_queries[j] = ExportQueries[order[j]]: the queries are now grouped by task, starting at Export_offset[task].*/
+        /* export_queries[j] = ExportQueries[order[j]]: the queries are now grouped by task.*/
         thrust::gather(thrust::device, export_order.begin(), export_order.end(), exportlist->ExportQueries, export_queries);
         /* The sorted tasks are no longer needed, so reuse them for the inverse permutation:
          * export_bufpos[k] is the position of export k in the send buffer, and so of its result in the
