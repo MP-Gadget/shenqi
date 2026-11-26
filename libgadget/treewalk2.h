@@ -415,18 +415,15 @@ public:
             ExportMemory2<QueryType> exportlist;
             /* First do the toptree and export particles for sending.*/
             WorkSetStart = static_cast<DerivedType *>(this)->ev_toptree(WorkSetStart, WorkSetSize, exportcounts, &exportlist, queries);
-            /* All processes sync via alltoall.*/
-            /* On the GPU, count the exports to each task on the device, so ImpExpCounts does not read the export table on the host.*/
-            static_cast<DerivedType *>(this)->ev_count_export_tasks(&exportlist, comm);
-            ImpExpCounts<QueryType> counts(comm, exportlist);
-            NExportTargets = counts.NExportTargets;
-            Nexport_sum += counts.Nexport;
             Ndone = ev_ndone(WorkSetStart < WorkSetSize, comm);
             /* Send the exported particle data */
             /* exports is allocated first, then imports*/
             CommBuffer exports;
             CommBuffer imports;
-            ev_send_recv_export_import(&counts, &exportlist, &exports, &imports);
+            /* All processes sync via alltoall.*/
+            ImpExpCounts<QueryType> counts = ev_send_recv_export_import(&exportlist, &exports, &imports, comm);
+            NExportTargets = counts.NExportTargets;
+            Nexport_sum += counts.Nexport;
             tend = second();
             timecomp0 += timediff(tstart, tend);
             /* Only do this on the first iteration, as we only need to do it once.*/
@@ -916,23 +913,28 @@ private:
     }
 
     /* Builds the list of exported particles and async sends the export queries. */
-    void ev_send_recv_export_import(const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist, CommBuffer * exports, CommBuffer * imports)
+    ImpExpCounts<QueryType> ev_send_recv_export_import(ExportMemory2<QueryType> * exportlist, CommBuffer * exports, CommBuffer * imports, MPI_Comm comm)
     {
-        static_cast<DerivedType *>(this)->ev_alloc_commbuffer(exports, "ExportQuery", counts->Nexport * sizeof(QueryType));
-        static_cast<DerivedType *>(this)->ev_alloc_commbuffer(imports, "ImportQuery", counts->Nimport * sizeof(QueryType));
-
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(QueryType), MPI_BYTE, &type);
         MPI_Type_commit(&type);
 
+        static_cast<DerivedType *>(this)->ev_alloc_commbuffer(exports, "ExportQuery", exportlist->Nexport * sizeof(QueryType));
+
+        /* On the GPU, count the exports to each task on the device, so ImpExpCounts does not read the export table on the host.*/
+        static_cast<DerivedType *>(this)->ev_count_export_tasks(exportlist, comm);
+        ImpExpCounts<QueryType> counts(comm, *exportlist);
+
+        static_cast<DerivedType *>(this)->ev_alloc_commbuffer(imports, "ImportQuery", counts.Nimport * sizeof(QueryType));
+
         /* Post recvs before sends. This sometimes allows for a fastpath.*/
-        imports->MPI_fill(counts->Import_count, counts->Import_offset, type, COMM_RECV, 101922, counts->comm);
+        imports->MPI_fill(counts.Import_count, counts.Import_offset, type, COMM_RECV, 101922, comm);
 
         /* Transpose the export query list from being ordered by particle to being ordered by task for export*/
-        static_cast<DerivedType *>(this)->ev_transpose_exports(counts, exportlist, reinterpret_cast<QueryType*>(exports->databuf));
-        exports->MPI_fill(counts->Export_count, counts->Export_offset, type, COMM_SEND, 101922, counts->comm);
+        static_cast<DerivedType *>(this)->ev_transpose_exports(&counts, exportlist, reinterpret_cast<QueryType*>(exports->databuf));
+        exports->MPI_fill(counts.Export_count, counts.Export_offset, type, COMM_SEND, 101922, comm);
         MPI_Type_free(&type);
-        return;
+        return counts;
     }
 
     /* Receive the export results */
