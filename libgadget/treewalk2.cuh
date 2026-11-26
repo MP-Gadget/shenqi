@@ -342,7 +342,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
     thrust::device_vector<int> export_tasks;
     thrust::device_vector<int> export_order;
 
-    /* Count the exports to each task on the device, and store them in exportlist->Export_count for ImpExpCounts,
+    /* Count the exports to each task on the device, and store them in exportlist->Export_count,
      * so that the export table (written by the toptree kernel) is never read on the host.
      *
      * To do this we sort the export table by task, which is also the first step of the transpose:
@@ -350,7 +350,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
      *     bufpos(k) = Export_offset[task] + (number of earlier exports to the same task).
      * Here we compute the inverse map, order[bufpos] = k, with a stable sort.
      * - Sorting by task in increasing order puts the block for task t after all the exports to lower
-     *   tasks, so it starts at sum_{s<t} Export_count[s], which is Export_offset[t] in ImpExpCounts.
+     *   tasks, so it starts at sum_{s<t} Export_count[s].
      * - The sort is stable and order starts as the identity, so within each task the exports stay
      *   in increasing k, as with the per-task counter of the CPU version.
      * With int keys thrust uses a radix sort, so this is O(Nexport).
@@ -364,7 +364,6 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         thrust::device_vector<int>().swap(export_tasks);
         thrust::device_vector<int>().swap(export_order);
         const int64_t Nexport = exportlist->Nexport;
-        /* With no exports, ImpExpCounts counts (zero) exports on the host without touching the table.*/
         if(Nexport == 0)
             return;
         int NTask;
@@ -395,7 +394,6 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
             endrun(6, "Device export table has negative task %d\n", firsttask);
         if(ends[NTask-1] != Nexport)
             endrun(6, "Device export table has %ld entries with task >= NTask %d\n", Nexport - ends[NTask-1], NTask);
-        exportlist->Export_count.resize(NTask);
         for(int i = 0; i < NTask; i++)
             exportlist->Export_count[i] = ends[i] - (i > 0 ? ends[i-1] : 0);
     }
@@ -407,9 +405,8 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
     * for use by ev_reduce_export_result.
     *
     * ExportQueries and export_queries must be accessible on the device:
-    * the first is managed or device memory, export_queries is the device send buffer.
-    * counts is not needed: the export counts were computed from the same sort.*/
-    void ev_transpose_exports(const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist, QueryType * const export_queries)
+    * the first is managed or device memory, export_queries is the device send buffer.*/
+    void ev_transpose_exports(const ExportMemory2<QueryType> * const exportlist, QueryType * const export_queries)
     {
         /* Free any stale permutation from an earlier round.*/
         thrust::device_vector<int>().swap(export_bufpos);
@@ -434,7 +431,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
      * exportbuf->databuf may be plain device memory (CUDA-aware MPI) or managed memory;
      * results and ExportTable are managed. Uses (and then frees) the export_bufpos permutation
      * stored by ev_transpose_exports for the same export list.*/
-    void ev_reduce_export_result(ResultType * results, CommBuffer * exportbuf, const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist)
+    void ev_reduce_export_result(ResultType * results, CommBuffer * exportbuf, const ExportMemory2<QueryType> * const exportlist)
     {
         const size_t Nexport = exportlist->Nexport;
         if(Nexport == 0)

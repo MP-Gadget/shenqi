@@ -34,9 +34,17 @@ template<typename QueryType> struct ExportMemory2 {
     QueryType * ExportQueries = NULL;
     /* If set, ExportQueries was not allocated by mymalloc (it is plain GPU device memory).*/
     bool devicemem = false;
-    /* If not empty, the number of exports to each task, already counted (by the GPU treewalk, on the device),
-     * so that ImpExpCounts does not need to read ExportTable on the host.*/
+    /* The number of exports to each task.*/
     std::vector<int64_t> Export_count;
+
+    ExportMemory2(MPI_Comm comm)
+    {
+        /* Resize the count vector*/
+        int NTask;
+        MPI_Comm_size(comm, &NTask);
+        Export_count.assign(NTask, 0);
+    }
+
     ~ExportMemory2()
     {
         if(ExportQueries) {
@@ -93,60 +101,26 @@ template<typename QueryType> struct ExportMemory2 {
 template<typename QueryType> class ImpExpCounts
 {
     public:
-    int64_t * Export_count;
-    int64_t * Import_count;
+    std::vector<int64_t> Import_count;
     const MPI_Comm comm;
-    int NTask;
     /* Number of particles exported to this processor*/
     size_t Nimport;
-    /* Number of particles exported from this processor*/
-    size_t Nexport;
-    /* Number of MPI ranks we export to from this rank.*/
-    int64_t NExportTargets;
 
     ImpExpCounts(const MPI_Comm i_comm, const ExportMemory2<QueryType>& exports): comm(i_comm)
     {
+        int NTask;
         MPI_Comm_size(comm, &NTask);
-        Export_count = ta_malloc("Tree_counts", int64_t, 2*NTask);
-        Import_count = Export_count + NTask;
-        memset(Export_count, 0, sizeof(int64_t)*2*NTask);
+        Import_count.resize(exports.Export_count.size());
 
-        Nexport=0;
-        /* Calculate the amount of data to send. */
-        if(!exports.Export_count.empty()) {
-            /* Already counted on the device.*/
-            if((int64_t) exports.Export_count.size() != NTask)
-                endrun(5, "Precomputed export counts have %lu tasks, expected %d\n", exports.Export_count.size(), NTask);
-            memcpy(Export_count, exports.Export_count.data(), sizeof(int64_t) * NTask);
-        }
-        else {
-            for(size_t k = 0; k < exports.Nexport; k++) {
-#ifdef DEBUG
-                if(exports.ExportTable[k].Task < 0 || exports.ExportTable[k].Task >= NTask)
-                    endrun(5, "export count at %lu of %lu is %d > NTask: %d\n", k, exports.Nexport, exports.ExportTable[k].Task, NTask);
-#endif
-                Export_count[exports.ExportTable[k].Task]++;
-            }
-        }
-        /* This is the export count*/
-        Nexport  = exports.Nexport;
         /* Exchange the counts. Note this is synchronous so we need to ensure the toptree walk, which happens before this, is balanced.*/
-        MPI_Alltoall(Export_count, 1, MPI_INT64, Import_count, 1, MPI_INT64, comm);
-        // message(1, "Exporting %ld particles. Thread 0 is %ld\n", counts.Nexport, Nexport_thread[0]);
+        MPI_Alltoall(exports.Export_count.data(), 1, MPI_INT64, Import_count.data(), 1, MPI_INT64, comm);
 
         Nimport = Import_count[0];
-        NExportTargets = (Export_count[0] > 0);
         for(int i = 1; i < NTask; i++)
         {
             Nimport += Import_count[i];
-            NExportTargets += (Export_count[i] > 0);
         }
         return;
-    };
-
-    ~ImpExpCounts()
-    {
-        ta_free(Export_count);
     };
 };
 
@@ -202,7 +176,7 @@ class CommBuffer
     }
     /* Routine to send data to all tasks async. If receive is set, the routine receives data. The structure stores the requests.
      Empty tasks are skipped. Must call alloc_commbuffer on the buffer first and buffer->databuf must be set.*/
-    void MPI_fill(int64_t *cnts, MPI_Datatype type, int receive, int tag, MPI_Comm comm)
+    void MPI_fill(const std::vector<int64_t>& cnts, MPI_Datatype type, const int receive, int tag, MPI_Comm comm)
     {
         int ThisTask;
         int NTask;
@@ -218,8 +192,8 @@ class CommBuffer
             if(cnts[target] == 0) continue;
             rqst_task.push_back(target);
         }
-        std::vector<int64_t> displs(NTask);
-        std::exclusive_scan(cnts, cnts + NTask, displs.begin(), 0L);
+        std::vector<int64_t> displs(cnts.size());
+        std::exclusive_scan(cnts.begin(), cnts.end(), displs.begin(), 0L);
 
         rdata_all = mymalloc("MPI_requests", MPI_Request, rqst_task.size());
         /* Do Send/Recv over all non-trivial tasks*/
@@ -409,7 +383,7 @@ public:
 
             if(Nexportfull > 0)
                 message(0, "Toptree %s, iter %d. First particle %ld size %ld.\n", ev_label, Nexportfull, WorkSetStart, WorkSetSize);
-            ExportMemory2<QueryType> exportlist;
+            ExportMemory2<QueryType> exportlist(comm);
             /* First do the toptree and export particles for sending.*/
             WorkSetStart = static_cast<DerivedType *>(this)->ev_toptree(WorkSetStart, WorkSetSize, exportcounts, &exportlist, queries);
             Ndone = ev_ndone(WorkSetStart < WorkSetSize, comm);
@@ -419,8 +393,12 @@ public:
             CommBuffer imports;
             /* All processes sync via alltoall.*/
             ImpExpCounts<QueryType> counts = ev_send_recv_export_import(&exportlist, &exports, &imports, comm);
-            NExportTargets = counts.NExportTargets;
-            Nexport_sum += counts.Nexport;
+
+            NExportTargets = 0;
+            for(auto excount : exportlist.Export_count)
+                NExportTargets += (excount > 0);
+
+            Nexport_sum += exportlist.Nexport;
             tend = second();
             timecomp0 += timediff(tstart, tend);
             /* Only do this on the first iteration, as we only need to do it once.*/
@@ -434,7 +412,7 @@ public:
             tstart = second();
             /* Posts recvs to get the export results (which are sent in ev_secondary).*/
             CommBuffer res_exports;
-            ev_recv_export_result(&res_exports, &counts);
+            ev_recv_export_result(&res_exports, &exportlist, comm);
             CommBuffer res_imports;
             ev_wait_secondary(&res_imports, &imports, &counts, parts);
             // report_memory_usage(ev_label);
@@ -447,7 +425,7 @@ public:
             tstart = second();
             res_exports.wait();
             /* Here the results array is summed and so ev_primary needs to be finished*/
-            static_cast<DerivedType *>(this)->ev_reduce_export_result(results, &res_exports, &counts, &exportlist);
+            static_cast<DerivedType *>(this)->ev_reduce_export_result(results, &res_exports, &exportlist);
             tend = second();
             timewait1 += timediff(tstart, tend);
             Nexportfull++;
@@ -687,14 +665,14 @@ protected:
      * Export k goes to bufpos(k) = Exportoffset[task] + (number of earlier exports to the same task).
      * The bufpos of each export is saved in export_bufpos_host for ev_reduce_export_result.
      * The GPU treewalk overrides this to do the transpose on the device.*/
-    void ev_transpose_exports(const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist, QueryType * const export_queries)
+    void ev_transpose_exports(const ExportMemory2<QueryType> * const exportlist, QueryType * const export_queries)
     {
         export_bufpos_host.resize(exportlist->Nexport);
         if(exportlist->Nexport == 0)
             return;
-        std::vector<int64_t> Exportoffset(counts->NTask);
-        std::exclusive_scan(counts->Export_count, counts->Export_count+counts->NTask, Exportoffset.begin(), 0L);
-        std::vector<int64_t> real_send_count(counts->NTask, 0);
+        std::vector<int64_t> Exportoffset(exportlist->Export_count.size());
+        std::exclusive_scan(exportlist->Export_count.begin(), exportlist->Export_count.end(), Exportoffset.begin(), 0L);
+        std::vector<int64_t> real_send_count(Exportoffset.size(), 0);
         for(size_t k = 0; k < exportlist->Nexport; k++) {
             const int task = exportlist->ExportTable[k].Task;
             const int64_t bufpos = real_send_count[task] + Exportoffset[task];
@@ -713,10 +691,16 @@ private:
     }
 
     /* Hook called after ev_toptree to count the exports to each task.
-     * Nothing to do on the CPU, where ImpExpCounts counts them from the export table.
      * The GPU treewalk overrides this to count them on the device and store them in exportlist->Export_count.*/
     void ev_count_export_tasks(ExportMemory2<QueryType> * const exportlist, MPI_Comm comm)
     {
+        for(size_t k = 0; k < exportlist->Nexport; k++) {
+#ifdef DEBUG
+            if(exportlist->ExportTable[k].Task < 0 || exportlist->ExportTable[k].Task >= (int64_t) exportlist->Export_count.size())
+                endrun(5, "export count at %lu of %lu is %d > NTask: %ld\n", k, exportlist->Nexport, exportlist->ExportTable[k].Task, exportlist->Export_count.size());
+#endif
+            exportlist->Export_count[exportlist->ExportTable[k].Task]++;
+        }
     }
 
     void ev_free_exports(int * exportcounts)
@@ -843,8 +827,8 @@ private:
         MPI_Type_commit(&type);
         res_imports->rdata_all = mymalloc("Import Return Requests", MPI_Request, imports->nrequest());
         int * complete_array = mymalloc("completes", int, imports->nrequest());
-        std::vector<int64_t> Importoffset(counts->NTask);
-        std::exclusive_scan(counts->Import_count, counts->Import_count+counts->NTask, Importoffset.begin(), 0L);
+        std::vector<int64_t> Importoffset(counts->Import_count.size());
+        std::exclusive_scan(counts->Import_count.begin(), counts->Import_count.end(), Importoffset.begin(), 0L);
 
         /* Test each request in turn until it completes*/
         while(res_imports->nrequest() < imports->nrequest()) {
@@ -897,22 +881,22 @@ private:
         imports->MPI_fill(counts.Import_count, type, COMM_RECV, 101922, comm);
 
         /* Transpose the export query list from being ordered by particle to being ordered by task for export*/
-        static_cast<DerivedType *>(this)->ev_transpose_exports(&counts, exportlist, reinterpret_cast<QueryType*>(exports->databuf));
-        exports->MPI_fill(counts.Export_count, type, COMM_SEND, 101922, comm);
+        static_cast<DerivedType *>(this)->ev_transpose_exports(exportlist, reinterpret_cast<QueryType*>(exports->databuf));
+        exports->MPI_fill(exportlist->Export_count, type, COMM_SEND, 101922, comm);
         MPI_Type_free(&type);
         return counts;
     }
 
     /* Receive the export results */
-    void ev_recv_export_result(CommBuffer * exportbuf, ImpExpCounts<QueryType> * counts)
+    void ev_recv_export_result(CommBuffer * exportbuf, ExportMemory2<QueryType> * exportlist, MPI_Comm comm)
     {
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(ResultType), MPI_BYTE, &type);
         MPI_Type_commit(&type);
         /* Receives may be on device*/
-        static_cast<DerivedType *>(this)->ev_alloc_commbuffer(exportbuf, "ExportResult", counts->Nexport * sizeof(ResultType));
+        static_cast<DerivedType *>(this)->ev_alloc_commbuffer(exportbuf, "ExportResult", exportlist->Nexport * sizeof(ResultType));
         /* Post the receives first so we can hit a zero-copy fastpath.*/
-        exportbuf->MPI_fill(counts->Export_count, type, COMM_RECV, 101923, counts->comm);
+        exportbuf->MPI_fill(exportlist->Export_count, type, COMM_RECV, 101923, comm);
         MPI_Type_free(&type);
         return;
     }
@@ -923,7 +907,7 @@ private:
      * the whole run, serially and in export table order. This means there are no write races and
      * the additions are done in the same order as a serial loop over the export table.
      * Uses (and then frees) export_bufpos_host from ev_transpose_exports for the same export list.*/
-    void ev_reduce_export_result(ResultType * results, CommBuffer * exportbuf, const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist)
+    void ev_reduce_export_result(ResultType * results, CommBuffer * exportbuf, const ExportMemory2<QueryType> * const exportlist)
     {
         const int64_t Nexport = exportlist->Nexport;
         if((int64_t) export_bufpos_host.size() != Nexport)
