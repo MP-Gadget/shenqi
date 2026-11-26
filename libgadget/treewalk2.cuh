@@ -310,11 +310,11 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         perexport += ceil(Base::ImportBufferBoost * (q + r));
         /* Leave slack for CUB scratch space, CUDA-aware MPI staging buffers and fragmentation.*/
         const size_t reserve = std::max<size_t>(totaldev / 20, 512L * 1024 * 1024);
-        const size_t usable = freedev > reserve ? (freedev - reserve) / ranks_per_device : 0;
+        const size_t usable = freedev > reserve ? (freedev - reserve)  : 0;
         const size_t devbunch = usable / perexport;
         if(devbunch < 20)
-            endrun(1231246, "Not enough free device memory to export particles: free %lu of %lu bytes, reserve %lu, %d ranks on this device, %lu bytes per export\n",
-                   freedev, totaldev, reserve, ranks_per_device, perexport);
+            endrun(1231246, "Not enough free device memory to export particles: free %lu of %lu bytes, reserve %lu, %lu bytes per export\n",
+                   freedev, totaldev, reserve, perexport);
         return std::min(hostbunch, devbunch);
     }
 
@@ -389,7 +389,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
             thrust::copy(dends.begin(), dends.end(), ends.begin());
         }
         /* Tasks outside [0, NTask) would be silently miscounted: task numbers >= NTask sort after all valid tasks
-         * and are missed by ends, negative ones are counted with task 0. These are cheap to check, so always do it.*/
+         * and are missed by r, negative ones are counted with task 0. These are cheap to check, so always do it.*/
         const int firsttask = export_tasks.front();
         if(firsttask < 0)
             endrun(6, "Device export table has negative task %d\n", firsttask);
