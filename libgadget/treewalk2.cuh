@@ -301,13 +301,16 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
             return hostbunch;
         }
         const size_t q = sizeof(QueryType), r = sizeof(ResultType);
-        /* Per export: the export table (managed, written on the device), the export queries, the send buffer,
-         * the returned results, and the sort by task: tasks, order and the radix sort double buffers of both
-         * (export_bufpos reuses tasks). The sort vectors are freed by the transpose, before the result buffers are allocated,
-         * so this overestimates the peak by up to 16 bytes per export.*/
-        size_t perexport = sizeof(data_index) + 2 * q + r + 4 * sizeof(int);
-        /* The imports, with the same allowance for imbalance as the host calculation.*/
-        perexport += ceil(Base::ImportBufferBoost * (q + r));
+        /* Per export, alive for the whole round: the export table (managed, written on the device),
+         * the export queries and the send buffer.*/
+        const size_t perexport_base = sizeof(data_index) + 2 * q;
+        /* Peak during ev_transpose_exports: the sort by task, ie tasks, order and the radix sort double buffers of both.
+         * These are freed when it returns, except tasks, which is kept as export_bufpos.*/
+        const size_t perexport_sort = 4 * sizeof(int);
+        /* Peak after the transpose: export_bufpos, the returned results, and the import queries and results,
+         * with the same allowance for imbalance as the host calculation.*/
+        const size_t perexport_comm = sizeof(int) + r + ceil(Base::ImportBufferBoost * (q + r));
+        const size_t perexport = perexport_base + std::max(perexport_sort, perexport_comm);
         /* Leave slack for CUB scratch space, CUDA-aware MPI staging buffers and fragmentation.*/
         const size_t reserve = std::max<size_t>(totaldev / 20, 512L * 1024 * 1024);
         const size_t usable = freedev > reserve ? (freedev - reserve)  : 0;
