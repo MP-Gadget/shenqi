@@ -551,9 +551,12 @@ run(const int RestartSnapNum, const inttime_t ti_init, const struct header_data 
         /* Gravitational acceleration here*/
         if(totgravactive) {
             if(All.HierarchicalGravity) {
-                /* We need to store a GravAccel for new star particles as well, so we need extra memory.*/
-                GravAccel.nstore = PartManager->NumPart + SlotsManager->info[0].size;
-                GravAccel.GravAccel = mymanagedmalloc("GravAccel", My3Vec, GravAccel.nstore);
+                /* For PM steps we re-use FullTreeGravAccel and so do not allocate this.*/
+                if(!is_PM) {
+                    /* We need to store a GravAccel for new star particles as well, so we need extra memory.*/
+                    GravAccel.nstore = PartManager->NumPart + SlotsManager->info[0].size;
+                    GravAccel.GravAccel = mymanagedmalloc("GravAccel", My3Vec, GravAccel.nstore);
+                }
                 hierarchical_gravity_accelerations(&Act, &pm, ddecomp, GravAccel, &times, &timebinmgr, HybridNuTracer, &All.CP, All.OutputDir, All.UseGPU);
             }
             else if(All.TreeGravOn && totgravactive) {
