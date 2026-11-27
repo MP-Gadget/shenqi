@@ -337,15 +337,11 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         buf->devicemem = true;
     }
 #endif
-    /* Export table sorted by destination task, set by ev_count_export_tasks and used (and freed) by ev_transpose_exports.
-     * export_order[j] is the export table index of the j-th query to send, and export_tasks[j] its task.*/
-    thrust::device_vector<int> export_tasks;
-    thrust::device_vector<int> export_order;
-
-    /* Count the exports to each task on the device, and store them in exportlist->Export_count,
+    /* Transpose the export queries, from the order of the export table (ordered by particle)
+     * into export_queries, ordered by destination task and fill Export_count.
+     * Count the exports to each task on the device, and store them in exportlist->Export_count,
      * so that the export table (written by the toptree kernel) is never read on the host.
-     *
-     * To do this we sort the export table by task, which is also the first step of the transpose:
+     * We sort the export table by task, which is also the first step of the transpose:
      * the CPU transpose scatters, walking the export table in order and placing export k at
      *     bufpos(k) = Exportoffset[task] + (number of earlier exports to the same task).
      * Here we compute the inverse map, order[bufpos] = k, with a stable sort.
@@ -353,33 +349,31 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
      *   tasks, so it starts at sum_{s<t} Export_count[s].
      * - The sort is stable and order starts as the identity, so within each task the exports stay
      *   in increasing k, as with the per-task counter of the CPU version.
-     * With int keys thrust uses a radix sort, so this is O(Nexport).
      * Because the tasks are then sorted, the exports to task t occupy [ends[t-1], ends[t]),
      * where ends[t] is the index of the first entry > t, which a vectorised binary search finds.
      * Only these NTask counts are copied to the host.
-     * The vectors (and the sort scratch space) are plain device memory, not tracked by mymalloc.*/
-    void ev_count_export_tasks(ExportMemory2<QueryType> * const exportlist, MPI_Comm comm)
+     * It stores the inverse permutation in export_bufpos, for use by ev_reduce_export_result.*/
+    void ev_transpose_exports(ExportMemory2<QueryType> * const exportlist, QueryType * const export_queries)
     {
-        /* Free any stale sort from an earlier round.*/
-        thrust::device_vector<int>().swap(export_tasks);
-        thrust::device_vector<int>().swap(export_order);
+        /* export_order[j] is the export table index of the j-th query to send, and export_tasks[j] its task.*/
+        /* Free any stale export buffer from an earlier round.*/
+        thrust::device_vector<int>().swap(export_bufpos);
         const int64_t Nexport = exportlist->Nexport;
         if(Nexport == 0)
             return;
-        int NTask;
-        MPI_Comm_size(comm, &NTask);
 
         /* tasks[k] is the destination task of export k: the sort key.*/
-        export_tasks.resize(Nexport);
-        /* order[k] is the export table index: the sort value. int is enough because data_index::Index is also int.*/
-        export_order.resize(Nexport);
+        thrust::device_vector<int> export_tasks(Nexport);
         thrust::transform(thrust::device, exportlist->ExportTable, exportlist->ExportTable + Nexport, export_tasks.begin(), ExportTaskOf());
+        /* order[k] is the export table index: the sort value. int is enough because data_index::Index is also int.*/
         /* Start from the identity permutation, which is the order of the export table.*/
+        thrust::device_vector<int> export_order(Nexport);
         thrust::sequence(thrust::device, export_order.begin(), export_order.end());
         /* After this, tasks is in increasing order and order[j] is the index in the export table
         * of the j-th query to send, ie, the CPU version would place export order[j] at bufpos j.*/
         thrust::stable_sort_by_key(thrust::device, export_tasks.begin(), export_tasks.end(), export_order.begin());
 
+        const int NTask = exportlist->Export_count.size();
         std::vector<int64_t> ends(NTask);
         {
             thrust::device_vector<int64_t> dends(NTask);
@@ -388,33 +382,14 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
             thrust::copy(dends.begin(), dends.end(), ends.begin());
         }
         /* Tasks outside [0, NTask) would be silently miscounted: task numbers >= NTask sort after all valid tasks
-         * and are missed by r, negative ones are counted with task 0. These are cheap to check, so always do it.*/
+         * and are missed by ends, negative ones are counted with task 0. These are cheap to check, so always do it.*/
         const int firsttask = export_tasks.front();
         if(firsttask < 0)
             endrun(6, "Device export table has negative task %d\n", firsttask);
         if(ends[NTask-1] != Nexport)
             endrun(6, "Device export table has %ld entries with task >= NTask %d\n", Nexport - ends[NTask-1], NTask);
-        for(int i = 0; i < NTask; i++)
+        for(auto i = 0; i < exportlist->Export_count.size(); i++)
             exportlist->Export_count[i] = ends[i] - (i > 0 ? ends[i-1] : 0);
-    }
-
-    /* Transpose the export queries, on the device, from the order of the export table (ordered by particle)
-    * into export_queries, ordered by destination task. This is the device version of
-    * TreeWalk::ev_transpose_exports in treewalk2.h, and must produce a byte-identical buffer.
-    * It uses the sort by task from ev_count_export_tasks, and stores the inverse permutation in export_bufpos,
-    * for use by ev_reduce_export_result.
-    *
-    * ExportQueries and export_queries must be accessible on the device:
-    * the first is managed or device memory, export_queries is the device send buffer.*/
-    void ev_transpose_exports(const ExportMemory2<QueryType> * const exportlist, QueryType * const export_queries)
-    {
-        /* Free any stale permutation from an earlier round.*/
-        thrust::device_vector<int>().swap(export_bufpos);
-        const int64_t Nexport = exportlist->Nexport;
-        if(Nexport == 0)
-            return;
-        if((int64_t) export_order.size() != Nexport || (int64_t) export_tasks.size() != Nexport)
-            endrun(6, "Export sort has %lu entries, expected %ld: ev_count_export_tasks was not called\n", export_order.size(), Nexport);
         /* export_queries[j] = ExportQueries[order[j]]: the queries are now grouped by task.*/
         thrust::gather(thrust::device, export_order.begin(), export_order.end(), exportlist->ExportQueries, export_queries);
         /* The sorted tasks are no longer needed, so reuse them for the inverse permutation:
@@ -423,8 +398,6 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
         thrust::scatter(thrust::device, thrust::counting_iterator<int>(0), thrust::counting_iterator<int>(Nexport),
                         export_order.begin(), export_tasks.begin());
         export_bufpos.swap(export_tasks);
-        thrust::device_vector<int>().swap(export_tasks);
-        thrust::device_vector<int>().swap(export_order);
     }
 
     /* Device version of TreeWalk::ev_reduce_export_result: sum the returned export results into results.

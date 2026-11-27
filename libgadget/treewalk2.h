@@ -632,13 +632,21 @@ protected:
      * The GPU treewalk has its own device copy, export_bufpos.*/
     std::vector<int> export_bufpos_host;
 
-    /* Transpose the export query list from being ordered by particle to being ordered by task for export.
+    /* Fill exportlist->Export_count and transpose the export query list from being ordered by particle
+     * to being ordered by task for export.
      * Within each task the order of the export table is preserved: ev_reduce_export_result relies on this.
      * Export k goes to bufpos(k) = Exportoffset[task] + (number of earlier exports to the same task).
      * The bufpos of each export is saved in export_bufpos_host for ev_reduce_export_result.
      * The GPU treewalk overrides this to do the transpose on the device.*/
-    void ev_transpose_exports(const ExportMemory2<QueryType> * const exportlist, QueryType * const export_queries)
+    void ev_transpose_exports(ExportMemory2<QueryType> * const exportlist, QueryType * const export_queries)
     {
+        for(size_t k = 0; k < exportlist->Nexport; k++) {
+#ifdef DEBUG
+            if(exportlist->ExportTable[k].Task < 0 || exportlist->ExportTable[k].Task >= (int64_t) exportlist->Export_count.size())
+                endrun(5, "export count at %lu of %lu is %d > NTask: %ld\n", k, exportlist->Nexport, exportlist->ExportTable[k].Task, exportlist->Export_count.size());
+#endif
+            exportlist->Export_count[exportlist->ExportTable[k].Task]++;
+        }
         export_bufpos_host.resize(exportlist->Nexport);
         if(exportlist->Nexport == 0)
             return;
@@ -845,8 +853,8 @@ private:
 
         static_cast<DerivedType *>(this)->ev_alloc_commbuffer(exports, "ExportQuery", exportlist->Nexport * sizeof(QueryType));
 
-        /* On the GPU, count the exports to each task on the device.*/
-        static_cast<DerivedType *>(this)->ev_count_export_tasks(exportlist, comm);
+        /* Transpose the export query list from being ordered by particle to being ordered by task for export and fill exportlist->Export_count*/
+        static_cast<DerivedType *>(this)->ev_transpose_exports(exportlist, reinterpret_cast<QueryType*>(exports->databuf));
 
         std::vector<int64_t> Import_count(exportlist->Export_count.size());
 
@@ -859,8 +867,6 @@ private:
         /* Post recvs before sends. This sometimes allows for a fastpath.*/
         imports->MPI_fill(Import_count, type, COMM_RECV, 101922, comm);
 
-        /* Transpose the export query list from being ordered by particle to being ordered by task for export*/
-        static_cast<DerivedType *>(this)->ev_transpose_exports(exportlist, reinterpret_cast<QueryType*>(exports->databuf));
         exports->MPI_fill(exportlist->Export_count, type, COMM_SEND, 101922, comm);
         MPI_Type_free(&type);
         return Import_count;
