@@ -69,7 +69,7 @@ template<typename QueryType> class ImpExpCounts
         /* Calculate the amount of data to send. */
         for(size_t k = 0; k < exports.Nexport; k++) {
 #ifdef DEBUG
-            if(exports.ExportTable[k].Task < 0 || exports.ExportTable[k].Task > NTask)
+            if(exports.ExportTable[k].Task < 0 || exports.ExportTable[k].Task >= NTask)
                 endrun(5, "export count at %lu of %lu is %d > NTask: %d\n", k, exports.Nexport, exports.ExportTable[k].Task, NTask);
 #endif
             Export_count[exports.ExportTable[k].Task]++;
@@ -804,8 +804,7 @@ private:
 
     void ev_reduce_export_result(ResultType * results, CommBuffer * exportbuf, const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist)
     {
-        int * real_recv_count = mymalloc("tmp_recv_count", int, counts->NTask);
-        memset(real_recv_count, 0, sizeof(int)*counts->NTask);
+        std::vector<int> real_recv_count(counts->NTask, 0);
         for(size_t k = 0; k < exportlist->Nexport; k++) {
             /* Note this is the index into the WorkSet (and thus results and queries) and not the particle table*/
             const int worksetplace = exportlist->ExportTable[k].Index;
@@ -818,7 +817,6 @@ private:
 #endif
             real_recv_count[task]++;
         }
-        myfree(real_recv_count);
     }
 
     /* Checks whether all tasks have finished iterating */
