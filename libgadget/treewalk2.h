@@ -6,6 +6,7 @@
 #include <omp.h>
 #include <cmath>
 #include <type_traits>
+#include <vector>
 #include "localtreewalk2.h"
 #include "forcetree2.h"
 #include "mpi.h"
@@ -28,75 +29,58 @@ template<typename QueryType> struct ExportMemory2 {
     /* Pointer to a particle export table.*/
     data_index * ExportTable = NULL;
     QueryType * ExportQueries = NULL;
+    /* The number of exports to each task.*/
+    std::vector<int64_t> Export_count;
+
+    ExportMemory2(MPI_Comm comm)
+    {
+        /* Resize the count vector*/
+        int NTask;
+        MPI_Comm_size(comm, &NTask);
+        Export_count.assign(NTask, 0);
+    }
+
     ~ExportMemory2()
     {
-        if(ExportQueries)
+        if(ExportQueries) {
             myfree(ExportQueries);
+        }
         if(ExportTable)
             myfree(ExportTable);
     }
 };
 
-/* This stores counts of the particles to be transferred.
- * It is book-keeping for the distributed part of the treewalk.
- * The constructor does an MPI_Alltoall, and thus is a synchronisation point.*/
-template<typename QueryType> class ImpExpCounts
-{
-    public:
-    int64_t * Export_count;
-    int64_t * Import_count;
-    int64_t * Export_offset;
-    int64_t * Import_offset;
-    const MPI_Comm comm;
-    int NTask;
-    /* Number of particles exported to this processor*/
-    size_t Nimport;
-    /* Number of particles exported from this processor*/
-    size_t Nexport;
-    /* Number of MPI ranks we export to from this rank.*/
-    int64_t NExportTargets;
+/* The memory allocation on the device and the host is a little complicated when USE_CUDA is enabled.
+ * Here are the main arrays and where they live.
+    Queries:
+    - allocated in managed memory
+    - prefetched to the device.
+    - Evaluated on the device using ev_toptree and ev_primary -> fill Results on device
+    Results:
+    - Allocated in managed memory
+    - Filled on the device.
+    - Exports are reduced into it on CPU, migrating to host.
+    - postprocess into P in managed memory on device.
+    - Migrates to host in do_hsml_loop
 
-    ImpExpCounts(const MPI_Comm i_comm, const ExportMemory2<QueryType>& exports): comm(i_comm)
-    {
-        MPI_Comm_size(comm, &NTask);
-        Export_count = ta_malloc("Tree_counts", int64_t, 4*NTask);
-        Export_offset = Export_count + NTask;
-        Import_count = Export_offset + NTask;
-        Import_offset = Import_count + NTask;
-        memset(Export_count, 0, sizeof(int64_t)*4*NTask);
+    ExportQueries:
+    - Allocated in managed memory
+    - Filled on device: moved to CPU and sent to MPI
 
-        Nexport=0;
-        /* Calculate the amount of data to send. */
-        for(size_t k = 0; k < exports.Nexport; k++) {
-#ifdef DEBUG
-            if(exports.ExportTable[k].Task < 0 || exports.ExportTable[k].Task >= NTask)
-                endrun(5, "export count at %lu of %lu is %d > NTask: %d\n", k, exports.Nexport, exports.ExportTable[k].Task, NTask);
-#endif
-            Export_count[exports.ExportTable[k].Task]++;
-	    }
-        /* This is the export count*/
-        Nexport  = exports.Nexport;
-        /* Exchange the counts. Note this is synchronous so we need to ensure the toptree walk, which happens before this, is balanced.*/
-        MPI_Alltoall(Export_count, 1, MPI_INT64, Import_count, 1, MPI_INT64, comm);
-        // message(1, "Exporting %ld particles. Thread 0 is %ld\n", counts.Nexport, Nexport_thread[0]);
+    ExportResults:
+    - Allocated in managed memory
+    - Received from MPI on CPU
+    - Reduced into results, moving to CPU.
 
-        Nimport = Import_count[0];
-        NExportTargets = (Export_count[0] > 0);
-        for(int i = 1; i < NTask; i++)
-        {
-            Nimport += Import_count[i];
-            Export_offset[i] = Export_offset[i - 1] + Export_count[i - 1];
-            Import_offset[i] = Import_offset[i - 1] + Import_count[i - 1];
-            NExportTargets += (Export_count[i] > 0);
-        }
-        return;
-    };
+    ImportQueries:
+    - Allocated on CPU: received from MPI
+    - evaluated on device -> ImportResult.
 
-    ~ImpExpCounts()
-    {
-        ta_free(Export_count);
-    };
-};
+    ImportResult:
+    - Allocated in managed memory.
+    - Filled from ImportQuery.
+    - Sent to MPI.
+*/
 
 #define COMM_RECV 1
 #define COMM_SEND 0
@@ -120,21 +104,28 @@ class CommBuffer
     {
         /* First wait until all comms are done */
         wait();
-        if(databuf) {
-            myfree(databuf);
-            databuf = NULL;
-        }
+        free_databuf();
         if(rdata_all)
             myfree(rdata_all);
     }
+
+    /* Free the data buffer. The caller must ensure that all communication using it is complete.*/
+    void free_databuf(void)
+    {
+        if(!databuf)
+            return;
+        myfree(databuf);
+        databuf = NULL;
+    }
+
     /* Get the number of active requests. */
     size_t nrequest(void) const
     {
         return rqst_task.size();
     }
     /* Routine to send data to all tasks async. If receive is set, the routine receives data. The structure stores the requests.
-     Empty tasks are skipped. Must call alloc_commbuffer on the buffer first and buffer->databuf must be set.*/
-    void MPI_fill(int64_t *cnts, int64_t *displs, MPI_Datatype type, int receive, int tag, MPI_Comm comm)
+     Empty tasks are skipped. Must allocate databuf first.*/
+    void MPI_fill(const std::vector<int64_t>& cnts, MPI_Datatype type, const int receive, int tag, MPI_Comm comm)
     {
         int ThisTask;
         int NTask;
@@ -150,6 +141,9 @@ class CommBuffer
             if(cnts[target] == 0) continue;
             rqst_task.push_back(target);
         }
+        std::vector<int64_t> displs(cnts.size());
+        std::exclusive_scan(cnts.begin(), cnts.end(), displs.begin(), 0L);
+
         rdata_all = mymalloc("MPI_requests", MPI_Request, rqst_task.size());
         /* Do Send/Recv over all non-trivial tasks*/
         for(size_t i = 0; i < rqst_task.size(); i++)
@@ -303,10 +297,12 @@ public:
                 /* Toptree never uses node list */
                 new(&queries[k]) QueryType(parts[i], NULL, priv);
         }
+        /* The queries are complete: on the GPU, start moving them to the device.*/
+        static_cast<DerivedType *>(this)->ev_prefetch_queries(queries, WorkSetSize);
         tend = second();
         timecomp3 += timediff(tstart, tend);
 
-        const int BunchSize = compute_bunchsize();
+        const int BunchSize = static_cast<DerivedType *>(this)->compute_bunchsize();
         int64_t nmin, nmax, total;
         int NTask;
         MPI_Comm_size(comm, &NTask);
@@ -336,19 +332,22 @@ public:
 
             if(Nexportfull > 0)
                 message(0, "Toptree %s, iter %d. First particle %ld size %ld.\n", ev_label, Nexportfull, WorkSetStart, WorkSetSize);
-            ExportMemory2<QueryType> exportlist;
+            ExportMemory2<QueryType> exportlist(comm);
             /* First do the toptree and export particles for sending.*/
             WorkSetStart = static_cast<DerivedType *>(this)->ev_toptree(WorkSetStart, WorkSetSize, exportcounts, &exportlist, queries);
-            /* All processes sync via alltoall.*/
-            ImpExpCounts<QueryType> counts(comm, exportlist);
-            NExportTargets = counts.NExportTargets;
-            Nexport_sum += counts.Nexport;
+            /* Allreduce causes ranks to sync*/
             Ndone = ev_ndone(WorkSetStart < WorkSetSize, comm);
             /* Send the exported particle data */
             /* exports is allocated first, then imports*/
             CommBuffer exports;
             CommBuffer imports;
-            ev_send_recv_export_import(&counts, &exportlist, &exports, &imports);
+            /* All processes sync via alltoall: transposes and fills the counts in the export list*/
+            std::vector<int64_t> Import_count = ev_send_recv_export_import(&exportlist, &exports, &imports, comm);
+            NExportTargets = 0;
+            for(auto excount : exportlist.Export_count)
+                NExportTargets += (excount > 0);
+
+            Nexport_sum += exportlist.Nexport;
             tend = second();
             timecomp0 += timediff(tstart, tend);
             /* Only do this on the first iteration, as we only need to do it once.*/
@@ -362,13 +361,12 @@ public:
             tstart = second();
             /* Posts recvs to get the export results (which are sent in ev_secondary).*/
             CommBuffer res_exports;
-            ev_recv_export_result(&res_exports, &counts);
+            ev_recv_export_result(&res_exports, &exportlist, comm);
             CommBuffer res_imports;
-            ev_wait_secondary(&res_imports, &imports, &counts, parts);
+            ev_wait_secondary(&res_imports, &imports, Import_count, parts, comm);
             // report_memory_usage(ev_label);
             // Want to explicitly free the databuf early for this one so we free memory early.
-            myfree(imports.databuf);
-            imports.databuf = NULL;
+            imports.free_databuf();
             tend = second();
             timecomp2 += timediff(tstart, tend);
             /* Now clear the sent data buffer, waiting for the send to complete.
@@ -376,7 +374,7 @@ public:
             tstart = second();
             res_exports.wait();
             /* Here the results array is summed and so ev_primary needs to be finished*/
-            ev_reduce_export_result(results, &res_exports, &counts, &exportlist);
+            static_cast<DerivedType *>(this)->ev_reduce_export_result(results, &res_exports, &exportlist);
             tend = second();
             timewait1 += timediff(tstart, tend);
             Nexportfull++;
@@ -482,6 +480,11 @@ public:
         message(0, "%s: top: %g prim: %g sec: %g wait: %g postproc: %g\n", ev_label, timecomp0, timecomp1, timecomp2, timewait1, timecomp3);
     }
 
+    /* Memory allowance for imports, as a multiple of the exports. The number of imports is not limited by the bunch size:
+     * in principle it could be much larger than Nexport if the tree is very imbalanced and many processors
+     * all need to export to this one. In practice I have not seen this happen.*/
+    static constexpr double ImportBufferBoost = 2;
+
     /* 7/9/24: The code segfaults if the send/recv buffer is larger than 4GB in size.
         * Likely a 32-bit variable is overflowing but it is hard to debug. Easier to enforce a maximum buffer size.*/
     size_t compute_bunchsize(void)
@@ -493,7 +496,6 @@ public:
         /*This memory scales like the number of imports. In principle this could be much larger than Nexport
         * if the tree is very imbalanced and many processors all need to export to this one. In practice I have
         * not seen this happen, but provide a parameter to boost the memory for Nimport just in case.*/
-        const double ImportBufferBoost = 2;
         bytesperbuffer += ceil(ImportBufferBoost * (query_type_elsize + result_type_elsize));
         /*Use all free bytes for the tree buffer, as in exchange. Leave some free memory for array overhead.*/
         size_t freebytes = mymalloc_freebytes();
@@ -593,7 +595,51 @@ public:
         } while(1);
     };
 
+protected:
+    /* Inverse of the export transpose, set by ev_transpose_exports and used and freed by ev_reduce_export_result:
+     * export_bufpos_host[k] is the position of export k (in ExportTable order) in the send buffer,
+     * and so of its result in the buffer of returned results.
+     * The GPU treewalk has its own device copy, export_bufpos.*/
+    std::vector<int> export_bufpos_host;
+
+    /* Fill exportlist->Export_count and transpose the export query list from being ordered by particle
+     * to being ordered by task for export.
+     * Within each task the order of the export table is preserved: ev_reduce_export_result relies on this.
+     * Export k goes to bufpos(k) = Exportoffset[task] + (number of earlier exports to the same task).
+     * The bufpos of each export is saved in export_bufpos_host for ev_reduce_export_result.
+     * The GPU treewalk overrides this to do the transpose on the device.*/
+    void ev_transpose_exports(ExportMemory2<QueryType> * const exportlist, QueryType * const export_queries)
+    {
+        for(size_t k = 0; k < exportlist->Nexport; k++) {
+#ifdef DEBUG
+            if(exportlist->ExportTable[k].Task < 0 || exportlist->ExportTable[k].Task >= (int64_t) exportlist->Export_count.size())
+                endrun(5, "export count at %lu of %lu is %d > NTask: %ld\n", k, exportlist->Nexport, exportlist->ExportTable[k].Task, exportlist->Export_count.size());
+#endif
+            exportlist->Export_count[exportlist->ExportTable[k].Task]++;
+        }
+        export_bufpos_host.resize(exportlist->Nexport);
+        if(exportlist->Nexport == 0)
+            return;
+        std::vector<int64_t> Exportoffset(exportlist->Export_count.size());
+        std::exclusive_scan(exportlist->Export_count.begin(), exportlist->Export_count.end(), Exportoffset.begin(), 0L);
+        std::vector<int64_t> real_send_count(Exportoffset.size(), 0);
+        for(size_t k = 0; k < exportlist->Nexport; k++) {
+            const int task = exportlist->ExportTable[k].Task;
+            const int64_t bufpos = real_send_count[task] + Exportoffset[task];
+            real_send_count[task]++;
+            export_bufpos_host[k] = bufpos;
+            /* Copy the query to the export buffer. Note the index of the queries list is the same as the index of the ExportTable */
+            export_queries[bufpos] = exportlist->ExportQueries[k];
+        }
+    }
+
 private:
+    /* Hook called once the queries have been built on the host.
+     * Nothing to do on the CPU: the GPU treewalk overrides this to prefetch them to the device.*/
+    void ev_prefetch_queries(QueryType * queries, const int64_t WorkSetSize)
+    {
+    }
+
     void ev_free_exports(int * exportcounts)
     {
         myfree(exportcounts);
@@ -665,7 +711,7 @@ private:
         /* Note that the exportcount is built on the first iteration
          * and so the indices are off for the second one. */
         exportlist->Nexport = exportcounts[curSize-1] - exportoffset;
-        int BunchSize = compute_bunchsize() + exportoffset;
+        int BunchSize = static_cast<DerivedType *>(this)->compute_bunchsize() + exportoffset;
         Greater_than_BunchSize gtrbunch{BunchSize};
         auto iter = std::find_if(std::execution::par, exportcounts, exportcounts+curSize,gtrbunch);
         if(iter != exportcounts + curSize) {
@@ -709,13 +755,18 @@ private:
         return WorkSetStart + curSize;
     }
 
-    void ev_wait_secondary(CommBuffer * res_imports, CommBuffer * imports, ImpExpCounts<QueryType>* counts, struct particle_data * const parts)
+    void ev_wait_secondary(CommBuffer * res_imports, CommBuffer * imports, const std::vector<int64_t>& Import_count, struct particle_data * const parts, MPI_Comm comm)
     {
-        res_imports->databuf = mymanagedmalloc("ImportResult", char, counts->Nimport * sizeof(ResultType));
+        std::vector<int64_t> Importoffset(Import_count.size());
+        std::exclusive_scan(Import_count.begin(), Import_count.end(), Importoffset.begin(), 0L);
+
+        auto Nimport = Importoffset.back() + Import_count.back();
 
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(ResultType), MPI_BYTE, &type);
         MPI_Type_commit(&type);
+
+        res_imports->databuf = mymanagedmalloc("ImportResult", char, Nimport * sizeof(ResultType));
         res_imports->rdata_all = mymalloc("Import Return Requests", MPI_Request, imports->nrequest());
         int * complete_array = mymalloc("completes", int, imports->nrequest());
 
@@ -732,17 +783,17 @@ private:
                 const int i = complete_array[j];
                 /* Note the task number index is not the index in the request array (some tasks were skipped because we have zero exports)! */
                 const int task = imports->rqst_task[i];
-                const int64_t nimports_task = counts->Import_count[task];
-                // message(1, "starting at %d with %d for iport %d task %d\n", counts->Import_offset[task], counts->Import_count[task], i, task);
-                char * databufstart = imports->databuf + counts->Import_offset[task] * sizeof(QueryType);
-                char * dataresultstart = res_imports->databuf + counts->Import_offset[task] * sizeof(ResultType);
+                const int64_t nimports_task = Import_count[task];
+                // message(1, "starting at %d with %d for iport %d task %d\n", Importoffset[task], Import_count[task], i, task);
+                char * databufstart = imports->databuf + Importoffset[task] * sizeof(QueryType);
+                char * dataresultstart = res_imports->databuf + Importoffset[task] * sizeof(ResultType);
                 /* This sends each set of imports to a parallel for loop. This may lead to suboptimal resource allocation if only a small number of imports come from a processor.
                 * If there are a large number of importing ranks each with a small number of imports, a better scheme could be to send each chunk to a separate openmp task.
                 * However, each openmp task by default only uses 1 thread. One may explicitly enable openmp nested parallelism, but I think that is not safe,
                 * or it would be enabled by default.*/
                 static_cast<DerivedType *>(this)->template ev_visit<TREEWALK_GHOSTS>((QueryType *) databufstart, (ResultType *) dataresultstart, nimports_task, parts);
                 /* Send the completed data back*/
-                MPI_Isend(dataresultstart, nimports_task, type, task, 101923, counts->comm, &res_imports->rdata_all[res_imports->nrequest()]);
+                MPI_Isend(dataresultstart, nimports_task, type, task, 101923, comm, &res_imports->rdata_all[res_imports->nrequest()]);
                 res_imports->rqst_task.push_back(task);
             }
         };
@@ -752,71 +803,85 @@ private:
     }
 
     /* Builds the list of exported particles and async sends the export queries. */
-    void ev_send_recv_export_import(const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist, CommBuffer * exports, CommBuffer * imports)
+    std::vector<int64_t> ev_send_recv_export_import(ExportMemory2<QueryType> * exportlist, CommBuffer * exports, CommBuffer * imports, MPI_Comm comm)
     {
-        exports->databuf = mymalloc("ExportQuery", char, counts->Nexport * sizeof(QueryType));
-        imports->databuf = mymanagedmalloc("ImportQuery", char, counts->Nimport * sizeof(QueryType));
-
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(QueryType), MPI_BYTE, &type);
         MPI_Type_commit(&type);
 
-        /* Post recvs before sends. This sometimes allows for a fastpath.*/
-        imports->MPI_fill(counts->Import_count, counts->Import_offset, type, COMM_RECV, 101922, counts->comm);
+        exports->databuf = mymanagedmalloc("ExportQuery", char, exportlist->Nexport * sizeof(QueryType));
 
-        /* Transpose the export query list from being ordered by particle to being ordered by task for export*/
-        int64_t * real_send_count = mymalloc("tmp_send_count", int64_t, counts->NTask);
-        memset(real_send_count, 0, sizeof(int64_t)*counts->NTask);
-        QueryType * export_queries = reinterpret_cast<QueryType*>(exports->databuf);
-        for(size_t k = 0; k < exportlist->Nexport; k++) {
-            const int task = exportlist->ExportTable[k].Task;
-            const int64_t bufpos = real_send_count[task] + counts->Export_offset[task];
-            real_send_count[task]++;
-            /* Copy the query to the export buffer. Note the index of the queries list is the same as the index of the ExportTable */
-            export_queries[bufpos] = exportlist->ExportQueries[k];
-        }
-    #ifdef DEBUG
-    /* Checks!*/
-        for(int i = 0; i < counts->NTask; i++)
-            if(real_send_count[i] != counts->Export_count[i])
-                endrun(6, "Inconsistent export to task %d of %d: %ld expected %ld\n", i, counts->NTask, real_send_count[i], counts->Export_count[i]);
-    #endif
-        myfree(real_send_count);
-        exports->MPI_fill(counts->Export_count, counts->Export_offset, type, COMM_SEND, 101922, counts->comm);
+        /* Transpose the export query list from being ordered by particle to being ordered by task for export and fill exportlist->Export_count*/
+        static_cast<DerivedType *>(this)->ev_transpose_exports(exportlist, reinterpret_cast<QueryType*>(exports->databuf));
+
+        std::vector<int64_t> Import_count(exportlist->Export_count.size());
+
+        /* Exchange the counts. Note this is synchronous so we need to ensure the toptree walk, which happens before this, is balanced.*/
+        MPI_Alltoall(exportlist->Export_count.data(), 1, MPI_INT64, Import_count.data(), 1, MPI_INT64, comm);
+
+        auto Nimport = std::reduce(Import_count.begin(), Import_count.end());
+        imports->databuf = mymanagedmalloc("ImportQuery", char, Nimport * sizeof(QueryType));
+
+        /* Post recvs before sends. This sometimes allows for a fastpath.*/
+        imports->MPI_fill(Import_count, type, COMM_RECV, 101922, comm);
+
+        exports->MPI_fill(exportlist->Export_count, type, COMM_SEND, 101922, comm);
         MPI_Type_free(&type);
-        return;
+        return Import_count;
     }
 
     /* Receive the export results */
-    void ev_recv_export_result(CommBuffer * exportbuf, ImpExpCounts<QueryType> * counts)
+    void ev_recv_export_result(CommBuffer * exportbuf, ExportMemory2<QueryType> * exportlist, MPI_Comm comm)
     {
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(ResultType), MPI_BYTE, &type);
         MPI_Type_commit(&type);
-        exportbuf->databuf = mymalloc2("ExportResult", char, counts->Nexport * sizeof(ResultType));
+        /* Receives may be on device*/
+        exportbuf->databuf = mymanagedmalloc("ExportResult", char, exportlist->Nexport * sizeof(ResultType));
+
         /* Post the receives first so we can hit a zero-copy fastpath.*/
-        exportbuf->MPI_fill(counts->Export_count, counts->Export_offset, type, COMM_RECV, 101923, counts->comm);
-        // alloc_commbuffer(&res_imports, counts.NTask, 0);
-        // MPI_fill_commbuffer(import, counts->Import_count, counts->Import_offset, type, COMM_SEND, 101923, counts->comm);
+        exportbuf->MPI_fill(exportlist->Export_count, type, COMM_RECV, 101923, comm);
         MPI_Type_free(&type);
         return;
     }
 
-    void ev_reduce_export_result(ResultType * results, CommBuffer * exportbuf, const ImpExpCounts<QueryType> * const counts, const ExportMemory2<QueryType> * const exportlist)
+    /* Sum the returned export results into results, in parallel.
+     * ExportTable is ordered by Index (ev_toptree writes the exports of work set entry k at the inclusive
+     * scan exportcounts[k-1]), so the exports of one particle are a contiguous run. The first entry of each run sums
+     * the whole run, serially and in export table order. This means there are no write races and
+     * the additions are done in the same order as a serial loop over the export table.
+     * Uses (and then frees) export_bufpos_host from ev_transpose_exports for the same export list.*/
+    void ev_reduce_export_result(ResultType * results, CommBuffer * exportbuf, const ExportMemory2<QueryType> * const exportlist)
     {
-        std::vector<int> real_recv_count(counts->NTask, 0);
-        for(size_t k = 0; k < exportlist->Nexport; k++) {
+        const int64_t Nexport = exportlist->Nexport;
+        if((int64_t) export_bufpos_host.size() != Nexport)
+            endrun(8, "Export permutation has %lu entries, expected %ld\n", export_bufpos_host.size(), Nexport);
+        const ResultType * const recvbuf = reinterpret_cast<const ResultType *>(exportbuf->databuf);
+        const data_index * const ExportTable = exportlist->ExportTable;
+        const int * const bufpos = export_bufpos_host.data();
+        #pragma omp parallel for schedule(static)
+        for(int64_t k = 0; k < Nexport; k++) {
             /* Note this is the index into the WorkSet (and thus results and queries) and not the particle table*/
-            const int worksetplace = exportlist->ExportTable[k].Index;
-            const int task = exportlist->ExportTable[k].Task;
-            const int64_t bufpos = real_recv_count[task] + counts->Export_offset[task];
-            results[worksetplace] += ((ResultType *) exportbuf->databuf)[bufpos];
+            const int place = ExportTable[k].Index;
+            /* Not the start of a run: the thread with the start of the run does this entry.*/
+            if(k > 0 && ExportTable[k-1].Index == place)
+                continue;
 #ifdef DEBUG
-            if(results[worksetplace].ID != ((ResultType*)exportbuf->databuf)[bufpos].ID)
-                endrun(8, "Error in communication target %d from buf %ld: IDs mismatch %ld %ld\n", worksetplace, bufpos, results[worksetplace].ID, ((ResultType*)exportbuf->databuf)[bufpos].ID);
+            if(k > 0 && ExportTable[k-1].Index > place)
+                endrun(8, "Export table is not sorted by work set index at %ld: %d > %d\n", k, ExportTable[k-1].Index, place);
 #endif
-            real_recv_count[task]++;
+            ResultType res = results[place];
+            for(int64_t kk = k; kk < Nexport && ExportTable[kk].Index == place; kk++) {
+#ifdef DEBUG
+                if(res.ID != recvbuf[bufpos[kk]].ID)
+                    endrun(8, "Error in communication target %d from buf %d: IDs mismatch %ld %ld\n", place, bufpos[kk], res.ID, recvbuf[bufpos[kk]].ID);
+#endif
+                res += recvbuf[bufpos[kk]];
+            }
+            results[place] = res;
         }
+        /* Free the permutation: clear() would keep the capacity.*/
+        std::vector<int>().swap(export_bufpos_host);
     }
 
     /* Checks whether all tasks have finished iterating */
