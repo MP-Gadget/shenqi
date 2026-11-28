@@ -96,8 +96,6 @@ class CommBuffer
 {
     public:
     char * databuf;
-    /* If set, databuf was not allocated by mymalloc (it is plain GPU device memory,
-     * passed directly to a CUDA-aware MPI) and it should be freed with cudaFree.*/
     std::vector<int> rqst_task;
     /* Needs a C-style flat memory array */
     MPI_Request * rdata_all;
@@ -640,19 +638,6 @@ private:
      * Nothing to do on the CPU: the GPU treewalk overrides this to prefetch them to the device.*/
     void ev_prefetch_queries(QueryType * queries, const int64_t WorkSetSize)
     {
-    }
-
-    /* Hook called after ev_toptree to count the exports to each task.
-     * The GPU treewalk overrides this to count them on the device and store them in exportlist->Export_count.*/
-    void ev_count_export_tasks(ExportMemory2<QueryType> * const exportlist, MPI_Comm comm)
-    {
-        for(size_t k = 0; k < exportlist->Nexport; k++) {
-#ifdef DEBUG
-            if(exportlist->ExportTable[k].Task < 0 || exportlist->ExportTable[k].Task >= (int64_t) exportlist->Export_count.size())
-                endrun(5, "export count at %lu of %lu is %d > NTask: %ld\n", k, exportlist->Nexport, exportlist->ExportTable[k].Task, exportlist->Export_count.size());
-#endif
-            exportlist->Export_count[exportlist->ExportTable[k].Task]++;
-        }
     }
 
     void ev_free_exports(int * exportcounts)
