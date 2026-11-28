@@ -19,9 +19,6 @@
 #include <execution>
 #include <algorithm>
 #include <numeric>
-#ifdef USE_CUDA
-#include <cuda_runtime.h>
-#endif
 
 #define MAXITER 400
 
@@ -32,8 +29,6 @@ template<typename QueryType> struct ExportMemory2 {
     /* Pointer to a particle export table.*/
     data_index * ExportTable = NULL;
     QueryType * ExportQueries = NULL;
-    /* If set, ExportQueries was not allocated by mymalloc (it is plain GPU device memory).*/
-    bool devicemem = false;
     /* The number of exports to each task.*/
     std::vector<int64_t> Export_count;
 
@@ -48,19 +43,14 @@ template<typename QueryType> struct ExportMemory2 {
     ~ExportMemory2()
     {
         if(ExportQueries) {
-#ifdef USE_CUDA
-            if(devicemem)
-                cudaFree(ExportQueries);
-            else
-#endif
-                myfree(ExportQueries);
+            myfree(ExportQueries);
         }
         if(ExportTable)
             myfree(ExportTable);
     }
 };
 
-/* The memory allocation on the device and the host is a little complicated when USE_CUDA and USE_CUDA_MPI are enabled.
+/* The memory allocation on the device and the host is a little complicated when USE_CUDA is enabled.
  * Here are the main arrays and where they live.
     Queries:
     - allocated in managed memory
@@ -69,31 +59,27 @@ template<typename QueryType> struct ExportMemory2 {
     Results:
     - Allocated in managed memory
     - Filled on the device.
-    - Exports are reduced into it on device.
+    - Exports are reduced into it on CPU, migrating to host.
     - postprocess into P in managed memory on device.
     - Migrates to host in do_hsml_loop
 
     ExportQueries:
-    - Allocated on device
-    - Filled on device: sent to CUDA-aware MPI
+    - Allocated in managed memory
+    - Filled on device: moved to CPU and sent to MPI
 
     ExportResults:
-    - Allocated on device
-    - Received from CUDA-aware MPI
-    - Reduced into results, still on device.
+    - Allocated in managed memory
+    - Received from MPI on CPU
+    - Reduced into results, moving to CPU.
 
     ImportQueries:
-    - Allocated on device: received from CUDA-aware MPI
+    - Allocated on CPU: received from MPI
     - evaluated on device -> ImportResult.
 
     ImportResult:
-    - Allocated on device.
+    - Allocated in managed memory.
     - Filled from ImportQuery.
-    - Sent to CUDA-aware MPI.
-
-    If USE_CUDA_MPI is off, but USE_CUDA is enabled, the evaluations are the same,
-    but the Export/Import Queries and Export/Import Results are allocated in managed memory.
-    In this case there is an extra migration to the device after the MPI send/recv.
+    - Sent to MPI.
 */
 
 #define COMM_RECV 1
@@ -112,11 +98,10 @@ class CommBuffer
     char * databuf;
     /* If set, databuf was not allocated by mymalloc (it is plain GPU device memory,
      * passed directly to a CUDA-aware MPI) and it should be freed with cudaFree.*/
-    bool devicemem;
     std::vector<int> rqst_task;
     /* Needs a C-style flat memory array */
     MPI_Request * rdata_all;
-    CommBuffer(): databuf(NULL), devicemem(false), rdata_all(NULL) {}
+    CommBuffer(): databuf(NULL), rdata_all(NULL) {}
     ~CommBuffer()
     {
         /* First wait until all comms are done */
@@ -131,14 +116,8 @@ class CommBuffer
     {
         if(!databuf)
             return;
-#ifdef USE_CUDA
-        if(devicemem)
-            cudaFree(databuf);
-        else
-#endif
-            myfree(databuf);
+        myfree(databuf);
         databuf = NULL;
-        devicemem = false;
     }
 
     /* Get the number of active requests. */
@@ -147,7 +126,7 @@ class CommBuffer
         return rqst_task.size();
     }
     /* Routine to send data to all tasks async. If receive is set, the routine receives data. The structure stores the requests.
-     Empty tasks are skipped. Must call alloc_commbuffer on the buffer first and buffer->databuf must be set.*/
+     Empty tasks are skipped. Must allocate databuf first.*/
     void MPI_fill(const std::vector<int64_t>& cnts, MPI_Datatype type, const int receive, int tag, MPI_Comm comm)
     {
         int ThisTask;
@@ -619,13 +598,6 @@ public:
     };
 
 protected:
-    /* Allocate the data buffer of a CommBuffer.
-     * The GPU treewalk overrides this to allocate device memory when using a CUDA-aware MPI.*/
-    void ev_alloc_commbuffer(CommBuffer * buf, const char * const name, const size_t bytes)
-    {
-        buf->databuf = mymanagedmalloc(name, char, bytes);
-    }
-
     /* Inverse of the export transpose, set by ev_transpose_exports and used and freed by ev_reduce_export_result:
      * export_bufpos_host[k] is the position of export k (in ExportTable order) in the send buffer,
      * and so of its result in the buffer of returned results.
@@ -804,11 +776,12 @@ private:
         std::exclusive_scan(Import_count.begin(), Import_count.end(), Importoffset.begin(), 0L);
 
         auto Nimport = Importoffset.back() + Import_count.back();
-        static_cast<DerivedType *>(this)->ev_alloc_commbuffer(res_imports, "ImportResult", Nimport * sizeof(ResultType));
 
         MPI_Datatype type;
         MPI_Type_contiguous(sizeof(ResultType), MPI_BYTE, &type);
         MPI_Type_commit(&type);
+
+        res_imports->databuf = mymanagedmalloc("ImportResult", char, Nimport * sizeof(ResultType));
         res_imports->rdata_all = mymalloc("Import Return Requests", MPI_Request, imports->nrequest());
         int * complete_array = mymalloc("completes", int, imports->nrequest());
 
@@ -851,7 +824,7 @@ private:
         MPI_Type_contiguous(sizeof(QueryType), MPI_BYTE, &type);
         MPI_Type_commit(&type);
 
-        static_cast<DerivedType *>(this)->ev_alloc_commbuffer(exports, "ExportQuery", exportlist->Nexport * sizeof(QueryType));
+        exports->databuf = mymanagedmalloc("ExportQuery", char, exportlist->Nexport * sizeof(QueryType));
 
         /* Transpose the export query list from being ordered by particle to being ordered by task for export and fill exportlist->Export_count*/
         static_cast<DerivedType *>(this)->ev_transpose_exports(exportlist, reinterpret_cast<QueryType*>(exports->databuf));
@@ -862,7 +835,7 @@ private:
         MPI_Alltoall(exportlist->Export_count.data(), 1, MPI_INT64, Import_count.data(), 1, MPI_INT64, comm);
 
         auto Nimport = std::reduce(Import_count.begin(), Import_count.end());
-        static_cast<DerivedType *>(this)->ev_alloc_commbuffer(imports, "ImportQuery", Nimport * sizeof(QueryType));
+        imports->databuf = mymanagedmalloc("ImportQuery", char, Nimport * sizeof(QueryType));
 
         /* Post recvs before sends. This sometimes allows for a fastpath.*/
         imports->MPI_fill(Import_count, type, COMM_RECV, 101922, comm);
@@ -879,7 +852,8 @@ private:
         MPI_Type_contiguous(sizeof(ResultType), MPI_BYTE, &type);
         MPI_Type_commit(&type);
         /* Receives may be on device*/
-        static_cast<DerivedType *>(this)->ev_alloc_commbuffer(exportbuf, "ExportResult", exportlist->Nexport * sizeof(ResultType));
+        exportbuf->databuf = mymanagedmalloc("ExportResult", char, exportlist->Nexport * sizeof(ResultType));
+
         /* Post the receives first so we can hit a zero-copy fastpath.*/
         exportbuf->MPI_fill(exportlist->Export_count, type, COMM_RECV, 101923, comm);
         MPI_Type_free(&type);

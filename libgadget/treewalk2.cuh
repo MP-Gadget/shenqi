@@ -43,45 +43,6 @@
 #include <vector>
 #endif
 
-/* USE_CUDA_MPI: pass GPU device memory directly to MPI for the treewalk exports and imports.
- * This requires an MPI library built with CUDA support (a "CUDA-aware" MPI). With it:
- * - the export queries are sent from device memory,
- * - the import queries are received directly into device memory,
- * - the import results are written by the secondary treewalk kernel into device memory and sent from there.
- * - the export results are received directly into device memory and reduced there.
- * None of this data then passes through host memory on this rank. The export table is in managed memory.
- * Device memory allocated here is not tracked by mymalloc: TreeWalkGPU::compute_bunchsize instead
- * sizes the export buffers from the free device memory reported by CUDA.
- *
- * If the MPI library can report that it was built without CUDA support (currently only OpenMPI can),
- * we fall back to host memory at run time. For other MPI libraries the flag is trusted, and passing
- * a device pointer to an MPI which is not CUDA-aware will crash inside MPI.*/
-#ifdef USE_CUDA_MPI
-#if defined(OPEN_MPI) && OPEN_MPI
-#include <mpi-ext.h>                /* For MPIX_Query_cuda_support */
-#endif
-
-/* Returns true if we should pass device memory to MPI.*/
-static inline bool treewalk_cuda_mpi_enabled(void)
-{
-#if defined(OMPI_HAVE_MPI_EXT_CUDA) && OMPI_HAVE_MPI_EXT_CUDA
-    /* Check for CUDA-aware support (currently only in OpenMPI).*/
-    static const bool enabled = [] {
-        const bool cuda = MPIX_Query_cuda_support();
-        if(!cuda)
-            message(0, "MPIX_Query_cuda_support reports no CUDA support. Treewalk communication will use host memory.\n");
-        else
-            message(0, "MPI CUDA support is enabled. Treewalk will use device memory for communication.\n");
-        return cuda;
-    }();
-    return enabled;
-#else
-    /* We cannot check, so trust the build flag.*/
-    return true;
-#endif
-}
-#endif /* USE_CUDA_MPI */
-
 /* Allocate bytes of plain device memory for name. If the device is full, fall back to managed memory,
  * which the driver can page out to the host: slower, but the run continues. cudaFree frees either kind.
  * CUDA-aware MPI libraries (e.g. via UCX) also accept managed memory.*/
@@ -326,20 +287,6 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
      * and so of its result in the buffer of returned results.*/
     thrust::device_vector<int> export_bufpos;
 
-#ifdef USE_CUDA_MPI
-    /* Allocate the data buffer of a CommBuffer in device memory, so that a CUDA-aware MPI
-     * moves it directly to or from the GPU. This is used for the export queries, the import queries
-     * and the import results, all of which are only read or written by GPU kernels.*/
-    void ev_alloc_commbuffer(CommBuffer * buf, const char * const name, const size_t bytes)
-    {
-        if(!treewalk_cuda_mpi_enabled()) {
-            Base::ev_alloc_commbuffer(buf, name, bytes);
-            return;
-        }
-        buf->databuf = (char *) treewalk_device_malloc(bytes, name);
-        buf->devicemem = true;
-    }
-#endif
     /* Transpose the export queries, from the order of the export table (ordered by particle)
      * into export_queries, ordered by destination task and fill Export_count.
      * Count the exports to each task on the device, and store them in exportlist->Export_count,
@@ -583,17 +530,7 @@ class TreeWalkGPU: public TreeWalk<DerivedType, QueryType, ResultType, LocalTree
          * and so the indices are off for the second one. */
         exportlist->Nexport -= exportoffset;
         exportlist->ExportTable = mymanagedmalloc("DataIndexTable", data_index, exportlist->Nexport);
-#ifdef USE_CUDA_MPI
-        /* The export queries are written by the kernel below and transposed on the device,
-         * so they never need to be visible on the host.*/
-        if(treewalk_cuda_mpi_enabled()) {
-            /* Allocate plain device memory, which can be passed to a CUDA-aware MPI.*/
-            exportlist->ExportQueries = (QueryType *) treewalk_device_malloc(exportlist->Nexport * sizeof(QueryType), "ExportQueries");
-            exportlist->devicemem = true;
-        }
-        else
-#endif
-            exportlist->ExportQueries = mymanagedmalloc("ExportQueries", QueryType, exportlist->Nexport);
+        exportlist->ExportQueries = mymanagedmalloc("ExportQueries", QueryType, exportlist->Nexport);
 
         if(BufferFull)
             message(1, "Tree export buffer full with %lu exports (%lu Mbytes). BunchSize %d. First particle %ld new start: %ld size %ld.\n",
